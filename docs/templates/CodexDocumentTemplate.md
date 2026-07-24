@@ -1,0 +1,27 @@
+# Codex Document Template
+
+## TÍTULO
+
+## CÓDIGO
+
+## VERSIÓN
+
+## FECHA
+
+## AUTOR
+
+## ESTADO
+
+## OBJETIVO
+
+## ALCANCE
+
+## RESTRICCIONES
+
+## DESCRIPCIÓN
+
+## PROCEDIMIENTO
+
+## RESULTADOS
+
+## ANEXOS
