@@ -98,6 +98,12 @@ const documentos = [
     description: "Base visual y estructural del módulo de gestión de accesos.",
     file: "docs/Stage11-ControlAccesos.md",
   },
+  {
+    slug: "stage-12-visitas",
+    title: "Stage 12 - Visitas y Reservas",
+    description: "Base visual y estructural del módulo de visitas y autorizaciones temporales.",
+    file: "docs/Stage12-Visitas.md",
+  },
 ];
 
 export function getDocumentos() {
