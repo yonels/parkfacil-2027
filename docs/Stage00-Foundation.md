@@ -88,6 +88,7 @@ Cerrar formalmente la etapa 00 de ParkFacil 2027, estableciendo la base técnica
 - Se validaron las rutas /documentos, /documentos/master-project-document, /documentos/requirements, /documentos/architecture-decision-log, /documentos/stage-00-foundation, /documentos/changelog, /documentos/codex-document-template y /documentos/stage-01-framework-base.
 - Se incorporó una vista base de seguridad y organizaciones para la Etapa 02, con navegación visual institucional y presentación de módulos y organizaciones de referencia.
 - Se incorporó la base visual y estructural del módulo Estacionamientos para la Etapa 03, con catálogo de instalaciones, vista de detalle y navegación en la app.
+- Se incorporó la base visual y estructural del módulo Dispositivos para la Etapa 04, con inventario tecnológico, detalle, búsqueda, filtros y datos demostrativos referenciales.
 
 ## Confirmación de integridad
 - No se modificó ningún archivo dentro de C:\proyectos\parkfacil-v2.

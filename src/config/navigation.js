@@ -8,7 +8,7 @@ export const navigationItems = [
   { href: null, label: "Recaudación", icon: Wallet, future: true },
   { href: null, label: "Abonados", icon: Users, future: true },
   { href: null, label: "Convenios", icon: Handshake, future: true },
-  { href: null, label: "Dispositivos", icon: RadioTower, future: true },
+  { href: "/dispositivos", label: "Dispositivos", icon: RadioTower },
   { href: null, label: "Monitoreo", icon: Monitor, future: true },
   { href: null, label: "Reportes", icon: FileChartColumnIncreasing, future: true },
   { href: null, label: "Administración", icon: Settings2, future: true },
