@@ -24,8 +24,8 @@ export default function Topbar({ title, description, onMenuClick }) {
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-3 sm:px-5 lg:px-6">
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-2 min-[1366px]:flex-row min-[1366px]:items-center min-[1366px]:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
           <button
             type="button"
             onClick={onMenuClick}
@@ -34,28 +34,30 @@ export default function Topbar({ title, description, onMenuClick }) {
           >
             <Menu className="h-4 w-4" />
           </button>
-          <div>
-            <p className="text-[29px] font-semibold leading-tight text-[#041E42]">{title}</p>
-            {description ? <p className="text-xs text-slate-500">{description}</p> : null}
+          <div className="min-w-0">
+            <p className="truncate text-2xl font-semibold leading-tight text-[#041E42] lg:text-[28px]">{title}</p>
+            {description ? <p className="truncate text-xs text-slate-500">{description}</p> : null}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600">
+        <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 min-[1366px]:justify-end">
+          <div className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-600 sm:px-3">
             <Building2 className="h-4 w-4 text-[#3150D8]" />
-            <span>ParkFacil Operaciones</span>
+            <span className="hidden min-[1440px]:inline">ParkFacil Operaciones</span>
+            <span className="min-[1440px]:hidden">Empresa</span>
             <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600">
+          <div className="flex min-w-0 items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-600 sm:px-3">
             <ParkingSquare className="h-4 w-4 text-[#3150D8]" />
-            <span>Estacionamiento Principal</span>
+            <span className="hidden min-[1440px]:inline">Estacionamiento Principal</span>
+            <span className="min-[1440px]:hidden">Estacionamiento</span>
             <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600">
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-600 sm:px-3">
             <CalendarDays className="h-4 w-4 text-[#3150D8]" />
             <span>{dateNow}</span>
           </div>
-          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600">
+          <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-600 sm:px-3">
             <Clock3 className="h-4 w-4 text-[#3150D8]" />
             <span>{timeNow}</span>
           </div>
@@ -65,7 +67,7 @@ export default function Topbar({ title, description, onMenuClick }) {
           </button>
           <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#3150D8] text-[11px] font-semibold text-white">AM</div>
-            <div>
+            <div className="hidden sm:block">
               <p className="font-semibold text-[#041E42]">Alejandro M.</p>
               <p className="text-[11px] text-slate-500">Administrador</p>
             </div>
