@@ -85,7 +85,7 @@ Cerrar formalmente la etapa 00 de ParkFacil 2027, estableciendo la base técnica
 - Se incorporó un visor documental dinámico basado en archivos Markdown ubicados en docs/.
 - Se agregó una ruta dinámica /documentos/[slug] que renderiza cada documento desde su fuente oficial.
 - Se creó un componente reutilizable para títulos, listas, tablas, bloques de código y retorno a la biblioteca.
-- Se validaron las rutas /documentos, /documentos/master-project-document, /documentos/requirements, /documentos/architecture-decision-log, /documentos/stage-00-foundation, /documentos/changelog y /documentos/codex-document-template.
+- Se validaron las rutas /documentos, /documentos/master-project-document, /documentos/requirements, /documentos/architecture-decision-log, /documentos/stage-00-foundation, /documentos/changelog, /documentos/codex-document-template y /documentos/stage-01-framework-base.
 
 ## Confirmación de integridad
 - No se modificó ningún archivo dentro de C:\proyectos\parkfacil-v2.

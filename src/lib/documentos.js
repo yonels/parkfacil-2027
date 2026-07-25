@@ -38,6 +38,12 @@ const documentos = [
     description: "Plantilla base para documentos Codex.",
     file: "docs/templates/CodexDocumentTemplate.md",
   },
+  {
+    slug: "stage-01-framework-base",
+    title: "Stage 01 - Framework Base",
+    description: "Informe de implementación del framework base visual.",
+    file: "docs/Stage01-Framework-Base.md",
+  },
 ];
 
 export function getDocumentos() {
