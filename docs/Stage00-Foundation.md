@@ -86,6 +86,7 @@ Cerrar formalmente la etapa 00 de ParkFacil 2027, estableciendo la base técnica
 - Se agregó una ruta dinámica /documentos/[slug] que renderiza cada documento desde su fuente oficial.
 - Se creó un componente reutilizable para títulos, listas, tablas, bloques de código y retorno a la biblioteca.
 - Se validaron las rutas /documentos, /documentos/master-project-document, /documentos/requirements, /documentos/architecture-decision-log, /documentos/stage-00-foundation, /documentos/changelog, /documentos/codex-document-template y /documentos/stage-01-framework-base.
+- Se incorporó una vista base de seguridad y organizaciones para la Etapa 02, con navegación visual institucional y presentación de módulos y organizaciones de referencia.
 
 ## Confirmación de integridad
 - No se modificó ningún archivo dentro de C:\proyectos\parkfacil-v2.

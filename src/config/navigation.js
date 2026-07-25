@@ -4,7 +4,7 @@ export const navigationItems = [
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
   { href: null, label: "Operación", icon: ParkingSquare, future: true },
   { href: null, label: "Estacionamientos", icon: ShieldCheck, future: true },
-  { href: null, label: "Accesos", icon: KeyRound, future: true },
+  { href: "/seguridad", label: "Seguridad", icon: KeyRound },
   { href: null, label: "Recaudación", icon: Wallet, future: true },
   { href: null, label: "Abonados", icon: Users, future: true },
   { href: null, label: "Convenios", icon: Handshake, future: true },

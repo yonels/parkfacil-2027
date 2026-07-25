@@ -9,3 +9,4 @@
 - Se registró el cierre formal de la etapa 00 sin implementar módulos de negocio.
 - Se implementó un visor documental dinámico que lee los Markdown desde docs/ y renderiza contenido reutilizable en /documentos/[slug].
 - Se construyó la arquitectura visual base de ParkFacil 2027 con layout, navegación, topbar, dashboard institucional y página 404 personalizada.
+- Se incorporó una vista base de seguridad y organizaciones como referencia visual para la Etapa 02, sin desarrollar lógica operativa ni módulos funcionales.
