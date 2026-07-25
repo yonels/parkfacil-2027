@@ -7,6 +7,7 @@ export const navigationItems = [
   { href: "/seguridad", label: "Seguridad", icon: KeyRound },
   { href: null, label: "Recaudación", icon: Wallet, future: true },
   { href: "/empresas", label: "Empresas", icon: Users },
+  { href: "/usuarios", label: "Usuarios", icon: Users },
   { href: null, label: "Convenios", icon: Handshake, future: true },
   { href: "/dispositivos", label: "Dispositivos", icon: RadioTower },
   { href: null, label: "Monitoreo", icon: Monitor, future: true },
