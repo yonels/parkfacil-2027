@@ -80,6 +80,24 @@ const documentos = [
     description: "Base visual y estructural del módulo de tarifas y planes comerciales.",
     file: "docs/Stage08-Tarifas.md",
   },
+  {
+    slug: "stage-09-operacion",
+    title: "Stage 09 - Operación",
+    description: "Base visual y estructural del módulo de operación diaria.",
+    file: "docs/Stage09-Operacion.md",
+  },
+  {
+    slug: "stage-10-abonados",
+    title: "Stage 10 - Abonados",
+    description: "Base visual y estructural del módulo de abonados y credenciales.",
+    file: "docs/Stage10-Abonados.md",
+  },
+  {
+    slug: "stage-11-control-accesos",
+    title: "Stage 11 - Control de Accesos",
+    description: "Base visual y estructural del módulo de gestión de accesos.",
+    file: "docs/Stage11-ControlAccesos.md",
+  },
 ];
 
 export function getDocumentos() {

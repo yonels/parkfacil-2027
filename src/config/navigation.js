@@ -2,13 +2,15 @@ import { LayoutGrid, ParkingSquare, ShieldCheck, KeyRound, Wallet, Users, Handsh
 
 export const navigationItems = [
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
-  { href: null, label: "Operación", icon: ParkingSquare, future: true },
+  { href: "/operacion", label: "Operación", icon: ParkingSquare },
+  { href: "/control-accesos", label: "Control de Accesos", icon: ShieldCheck },
   { href: "/estacionamientos", label: "Estacionamientos", icon: ShieldCheck },
   { href: "/seguridad", label: "Seguridad", icon: KeyRound },
   { href: null, label: "Recaudación", icon: Wallet, future: true },
   { href: "/empresas", label: "Empresas", icon: Users },
   { href: "/usuarios", label: "Usuarios", icon: Users },
   { href: "/contratos", label: "Contratos", icon: Handshake },
+  { href: "/abonados", label: "Abonados y Credenciales", icon: KeyRound },
   { href: "/tarifas", label: "Tarifas y Planes", icon: Wallet },
   { href: "/dispositivos", label: "Dispositivos", icon: RadioTower },
   { href: null, label: "Monitoreo", icon: Monitor, future: true },
