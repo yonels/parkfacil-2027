@@ -3,7 +3,7 @@ import { LayoutGrid, ParkingSquare, ShieldCheck, KeyRound, Wallet, Users, Handsh
 export const navigationItems = [
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
   { href: null, label: "Operación", icon: ParkingSquare, future: true },
-  { href: null, label: "Estacionamientos", icon: ShieldCheck, future: true },
+  { href: "/estacionamientos", label: "Estacionamientos", icon: ShieldCheck },
   { href: "/seguridad", label: "Seguridad", icon: KeyRound },
   { href: null, label: "Recaudación", icon: Wallet, future: true },
   { href: null, label: "Abonados", icon: Users, future: true },

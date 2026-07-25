@@ -44,6 +44,12 @@ const documentos = [
     description: "Informe de implementación del framework base visual.",
     file: "docs/Stage01-Framework-Base.md",
   },
+  {
+    slug: "stage-03-estacionamientos",
+    title: "Stage 03 - Estacionamientos",
+    description: "Base visual y estructural del módulo de estacionamientos.",
+    file: "docs/Stage03-Estacionamientos.md",
+  },
 ];
 
 export function getDocumentos() {
