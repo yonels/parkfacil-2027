@@ -15,3 +15,4 @@
 - Se incorporó la base visual y estructural del módulo Empresas para la Etapa 05, con catálogo, detalle, búsqueda, filtros, RUT formateado y relación con estacionamientos de referencia.
 - Se incorporó la base visual y estructural del módulo Usuarios y Perfiles para la Etapa 06, con catálogo, detalle, búsqueda, filtros, perfiles legibles y relación con empresas y estacionamientos de referencia.
 - Se incorporó la base visual y estructural del módulo Contratos para la Etapa 07, con catálogo, detalle, resumen, búsqueda, filtros, estados, tipos, monedas, vigencia y relaciones demostrativas.
+- Se incorporó la base visual y estructural del módulo Tarifas y Planes para la Etapa 08, con catálogo, detalle, resumen, búsqueda, filtros, tipos, monedas, modalidades de cobro, implementación y relaciones demostrativas con contratos.

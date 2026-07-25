@@ -9,6 +9,7 @@ export const navigationItems = [
   { href: "/empresas", label: "Empresas", icon: Users },
   { href: "/usuarios", label: "Usuarios", icon: Users },
   { href: "/contratos", label: "Contratos", icon: Handshake },
+  { href: "/tarifas", label: "Tarifas y Planes", icon: Wallet },
   { href: "/dispositivos", label: "Dispositivos", icon: RadioTower },
   { href: null, label: "Monitoreo", icon: Monitor, future: true },
   { href: null, label: "Reportes", icon: FileChartColumnIncreasing, future: true },
