@@ -8,6 +8,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import EmptyState from "@/components/ui/EmptyState";
 import AbonadoResumen from "@/components/abonados/AbonadoResumen";
 import AbonadosGrid from "@/components/abonados/AbonadosGrid";
+import AbonadosTabla from "@/components/abonados/AbonadosTabla";
 import {
   getAbonadosDemo,
   searchAbonados,
@@ -31,6 +32,7 @@ const vigencias = ["Todos", "Vigente", "Próximo a vencer", "Vencido"];
 const referenceDate = "2026-08-01";
 
 export default function AbonadosClient() {
+  const [viewMode, setViewMode] = useState("cards");
   const [busqueda, setBusqueda] = useState("");
   const [estado, setEstado] = useState("Todos");
   const [tipo, setTipo] = useState("Todos");
@@ -63,6 +65,12 @@ export default function AbonadosClient() {
     setVigencia("Todos");
     setBloqueado(false);
     setCredencialesPorVencer(false);
+    setViewMode("cards");
+  };
+
+  const activateTableView = (callback) => () => {
+    callback();
+    setViewMode("table");
   };
 
   const resultados = useMemo(() => {
@@ -110,7 +118,7 @@ export default function AbonadosClient() {
             description="Abonados demostrativos"
             tone="info"
             icon={Users}
-            onClick={resetFiltros}
+            onClick={activateTableView(resetFiltros)}
             active={!hasActiveFilters}
           />
           <AbonadoResumen
@@ -119,7 +127,7 @@ export default function AbonadosClient() {
             description="Estado activo"
             tone="positive"
             icon={ShieldCheck}
-            onClick={() => {
+            onClick={activateTableView(() => {
               setEstado("active");
               setTipo("Todos");
               setEmpresa("Todos");
@@ -128,7 +136,7 @@ export default function AbonadosClient() {
               setVigencia("Todos");
               setBloqueado(false);
               setCredencialesPorVencer(false);
-            }}
+            })}
             active={estado === "active"}
           />
           <AbonadoResumen
@@ -137,7 +145,7 @@ export default function AbonadosClient() {
             description="Con suspensión"
             tone="warning"
             icon={AlertTriangle}
-            onClick={() => {
+            onClick={activateTableView(() => {
               setEstado("suspended");
               setTipo("Todos");
               setEmpresa("Todos");
@@ -146,7 +154,7 @@ export default function AbonadosClient() {
               setVigencia("Todos");
               setBloqueado(false);
               setCredencialesPorVencer(false);
-            }}
+            })}
             active={estado === "suspended"}
           />
           <AbonadoResumen
@@ -155,7 +163,7 @@ export default function AbonadosClient() {
             description="Credenciales cercanas al vencimiento"
             tone="warning"
             icon={KeyRound}
-            onClick={() => {
+            onClick={activateTableView(() => {
               setEstado("Todos");
               setTipo("Todos");
               setEmpresa("Todos");
@@ -164,7 +172,7 @@ export default function AbonadosClient() {
               setVigencia("Próximo a vencer");
               setBloqueado(false);
               setCredencialesPorVencer(true);
-            }}
+            })}
             active={vigencia === "Próximo a vencer" || credencialesPorVencer}
           />
         </section>
@@ -176,7 +184,7 @@ export default function AbonadosClient() {
             description="Vehículos válidos"
             tone="positive"
             icon={CarFront}
-            onClick={() => {
+            onClick={activateTableView(() => {
               setEstado("Todos");
               setTipo("Todos");
               setEmpresa("Todos");
@@ -185,7 +193,7 @@ export default function AbonadosClient() {
               setVigencia("Todos");
               setBloqueado(false);
               setCredencialesPorVencer(false);
-            }}
+            })}
             active={credencial === "license_plate"}
           />
           <AbonadoResumen
@@ -194,7 +202,7 @@ export default function AbonadosClient() {
             description="Sin vencimiento"
             tone="positive"
             icon={KeyRound}
-            onClick={() => {
+            onClick={activateTableView(() => {
               setEstado("Todos");
               setTipo("Todos");
               setEmpresa("Todos");
@@ -203,7 +211,7 @@ export default function AbonadosClient() {
               setVigencia("Vigente");
               setBloqueado(false);
               setCredencialesPorVencer(false);
-            }}
+            })}
             active={vigencia === "Vigente" && !credencialesPorVencer && !bloqueado}
           />
           <AbonadoResumen
@@ -212,7 +220,7 @@ export default function AbonadosClient() {
             description="Credenciales con bloqueo"
             tone="neutral"
             icon={AlertTriangle}
-            onClick={() => {
+            onClick={activateTableView(() => {
               setEstado("Todos");
               setTipo("Todos");
               setEmpresa("Todos");
@@ -221,7 +229,7 @@ export default function AbonadosClient() {
               setVigencia("Todos");
               setBloqueado(true);
               setCredencialesPorVencer(false);
-            }}
+            })}
             active={bloqueado}
           />
           <AbonadoResumen
@@ -230,7 +238,7 @@ export default function AbonadosClient() {
             description="Estado o credencial"
             tone="warning"
             icon={AlertTriangle}
-            onClick={() => {
+            onClick={activateTableView(() => {
               setEstado("blocked");
               setTipo("Todos");
               setEmpresa("Todos");
@@ -239,7 +247,7 @@ export default function AbonadosClient() {
               setVigencia("Todos");
               setBloqueado(true);
               setCredencialesPorVencer(false);
-            }}
+            })}
             active={estado === "blocked" || bloqueado}
           />
         </section>
@@ -310,7 +318,23 @@ export default function AbonadosClient() {
             <div className="text-sm text-slate-500">
               {resultados.length} {resultados.length === 1 ? "abonado encontrado" : "abonados encontrados"}
             </div>
-            <div className="flex flex-wrap gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("cards")}
+                  className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${viewMode === "cards" ? "bg-white text-[#3150D8] shadow-sm" : "text-slate-500 hover:text-[#041E42]"}`}
+                >
+                  Tarjetas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("table")}
+                  className={`rounded-xl px-3 py-2 text-sm font-semibold transition ${viewMode === "table" ? "bg-white text-[#3150D8] shadow-sm" : "text-slate-500 hover:text-[#041E42]"}`}
+                >
+                  Tabla
+                </button>
+              </div>
               <label className="flex items-center gap-2 text-sm text-slate-600">
                 <input type="checkbox" checked={bloqueado} onChange={() => setBloqueado((value) => !value)} />
                 Acceso bloqueado
@@ -324,7 +348,7 @@ export default function AbonadosClient() {
 
           <div className="mt-6">
             {resultados.length > 0 ? (
-              <AbonadosGrid abonados={resultados} />
+              viewMode === "table" ? <AbonadosTabla abonados={resultados} /> : <AbonadosGrid abonados={resultados} />
             ) : (
               <EmptyState
                 title={abonados.length === 0 ? "No hay abonados registrados" : "No hay coincidencias"}
