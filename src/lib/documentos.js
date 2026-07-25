@@ -56,6 +56,12 @@ const documentos = [
     description: "Base visual y estructural del módulo de dispositivos.",
     file: "docs/Stage04-Dispositivos.md",
   },
+  {
+    slug: "stage-05-empresas",
+    title: "Stage 05 - Empresas",
+    description: "Base visual y estructural del módulo de empresas.",
+    file: "docs/Stage05-Empresas.md",
+  },
 ];
 
 export function getDocumentos() {

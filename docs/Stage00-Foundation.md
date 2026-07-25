@@ -89,6 +89,7 @@ Cerrar formalmente la etapa 00 de ParkFacil 2027, estableciendo la base técnica
 - Se incorporó una vista base de seguridad y organizaciones para la Etapa 02, con navegación visual institucional y presentación de módulos y organizaciones de referencia.
 - Se incorporó la base visual y estructural del módulo Estacionamientos para la Etapa 03, con catálogo de instalaciones, vista de detalle y navegación en la app.
 - Se incorporó la base visual y estructural del módulo Dispositivos para la Etapa 04, con inventario tecnológico, detalle, búsqueda, filtros y datos demostrativos referenciales.
+- Se incorporó la base visual y estructural del módulo Empresas para la Etapa 05, con catálogo, detalle, búsquedas, filtros, RUT formateado y relación con estacionamientos de referencia.
 
 ## Confirmación de integridad
 - No se modificó ningún archivo dentro de C:\proyectos\parkfacil-v2.
