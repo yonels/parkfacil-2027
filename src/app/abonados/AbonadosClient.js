@@ -30,6 +30,34 @@ const tiposAbonado = ["Todos", "individual", "company_employee", "resident", "te
 const tiposCredencial = ["Todos", "license_plate", "rfid_card", "qr_code", "mobile", "barcode", "pin", "biometric_reference", "manual", "other"];
 const vigencias = ["Todos", "Vigente", "Próximo a vencer", "Vencido"];
 const referenceDate = "2026-08-01";
+const sortableKeys = ["abonado", "empresa", "tipo", "inicio", "vencimiento", "estado"];
+
+function compareText(a, b) {
+  return String(a || "").localeCompare(String(b || ""), "es", { sensitivity: "base" });
+}
+
+function getSortValue(abonado, key) {
+  switch (key) {
+    case "abonado":
+      return abonado.nombre;
+    case "empresa":
+      return resolveEmpresaName(abonado);
+    case "tipo":
+      return getTipoAbonadoLabel(abonado.tipo);
+    case "inicio":
+      return abonado.fechaInicio;
+    case "vencimiento":
+      return abonado.fechaTermino;
+    case "estado":
+      return getEstadoAbonadoLabel(abonado.estado);
+    default:
+      return "";
+  }
+}
+
+function resolveEmpresaName(abonado) {
+  return empresas.find((item) => item.id === abonado.empresaId)?.nombreFantasia || "No registrado";
+}
 
 export default function AbonadosClient() {
   const [viewMode, setViewMode] = useState("cards");
@@ -42,6 +70,8 @@ export default function AbonadosClient() {
   const [vigencia, setVigencia] = useState("Todos");
   const [bloqueado, setBloqueado] = useState(false);
   const [credencialesPorVencer, setCredencialesPorVencer] = useState(false);
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDirection, setSortDirection] = useState(null);
 
   const hasActiveFilters = Boolean(
     busqueda.trim() ||
@@ -66,6 +96,8 @@ export default function AbonadosClient() {
     setBloqueado(false);
     setCredencialesPorVencer(false);
     setViewMode("cards");
+    setSortKey(null);
+    setSortDirection(null);
   };
 
   const activateTableView = (callback) => () => {
@@ -91,6 +123,46 @@ export default function AbonadosClient() {
       return matchesEstado && matchesTipo && matchesEmpresa && matchesEstacionamiento && matchesCredencial && matchesVigencia && matchesBloqueado && matchesCredencialesPorVencer;
     });
   }, [busqueda, estado, tipo, empresa, estacionamiento, credencial, vigencia, bloqueado, credencialesPorVencer]);
+
+  const resultadosOrdenados = useMemo(() => {
+    if (!sortKey || !sortDirection || !sortableKeys.includes(sortKey)) {
+      return resultados;
+    }
+
+    const sorted = [...resultados].sort((left, right) => {
+      const leftValue = getSortValue(left, sortKey);
+      const rightValue = getSortValue(right, sortKey);
+
+      if (["inicio", "vencimiento"].includes(sortKey)) {
+        return String(leftValue || "").localeCompare(String(rightValue || ""));
+      }
+
+      return compareText(leftValue, rightValue);
+    });
+
+    return sortDirection === "desc" ? sorted.reverse() : sorted;
+  }, [resultados, sortDirection, sortKey]);
+
+  const toggleSort = (key) => {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDirection("asc");
+      return;
+    }
+
+    if (sortDirection === "asc") {
+      setSortDirection("desc");
+      return;
+    }
+
+    if (sortDirection === "desc") {
+      setSortKey(null);
+      setSortDirection(null);
+      return;
+    }
+
+    setSortDirection("asc");
+  };
 
   const resumen = getResumenAbonados(referenceDate);
 
@@ -316,7 +388,7 @@ export default function AbonadosClient() {
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm text-slate-500">
-              {resultados.length} {resultados.length === 1 ? "abonado encontrado" : "abonados encontrados"}
+              {resultadosOrdenados.length} {resultadosOrdenados.length === 1 ? "abonado encontrado" : "abonados encontrados"}
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
@@ -347,8 +419,8 @@ export default function AbonadosClient() {
           </div>
 
           <div className="mt-6">
-            {resultados.length > 0 ? (
-              viewMode === "table" ? <AbonadosTabla abonados={resultados} /> : <AbonadosGrid abonados={resultados} />
+            {resultadosOrdenados.length > 0 ? (
+              viewMode === "table" ? <AbonadosTabla abonados={resultadosOrdenados} sortKey={sortKey} sortDirection={sortDirection} onSort={toggleSort} /> : <AbonadosGrid abonados={resultadosOrdenados} />
             ) : (
               <EmptyState
                 title={abonados.length === 0 ? "No hay abonados registrados" : "No hay coincidencias"}
