@@ -14,7 +14,7 @@ export default function DonutRevenue({ data = [], centerLabel = "Total", centerV
   const segments = segmentsFromData(data);
 
   return (
-    <div className="grid grid-cols-[150px_1fr] items-center gap-3">
+    <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[150px_1fr]">
       <div
         className="relative mx-auto h-[130px] w-[130px] rounded-full"
         style={{

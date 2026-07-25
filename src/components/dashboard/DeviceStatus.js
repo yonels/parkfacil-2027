@@ -19,7 +19,7 @@ export default function DeviceStatus({ data = [] }) {
   const segments = donutSegments(data);
 
   return (
-    <div className="grid grid-cols-[140px_1fr] items-center gap-3">
+    <div className="grid grid-cols-1 items-center gap-3 sm:grid-cols-[140px_1fr]">
       <div className="relative mx-auto h-[120px] w-[120px] rounded-full" style={{
         background: `conic-gradient(${segments
           .map((segment) => `${segment.color} ${segment.start}% ${segment.end}%`)

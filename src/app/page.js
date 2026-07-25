@@ -139,7 +139,7 @@ function getDashboardModel() {
   const paymentMix = [
     { label: "Efectivo", value: 531250, valueLabel: "$531.250", color: "#16A34A" },
     { label: "Tarjeta", value: 412800, valueLabel: "$412.800", color: "#1E5EFF" },
-    { label: "Web/Movil", value: 251600, valueLabel: "$251.600", color: "#7C3AED" },
+    { label: "Web/Movil", value: 251600, valueLabel: "$251.600", color: "#19D3F3" },
     { label: "Otros", value: 89000, valueLabel: "$89.000", color: "#F59E0B" },
   ];
 
@@ -213,7 +213,7 @@ function getDashboardModel() {
     statusCards: [
       { title: "Tasa de rotacion", value: "2,8", subtitle: "veces al dia", icon: ArrowRightLeft, trendColor: "#1E5EFF", points: [22, 28, 24, 31, 29, 35, 30, 34] },
       { title: "Estadia promedio", value: "2h 15m", subtitle: "en operaciones demo", icon: Clock3, trendColor: "#0B3D91", points: [18, 20, 19, 23, 21, 24, 22, 25] },
-      { title: "Ticket promedio", value: "$3.125", subtitle: "por salida procesada", icon: Ticket, trendColor: "#7C3AED", points: [16, 15, 19, 20, 18, 21, 17, 20] },
+      { title: "Ticket promedio", value: "$3.125", subtitle: "por salida procesada", icon: Ticket, trendColor: "#3150D8", points: [16, 15, 19, 20, 18, 21, 17, 20] },
       { title: "Uso de abonados", value: "42%", subtitle: "del total ingresos", icon: UserRound, trendColor: "#1E5EFF", points: [13, 14, 16, 15, 17, 18, 17, 19] },
       { title: "Validaciones usadas", value: "156", subtitle: "hoy", icon: CalendarCheck2, trendColor: "#16A34A", points: [10, 12, 11, 15, 13, 16, 14, 15] },
       { title: "Reservas del dia", value: "28", subtitle: `${convenios.length} convenios activos demo`, icon: AlertTriangle, trendColor: "#1E5EFF", points: [8, 9, 8, 10, 11, 13, 12, 14] },
@@ -249,21 +249,21 @@ export default function Home() {
             </div>
           </ChartCard>
 
-          <ChartCard title="Estado de accesos" actionLabel="Ver todos" className="xl:col-span-2">
+          <ChartCard title="Estado de accesos" actionLabel="Ver todos" actionHref="/control-accesos" className="xl:col-span-2">
             <AccessStatus items={model.accessStatus} />
           </ChartCard>
 
-          <ChartCard title="Estado de dispositivos" actionLabel="Ver todos" className="xl:col-span-2">
+          <ChartCard title="Estado de dispositivos" actionLabel="Ver todos" actionHref="/dispositivos" className="xl:col-span-2">
             <DeviceStatus data={model.deviceStatus} />
           </ChartCard>
 
-          <ChartCard title="Alertas recientes" actionLabel="Ver todas" className="xl:col-span-3">
+          <ChartCard title="Alertas recientes" actionLabel="Ver todas" actionHref="/seguridad" className="xl:col-span-3">
             <AlertList items={model.alertList} />
           </ChartCard>
         </section>
 
         <section className="grid gap-4 xl:grid-cols-12">
-          <ChartCard title="Actividad reciente" actionLabel="Ver toda la actividad" className="xl:col-span-5">
+          <ChartCard title="Actividad reciente" actionLabel="Ver toda la actividad" actionHref="/operacion" className="xl:col-span-5">
             <DataTable
               columns={[
                 { key: "hora", label: "Hora" },
@@ -296,7 +296,7 @@ export default function Home() {
             </div>
           </ChartCard>
 
-          <ChartCard title="Proximos a vencer" actionLabel="Ver todos" className="xl:col-span-2">
+          <ChartCard title="Proximos a vencer" actionLabel="Ver todos" actionHref="/convenios" className="xl:col-span-2">
             <div className="space-y-2">
               {model.proximosConvenios.map((item) => (
                 <article key={item.id} className="rounded-xl border border-slate-100 px-3 py-2">
