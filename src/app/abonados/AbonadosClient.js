@@ -1,13 +1,23 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { AlertTriangle, CarFront, KeyRound, Search, ShieldCheck, Users } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
+import EmptyState from "@/components/ui/EmptyState";
 import AbonadoResumen from "@/components/abonados/AbonadoResumen";
 import AbonadosGrid from "@/components/abonados/AbonadosGrid";
-import { getAbonadosDemo, searchAbonados, filterAbonadosByEstado, filterAbonadosByTipo, filterAbonadosByEmpresa, filterAbonadosByEstacionamiento, filterAbonadosByTipoCredencial, filterAbonadosByVigencia, filterAbonadosBloqueados, filterAbonadosCredencialesPorVencer, getResumenAbonados, getTipoAbonadoLabel, getEstadoAbonadoLabel, getTipoCredencialLabel } from "@/data/abonados.mjs";
+import {
+  getAbonadosDemo,
+  searchAbonados,
+  filterAbonadosCredencialesPorVencer,
+  getResumenAbonados,
+  getTipoAbonadoLabel,
+  getEstadoAbonadoLabel,
+  getTipoCredencialLabel,
+  getTextoVigencia,
+} from "@/data/abonados.mjs";
 import { getEmpresasDemo } from "@/data/empresas.mjs";
 import { getEstacionamientosDemo } from "@/data/estacionamientos.mjs";
 
@@ -18,6 +28,7 @@ const estados = ["Todos", "active", "suspended", "pending", "blocked"];
 const tiposAbonado = ["Todos", "individual", "company_employee", "resident", "tenant", "supplier", "courtesy", "temporary", "other"];
 const tiposCredencial = ["Todos", "license_plate", "rfid_card", "qr_code", "mobile", "barcode", "pin", "biometric_reference", "manual", "other"];
 const vigencias = ["Todos", "Vigente", "Próximo a vencer", "Vencido"];
+const referenceDate = "2026-08-01";
 
 export default function AbonadosClient() {
   const [busqueda, setBusqueda] = useState("");
@@ -30,72 +41,214 @@ export default function AbonadosClient() {
   const [bloqueado, setBloqueado] = useState(false);
   const [credencialesPorVencer, setCredencialesPorVencer] = useState(false);
 
+  const hasActiveFilters = Boolean(
+    busqueda.trim() ||
+    estado !== "Todos" ||
+    tipo !== "Todos" ||
+    empresa !== "Todos" ||
+    estacionamiento !== "Todos" ||
+    credencial !== "Todos" ||
+    vigencia !== "Todos" ||
+    bloqueado ||
+    credencialesPorVencer,
+  );
+
+  const resetFiltros = () => {
+    setBusqueda("");
+    setEstado("Todos");
+    setTipo("Todos");
+    setEmpresa("Todos");
+    setEstacionamiento("Todos");
+    setCredencial("Todos");
+    setVigencia("Todos");
+    setBloqueado(false);
+    setCredencialesPorVencer(false);
+  };
+
   const resultados = useMemo(() => {
-    let base = searchAbonados(busqueda);
+    const normalizedSearch = busqueda.trim();
+    const credencialesPorVencerIds = new Set(filterAbonadosCredencialesPorVencer(referenceDate).map((item) => item.id));
+    const base = normalizedSearch ? searchAbonados(normalizedSearch) : abonados;
 
-    if (estado !== "Todos") {
-      base = filterAbonadosByEstado(estado);
-    }
-    if (tipo !== "Todos") {
-      base = base.filter((abonado) => abonado.tipo === tipo);
-    }
-    if (empresa !== "Todos") {
-      base = base.filter((abonado) => abonado.empresaId === empresa);
-    }
-    if (estacionamiento !== "Todos") {
-      base = base.filter((abonado) => abonado.estacionamientos.includes(estacionamiento));
-    }
-    if (credencial !== "Todos") {
-      base = base.filter((abonado) => abonado.credenciales.some((item) => item.tipo === credencial));
-    }
-    if (vigencia !== "Todos") {
-      base = base.filter((abonado) => (vigencia === "Vigente" ? true : vigencia === "Próximo a vencer" ? true : false));
-    }
-    if (bloqueado) {
-      base = filterAbonadosBloqueados();
-    }
-    if (credencialesPorVencer) {
-      base = filterAbonadosCredencialesPorVencer("2026-08-01");
-    }
+    return base.filter((abonado) => {
+      const matchesEstado = estado === "Todos" || abonado.estado === estado;
+      const matchesTipo = tipo === "Todos" || abonado.tipo === tipo;
+      const matchesEmpresa = empresa === "Todos" || abonado.empresaId === empresa;
+      const matchesEstacionamiento = estacionamiento === "Todos" || abonado.estacionamientos.includes(estacionamiento);
+      const matchesCredencial = credencial === "Todos" || abonado.credenciales.some((item) => item.tipo === credencial);
+      const matchesVigencia = vigencia === "Todos" || getTextoVigencia(abonado, referenceDate) === vigencia;
+      const matchesBloqueado = !bloqueado || abonado.estado === "blocked" || abonado.credenciales.some((item) => item.accesoBloqueado);
+      const matchesCredencialesPorVencer = !credencialesPorVencer || credencialesPorVencerIds.has(abonado.id);
 
-    return base;
+      return matchesEstado && matchesTipo && matchesEmpresa && matchesEstacionamiento && matchesCredencial && matchesVigencia && matchesBloqueado && matchesCredencialesPorVencer;
+    });
   }, [busqueda, estado, tipo, empresa, estacionamiento, credencial, vigencia, bloqueado, credencialesPorVencer]);
 
-  const resumen = getResumenAbonados("2026-08-01");
+  const resumen = getResumenAbonados(referenceDate);
 
   return (
-    <AppShell title="Abonados y Credenciales" description="Administración visual de personas, vehículos y permisos de acceso demostrativos">
+    <AppShell title="Abonados" description="Gestión visual de personas, vehículos y credenciales demostrativas">
       <div className="space-y-6">
         <PageHeader
-          title="Abonados y Credenciales"
-          description="Administración visual de personas, vehículos, credenciales y permisos de acceso, con datos demostrativos y alcance de referencia para futuras etapas operativas."
+          title="Abonados"
+          description="Administración visual de personas, vehículos, credenciales y permisos de acceso, con datos demostrativos y una experiencia alineada al dashboard de ParkFacil 2027."
           actions={[
-            <button key="nuevo" className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1E5EFF]">
-              <Plus className="h-4 w-4" />
-              Nuevo abonado
-            </button>,
+            <div key="nuevo" className="flex flex-col items-start gap-2">
+              <button type="button" disabled className="inline-flex cursor-not-allowed items-center gap-2 rounded-full bg-slate-200 px-4 py-2 text-sm font-semibold text-slate-500">
+                <Users className="h-4 w-4" />
+                Nuevo abonado
+              </button>
+              <span className="text-xs text-slate-500">Formulario disponible en una etapa posterior.</span>
+            </div>,
           ]}
         />
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <AbonadoResumen title="Total de abonados" value={resumen.total} description="Abonados demostrativos" tone="info" />
-          <AbonadoResumen title="Abonados activos" value={resumen.activos} description="Estado activo" tone="positive" />
-          <AbonadoResumen title="Abonados suspendidos" value={resumen.suspendidos} description="Con suspensión" tone="warning" />
-          <AbonadoResumen title="Vehículos autorizados" value={resumen.vehiculosAutorizados} description="Vehículos válidos" tone="neutral" />
+          <AbonadoResumen
+            title="Total de abonados"
+            value={resumen.total}
+            description="Abonados demostrativos"
+            tone="info"
+            icon={Users}
+            onClick={resetFiltros}
+            active={!hasActiveFilters}
+          />
+          <AbonadoResumen
+            title="Abonados activos"
+            value={resumen.activos}
+            description="Estado activo"
+            tone="positive"
+            icon={ShieldCheck}
+            onClick={() => {
+              setEstado("active");
+              setTipo("Todos");
+              setEmpresa("Todos");
+              setEstacionamiento("Todos");
+              setCredencial("Todos");
+              setVigencia("Todos");
+              setBloqueado(false);
+              setCredencialesPorVencer(false);
+            }}
+            active={estado === "active"}
+          />
+          <AbonadoResumen
+            title="Suspendidos"
+            value={resumen.suspendidos}
+            description="Con suspensión"
+            tone="warning"
+            icon={AlertTriangle}
+            onClick={() => {
+              setEstado("suspended");
+              setTipo("Todos");
+              setEmpresa("Todos");
+              setEstacionamiento("Todos");
+              setCredencial("Todos");
+              setVigencia("Todos");
+              setBloqueado(false);
+              setCredencialesPorVencer(false);
+            }}
+            active={estado === "suspended"}
+          />
+          <AbonadoResumen
+            title="Próximos a vencer"
+            value={resumen.credencialesPorVencer}
+            description="Credenciales cercanas al vencimiento"
+            tone="warning"
+            icon={KeyRound}
+            onClick={() => {
+              setEstado("Todos");
+              setTipo("Todos");
+              setEmpresa("Todos");
+              setEstacionamiento("Todos");
+              setCredencial("Todos");
+              setVigencia("Próximo a vencer");
+              setBloqueado(false);
+              setCredencialesPorVencer(true);
+            }}
+            active={vigencia === "Próximo a vencer" || credencialesPorVencer}
+          />
         </section>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <AbonadoResumen title="Credenciales vigentes" value={resumen.credencialesVigentes} description="Sin vencimiento" tone="positive" />
-          <AbonadoResumen title="Credenciales por vencer" value={resumen.credencialesPorVencer} description="Próximas a caducar" tone="warning" />
-          <AbonadoResumen title="Accesos bloqueados" value={resumen.accesosBloqueados} description="Con bloqueo" tone="neutral" />
-          <AbonadoResumen title="Bloqueados" value={resumen.bloqueados} description="Estado o credencial" tone="warning" />
+          <AbonadoResumen
+            title="Vehículos autorizados"
+            value={resumen.vehiculosAutorizados}
+            description="Vehículos válidos"
+            tone="positive"
+            icon={CarFront}
+            onClick={() => {
+              setEstado("Todos");
+              setTipo("Todos");
+              setEmpresa("Todos");
+              setEstacionamiento("Todos");
+              setCredencial("license_plate");
+              setVigencia("Todos");
+              setBloqueado(false);
+              setCredencialesPorVencer(false);
+            }}
+            active={credencial === "license_plate"}
+          />
+          <AbonadoResumen
+            title="Credenciales vigentes"
+            value={resumen.credencialesVigentes}
+            description="Sin vencimiento"
+            tone="positive"
+            icon={KeyRound}
+            onClick={() => {
+              setEstado("Todos");
+              setTipo("Todos");
+              setEmpresa("Todos");
+              setEstacionamiento("Todos");
+              setCredencial("Todos");
+              setVigencia("Vigente");
+              setBloqueado(false);
+              setCredencialesPorVencer(false);
+            }}
+            active={vigencia === "Vigente" && !credencialesPorVencer && !bloqueado}
+          />
+          <AbonadoResumen
+            title="Accesos bloqueados"
+            value={resumen.accesosBloqueados}
+            description="Credenciales con bloqueo"
+            tone="neutral"
+            icon={AlertTriangle}
+            onClick={() => {
+              setEstado("Todos");
+              setTipo("Todos");
+              setEmpresa("Todos");
+              setEstacionamiento("Todos");
+              setCredencial("Todos");
+              setVigencia("Todos");
+              setBloqueado(true);
+              setCredencialesPorVencer(false);
+            }}
+            active={bloqueado}
+          />
+          <AbonadoResumen
+            title="Bloqueados"
+            value={resumen.bloqueados}
+            description="Estado o credencial"
+            tone="warning"
+            icon={AlertTriangle}
+            onClick={() => {
+              setEstado("blocked");
+              setTipo("Todos");
+              setEmpresa("Todos");
+              setEstacionamiento("Todos");
+              setCredencial("Todos");
+              setVigencia("Todos");
+              setBloqueado(true);
+              setCredencialesPorVencer(false);
+            }}
+            active={estado === "blocked" || bloqueado}
+          />
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h3 className="text-xl font-semibold text-[#041E42]">Catálogo de abonados</h3>
-              <p className="mt-2 text-sm text-slate-600">Listado visual preparado para administración de accesos autorizados, con datos demostrativos y sin operaciones reales.</p>
+              <p className="mt-2 text-sm text-slate-600">Listado visual preparado para la revisión de abonados, credenciales y permisos vigentes dentro del entorno demostrativo.</p>
             </div>
             <StatusBadge variant="warning">Demostrativo</StatusBadge>
           </div>
@@ -105,6 +258,11 @@ export default function AbonadosClient() {
               <Search className="h-4 w-4 text-[#3150D8]" />
               <input value={busqueda} onChange={(event) => setBusqueda(event.target.value)} placeholder="Buscar por nombre, RUT, patente, correo o credencial" className="w-full bg-transparent outline-none" />
             </label>
+            {hasActiveFilters ? (
+              <button type="button" onClick={resetFiltros} className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-[#3150D8] transition hover:border-[#3150D8] hover:bg-[#EEF4FF]">
+                Limpiar filtros
+              </button>
+            ) : null}
           </div>
 
           <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -148,24 +306,31 @@ export default function AbonadosClient() {
             </label>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-3">
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input type="checkbox" checked={bloqueado} onChange={() => setBloqueado((value) => !value)} />
-              Acceso bloqueado
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input type="checkbox" checked={credencialesPorVencer} onChange={() => setCredencialesPorVencer((value) => !value)} />
-              Credenciales por vencer
-            </label>
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-slate-500">
+              {resultados.length} {resultados.length === 1 ? "abonado encontrado" : "abonados encontrados"}
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" checked={bloqueado} onChange={() => setBloqueado((value) => !value)} />
+                Acceso bloqueado
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" checked={credencialesPorVencer} onChange={() => setCredencialesPorVencer((value) => !value)} />
+                Credenciales por vencer
+              </label>
+            </div>
           </div>
 
           <div className="mt-6">
             {resultados.length > 0 ? (
               <AbonadosGrid abonados={resultados} />
             ) : (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">
-                No hay abonados que coincidan con los filtros aplicados.
-              </div>
+              <EmptyState
+                title={abonados.length === 0 ? "No hay abonados registrados" : "No hay coincidencias"}
+                description={abonados.length === 0 ? "Aún no existen abonados cargados en el catálogo demostrativo." : "Ajusta la búsqueda o limpia los filtros para volver a ver resultados."}
+                action={hasActiveFilters ? <button type="button" onClick={resetFiltros} className="inline-flex items-center rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1E5EFF]">Restablecer vista</button> : null}
+              />
             )}
           </div>
         </section>
