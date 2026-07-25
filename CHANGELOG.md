@@ -20,3 +20,4 @@
 - Se incorporó la base visual y estructural del módulo Abonados y Credenciales para la Etapa 10, con catálogo, detalle, resumen visual, gestión de vehículos, credenciales, permisos y relaciones demostrativas con empresas, contratos y estacionamientos.
 - Se incorporó la base visual y estructural del módulo Control de Accesos para la Etapa 11, con catálogo, detalle, búsqueda, filtros, indicadores operacionales y relaciones demostrativas con estacionamientos, dispositivos, usuarios y operación.
 - Se incorporó la base visual y estructural del módulo Visitas y Reservas para la Etapa 12, con catálogo, detalle, búsqueda, filtros, vigencia, autorizaciones temporales y relaciones demostrativas con anfitriones, accesos y operación.
+- Se incorporó la base visual y estructural del módulo Convenios y Beneficios para la Etapa 13, con catálogo, detalle, vigencia, topes, beneficiarios, simulación demostrativa y relaciones seguras con catálogos existentes.

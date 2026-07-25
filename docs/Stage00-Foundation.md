@@ -95,6 +95,7 @@ Cerrar formalmente la etapa 00 de ParkFacil 2027, estableciendo la base técnica
 - Se incorporó la base visual y estructural del módulo Tarifas y Planes para la Etapa 08, con catálogo, detalle, resumen, búsqueda, filtros, tipos, monedas, modalidades de cobro, implementación y relaciones demostrativas con contratos.
 - Se incorporó la base visual y estructural del módulo Control de Accesos para la Etapa 11, con catálogo, detalle, búsqueda, filtros, indicadores operacionales y datos demostrativos sin integración real con hardware.
 - Se incorporó la base visual y estructural del módulo Visitas y Reservas para la Etapa 12, con catálogo, detalle, vigencia, filtros y autorizaciones temporales demostrativas sin operación real.
+- Se incorporó la base visual y estructural del módulo Convenios y Beneficios para la Etapa 13, con catálogo, detalle, beneficiarios, topes, utilización y simulación demostrativa sin aplicación productiva.
 
 ## Confirmación de integridad
 - No se modificó ningún archivo dentro de C:\proyectos\parkfacil-v2.
