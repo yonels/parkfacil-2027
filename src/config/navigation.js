@@ -8,7 +8,7 @@ export const navigationItems = [
   { href: null, label: "Recaudación", icon: Wallet, future: true },
   { href: "/empresas", label: "Empresas", icon: Users },
   { href: "/usuarios", label: "Usuarios", icon: Users },
-  { href: null, label: "Convenios", icon: Handshake, future: true },
+  { href: "/contratos", label: "Contratos", icon: Handshake },
   { href: "/dispositivos", label: "Dispositivos", icon: RadioTower },
   { href: null, label: "Monitoreo", icon: Monitor, future: true },
   { href: null, label: "Reportes", icon: FileChartColumnIncreasing, future: true },

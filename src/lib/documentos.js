@@ -68,6 +68,12 @@ const documentos = [
     description: "Base visual y estructural del módulo de usuarios y perfiles.",
     file: "docs/Stage06-Usuarios.md",
   },
+  {
+    slug: "stage-07-contratos",
+    title: "Stage 07 - Contratos",
+    description: "Base visual y estructural del módulo de contratos.",
+    file: "docs/Stage07-Contratos.md",
+  },
 ];
 
 export function getDocumentos() {

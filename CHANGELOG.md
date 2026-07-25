@@ -14,3 +14,4 @@
 - Se incorporó la base visual y estructural del módulo Dispositivos para la Etapa 04, incluyendo catálogo, detalle, filtros, búsqueda y datos demostrativos reutilizando la referencia de estacionamientos.
 - Se incorporó la base visual y estructural del módulo Empresas para la Etapa 05, con catálogo, detalle, búsqueda, filtros, RUT formateado y relación con estacionamientos de referencia.
 - Se incorporó la base visual y estructural del módulo Usuarios y Perfiles para la Etapa 06, con catálogo, detalle, búsqueda, filtros, perfiles legibles y relación con empresas y estacionamientos de referencia.
+- Se incorporó la base visual y estructural del módulo Contratos para la Etapa 07, con catálogo, detalle, resumen, búsqueda, filtros, estados, tipos, monedas, vigencia y relaciones demostrativas.
