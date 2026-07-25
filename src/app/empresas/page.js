@@ -72,7 +72,7 @@ export default function EmpresasPage() {
           ]}
         />
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <section className="grid gap-4 md:grid-cols-2 min-[1366px]:grid-cols-3 min-[1600px]:grid-cols-5">
           <EmpresaResumen title="Total de empresas" value={resumen.total} description="Datos de referencia" tone="info" />
           <EmpresaResumen title="Activas" value={resumen.active} description="Operan actualmente" tone="positive" />
           <EmpresaResumen title="Inactivas" value={resumen.inactive} description="Sin actividad actual" tone="warning" />
@@ -80,7 +80,7 @@ export default function EmpresasPage() {
           <EmpresaResumen title="Con estacionamientos" value={resumen.conEstacionamientos} description="Asociaciones de referencia" tone="warning" />
         </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="w-full rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 lg:p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h3 className="text-xl font-semibold text-[#041E42]">Catálogo empresarial</h3>
@@ -89,45 +89,45 @@ export default function EmpresasPage() {
             <StatusBadge variant="warning">Demostrativo</StatusBadge>
           </div>
 
-          <div className="mt-6 space-y-4">
-            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+          <div className="mt-6 space-y-4 overflow-hidden">
+            <label className="flex min-w-0 items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
               <Search className="h-4 w-4 text-[#3150D8]" />
-              <input value={busqueda} onChange={(event) => setBusqueda(event.target.value)} placeholder="Buscar por razón social, fantasía, RUT, contacto, correo o ciudad" className="w-full bg-transparent outline-none" />
+              <input value={busqueda} onChange={(event) => setBusqueda(event.target.value)} placeholder="Buscar por razón social, fantasía, RUT, contacto, correo o ciudad" className="min-w-0 w-full bg-transparent outline-none" />
             </label>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <label className="space-y-2 text-sm text-slate-600">
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3 min-[1366px]:grid-cols-4">
+              <label className="min-w-0 space-y-2 text-sm text-slate-600">
                 <span>Estado</span>
-                <select value={estado} onChange={(event) => setEstado(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
+                <select value={estado} onChange={(event) => setEstado(event.target.value)} className="w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
                   {estados.map((item) => <option key={item} value={item}>{item === "Todos" ? item : labelEstado(item)}</option>)}
                 </select>
               </label>
-              <label className="space-y-2 text-sm text-slate-600">
+              <label className="min-w-0 space-y-2 text-sm text-slate-600">
                 <span>Relación</span>
-                <select value={tipo} onChange={(event) => setTipo(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
+                <select value={tipo} onChange={(event) => setTipo(event.target.value)} className="w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
                   {tipos.map((item) => <option key={item} value={item}>{item === "Todos" ? item : labelTipo(item)}</option>)}
                 </select>
               </label>
-              <label className="space-y-2 text-sm text-slate-600">
+              <label className="min-w-0 space-y-2 text-sm text-slate-600">
                 <span>Ciudad</span>
-                <select value={ciudad} onChange={(event) => setCiudad(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
+                <select value={ciudad} onChange={(event) => setCiudad(event.target.value)} className="w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
                   {ciudades.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
               </label>
-              <label className="space-y-2 text-sm text-slate-600">
+              <label className="min-w-0 space-y-2 text-sm text-slate-600">
                 <span>Estacionamientos</span>
-                <select value={conEstacionamientos} onChange={(event) => setConEstacionamientos(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
+                <select value={conEstacionamientos} onChange={(event) => setConEstacionamientos(event.target.value)} className="w-full min-w-0 rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
                   {estacionamientos.map((item) => <option key={item} value={item}>{item === "Todos" ? item : item === "con" ? "Con asociados" : "Sin asociados"}</option>)}
                 </select>
               </label>
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="mt-6 w-full">
             {resultados.length > 0 ? (
               <EmpresasGrid empresas={resultados} />
             ) : (
-              <div className="md:col-span-2 xl:col-span-3 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">
                 No hay empresas que coincidan con los filtros aplicados.
               </div>
             )}
