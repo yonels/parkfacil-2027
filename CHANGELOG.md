@@ -7,3 +7,4 @@
 - Se preparó la Biblioteca Documental local para la etapa 00.
 - Se validaron las operaciones de instalación, lint, build y ejecución local.
 - Se registró el cierre formal de la etapa 00 sin implementar módulos de negocio.
+- Se implementó un visor documental dinámico que lee los Markdown desde docs/ y renderiza contenido reutilizable en /documentos/[slug].

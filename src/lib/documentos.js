@@ -27,10 +27,16 @@ const documentos = [
     file: "CHANGELOG.md",
   },
   {
-    slug: "stage00-foundation",
+    slug: "stage-00-foundation",
     title: "Stage 00 - Foundation",
     description: "Informe de entrega de la etapa de fundación.",
     file: "docs/Stage00-Foundation.md",
+  },
+  {
+    slug: "codex-document-template",
+    title: "Documentos Codex",
+    description: "Plantilla base para documentos Codex.",
+    file: "docs/templates/CodexDocumentTemplate.md",
   },
 ];
 
