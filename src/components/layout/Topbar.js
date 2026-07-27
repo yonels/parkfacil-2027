@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Bell, Building2, CalendarDays, Clock3, Menu, ParkingSquare, ChevronDown } from "lucide-react";
 
 function formatDateNow() {
@@ -19,8 +20,22 @@ function formatTimeNow() {
 }
 
 export default function Topbar({ title, description, onMenuClick }) {
-  const dateNow = formatDateNow();
-  const timeNow = formatTimeNow();
+  const [dateNow, setDateNow] = useState("--/--/----");
+  const [timeNow, setTimeNow] = useState("--:--");
+
+  useEffect(() => {
+    function updateDateTime() {
+      setDateNow(formatDateNow());
+      setTimeNow(formatTimeNow());
+    }
+
+    updateDateTime();
+    const intervalId = window.setInterval(updateDateTime, 30000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   return (
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white px-4 py-3 sm:px-5 lg:px-6">

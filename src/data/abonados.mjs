@@ -453,6 +453,7 @@ export function getTipoCredencialLabel(tipo) {
     license_plate: "Patente",
     rfid_card: "Tarjeta RFID",
     qr_code: "Código QR",
+    qr_plate: "QR + Patente",
     mobile: "Credencial móvil",
     barcode: "Código de barras",
     pin: "PIN",
