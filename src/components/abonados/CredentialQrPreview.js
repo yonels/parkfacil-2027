@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import QRCode from "qrcode";
-import { Copy, Download, Mail, Printer, Send, Share2, X } from "lucide-react";
+import { Copy, Download, Mail, MessageCircle, Printer, Send, Share2, X } from "lucide-react";
 
 const QR_DESCRIPTION = "El código QR contiene únicamente un identificador interno seguro. Puede descargarse, imprimirse o compartirse desde un dispositivo compatible.";
 
@@ -13,6 +13,12 @@ function sanitizeFileName(value) {
     .replace(/[^a-z0-9-_]+/gi, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80) || "credencial";
+}
+
+async function dataUrlToPngFile(dataUrl, fileName) {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  return new File([blob], fileName, { type: "image/png" });
 }
 
 export default function CredentialQrPreview({ identifier, title = "Código QR", className = "", emailConfig = null }) {
@@ -81,6 +87,22 @@ export default function CredentialQrPreview({ identifier, title = "Código QR", 
     await navigator.share({ title, text: qrValue });
   };
 
+  const handleWhatsApp = async () => {
+    if (!qrValue) return;
+    const text = `Credencial de acceso ParkFacil: ${qrValue}`;
+    const fileName = `${sanitizeFileName(qrValue)}.png`;
+
+    if (dataUrl && typeof navigator !== "undefined" && typeof navigator.share === "function" && typeof navigator.canShare === "function") {
+      const file = await dataUrlToPngFile(dataUrl, fileName);
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({ title, text, files: [file] });
+        return;
+      }
+    }
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener,noreferrer");
+  };
+
   const openMailModal = () => {
     if (!canSendEmail) return;
     setMailValues({
@@ -135,6 +157,7 @@ export default function CredentialQrPreview({ identifier, title = "Código QR", 
             <button type="button" onClick={handlePrint} disabled={!dataUrl} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#041E42] transition hover:border-[#3150D8] hover:text-[#3150D8] disabled:cursor-not-allowed disabled:opacity-50"><Printer className="h-4 w-4" />Imprimir</button>
             <button type="button" onClick={handleCopy} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#041E42] transition hover:border-[#3150D8] hover:text-[#3150D8]"><Copy className="h-4 w-4" />Copiar identificador</button>
             {shareSupported ? <button type="button" onClick={handleShare} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#041E42] transition hover:border-[#3150D8] hover:text-[#3150D8]"><Share2 className="h-4 w-4" />Compartir</button> : null}
+            <button type="button" onClick={handleWhatsApp} disabled={!dataUrl} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#128C7E] transition hover:border-[#128C7E] disabled:cursor-not-allowed disabled:opacity-50"><MessageCircle className="h-4 w-4" />Enviar por WhatsApp</button>
             {canSendEmail ? <button type="button" onClick={openMailModal} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-[#3150D8] transition hover:border-[#3150D8]"><Mail className="h-4 w-4" />Enviar por correo</button> : null}
           </div>
         </div>
