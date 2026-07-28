@@ -11,6 +11,7 @@ import {
   LayoutGrid,
   Map,
   Monitor,
+  MessagesSquare,
   RadioTower,
   Receipt,
   Settings2,
@@ -28,6 +29,7 @@ export const navigationSections = [
       { href: null, label: "Mapa de sitios", icon: Map, future: true },
       { href: null, label: "Actividad en tiempo real", icon: Activity, future: true },
       { href: "/seguridad", label: "Alertas", icon: AlertTriangle },
+      { href: "/notificaciones", label: "Notificaciones", icon: MessagesSquare },
     ],
   },
   {
