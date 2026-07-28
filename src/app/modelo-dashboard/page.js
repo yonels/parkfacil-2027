@@ -141,6 +141,8 @@ export default function ModeloDashboardPage() {
   const [draggedColumn, setDraggedColumn] = useState(null);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [hourlyOpen, setHourlyOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailPulse, setDetailPulse] = useState(false);
   const [flowDate, setFlowDate] = useState("2026-07-28");
   const [flowHour, setFlowHour] = useState("15:00");
   const totalMonth = useMemo(() => payments.reduce((sum, item) => sum + item.month, 0), []);
@@ -177,7 +179,14 @@ export default function ModeloDashboardPage() {
   };
   const openDetail = (nextSelection) => {
     setSelection(nextSelection);
-    window.requestAnimationFrame(() => document.getElementById("detalle-transacciones")?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    setDetailOpen(true);
+    setDetailPulse(true);
+    window.setTimeout(() => {
+      const detail = document.getElementById("detalle-transacciones");
+      detail?.scrollIntoView({ behavior: "smooth", block: "start" });
+      detail?.focus({ preventScroll: true });
+    }, 80);
+    window.setTimeout(() => setDetailPulse(false), 1400);
   };
 
   return (
@@ -327,7 +336,7 @@ export default function ModeloDashboardPage() {
           <button type="button" onClick={() => openDetail(selection)} className="inline-flex w-fit items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white"><ArrowUpRight className="h-4 w-4" />Analizar detalle</button>
         </aside>
 
-        <section id="detalle-transacciones" className="scroll-mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+        {detailOpen ? <section id="detalle-transacciones" tabIndex={-1} className={`scroll-mt-6 overflow-hidden rounded-3xl border bg-white shadow-sm outline-none transition-all duration-500 ${detailPulse ? "border-[#3150D8] ring-4 ring-[#3150D8]/20" : "border-slate-200"}`}>
           <div className="flex flex-col gap-5 border-b border-slate-200 bg-[#041E42] px-5 py-5 text-white sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-200">Detalle seleccionado</p>
@@ -427,7 +436,7 @@ export default function ModeloDashboardPage() {
               ))}</tbody>
             </table>
           </div>
-        </section>
+        </section> : null}
       </div>
 
       {selectedTransaction ? (

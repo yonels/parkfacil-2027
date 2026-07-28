@@ -1,4 +1,4 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator } from "lucide-react";
+import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal } from "lucide-react";
 
 export const navigationItems = [
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
@@ -9,6 +9,7 @@ export const navigationItems = [
   { href: null, label: "Recaudación", icon: Wallet, future: true },
   { href: "/empresas", label: "Empresas", icon: Users },
   { href: "/usuarios", label: "Usuarios", icon: Users },
+  { href: "/modelo-gestion-modulos", label: "Gestión de módulos", icon: SlidersHorizontal },
   { href: "/contratos", label: "Contratos", icon: Handshake },
   { href: "/abonados", label: "Abonados y Credenciales", icon: KeyRound },
   { href: "/tarifas", label: "Tarifas y Planes", icon: Wallet },
