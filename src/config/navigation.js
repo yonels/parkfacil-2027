@@ -1,12 +1,13 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal } from "lucide-react";
+import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal } from "lucide-react";
 
 export const navigationItems = [
-  { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
   { href: "/modelo-dashboard", label: "Dashboard", icon: BarChart3 },
-  { href: "/operacion", label: "Operación", icon: ParkingSquare },
+  { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
+  { href: "/#centro-control", label: "Operación", icon: ParkingSquare },
   { href: "/estacionamientos", label: "Estacionamientos", icon: ShieldCheck },
-  { href: "/seguridad", label: "Seguridad", icon: KeyRound },
-  { href: null, label: "Recaudación", icon: Wallet, future: true },
+  { href: "/seguridad", label: "Seguridad", icon: KeyRound, requiresModule: "seguridad" },
+  { href: "/recaudacion", label: "Recaudación", icon: Wallet },
+  { href: "/recaudacion#medios-de-pago", label: "Medios de Pago", icon: WalletCards },
   { href: "/empresas", label: "Empresas", icon: Users },
   { href: "/usuarios", label: "Usuarios", icon: Users },
   { href: "/modelo-gestion-modulos", label: "Gestión de módulos", icon: SlidersHorizontal },
@@ -15,7 +16,7 @@ export const navigationItems = [
   { href: "/tarifas", label: "Tarifas y Planes", icon: Wallet },
   { href: "/simulador-tarifas", label: "Simulador de tarifas", icon: Calculator },
   { href: "/dispositivos", label: "Dispositivos", icon: RadioTower },
-  { href: null, label: "Monitoreo", icon: Monitor, future: true },
+  { href: "/monitoreo", label: "Monitoreo", icon: Monitor },
   { href: null, label: "Reportes", icon: FileChartColumnIncreasing, future: true },
   { href: null, label: "Administración", icon: Settings2, future: true },
   { href: null, label: "Integraciones", icon: Plug2, future: true },
