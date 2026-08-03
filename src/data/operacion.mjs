@@ -163,6 +163,10 @@ export function resolveEstacionamiento(operacion) {
   return getEstacionamientoById(operacion?.estacionamientoId)?.nombre || "No disponible";
 }
 
+export function resolveEmpresa(operacion) {
+  return getEstacionamientoById(operacion?.estacionamientoId)?.empresa || "Sin empresa asociada";
+}
+
 export function resolveDispositivo(operacion) {
   return getDispositivoById(operacion?.dispositivoId)?.nombre || "No disponible";
 }

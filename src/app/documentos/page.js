@@ -1,35 +1,38 @@
 import Link from "next/link";
+import { BookOpen } from "lucide-react";
+import AppShell from "@/components/layout/AppShell";
+import PageHeader from "@/components/ui/PageHeader";
 import { getDocumentos } from "@/lib/documentos";
 
+const categories = ["General", "Módulos", "Cambios"];
+
 export default function DocumentosPage() {
-  const documentos = getDocumentos();
+  const documents = getDocumentos();
 
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-10 text-slate-100">
-      <div className="mx-auto max-w-5xl">
-        <header className="mb-10 text-center">
-          <p className="text-sm uppercase tracking-[0.4em] text-cyan-300">Biblioteca Documental</p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-            Documentos de Fundación
-          </h1>
-          <p className="mt-4 text-slate-300 sm:text-lg">
-            Accede a los documentos oficiales creados para la etapa 00 de ParkFacil 2027.
-          </p>
-        </header>
-
-        <div className="grid gap-6 sm:grid-cols-2">
-          {documentos.map((doc) => (
-            <Link
-              key={doc.slug}
-              href={`/documentos/${doc.slug}`}
-              className="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 transition hover:border-cyan-400 hover:bg-slate-900"
-            >
-              <h2 className="text-xl font-semibold text-white">{doc.title}</h2>
-              <p className="mt-3 text-slate-400">{doc.description}</p>
-            </Link>
-          ))}
-        </div>
+    <AppShell title="Documentación" description="Información funcional y técnica">
+      <div className="space-y-6">
+        <PageHeader title="Documentación" description="Información funcional y técnica del proyecto ParkFacil 2027." />
+        {categories.map((category) => {
+          const items = documents.filter((document) => document.category === category);
+          if (!items.length) return null;
+          return (
+            <section key={category} aria-labelledby={`category-${category}`} className="space-y-3">
+              <h2 id={`category-${category}`} className="text-lg font-semibold text-[#041E42]">{category}</h2>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {items.map((document) => (
+                  <article key={document.slug} className="flex min-w-0 flex-col rounded-2xl border border-slate-200 bg-white p-4">
+                    <BookOpen className="h-5 w-5 text-[#3150D8]" aria-hidden="true" />
+                    <h3 className="mt-3 font-semibold text-[#041E42]">{document.title}</h3>
+                    <p className="mt-1 flex-1 text-sm leading-5 text-slate-600">{document.description}</p>
+                    <Link href={`/documentos/${document.slug}`} className="mt-4 w-fit text-sm font-semibold text-[#3150D8] hover:text-[#1E5EFF]">Ver documento</Link>
+                  </article>
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
-    </main>
+    </AppShell>
   );
 }

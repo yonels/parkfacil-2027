@@ -78,7 +78,54 @@ export const usuariosDemo = [
     actividad: ["Atendió incidente"],
     observaciones: "Usuario sin empresa asociada, con acceso a soporte.",
   },
+  {
+    id: "u-005",
+    nombreCompleto: "Patricia González",
+    cargo: "Administradora de estacionamientos",
+    correo: "administracion@clinicaramis.cl",
+    telefono: "+56 2 2300 0000",
+    empresaId: "emp-ramis",
+    organizationId: "org-ramis",
+    perfilPrincipal: "company_admin",
+    perfilesSecundarios: ["parking_manager"],
+    estado: "active",
+    estacionamientos: ["ramis-central", "ramis-norte", "ramis-urgencias"],
+    ultimoAcceso: "Sin acceso registrado",
+    fechaIncorporacion: "2026-01-01",
+    preferencias: ["Alertas operacionales"],
+    permisos: ["Administración de empresa", "Gestión de estacionamientos"],
+    historial: ["Alta asociada a Clínica Ramis"],
+    actividad: ["Sin actividad registrada"],
+    observaciones: "Responsable administrativa de los estacionamientos de Clínica Ramis.",
+  },
 ];
+
+export function normalizeUserSearch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+export function getUsuarioSearchValues(usuario) {
+  const empresa = getEmpresaById(usuario.empresaId);
+  const parkings = getEstacionamientosAsociados(usuario);
+  return [
+    usuario.nombreCompleto,
+    usuario.cargo,
+    usuario.correo,
+    usuario.telefono,
+    getPerfilLabel(usuario.perfilPrincipal),
+    ...(usuario.perfilesSecundarios || []).map(getPerfilLabel),
+    empresa?.razonSocial,
+    empresa?.nombreFantasia,
+    empresa ? `${empresa.rutNumero}-${empresa.rutDv}` : "",
+    empresa?.contactoPrincipal,
+    empresa?.representanteLegal,
+    ...parkings.flatMap((parking) => [parking.nombre, parking.codigo]),
+  ];
+}
 
 export function getUsuariosDemo() {
   return usuariosDemo;
@@ -89,16 +136,11 @@ export function getUsuarioById(id) {
 }
 
 export function searchUsuarios(query) {
-  const normalized = query.toLowerCase();
+  const normalized = normalizeUserSearch(query);
 
   return usuariosDemo.filter((usuario) => {
-    return [
-      usuario.nombreCompleto,
-      usuario.correo,
-      usuario.telefono,
-      getEmpresaById(usuario.empresaId)?.razonSocial || "",
-      getPerfilLabel(usuario.perfilPrincipal),
-    ].some((value) => value.toLowerCase().includes(normalized));
+    return getUsuarioSearchValues(usuario)
+      .some((value) => normalizeUserSearch(value).includes(normalized));
   });
 }
 

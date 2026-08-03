@@ -92,24 +92,6 @@ const documentos = [
     description: "Base visual y estructural del módulo de abonados y credenciales.",
     file: "docs/Stage10-Abonados.md",
   },
-  {
-    slug: "stage-11-control-accesos",
-    title: "Stage 11 - Control de Accesos",
-    description: "Base visual y estructural del módulo de gestión de accesos.",
-    file: "docs/Stage11-ControlAccesos.md",
-  },
-  {
-    slug: "stage-12-visitas",
-    title: "Stage 12 - Visitas y Reservas",
-    description: "Base visual y estructural del módulo de visitas y autorizaciones temporales.",
-    file: "docs/Stage12-Visitas.md",
-  },
-  {
-    slug: "stage-13-convenios",
-    title: "Stage 13 - Convenios y Beneficios",
-    description: "Base visual y estructural del módulo de convenios comerciales y beneficios.",
-    file: "docs/Stage13-Convenios.md",
-  },
 ];
 
 export function getDocumentos() {

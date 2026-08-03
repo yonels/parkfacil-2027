@@ -1,19 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpDown, Eye, Pencil, Plus, Save, Search, Trash2, X } from "lucide-react";
+import { ArrowUpDown, Check, Copy, Eye, GripVertical, KeyRound, Pencil, Plus, Save, Search, Trash2, X } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
+import useReorderableColumns from "@/components/ui/useReorderableColumns";
 import UsuarioResumen from "@/components/usuarios/UsuarioResumen";
-import { getUsuariosDemo, getPerfilLabel } from "@/data/usuarios.mjs";
+import { getUsuariosDemo, getPerfilLabel, getUsuarioSearchValues, normalizeUserSearch } from "@/data/usuarios.mjs";
 import { getEmpresasDemo } from "@/data/empresas.mjs";
 import { getEstacionamientosDemo } from "@/data/estacionamientos.mjs";
+import { authenticatedFetch } from "@/lib/supabaseBrowser";
 
 const usuariosIniciales = getUsuariosDemo();
-const empresas = getEmpresasDemo();
-const estacionamientos = getEstacionamientosDemo();
+const empresasIniciales = getEmpresasDemo();
+const estacionamientosIniciales = getEstacionamientosDemo();
 const estados = ["Todos", "active", "inactive", "pending"];
 const perfiles = ["Todos", "platform_admin", "organization_admin", "company_admin", "parking_manager", "operator", "cashier", "auditor", "support", "viewer"];
 const multiples = ["Todos", "con", "sin"];
@@ -30,22 +32,58 @@ function labelEstado(estado) {
 
 export default function UsuariosPage() {
   const [usuarios, setUsuarios] = useState(() => usuariosIniciales.map((usuario) => ({ ...usuario, estacionamientos: [...usuario.estacionamientos] })));
+  const [empresas, setEmpresas] = useState(empresasIniciales);
+  const [estacionamientos, setEstacionamientos] = useState(estacionamientosIniciales);
+  const [dataSource, setDataSource] = useState("Cargando");
   const [busqueda, setBusqueda] = useState("");
   const [estado, setEstado] = useState("Todos");
   const [perfil, setPerfil] = useState("Todos");
   const [empresaId, setEmpresaId] = useState("Todos");
   const [estacionamientoId, setEstacionamientoId] = useState("Todos");
   const [multiple, setMultiple] = useState("Todos");
+  const [canManageCredentials, setCanManageCredentials] = useState(false);
+  const [temporaryCredentials, setTemporaryCredentials] = useState({});
+  const [credentialLoadingId, setCredentialLoadingId] = useState(null);
+  const [credentialError, setCredentialError] = useState("");
+  const [copiedCredentialId, setCopiedCredentialId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState(null);
   const [sort, setSort] = useState({ key: "nombreCompleto", direction: "asc" });
+  const tableColumns = useMemo(() => [
+    { key: "nombreCompleto", label: "Nombre", sortable: true },
+    { key: "correo", label: "Usuario", sortable: true },
+    { key: "telefono", label: "Teléfono", sortable: true },
+    { key: "empresaId", label: "Empresa", sortable: true },
+    { key: "perfilPrincipal", label: "Perfil", sortable: true },
+    { key: "estado", label: "Estado", sortable: true },
+    { key: "estacionamientos", label: "Estacionamientos", sortable: true },
+    { key: "ultimoAcceso", label: "Último acceso", sortable: true },
+    ...(canManageCredentials ? [{ key: "credential", label: "Clave de acceso", sortable: false }] : []),
+  ], [canManageCredentials]);
+  const { orderedColumns: orderedTableColumns, getHeaderProps } = useReorderableColumns(tableColumns, "usuarios-catalogo");
+
+  useEffect(() => {
+    let active = true;
+    authenticatedFetch("/api/usuarios", { cache: "no-store" })
+      .then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "No fue posible cargar los usuarios.");
+        if (!active) return;
+        setUsuarios((body.data || []).map((usuario) => ({ ...usuario, estacionamientos: usuario.estacionamientos || [] })));
+        setEmpresas(body.companies || []);
+        setEstacionamientos(body.parkings || []);
+        setCanManageCredentials(Boolean(body.canManageCredentials));
+        setDataSource("Datos persistentes");
+      })
+      .catch(() => { if (active) setDataSource("Demostrativo"); });
+    return () => { active = false; };
+  }, []);
 
   const resultados = useMemo(() => {
-    const normalized = busqueda.toLowerCase();
+    const normalized = normalizeUserSearch(busqueda);
     return usuarios.filter((usuario) => {
-      const empresa = empresas.find((item) => item.id === usuario.empresaId);
-      const bySearch = [usuario.nombreCompleto, usuario.correo, usuario.telefono, empresa?.nombreFantasia ?? "", getPerfilLabel(usuario.perfilPrincipal)]
-        .some((value) => value.toLowerCase().includes(normalized));
+      const bySearch = [...getUsuarioSearchValues(usuario), ...(usuario.searchValues || [])]
+        .some((value) => normalizeUserSearch(value).includes(normalized));
       const byEstado = estado === "Todos" || usuario.estado === estado;
       const byPerfil = perfil === "Todos" || usuario.perfilPrincipal === perfil;
       const byEmpresa = empresaId === "Todos" || usuario.empresaId === empresaId;
@@ -82,6 +120,46 @@ export default function UsuariosPage() {
     setEditingId(null);
     setDraft(null);
   };
+  const updateSearch = (value) => {
+    setBusqueda(value);
+    if (value.trim()) {
+      setEstado("Todos");
+      setPerfil("Todos");
+      setEmpresaId("Todos");
+      setEstacionamientoId("Todos");
+      setMultiple("Todos");
+    }
+  };
+
+  const generateTemporaryCredential = async (usuario) => {
+    const accepted = window.confirm(
+      `Se reemplazará la clave actual de ${usuario.nombreCompleto}. ¿Deseas generar una nueva clave temporal?`,
+    );
+    if (!accepted) return;
+    setCredentialError("");
+    setCredentialLoadingId(usuario.id);
+    try {
+      const response = await authenticatedFetch(`/api/usuarios/${usuario.id}/credencial`, { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || "No fue posible generar la clave temporal.");
+      setTemporaryCredentials((current) => ({ ...current, [usuario.id]: body.data }));
+      setUsuarios((current) => current.map((item) => (
+        item.id === usuario.id ? { ...item, debeCambiarClave: true } : item
+      )));
+    } catch (error) {
+      setCredentialError(error.message);
+    } finally {
+      setCredentialLoadingId(null);
+    }
+  };
+
+  const copyCredential = async (usuario) => {
+    const credential = temporaryCredentials[usuario.id];
+    if (!credential || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(`Usuario: ${credential.username}\nClave temporal: ${credential.temporaryPassword}`);
+    setCopiedCredentialId(usuario.id);
+    window.setTimeout(() => setCopiedCredentialId(null), 2000);
+  };
 
   return (
     <AppShell title="Usuarios" description="Administración visual de personas con acceso a ParkFacil">
@@ -92,7 +170,7 @@ export default function UsuariosPage() {
           actions={[
             <button key="nuevo" className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1E5EFF]">
               <Plus className="h-4 w-4" />
-              Nuevo usuario
+              Crear usuario
             </button>,
           ]}
         />
@@ -111,13 +189,13 @@ export default function UsuariosPage() {
               <h3 className="text-xl font-semibold text-[#041E42]">Catálogo de usuarios</h3>
               <p className="mt-2 text-sm text-slate-600">Listado visual preparado para la administración de accesos y perfiles.</p>
             </div>
-            <StatusBadge variant="warning">Demostrativo</StatusBadge>
+            <StatusBadge variant={dataSource === "Datos persistentes" ? "positive" : "warning"}>{dataSource}</StatusBadge>
           </div>
 
           <div className="mt-6 space-y-4">
             <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
               <Search className="h-4 w-4 text-[#3150D8]" />
-              <input value={busqueda} onChange={(event) => setBusqueda(event.target.value)} placeholder="Buscar por nombre, correo, teléfono, empresa o perfil" className="w-full bg-transparent outline-none" />
+              <input value={busqueda} onChange={(event) => updateSearch(event.target.value)} placeholder="Buscar por persona, cargo, empresa, razón social, RUT, correo, perfil o estacionamiento" className="w-full bg-transparent outline-none" />
             </label>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -156,15 +234,38 @@ export default function UsuariosPage() {
             </div>
           </div>
 
+          {credentialError ? (
+            <p role="alert" className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+              {credentialError}
+            </p>
+          ) : null}
+
           <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-300 bg-white shadow-sm">
             {resultados.length > 0 ? (
-              <table className="w-full min-w-[1320px] border-collapse text-left text-sm">
+              <table className={`w-full border-collapse text-left text-sm ${canManageCredentials ? "min-w-[1580px]" : "min-w-[1320px]"}`}>
                 <thead className="bg-[#041E42] text-[11px] uppercase tracking-[0.08em] text-white">
                   <tr>
-                    {[
-                      ["nombreCompleto", "Nombre"], ["correo", "Correo"], ["telefono", "Teléfono"], ["empresaId", "Empresa"],
-                      ["perfilPrincipal", "Perfil"], ["estado", "Estado"], ["estacionamientos", "Estacionamientos"], ["ultimoAcceso", "Último acceso"],
-                    ].map(([key, label]) => <th key={key} className="border-r border-white/10 p-0"><button type="button" onClick={() => orderBy(key)} className="flex w-full items-center justify-between gap-2 px-4 py-3.5 text-left font-bold hover:bg-white/10">{label}<ArrowUpDown className={`h-3.5 w-3.5 ${sort.key === key ? "text-cyan-200" : "text-slate-500"}`} /></button></th>)}
+                    {orderedTableColumns.map((column) => {
+                      const dragProps = getHeaderProps(column.key);
+                      return (
+                        <th
+                          {...dragProps}
+                          key={column.key}
+                          className={`cursor-grab border-r border-white/10 p-0 active:cursor-grabbing ${dragProps.className}`}
+                        >
+                          {column.sortable ? (
+                            <button type="button" onClick={() => orderBy(column.key)} className="flex w-full items-center justify-between gap-2 px-4 py-3.5 text-left font-bold hover:bg-white/10">
+                              <span className="flex items-center gap-2">{column.label}<GripVertical className="h-3.5 w-3.5 text-slate-400" /></span>
+                              <ArrowUpDown className={`h-3.5 w-3.5 ${sort.key === column.key ? "text-cyan-200" : "text-slate-500"}`} />
+                            </button>
+                          ) : (
+                            <span className={`flex items-center gap-2 px-4 py-3.5 font-bold ${column.key === "actions" ? "justify-end" : ""}`}>
+                              {column.label}<GripVertical className="h-3.5 w-3.5 text-slate-400" />
+                            </span>
+                          )}
+                        </th>
+                      );
+                    })}
                     <th className="px-4 py-3.5 text-right">Acciones</th>
                   </tr>
                 </thead>
@@ -175,25 +276,49 @@ export default function UsuariosPage() {
                     const empresa = empresas.find((item) => item.id === row.empresaId);
                     const parkingNames = row.estacionamientos.map((id) => estacionamientos.find((item) => item.id === id)?.nombre ?? id).join(", ");
                     const inputClass = "w-full min-w-32 rounded-lg border border-[#3150D8] bg-white px-2 py-2 text-sm text-[#041E42] outline-none ring-2 ring-blue-100";
+                    const dataCells = {
+                      nombreCompleto: <td key="nombreCompleto" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <input value={row.nombreCompleto} onChange={(event) => setDraft((current) => ({ ...current, nombreCompleto: event.target.value }))} className={inputClass} /> : <span className="font-bold text-[#041E42]">{row.nombreCompleto}</span>}</td>,
+                      correo: <td key="correo" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <input type="email" value={row.correo} onChange={(event) => setDraft((current) => ({ ...current, correo: event.target.value }))} className={inputClass} /> : row.correo}</td>,
+                      telefono: <td key="telefono" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <input value={row.telefono} onChange={(event) => setDraft((current) => ({ ...current, telefono: event.target.value }))} className={inputClass} /> : row.telefono}</td>,
+                      empresaId: <td key="empresaId" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <select value={row.empresaId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, empresaId: event.target.value || null }))} className={inputClass}><option value="">Sin empresa</option>{empresas.map((item) => <option key={item.id} value={item.id}>{item.nombreFantasia}</option>)}</select> : empresa?.nombreFantasia ?? "Sin empresa"}</td>,
+                      perfilPrincipal: <td key="perfilPrincipal" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <select value={row.perfilPrincipal} onChange={(event) => setDraft((current) => ({ ...current, perfilPrincipal: event.target.value }))} className={inputClass}>{perfiles.filter((item) => item !== "Todos").map((item) => <option key={item} value={item}>{getPerfilLabel(item)}</option>)}</select> : getPerfilLabel(row.perfilPrincipal)}</td>,
+                      estado: <td key="estado" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <select value={row.estado} onChange={(event) => setDraft((current) => ({ ...current, estado: event.target.value }))} className={inputClass}>{estados.filter((item) => item !== "Todos").map((item) => <option key={item} value={item}>{labelEstado(item)}</option>)}</select> : <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${row.estado === "active" ? "bg-emerald-50 text-emerald-700" : row.estado === "inactive" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>{labelEstado(row.estado)}</span>}</td>,
+                      estacionamientos: <td key="estacionamientos" className="max-w-56 border-r border-slate-200 px-3 py-2.5">{isEditing ? <select multiple value={row.estacionamientos} onChange={(event) => setDraft((current) => ({ ...current, estacionamientos: Array.from(event.target.selectedOptions, (option) => option.value) }))} className={`${inputClass} min-h-20`}>{estacionamientos.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}</select> : <span className="line-clamp-2" title={parkingNames}>{parkingNames || "Sin asignación"}</span>}</td>,
+                      ultimoAcceso: <td key="ultimoAcceso" className="border-r border-slate-200 px-3 py-2.5">{row.ultimoAcceso}</td>,
+                      credential: (
+                        <td key="credential" className="min-w-64 border-r border-slate-200 px-3 py-2.5">
+                          {temporaryCredentials[usuario.id] ? (
+                            <div className="space-y-2">
+                              <code className="block rounded-lg bg-amber-50 px-2 py-1.5 text-xs font-bold text-amber-900">{temporaryCredentials[usuario.id].temporaryPassword}</code>
+                              <button type="button" onClick={() => copyCredential(usuario)} className="inline-flex items-center gap-1 text-xs font-bold text-[#3150D8]">
+                                {copiedCredentialId === usuario.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                                {copiedCredentialId === usuario.id ? "Copiado" : "Copiar usuario y clave"}
+                              </button>
+                              <p className="text-[10px] text-amber-700">Visible solamente durante esta sesión.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <p className="text-xs text-slate-500">{row.debeCambiarClave ? "Clave temporal pendiente de cambio" : "Clave protegida"}</p>
+                              <button type="button" onClick={() => generateTemporaryCredential(usuario)} disabled={credentialLoadingId === usuario.id} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs font-bold text-amber-800 disabled:opacity-60">
+                                <KeyRound className="h-3.5 w-3.5" />{credentialLoadingId === usuario.id ? "Generando..." : "Generar clave temporal"}
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      ),
+                    };
                     return (
                       <tr key={usuario.id} className={`border-b border-slate-200 last:border-b-0 ${isEditing ? "bg-blue-50" : "even:bg-slate-50 hover:bg-[#FFF8E1]"}`}>
-                        <td className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <input value={row.nombreCompleto} onChange={(event) => setDraft((current) => ({ ...current, nombreCompleto: event.target.value }))} className={inputClass} /> : <span className="font-bold text-[#041E42]">{row.nombreCompleto}</span>}</td>
-                        <td className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <input type="email" value={row.correo} onChange={(event) => setDraft((current) => ({ ...current, correo: event.target.value }))} className={inputClass} /> : row.correo}</td>
-                        <td className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <input value={row.telefono} onChange={(event) => setDraft((current) => ({ ...current, telefono: event.target.value }))} className={inputClass} /> : row.telefono}</td>
-                        <td className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <select value={row.empresaId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, empresaId: event.target.value || null }))} className={inputClass}><option value="">Sin empresa</option>{empresas.map((item) => <option key={item.id} value={item.id}>{item.nombreFantasia}</option>)}</select> : empresa?.nombreFantasia ?? "Sin empresa"}</td>
-                        <td className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <select value={row.perfilPrincipal} onChange={(event) => setDraft((current) => ({ ...current, perfilPrincipal: event.target.value }))} className={inputClass}>{perfiles.filter((item) => item !== "Todos").map((item) => <option key={item} value={item}>{getPerfilLabel(item)}</option>)}</select> : getPerfilLabel(row.perfilPrincipal)}</td>
-                        <td className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <select value={row.estado} onChange={(event) => setDraft((current) => ({ ...current, estado: event.target.value }))} className={inputClass}>{estados.filter((item) => item !== "Todos").map((item) => <option key={item} value={item}>{labelEstado(item)}</option>)}</select> : <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${row.estado === "active" ? "bg-emerald-50 text-emerald-700" : row.estado === "inactive" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>{labelEstado(row.estado)}</span>}</td>
-                        <td className="max-w-56 border-r border-slate-200 px-3 py-2.5">{isEditing ? <select multiple value={row.estacionamientos} onChange={(event) => setDraft((current) => ({ ...current, estacionamientos: Array.from(event.target.selectedOptions, (option) => option.value) }))} className={`${inputClass} min-h-20`}>{estacionamientos.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}</select> : <span className="line-clamp-2" title={parkingNames}>{parkingNames || "Sin asignación"}</span>}</td>
-                        <td className="border-r border-slate-200 px-3 py-2.5">{row.ultimoAcceso}</td>
+                        {orderedTableColumns.map((column) => dataCells[column.key])}
                         <td className="px-3 py-2.5">
                           <div className="flex justify-end gap-1.5">
                             {isEditing ? <>
-                              <button type="button" onClick={saveEdit} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-2 text-xs font-bold text-white"><Save className="h-3.5 w-3.5" />Guardar</button>
+                              <button type="button" onClick={saveEdit} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-2 text-xs font-bold text-white"><Save className="h-3.5 w-3.5" />Modificar usuario</button>
                               <button type="button" onClick={cancelEdit} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-200 text-slate-600" aria-label="Cancelar edición"><X className="h-3.5 w-3.5" /></button>
                             </> : <>
                               <Link href={`/usuarios/${usuario.id}`} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-[#3150D8]"><Eye className="h-3.5 w-3.5" />Ver</Link>
-                              <button type="button" onClick={() => beginEdit(usuario)} className="inline-flex items-center gap-1 rounded-lg bg-[#EEF4FF] px-2.5 py-2 text-xs font-bold text-[#3150D8]"><Pencil className="h-3.5 w-3.5" />Editar</button>
-                              <button type="button" onClick={() => setUsuarios((current) => current.filter((item) => item.id !== usuario.id))} className="grid h-8 w-8 place-items-center rounded-lg bg-rose-50 text-rose-700" aria-label={`Eliminar ${usuario.nombreCompleto}`}><Trash2 className="h-3.5 w-3.5" /></button>
+                              <button type="button" onClick={() => beginEdit(usuario)} className="inline-flex items-center gap-1 rounded-lg bg-[#EEF4FF] px-2.5 py-2 text-xs font-bold text-[#3150D8]"><Pencil className="h-3.5 w-3.5" />Modificar usuario</button>
+                              <button type="button" onClick={() => setUsuarios((current) => current.filter((item) => item.id !== usuario.id))} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2.5 py-2 text-xs font-semibold text-rose-700" aria-label={`Eliminar ${usuario.nombreCompleto}`}><Trash2 className="h-3.5 w-3.5" /> Eliminar</button>
                             </>}
                           </div>
                         </td>

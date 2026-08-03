@@ -36,11 +36,19 @@ export async function PATCH(request, { params }) {
   const companyResult = await db.from("companies").update({
     trade_name: clean(input.name),
     business_name: clean(input.legalName),
+    business_activity: clean(input.businessActivity),
     primary_contact: clean(input.contact),
     email: clean(input.email),
     phone: clean(input.phone),
+    legal_representative: clean(input.legalRepresentative),
+    address: clean(input.address),
+    district: clean(input.district),
+    city: clean(input.city),
+    region: clean(input.region),
+    country: clean(input.country) || "Chile",
+    notes: clean(input.notes),
     commercial_plan: planCode[input.plan] || "UNASSIGNED",
-    status: input.status === "Activo" ? "active" : input.status === "En implementación" ? "onboarding" : "inactive",
+    status: ["Activo", "active"].includes(input.status) ? "active" : ["En implementación", "onboarding"].includes(input.status) ? "onboarding" : "inactive",
     updated_at: new Date().toISOString(),
   }).eq("id", id).select("id").single();
   if (companyResult.error) {

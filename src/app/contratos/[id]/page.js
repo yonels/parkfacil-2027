@@ -16,8 +16,10 @@ function DetailItem({ label, value }) {
   );
 }
 
-export default function ContratoDetallePage({ params }) {
-  const contrato = getContratoById(params.id);
+export default async function ContratoDetallePage({ params }) {
+  const resolvedParams = typeof params?.then === "function" ? await params : params;
+  const routeId = decodeURIComponent(String(resolvedParams?.id || "")).trim();
+  const contrato = getContratoById(routeId);
 
   if (!contrato) {
     return (
@@ -37,6 +39,26 @@ export default function ContratoDetallePage({ params }) {
   const responsable = resolveResponsable(contrato);
   const vigencia = calcularVigencia(contrato, new Date("2026-01-15"));
   const duracion = calcularDuracionMeses(contrato.fechaInicio, contrato.fechaTermino);
+  const documentos = (contrato.documentos || []).map((item, index) => {
+    if (typeof item === "string") {
+      return {
+        id: `doc-${index}`,
+        nombre: item,
+        url: null,
+      };
+    }
+
+    return {
+      id: item?.id || `doc-${index}`,
+      nombre: item?.nombre || item?.name || `Documento ${index + 1}`,
+      url: item?.url || null,
+    };
+  });
+  const pdfDocumento = documentos.find((item) => {
+    const nombre = String(item.nombre || "").toLowerCase();
+    const url = String(item.url || "").toLowerCase();
+    return Boolean(item.url) && (nombre.endsWith(".pdf") || url.includes(".pdf"));
+  }) || null;
 
   return (
     <AppShell title={contrato.numeroContrato} description="Detalle visual del contrato">
@@ -130,7 +152,16 @@ export default function ContratoDetallePage({ params }) {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><FileText className="h-5 w-5" /><h4 className="font-semibold">Documentos</h4></div>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                {contrato.documentos.length > 0 ? contrato.documentos.map((item) => <li key={item}>• {item}</li>) : <li>• No disponible</li>}
+                {documentos.length > 0 ? documentos.map((item) => (
+                  <li key={item.id} className="space-y-1">
+                    <p>• {item.nombre}</p>
+                    {item.url ? (
+                      <a href={item.url} target="_blank" rel="noreferrer" className="inline-flex items-center rounded-lg bg-white px-2.5 py-1 font-mono text-xs text-[#3150D8] underline-offset-2 hover:underline">
+                        {item.url}
+                      </a>
+                    ) : null}
+                  </li>
+                )) : <li>• No disponible</li>}
               </ul>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
@@ -140,6 +171,11 @@ export default function ContratoDetallePage({ params }) {
               </ul>
             </div>
           </div>
+          {pdfDocumento ? (
+            <p className="mt-6 text-sm text-slate-600">
+              Haz click en la ruta del PDF para abrir el documento en una nueva pestaña.
+            </p>
+          ) : null}
           <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-600">
             <p className="font-semibold text-[#041E42]">Etapa futura</p>
             <p className="mt-2">Las acciones operativas reales, firma electrónica, generación de PDFs y administración contractual se incorporarán en futuras etapas sin ejecutar procesos reales.</p>

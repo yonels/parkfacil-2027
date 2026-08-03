@@ -41,8 +41,11 @@ test("states, types and currencies are recognized", () => {
 test("resolution by id and text search work", () => {
   const contrato = getContratoById("c-001");
   assert.ok(contrato);
+  assert.equal(getContratoById("C 005")?.id, "c-005");
+  assert.equal(getContratoById("PF-2026-005")?.id, "c-005");
   assert.ok(searchContratos("ParkFacil").length >= 1);
   assert.ok(searchContratos("maria").length >= 1);
+  assert.ok(searchContratos("5Q").length >= 1);
 });
 
 test("filters work and summary is calculated", () => {

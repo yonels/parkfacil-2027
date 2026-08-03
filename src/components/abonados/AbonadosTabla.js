@@ -72,7 +72,7 @@ export default function AbonadosTabla({ abonados, sortKey, sortDirection, onSort
                 <td className="whitespace-nowrap px-3 py-2">
                   <div className="flex gap-2" onClick={(event) => event.stopPropagation()}>
                     <Link href={`/abonados/${abonado.id}`} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 font-semibold text-[#3150D8]"><Eye className="h-3.5 w-3.5" />Ver</Link>
-                    <Link href={`/abonados/${abonado.id}/editar`} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 font-semibold text-[#041E42]"><Pencil className="h-3.5 w-3.5" />Editar</Link>
+                    <Link href={`/abonados/${abonado.id}/editar`} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 font-semibold text-[#041E42]"><Pencil className="h-3.5 w-3.5" />Modificar</Link>
                   </div>
                 </td>
               </tr>

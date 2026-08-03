@@ -8,7 +8,7 @@ export default function TipoRelacionBadge({ tipo }) {
   };
 
   return (
-    <span className="inline-flex shrink-0 whitespace-nowrap rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
+    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-600">
       {labels[tipo] ?? tipo}
     </span>
   );

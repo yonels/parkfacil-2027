@@ -18,7 +18,7 @@ export default function NotificationsTable({ notifications }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
       <table className="min-w-[1050px] w-full border-collapse text-left text-xs">
-        <thead className="sticky top-0 z-10 bg-slate-50 text-slate-600">
+        <thead className="sticky top-0 z-10 bg-[#E2F0D9] text-[#041E42]">
           <tr className="border-b border-slate-200">
             <th className="px-3 py-2">Fecha</th>
             <th className="px-3 py-2">Tipo</th>
@@ -32,7 +32,7 @@ export default function NotificationsTable({ notifications }) {
         </thead>
         <tbody>
           {notifications.map((item) => (
-            <tr key={item.id} className="border-b border-slate-100 text-slate-700 transition hover:bg-[#EEF4FF]">
+            <tr key={item.id} className="border-b border-slate-100 text-slate-700 transition even:bg-slate-50 hover:bg-[#FFF2CC]">
               <td className="whitespace-nowrap px-3 py-2">{formatDate(item.created_at)}</td>
               <td className="min-w-[180px] px-3 py-2 font-semibold text-[#041E42]">{fallback(item.typeLabel)}</td>
               <td className="px-3 py-2"><NotificationChannelBadge channel={item.channel} upcoming={item.whatsappUpcoming} /></td>

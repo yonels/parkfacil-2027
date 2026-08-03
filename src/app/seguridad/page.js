@@ -49,10 +49,10 @@ export default function SeguridadPage() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-[#041E42] p-6 text-white shadow-sm">
+          <div className="rounded-3xl border border-[#5271E8] bg-[#3150D8] p-6 text-white shadow-sm">
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-cyan-200">Estado del módulo</p>
             <h3 className="mt-4 text-2xl font-semibold">Seguridad institucional</h3>
-            <ul className="mt-5 space-y-3 text-sm text-slate-200">
+            <ul className="mt-5 space-y-3 text-sm text-blue-100">
               <li>• Base visual preparada</li>
               <li>• Organizaciones y roles listados</li>
               <li>• Sin datos operativos reales</li>

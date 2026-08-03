@@ -56,6 +56,15 @@ test("search and filters work", () => {
   assert.equal(summary.total, getUsuariosDemo().length);
 });
 
+test("search resolves a user through person, role, company and RUT", () => {
+  assert.equal(searchUsuarios("Patricia González")[0]?.id, "u-005");
+  assert.equal(searchUsuarios("Administradora de estacionamientos")[0]?.id, "u-005");
+  assert.equal(searchUsuarios("Clínica Ramis")[0]?.id, "u-005");
+  assert.equal(searchUsuarios("Sociedad Médica Integral")[0]?.id, "u-005");
+  assert.equal(searchUsuarios("76.345.890-2")[0]?.id, "u-005");
+  assert.equal(searchUsuarios("PF-003")[0]?.id, "u-005");
+});
+
 test("profile labels, company resolution, and parking resolution work", () => {
   const usuario = getUsuarioById("u-001");
 

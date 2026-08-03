@@ -4,12 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { navigationItems } from "@/config/navigation";
 
-export default function MobileNavigation({ onNavigate }) {
+export default function MobileNavigation({ onNavigate, clientContext }) {
   const pathname = usePathname();
 
   return (
     <nav className="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:hidden" aria-label="Navegación móvil">
-      {navigationItems.map((item) => {
+      {navigationItems.filter((item) => !clientContext || !item.requiresModule || clientContext.modules?.includes(item.requiresModule)).map((item) => {
         const Icon = item.icon;
         const isActive = pathname === item.href;
 

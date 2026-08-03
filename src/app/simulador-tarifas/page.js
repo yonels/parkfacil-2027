@@ -54,7 +54,7 @@ export default function SimuladorTarifasPage() {
   return (
     <AppShell title="Simulador de tarifas" description="Análisis consultivo de escenarios tarifarios">
       <div className="space-y-5">
-        <header className="flex flex-col gap-4 rounded-3xl bg-[#041E42] p-5 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <header className="flex flex-col gap-4 rounded-3xl border border-[#5271E8] bg-[#3150D8] p-5 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">Asistente consultivo</p><h1 className="mt-2 text-2xl font-semibold">Simulación de nueva tarifa</h1><p className="mt-1 text-sm text-slate-300">Compara los ingresos actuales con un escenario estimado sin modificar la tarifa vigente.</p></div>
           <Link href="/modelo-dashboard" className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold transition hover:bg-white/20"><ArrowLeft className="h-4 w-4" />Volver al modelo</Link>
         </header>
@@ -110,7 +110,7 @@ export default function SimuladorTarifasPage() {
 
         <aside className="flex flex-col gap-4 rounded-3xl border border-amber-200 bg-amber-50 p-5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-3"><Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" /><div><p className="font-semibold text-amber-900">Simulación consultiva</p><p className="mt-1 max-w-3xl text-sm text-amber-800">La estimación se basa en el comportamiento histórico y no garantiza ingresos futuros. Guardar esta propuesta no modifica la tarifa vigente.</p></div></div>
-          <button type="button" onClick={() => setSaved(true)} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-[#3150D8] px-5 py-2.5 text-sm font-semibold text-white">{saved ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}{saved ? "Propuesta guardada" : "Guardar propuesta"}</button>
+          <button type="button" onClick={() => setSaved(true)} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full bg-[#3150D8] px-5 py-2.5 text-sm font-semibold text-white">{saved ? <CheckCircle2 className="h-4 w-4" /> : <Save className="h-4 w-4" />}{saved ? "Propuesta creada" : "Crear propuesta"}</button>
         </aside>
       </div>
     </AppShell>

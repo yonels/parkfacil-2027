@@ -5,7 +5,9 @@ import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import EstadoEmpresaBadge from "@/components/empresas/EstadoEmpresaBadge";
 import TipoRelacionBadge from "@/components/empresas/TipoRelacionBadge";
-import { getEmpresaById, formatearRut, getEstacionamientosAsociados } from "@/data/empresas.mjs";
+import { formatearRut } from "@/data/empresas.mjs";
+import { getCompanyPageData } from "@/lib/companiesServer";
+import EmpresaEditButton from "@/components/empresas/EmpresaEditButton";
 
 function DetailItem({ label, value }) {
   return (
@@ -16,8 +18,17 @@ function DetailItem({ label, value }) {
   );
 }
 
-export default function EmpresaDetallePage({ params }) {
-  const empresa = getEmpresaById(params.id);
+function getContractDisplay(contract) {
+  if (typeof contract === "string") return contract;
+  if (!contract || typeof contract !== "object") return "Contrato sin información";
+
+  const number = contract.numero || contract.numeroContrato || "Contrato sin número";
+  return contract.estado ? `${number} · ${contract.estado}` : number;
+}
+
+export default async function EmpresaDetallePage({ params }) {
+  const { id } = await params;
+  const empresa = await getCompanyPageData(id);
 
   if (!empresa) {
     return (
@@ -32,7 +43,7 @@ export default function EmpresaDetallePage({ params }) {
     );
   }
 
-  const estacionamientos = getEstacionamientosAsociados(empresa);
+  const estacionamientos = empresa.estacionamientos;
 
   return (
     <AppShell title={empresa.razonSocial} description="Detalle visual de la empresa">
@@ -40,7 +51,9 @@ export default function EmpresaDetallePage({ params }) {
         <PageHeader
           title={empresa.razonSocial}
           description={`${empresa.nombreFantasia} · ${formatearRut(`${empresa.rutNumero}-${empresa.rutDv}`)}`}
+          showBack={false}
           actions={[
+            <EmpresaEditButton key="editar" empresa={empresa} />,
             <Link key="volver" href="/empresas" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
               <ArrowLeft className="h-4 w-4" /> Volver
             </Link>,
@@ -88,9 +101,14 @@ export default function EmpresaDetallePage({ params }) {
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><MapPin className="h-5 w-5" /><h4 className="font-semibold">Estacionamientos asociados</h4></div>
-              <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                {estacionamientos.length > 0 ? estacionamientos.map((item) => <li key={item.id}>• {item.nombre}</li>) : <li>• Sin estacionamientos asociados</li>}
-              </ul>
+              <div className="mt-3 space-y-2 text-sm text-slate-600">
+                {estacionamientos.length > 0 ? estacionamientos.map((item) => (
+                  <Link key={item.id} href={`/estacionamientos/${item.id}`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold text-[#3150D8] transition hover:border-[#3150D8]">
+                    <span>{item.nombre} · {item.codigo}</span>
+                    <span aria-hidden="true">→</span>
+                  </Link>
+                )) : <p>Sin estacionamientos asociados</p>}
+              </div>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><Users className="h-5 w-5" /><h4 className="font-semibold">Usuarios asociados</h4></div>
@@ -105,7 +123,13 @@ export default function EmpresaDetallePage({ params }) {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><FileText className="h-5 w-5" /><h4 className="font-semibold">Contratos</h4></div>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                {empresa.contratos.map((item) => <li key={item}>• {item}</li>)}
+                {empresa.contratos.length > 0
+                  ? empresa.contratos.map((item, index) => (
+                    <li key={typeof item === "object" && item?.id ? item.id : `${getContractDisplay(item)}-${index}`}>
+                      • {getContractDisplay(item)}
+                    </li>
+                  ))
+                  : <li>• Sin contratos asociados</li>}
               </ul>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">

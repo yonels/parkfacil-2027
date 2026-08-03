@@ -6,6 +6,7 @@ import EstadoTarifaBadge from "@/components/tarifas/EstadoTarifaBadge";
 import TipoTarifaBadge from "@/components/tarifas/TipoTarifaBadge";
 import ModalidadCobroBadge from "@/components/tarifas/ModalidadCobroBadge";
 import { getTarifaById, formatCurrency, resolveContratos, getPlanTotalReferencial } from "@/data/tarifas.mjs";
+import { getCommercialPlanPageData } from "@/lib/commercialPlansServer";
 
 function DetailItem({ label, value }) {
   return (
@@ -16,8 +17,9 @@ function DetailItem({ label, value }) {
   );
 }
 
-export default function TarifaDetallePage({ params }) {
-  const tarifa = getTarifaById(params.id);
+export default async function TarifaDetallePage({ params }) {
+  const { id } = await params;
+  const tarifa = getTarifaById(id) || await getCommercialPlanPageData(id);
 
   if (!tarifa) {
     return (

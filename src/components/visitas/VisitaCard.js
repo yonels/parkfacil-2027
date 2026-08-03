@@ -23,9 +23,9 @@ export default function VisitaCard({ visita, referenceDate = "2026-07-25T10:15:0
   const vigencia = getVigenciaLabel(visita, referenceDate);
 
   return (
-    <Link href={`/visitas/${visita.id}`} className="group block rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md">
+    <Link href={`/visitas/${visita.id}`} className="group flex min-w-0 flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-semibold text-[#3150D8]">{visita.codigo}</p>
           <h3 className="mt-1 text-lg font-semibold text-[#041E42]">{visita.visitante.nombre}</h3>
           <p className="mt-1 text-sm text-slate-600">{visita.visitante.identificador || "No disponible"} · {visita.visitante.rut || "No disponible"}</p>

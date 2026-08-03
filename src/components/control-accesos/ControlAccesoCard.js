@@ -11,9 +11,9 @@ export default function ControlAccesoCard({ acceso }) {
   const operador = resolveOperador(acceso);
 
   return (
-    <Link href={`/control-accesos/${acceso.id}`} className="group block rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md">
+    <Link href={`/control-accesos/${acceso.id}`} className="group flex min-w-0 flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-semibold text-[#3150D8]">{acceso.codigo}</p>
           <h3 className="mt-1 text-lg font-semibold text-[#041E42]">{acceso.nombre}</h3>
           <p className="mt-1 text-sm text-slate-600">{acceso.estadoOperacional}</p>

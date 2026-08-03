@@ -1,0 +1,4 @@
+import { NextResponse } from "next/server";
+import { getSupabaseAdminClient } from "@/lib/supabaseServer";
+import { operationalError } from "@/lib/parkingApi";
+export async function POST(request, { params }) { try { const { turnoId } = await params; const input = await request.json(); if (!input.type || !input.description || !input.reportedBy) return NextResponse.json({ error: "Tipo, descripción y responsable son obligatorios.", code: "VALIDATION_ERROR" }, { status: 400 }); const result = await getSupabaseAdminClient().from("shift_incidents").insert({ shift_id: turnoId, closure_id: input.closureId || null, type: input.type, description: input.description, reported_by: input.reportedBy, status: input.status || "OPEN" }).select("*").single(); if (result.error) throw result.error; return NextResponse.json({ data: result.data }, { status: 201 }); } catch (error) { return operationalError(error, "No fue posible registrar la incidencia."); } }

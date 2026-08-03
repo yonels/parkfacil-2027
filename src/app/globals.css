@@ -3,11 +3,47 @@
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;
+  /* Azul corporativo oficial ParkFacil. Aprobado el 31-07-2026. */
+  --pf-color-brand-primary: #3150d8;
+  --pf-color-brand-primary-600: #2f4ed4;
+  --pf-color-brand-primary-700: #2944c3;
+  --pf-color-brand-primary-800: #17308d;
+  --pf-color-brand-deep: #041e42;
+
+  /* Compatibilidad con nombres previos */
+  --pf-color-brand-500: var(--pf-color-brand-primary);
+  --pf-color-brand-600: var(--pf-color-brand-primary-600);
+  --pf-color-brand-700: var(--pf-color-brand-primary-700);
+  --pf-color-brand-800: var(--pf-color-brand-primary-800);
+  --pf-color-brand-900: var(--pf-color-brand-deep);
+  --pf-color-brand-border: #4867e8;
+  --pf-color-brand-shadow: rgba(30, 53, 153, 0.35);
+}
+
+.input {
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.75rem;
+  padding: 0.625rem 0.75rem;
+  background: #fff;
+  font-weight: 400;
+  outline: none;
+}
+
+.input:focus {
+  border-color: #3150d8;
+  box-shadow: 0 0 0 3px rgb(49 80 216 / 10%);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-brand-primary: var(--pf-color-brand-primary);
+  --color-brand-500: var(--pf-color-brand-500);
+  --color-brand-600: var(--pf-color-brand-600);
+  --color-brand-700: var(--pf-color-brand-700);
+  --color-brand-800: var(--pf-color-brand-800);
+  --color-brand-900: var(--pf-color-brand-900);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -26,3 +62,22 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+.login-form input:-webkit-autofill,
+.login-form input:-webkit-autofill:hover,
+.login-form input:-webkit-autofill:focus,
+.login-form input:-webkit-autofill:active {
+  -webkit-text-fill-color: #ffffff;
+  caret-color: #ffffff;
+  transition: background-color 9999s ease-in-out 0s;
+  box-shadow: 0 0 0px 1000px rgba(255, 255, 255, 0.04) inset;
+}
+
+/* Lenguaje tabular corporativo único para catálogos y datos operacionales. */
+table { border-collapse: collapse; }
+table thead { background: #3150d8 !important; color: #ffffff !important; }
+table thead th { background: #3150d8 !important; border-color: #5271e8 !important; color: #ffffff !important; }
+table th { border: 1px solid #5271e8; font-weight: 600; }
+table td { border: 1px solid #e2e8f0; }
+table tbody tr:nth-child(even) { background: #f8fafc; }
+table tbody tr:hover { background: #fff2cc !important; }

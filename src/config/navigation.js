@@ -1,9 +1,10 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal } from "lucide-react";
+import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent } from "lucide-react";
 
 export const navigationItems = [
-  { href: "/modelo-dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
-  { href: "/#centro-control", label: "Operación", icon: ParkingSquare },
+  { href: "/modelo-dashboard", label: "Dashboard", icon: BarChart3 },
+  { href: "/data-entry", label: "Data Entry", icon: ScanLine },
+  { href: "/operacion", label: "Operación", icon: ParkingSquare },
   { href: "/estacionamientos", label: "Estacionamientos", icon: ShieldCheck },
   { href: "/seguridad", label: "Seguridad", icon: KeyRound, requiresModule: "seguridad" },
   { href: "/recaudacion", label: "Recaudación", icon: Wallet },
@@ -14,6 +15,8 @@ export const navigationItems = [
   { href: "/contratos", label: "Contratos", icon: Handshake },
   { href: "/abonados", label: "Abonados y Credenciales", icon: KeyRound },
   { href: "/tarifas", label: "Tarifas y Planes", icon: Wallet },
+  { href: "/cupones", label: "Cupones y descuentos", icon: TicketPercent },
+  { href: "/convenios", label: "Convenios", icon: Handshake },
   { href: "/simulador-tarifas", label: "Simulador de tarifas", icon: Calculator },
   { href: "/dispositivos", label: "Dispositivos", icon: RadioTower },
   { href: "/monitoreo", label: "Monitoreo", icon: Monitor },

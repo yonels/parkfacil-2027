@@ -56,7 +56,7 @@ export default function AbonadoEditorClient({ mode, abonadoId = null }) {
         mode={mode}
         initialValues={getAbonadoFormInitialValues(abonado)}
         onSubmit={handleSubmit}
-        submitLabel={mode === "edit" ? "Guardar cambios" : "Guardar abonado"}
+        submitLabel={mode === "edit" ? "Modificar abonado" : "Crear abonado"}
         cancelHref={mode === "edit" && abonadoId ? `/abonados/${abonadoId}` : "/abonados"}
         heading={mode === "edit" ? "Editar abonado" : "Nuevo abonado"}
         description={mode === "edit" ? "Actualiza los datos del abonado y guarda los cambios en Supabase." : "Crea un nuevo abonado con persistencia real en Supabase."}

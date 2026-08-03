@@ -1,7 +1,8 @@
 ﻿"use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { RefreshCw, Search, X } from "lucide-react";
+import { ArrowLeft, Search, X } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import EmptyState from "@/components/ui/EmptyState";
@@ -73,7 +74,9 @@ export default function NotificationsClient() {
   return (
     <AppShell title="Notificaciones" description="Historial multicanal y trazabilidad de comunicaciones">
       <div className="space-y-5">
-        <PageHeader title="Centro de Notificaciones" description="Consulte el estado y la trazabilidad de las comunicaciones generadas por ParkFacil." actions={[<button key="refresh" type="button" onClick={refresh} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42]"><RefreshCw className="h-4 w-4" />Actualizar</button>]} />
+        <PageHeader title="Centro de Notificaciones" description="Consulte el estado y la trazabilidad de las comunicaciones generadas por ParkFacil." actions={[
+          <Link key="volver" href="/" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] transition hover:border-[#3150D8] hover:text-[#3150D8]"><ArrowLeft className="h-4 w-4" />Volver</Link>,
+        ]} />
 
         <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <SummaryCard label="Total" value={summary.total || 0} />

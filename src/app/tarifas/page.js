@@ -1,28 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Search } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import TarifaResumen from "@/components/tarifas/TarifaResumen";
 import TarifasGrid from "@/components/tarifas/TarifasGrid";
+import PlanCreateModal from "@/components/tarifas/PlanCreateModal";
+import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import {
   getTarifasDemo,
-  searchTarifas,
-  filterTarifasByEstado,
-  filterTarifasByTipo,
-  filterTarifasByMoneda,
-  filterTarifasByModalidad,
   hasImplementation,
   isCustomPlan,
-  getResumenTarifas,
   getEstadoLabel,
   getTipoLabel,
   getModalidadLabel,
 } from "@/data/tarifas.mjs";
 
-const tarifas = getTarifasDemo();
+const demoTarifas = getTarifasDemo();
 const estados = ["Todos", "active", "inactive", "draft", "archived"];
 const tipos = ["Todos", "monthly_subscription", "per_transaction", "per_parking", "equipment_bundle", "implementation_only", "custom"];
 const monedas = ["Todos", "CLP", "UF", "USD"];
@@ -31,6 +27,7 @@ const implementacion = ["Todos", "si", "no"];
 const personalizados = ["Todos", "si", "no"];
 
 export default function TarifasPage() {
+  const [tarifas, setTarifas] = useState(demoTarifas);
   const [busqueda, setBusqueda] = useState("");
   const [estado, setEstado] = useState("Todos");
   const [tipo, setTipo] = useState("Todos");
@@ -39,11 +36,22 @@ export default function TarifasPage() {
   const [conImplementacion, setConImplementacion] = useState("Todos");
   const [customizado, setCustomizado] = useState("Todos");
 
+  useEffect(() => {
+    let active = true;
+    authenticatedFetch("/api/planes", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return null;
+      const body = await response.json();
+      if (active && Array.isArray(body.data)) setTarifas([...body.data, ...demoTarifas]);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
   const resultados = useMemo(() => {
-    let base = searchTarifas(busqueda);
+    const query = busqueda.trim().toLowerCase();
+    let base = tarifas.filter((tarifa) => [tarifa.nombre, tarifa.codigo, tarifa.tipo, tarifa.descripcion].some((value) => String(value || "").toLowerCase().includes(query)));
 
     if (estado !== "Todos") {
-      base = filterTarifasByEstado(estado);
+      base = base.filter((tarifa) => tarifa.estado === estado);
     }
     if (tipo !== "Todos") {
       base = base.filter((tarifa) => tarifa.tipo === tipo);
@@ -64,9 +72,9 @@ export default function TarifasPage() {
     }
 
     return base;
-  }, [busqueda, estado, tipo, moneda, modalidad, conImplementacion, customizado]);
+  }, [tarifas, busqueda, estado, tipo, moneda, modalidad, conImplementacion, customizado]);
 
-  const resumen = getResumenTarifas();
+  const resumen = useMemo(() => tarifas.reduce((value, tarifa) => { value.total += 1; value[tarifa.estado] = (value[tarifa.estado] || 0) + 1; if (tarifa.tipo === "per_parking") value.porEstacionamiento += 1; if (tarifa.tipo === "per_transaction") value.porTransaccion += 1; if (isCustomPlan(tarifa)) value.personalizados += 1; return value; }, { total: 0, active: 0, inactive: 0, draft: 0, archived: 0, porEstacionamiento: 0, porTransaccion: 0, personalizados: 0 }), [tarifas]);
 
   return (
     <AppShell title="Tarifas y Planes" description="Administración visual de planes y condiciones comerciales demostrativas">
@@ -75,10 +83,7 @@ export default function TarifasPage() {
           title="Tarifas y Planes"
           description="Vista de referencia para la administración de planes, cargos y condiciones comerciales de ParkFacil, con datos demostrativos y estructura preparada para futuras etapas operativas."
           actions={[
-            <button key="nuevo" className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1E5EFF]">
-              <Plus className="h-4 w-4" />
-              Nuevo plan
-            </button>,
+            <PlanCreateModal key="nuevo" onCreated={(plan) => setTarifas((current) => [plan, ...current])} />,
           ]}
         />
 

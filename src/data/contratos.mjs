@@ -103,14 +103,64 @@ export const contratosDemo = [
     historial: ["Borrador inicial"],
     observaciones: "Contrato demostrativo con referencias ausentes para probar el manejo visual seguro.",
   },
+  {
+    id: "c-005",
+    numeroContrato: "PF-2026-005",
+    empresaId: "e-005",
+    estacionamientos: ["p-002"],
+    responsableId: "u-002",
+    tipo: "parking_operation",
+    estado: "active",
+    fechaInicio: "2026-03-01",
+    fechaTermino: "2027-02-28",
+    renovacionAutomatica: true,
+    avisoPreviaNoRenovacion: 60,
+    currency: "CLP",
+    monthlyValue: 1650000,
+    implementationValue: 3000000,
+    totalReferenceValue: 19800000,
+    contactos: ["Felipe Soto", "Inmobiliaria 5Q"],
+    alcance: "Operación integral del estacionamiento Parking Norte con control de acceso y recaudación.",
+    serviciosIncluidos: ["Operación de caja", "Monitoreo", "Soporte en terreno"],
+    equipamiento: ["Barrera", "Cámaras LPR", "Terminal POS"],
+    documentos: [
+      {
+        nombre: "CONTRATO DE ADHESIÓN Inmobiliaria 5Q Spa.pdf",
+        url: "/contratos/CONTRATO-DE-ADHESION-INMOBILIARIA-5Q-SPA.pdf",
+      },
+      {
+        nombre: "Anexo SLA",
+        url: null,
+      },
+    ],
+    firmas: ["Inmobiliaria 5Q", "ParkFacil"],
+    historial: ["Aprobado por comité comercial", "Contrato activo en producción"],
+    observaciones: "Contrato operativo vigente para cliente Inmobiliaria 5Q.",
+  },
 ];
 
 export function getContratosDemo() {
   return contratosDemo;
 }
 
+function normalizeContractKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
 export function getContratoById(id) {
-  return contratosDemo.find((contrato) => contrato.id === id) ?? null;
+  const normalizedInput = normalizeContractKey(id);
+  if (!normalizedInput) return null;
+
+  return contratosDemo.find((contrato) => {
+    return (
+      normalizeContractKey(contrato.id) === normalizedInput
+      || normalizeContractKey(contrato.numeroContrato) === normalizedInput
+    );
+  }) ?? null;
 }
 
 function normalizeText(value) {
@@ -124,10 +174,15 @@ export function searchContratos(query) {
   const normalized = normalizeText(query);
 
   return contratosDemo.filter((contrato) => {
+    const empresa = getEmpresaById(contrato.empresaId);
+    const estacionamientos = contrato.estacionamientos.map((id) => getEstacionamientoById(id)?.nombre || "").join(" ");
+
     return [
+      contrato.id,
       contrato.numeroContrato,
-      getEmpresaById(contrato.empresaId)?.razonSocial || "",
-      contrato.estacionamientos.map((id) => getEstacionamientoById(id)?.nombre || "").join(" "),
+      empresa?.razonSocial || "",
+      empresa?.nombreFantasia || "",
+      estacionamientos,
       getUsuarioById(contrato.responsableId)?.nombreCompleto || "",
       getTipoLabel(contrato.tipo),
     ].some((value) => normalizeText(value).includes(normalized));

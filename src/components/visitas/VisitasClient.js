@@ -120,7 +120,7 @@ export default function VisitasClient() {
           actions={[
             <button key="new" className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1E5EFF]">
               <Plus className="h-4 w-4" />
-              Nueva visita
+              Crear visita
             </button>,
           ]}
         />

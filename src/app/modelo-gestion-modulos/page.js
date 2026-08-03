@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import { pricingRowsToMap } from "@/lib/modulePricing.mjs";
+import AppShell from "@/components/layout/AppShell";
 import {
   ArrowLeft,
   ArrowRight,
@@ -17,7 +18,6 @@ import {
   CircleDollarSign,
   Clock3,
   Eye,
-  EyeOff,
   FileSpreadsheet,
   KeyRound,
   LayoutDashboard,
@@ -236,101 +236,6 @@ function Brand() {
   );
 }
 
-function LoginScreen({ onLogin }) {
-  const [role, setRole] = useState("client");
-  const [passwordVisible, setPasswordVisible] = useState(false);
-  const [email, setEmail] = useState("admin@clinicaramis.cl");
-  const [password, setPassword] = useState("Cliente2027");
-
-  const changeRole = (nextRole) => {
-    setRole(nextRole);
-    setEmail(nextRole === "root" ? "root@parkfacil.cl" : "admin@clinicaramis.cl");
-    setPassword(nextRole === "root" ? "Root2027" : "Cliente2027");
-  };
-
-  return (
-    <main className="min-h-screen bg-[#F4F7FB] p-4 sm:p-7">
-      <div className="mx-auto grid min-h-[calc(100vh-3.5rem)] max-w-6xl overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-xl shadow-slate-300/30 lg:grid-cols-[1.08fr_0.92fr]">
-        <section className="relative hidden overflow-hidden bg-[#041E42] p-10 text-white lg:flex lg:flex-col lg:justify-between">
-          <div className="absolute -right-28 -top-28 h-80 w-80 rounded-full border-[60px] border-[#3150D8]/35" />
-          <div className="absolute -bottom-36 -left-24 h-96 w-96 rounded-full bg-[#2EA8FF]/10 blur-3xl" />
-          <div className="relative">
-            <div className="inline-flex items-center gap-3">
-              <span className="grid h-12 w-12 place-items-center rounded-2xl bg-white text-2xl font-black text-[#3150D8]">P</span>
-              <span className="text-xl font-bold">ParkFacil 2027</span>
-            </div>
-          </div>
-          <div className="relative max-w-lg">
-            <span className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1.5 text-xs font-semibold text-cyan-100">
-              <Sparkles className="h-3.5 w-3.5" /> Plataforma modular
-            </span>
-            <h1 className="mt-5 text-4xl font-bold leading-tight">Cada cliente recibe exactamente lo que necesita.</h1>
-            <p className="mt-4 max-w-md text-base leading-7 text-slate-300">Una experiencia independiente para administrar licencias, habilitar soluciones y operar cada estacionamiento con acceso seguro.</p>
-          </div>
-          <div className="relative grid grid-cols-3 gap-3">
-            {[["10", "Módulos"], ["3", "Clientes demo"], ["2", "Perfiles"]].map(([value, label]) => (
-              <div key={label} className="rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur">
-                <p className="text-2xl font-bold">{value}</p>
-                <p className="mt-1 text-xs text-slate-300">{label}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="flex items-center justify-center p-6 sm:p-10 lg:p-14">
-          <div className="w-full max-w-md">
-            <div className="mb-9 flex items-center justify-between lg:hidden"><Brand /><Link href="/" className="text-sm font-semibold text-[#3150D8]">Volver</Link></div>
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#3150D8]">Acceso seguro</p>
-              <h2 className="mt-2 text-3xl font-bold tracking-tight text-[#041E42]">Bienvenido a ParkFacil</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-500">Selecciona el perfil para revisar ambos recorridos del prototipo.</p>
-            </div>
-
-            <div className="mt-7 grid grid-cols-2 rounded-2xl bg-slate-100 p-1.5">
-              <button type="button" onClick={() => changeRole("client")} className={`rounded-xl px-3 py-3 text-sm font-semibold transition ${role === "client" ? "bg-white text-[#3150D8] shadow-sm" : "text-slate-500"}`}>
-                Administrador cliente
-              </button>
-              <button type="button" onClick={() => changeRole("root")} className={`rounded-xl px-3 py-3 text-sm font-semibold transition ${role === "root" ? "bg-[#041E42] text-white shadow-sm" : "text-slate-500"}`}>
-                ParkFacil Root
-              </button>
-            </div>
-
-            <form className="mt-7 space-y-4" onSubmit={(event) => { event.preventDefault(); onLogin(role); }}>
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-[#041E42]">Correo electrónico</span>
-                <span className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 transition focus-within:border-[#3150D8] focus-within:ring-4 focus-within:ring-blue-100">
-                  <Mail className="h-5 w-5 text-slate-400" />
-                  <input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} className="min-w-0 flex-1 bg-transparent py-3.5 text-sm outline-none" />
-                </span>
-              </label>
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-[#041E42]">Contraseña</span>
-                <span className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 transition focus-within:border-[#3150D8] focus-within:ring-4 focus-within:ring-blue-100">
-                  <KeyRound className="h-5 w-5 text-slate-400" />
-                  <input required type={passwordVisible ? "text" : "password"} value={password} onChange={(event) => setPassword(event.target.value)} className="min-w-0 flex-1 bg-transparent py-3.5 text-sm outline-none" />
-                  <button type="button" onClick={() => setPasswordVisible((value) => !value)} className="text-slate-400 hover:text-[#3150D8]" aria-label="Mostrar u ocultar contraseña">
-                    {passwordVisible ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                  </button>
-                </span>
-              </label>
-              <div className="flex items-center justify-between text-xs">
-                <label className="flex items-center gap-2 text-slate-500"><input type="checkbox" defaultChecked className="accent-[#3150D8]" /> Recordar acceso</label>
-                <button type="button" className="font-semibold text-[#3150D8]">Recuperar contraseña</button>
-              </div>
-              <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#3150D8] px-5 py-4 text-sm font-bold text-white shadow-lg shadow-blue-700/20 transition hover:bg-[#2442C5]">
-                Ingresar como {role === "root" ? "Root" : "cliente"} <ArrowRight className="h-4 w-4" />
-              </button>
-            </form>
-            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800">
-              <b>Prototipo:</b> las credenciales están precargadas y el acceso no consulta todavía la autenticación productiva.
-            </div>
-          </div>
-        </section>
-      </div>
-    </main>
-  );
-}
-
 function Header({ role, onLogout, onSwitchRole }) {
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur sm:px-7">
@@ -346,7 +251,7 @@ function Header({ role, onLogout, onSwitchRole }) {
           {role === "root" ? <button type="button" onClick={onSwitchRole} className="hidden rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 hover:border-[#3150D8] hover:text-[#3150D8] sm:block">
             Ver como cliente
           </button> : null}
-          <span className={`rounded-full px-3 py-2 text-xs font-bold ${role === "root" ? "bg-[#041E42] text-cyan-100" : "bg-blue-50 text-[#3150D8]"}`}>
+          <span className={`rounded-full px-3 py-2 text-xs font-bold ${role === "root" ? "bg-[#3150D8] text-cyan-100" : "bg-blue-50 text-[#3150D8]"}`}>
             {role === "root" ? "ParkFacil Root" : "Cliente administrador"}
           </span>
           <button type="button" onClick={onLogout} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50" aria-label="Cerrar sesión"><LogOut className="h-4 w-4" /></button>
@@ -472,14 +377,16 @@ function RootWorkspace({ clients, setClients, pricing, setPricing, pricingAccess
   };
 
   return (
-    <div className="min-h-screen bg-[#F4F7FB]">
-      <Header role="root" onLogout={onLogout} onSwitchRole={onSwitchRole} />
-      <main className="mx-auto max-w-[1500px] space-y-5 p-4 sm:p-7">
-        <section className="flex flex-col gap-5 overflow-hidden rounded-[1.75rem] bg-[#041E42] p-6 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-5">
+      <section className="mx-auto max-w-[1500px] space-y-5">
+        <section
+          className="flex flex-col gap-5 overflow-hidden rounded-[1.75rem] bg-[#3150D8] p-6 text-white shadow-lg sm:flex-row sm:items-center sm:justify-between"
+          style={{ backgroundColor: "#3150D8" }}
+        >
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-200">Administración central</p>
             <h1 className="mt-2 text-2xl font-bold sm:text-3xl">Clientes y módulos contratados</h1>
-            <p className="mt-2 max-w-2xl text-sm text-slate-300">Configura la experiencia de cada organización sin afectar a los demás clientes.</p>
+            <p className="mt-2 max-w-2xl text-sm text-blue-100">Configura la experiencia de cada organización sin afectar a los demás clientes.</p>
           </div>
           <div className="space-y-3 sm:min-w-[390px]">
             <div className="flex justify-end">
@@ -596,7 +503,7 @@ function RootWorkspace({ clients, setClients, pricing, setPricing, pricingAccess
                           <button type="button" onClick={() => onEnterClient(owner?.id || parking.clientId, parking.id)} className="inline-flex items-center gap-1 rounded-lg bg-[#EEF4FF] px-2.5 py-2 text-xs font-bold text-[#3150D8] hover:bg-[#DCE8FF]"><LogIn className="h-3.5 w-3.5" /> Entrar</button>
                           {parking.status !== "Baja" ? <>
                             <button type="button" onClick={() => toggleParkingStatus(parking.id)} className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-2 text-xs font-bold ${parking.status === "Activo" ? "bg-amber-50 text-amber-700 hover:bg-amber-100" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}><Power className="h-3.5 w-3.5" />{parking.status === "Activo" ? "Desactivar" : "Activar"}</button>
-                            <button type="button" onClick={() => setParkingToRemove(parking)} className="grid h-8 w-8 place-items-center rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100" aria-label={`Dar de baja ${parking.name}`}><Trash2 className="h-3.5 w-3.5" /></button>
+                            <button type="button" onClick={() => setParkingToRemove(parking)} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2.5 py-2 text-xs font-bold text-rose-700 hover:bg-rose-100" aria-label={`Eliminar ${parking.name}`}><Trash2 className="h-3.5 w-3.5" />Eliminar</button>
                           </> : <span className="px-2 py-2 text-xs font-semibold text-slate-400">Sin operación</span>}
                         </div>
                       </td>
@@ -625,7 +532,7 @@ function RootWorkspace({ clients, setClients, pricing, setPricing, pricingAccess
                 </button>
               ))}
               <button type="button" className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-300 px-3 py-3 text-xs font-bold text-slate-500 hover:border-[#3150D8] hover:text-[#3150D8]">
-                <Building2 className="h-4 w-4" /> Agregar organización
+                <Building2 className="h-4 w-4" /> Crear organización
               </button>
             </div>
           </aside>
@@ -634,7 +541,7 @@ function RootWorkspace({ clients, setClients, pricing, setPricing, pricingAccess
             <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-4">
-                  <span className="grid h-14 w-14 place-items-center rounded-2xl bg-[#041E42] text-lg font-bold text-white">{selected.name.slice(0, 2).toUpperCase()}</span>
+                  <span className="grid h-14 w-14 place-items-center rounded-2xl bg-[#3150D8] text-lg font-bold text-white">{selected.name.slice(0, 2).toUpperCase()}</span>
                   <div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl font-bold text-[#041E42]">{selected.name}</h2><span className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${selected.status === "Activo" ? "bg-emerald-50 text-emerald-700" : selected.status === "Suspendido" ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"}`}>{selected.status}</span></div><p className="mt-1 text-sm text-slate-500">{selected.legalName}</p></div>
                 </div>
                 <button type="button" onClick={() => { setClientSave({ saving: false, error: "" }); setClientDraft({ ...selected, contract: selected.contract ? { ...selected.contract } : null }); }} className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:border-[#3150D8] hover:text-[#3150D8]"><Settings2 className="h-4 w-4" /> Configurar cliente</button>
@@ -687,7 +594,7 @@ function RootWorkspace({ clients, setClients, pricing, setPricing, pricingAccess
               <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-slate-500"><b className="text-[#041E42]">{selected.modules.length} módulos</b> estarán disponibles en el próximo acceso del cliente.</p>
                 <button type="button" onClick={() => setSaved(true)} className={`inline-flex items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-bold text-white transition ${saved ? "bg-emerald-600" : "bg-[#3150D8] hover:bg-[#2442C5]"}`}>
-                  {saved ? <Check className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}{saved ? "Configuración guardada" : "Guardar asignación"}
+                  {saved ? <Check className="h-4 w-4" /> : <ShieldCheck className="h-4 w-4" />}{saved ? "Asignación modificada" : "Modificar asignación"}
                 </button>
               </div>
             </div>
@@ -705,17 +612,17 @@ function RootWorkspace({ clients, setClients, pricing, setPricing, pricingAccess
               </div>
               <div className="flex flex-col gap-3 border-t border-slate-200 bg-amber-50 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
                 <div><p className="text-xs text-amber-800">El valor en pesos dependerá de la UF vigente al momento de la facturación.</p>{pricingAccess.error ? <p role="alert" className="mt-1 text-xs font-semibold text-rose-700">{pricingAccess.error}</p> : null}{pricingAccess.saved ? <p role="status" className="mt-1 text-xs font-semibold text-emerald-700">Tarifario guardado y auditado.</p> : null}{!pricingAccess.canEdit && !pricingAccess.loading ? <p className="mt-1 text-xs font-semibold text-slate-600">Solo un Administrador de Plataforma puede modificar estos valores.</p> : null}</div>
-                {pricingAccess.canEdit ? <button type="button" onClick={onSavePricing} disabled={pricingAccess.loading || pricingAccess.saving} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#3150D8] px-4 py-2.5 text-xs font-bold text-white disabled:cursor-wait disabled:opacity-60">{pricingAccess.saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{pricingAccess.saving ? "Guardando…" : "Guardar tarifario"}</button> : null}
+                {pricingAccess.canEdit ? <button type="button" onClick={onSavePricing} disabled={pricingAccess.loading || pricingAccess.saving} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-[#3150D8] px-4 py-2.5 text-xs font-bold text-white disabled:cursor-wait disabled:opacity-60">{pricingAccess.saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}{pricingAccess.saving ? "Modificando tarifario…" : "Modificar tarifario"}</button> : null}
               </div>
             </div>
           </section>
         </div>
-      </main>
+      </section>
 
       {parkingDetail ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-[#041E42]/65 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setParkingDetail(null); }}>
           <section className="w-full max-w-2xl overflow-hidden rounded-[1.75rem] bg-white shadow-2xl">
-            <header className="flex items-start justify-between bg-[#041E42] p-5 text-white">
+            <header className="flex items-start justify-between bg-[#3150D8] p-5 text-white">
               <div className="flex gap-3"><span className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><ParkingSquare className="h-5 w-5 text-cyan-200" /></span><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-200">{parkingDetail.id} · Ficha completa</p><h2 className="mt-1 text-xl font-bold">{parkingDetail.name}</h2></div></div>
               <button type="button" onClick={() => setParkingDetail(null)} className="rounded-full p-2 text-slate-300 hover:bg-white/10 hover:text-white"><X className="h-5 w-5" /></button>
             </header>
@@ -750,7 +657,7 @@ function RootWorkspace({ clients, setClients, pricing, setPricing, pricingAccess
             <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">La baja no elimina registros ni transacciones. Requerirá autorización para reactivarse.</div>
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button type="button" onClick={() => setParkingToRemove(null)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-600">Cancelar</button>
-              <button type="button" onClick={removeParking} className="rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-700">Confirmar baja</button>
+              <button type="button" onClick={removeParking} className="rounded-xl bg-rose-600 px-4 py-3 text-sm font-bold text-white hover:bg-rose-700">Eliminar estacionamiento</button>
             </div>
           </section>
         </div>
@@ -760,7 +667,7 @@ function RootWorkspace({ clients, setClients, pricing, setPricing, pricingAccess
         <div className="fixed inset-0 z-50 overflow-y-auto bg-[#041E42]/65 p-4 backdrop-blur-sm">
           <div className="flex min-h-full items-center justify-center">
             <form onSubmit={saveClient} className="w-full max-w-4xl overflow-hidden rounded-[1.75rem] bg-white shadow-2xl">
-              <header className="flex items-start justify-between bg-[#041E42] p-5 text-white">
+              <header className="flex items-start justify-between bg-[#3150D8] p-5 text-white">
                 <div className="flex gap-3">
                   <span className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><Settings2 className="h-5 w-5 text-cyan-200" /></span>
                   <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-200">Control total Root</p><h2 className="mt-1 text-xl font-bold">Configuración del cliente</h2><p className="mt-1 text-xs text-slate-300">Los módulos se administran en el panel principal.</p></div>
@@ -834,7 +741,7 @@ function RootWorkspace({ clients, setClients, pricing, setPricing, pricingAccess
 
               <footer className="flex flex-col-reverse gap-3 border-t border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs text-slate-500">ID interno: <b className="text-[#041E42]">{clientDraft.id}</b></p>
-                <div className="flex gap-2"><button type="button" disabled={clientSave.saving} onClick={() => setClientDraft(null)} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 disabled:opacity-60">Cancelar</button><button type="submit" disabled={clientSave.saving} className="inline-flex items-center gap-2 rounded-xl bg-[#3150D8] px-5 py-2.5 text-sm font-bold text-white disabled:cursor-wait disabled:opacity-60">{clientSave.saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{clientSave.saving ? "Guardando…" : "Guardar cambios"}</button></div>
+                <div className="flex gap-2"><button type="button" disabled={clientSave.saving} onClick={() => setClientDraft(null)} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-600 disabled:opacity-60">Cancelar</button><button type="submit" disabled={clientSave.saving} className="inline-flex items-center gap-2 rounded-xl bg-[#3150D8] px-5 py-2.5 text-sm font-bold text-white disabled:cursor-wait disabled:opacity-60">{clientSave.saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}{clientSave.saving ? "Modificando empresa…" : "Modificar empresa"}</button></div>
               </footer>
             </form>
           </div>
@@ -862,10 +769,9 @@ function ClientWorkspace({ client, pricing, sourceParkingId, onLogout, onSwitchR
     setStaff((current) => current.filter((item) => item.id !== person.id));
   };
   return (
-    <div className="min-h-screen bg-[#F4F7FB]">
-      <Header role="client" onLogout={onLogout} onSwitchRole={onSwitchRole} />
-      <main className="mx-auto max-w-[1400px] space-y-5 p-4 sm:p-7">
-        <section className="grid gap-4 overflow-hidden rounded-[1.75rem] bg-[#041E42] p-6 text-white shadow-lg lg:grid-cols-[1fr_auto] lg:items-center">
+    <div className="space-y-5">
+      <section className="mx-auto max-w-[1400px] space-y-5">
+        <section className="grid gap-4 overflow-hidden rounded-[1.75rem] bg-[#3150D8] p-6 text-white shadow-lg lg:grid-cols-[1fr_auto] lg:items-center">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-cyan-200">Portal del cliente</p>
             <h1 className="mt-2 text-3xl font-bold">Buenos días, {client.name}</h1>
@@ -906,12 +812,12 @@ function ClientWorkspace({ client, pricing, sourceParkingId, onLogout, onSwitchR
           <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-white text-cyan-700"><Sparkles className="h-5 w-5" /></span><div><p className="text-sm font-bold text-[#041E42]">¿Necesitas otra funcionalidad?</p><p className="text-xs text-slate-600">Solicita un módulo adicional al equipo ParkFacil.</p></div></div>
           <button type="button" className="rounded-xl bg-white px-4 py-2.5 text-xs font-bold text-[#3150D8] shadow-sm">Contactar asesor</button>
         </aside>
-      </main>
+      </section>
 
       {selectedModule ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-[#041E42]/65 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedModule(null); }}>
           <section className="w-full max-w-3xl overflow-hidden rounded-[1.75rem] bg-white shadow-2xl">
-            <header className="flex items-start justify-between bg-[#041E42] p-5 text-white">
+            <header className="flex items-start justify-between bg-[#3150D8] p-5 text-white">
               <div className="flex gap-3">
                 <span className={`grid h-11 w-11 place-items-center rounded-xl bg-white/10 text-cyan-200`}><selectedModule.icon className="h-5 w-5" /></span>
                 <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-cyan-200">{client.name}</p><h2 className="mt-1 text-xl font-bold">{selectedModule.name}</h2><p className="mt-1 text-xs text-slate-300">{selectedModule.description}</p></div>
@@ -930,7 +836,7 @@ function ClientWorkspace({ client, pricing, sourceParkingId, onLogout, onSwitchR
                 <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
                   <div className="flex flex-col gap-3 border-b border-slate-200 bg-[#EEF4FF] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <div><p className="text-sm font-bold text-[#041E42]">Equipo con acceso</p><p className="text-xs text-slate-500">Administra roles y estacionamientos asignados.</p></div>
-                    <button type="button" onClick={() => setShowStaffForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#3150D8] px-3 py-2 text-xs font-bold text-white"><UserPlus className="h-4 w-4" />Nuevo usuario</button>
+                    <button type="button" onClick={() => setShowStaffForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#3150D8] px-3 py-2 text-xs font-bold text-white"><UserPlus className="h-4 w-4" />Crear usuario</button>
                   </div>
                   {showStaffForm ? (
                     <form onSubmit={createStaff} className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 md:grid-cols-2">
@@ -986,7 +892,7 @@ function ClientWorkspace({ client, pricing, sourceParkingId, onLogout, onSwitchR
 }
 
 export default function ModeloGestionModulosPage() {
-  const [session, setSession] = useState(null);
+  const [session, setSession] = useState("root");
   const [clients, setClients] = useState(initialClients);
   const [clientSessionId, setClientSessionId] = useState(initialClients[0].id);
   const [sourceParkingId, setSourceParkingId] = useState(null);
@@ -1055,19 +961,22 @@ export default function ModeloGestionModulosPage() {
     window.localStorage.removeItem("parkfacil-client-context");
     window.dispatchEvent(new Event("parkfacil-client-context"));
   };
-  const login = (role) => {
-    if (role === "client") enterClient(clients[0].id);
-    else {
-      clearClientContext();
-      setSession("root");
-    }
-  };
   const logout = () => {
     clearClientContext();
-    setSession(null);
+    window.location.assign("/");
   };
 
-  if (!session) return <LoginScreen onLogin={login} />;
-  if (session === "root") return <RootWorkspace clients={clients} setClients={setClients} pricing={pricing} setPricing={setPricing} pricingAccess={pricingAccess} onSavePricing={savePricing} onLogout={logout} onSwitchRole={() => enterClient(clients[0].id)} onEnterClient={enterClient} />;
-  return <ClientWorkspace client={client} pricing={pricing} sourceParkingId={sourceParkingId} onLogout={logout} onSwitchRole={() => { clearClientContext(); setSession("root"); }} />;
+  if (session === "root") {
+    return (
+      <AppShell title="Gestión de módulos" description="Administración central de clientes y módulos contratados">
+        <RootWorkspace clients={clients} setClients={setClients} pricing={pricing} setPricing={setPricing} pricingAccess={pricingAccess} onSavePricing={savePricing} onLogout={logout} onSwitchRole={() => enterClient(clients[0].id)} onEnterClient={enterClient} />
+      </AppShell>
+    );
+  }
+
+  return (
+    <AppShell title="Gestión de módulos" description="Portal cliente para módulos contratados">
+      <ClientWorkspace client={client} pricing={pricing} sourceParkingId={sourceParkingId} onLogout={logout} onSwitchRole={() => { clearClientContext(); setSession("root"); }} />
+    </AppShell>
+  );
 }

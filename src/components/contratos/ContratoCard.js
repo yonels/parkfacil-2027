@@ -12,9 +12,9 @@ export default function ContratoCard({ contrato }) {
   const vigencia = calcularVigencia(contrato, new Date("2026-01-15"));
 
   return (
-    <Link href={`/contratos/${contrato.id}`} className="group block rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md">
+    <Link href={`/contratos/${contrato.id}`} className="group flex min-w-0 flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-semibold text-[#3150D8]">{contrato.numeroContrato}</p>
           <h3 className="mt-1 text-lg font-semibold text-[#041E42]">{empresa?.razonSocial || "No disponible"}</h3>
         </div>

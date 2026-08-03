@@ -12,7 +12,7 @@ export default function EstadoEmpresaBadge({ estado }) {
   };
 
   return (
-    <span className={`inline-flex shrink-0 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold ${variants[estado] ?? variants.onboarding}`}>
+    <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${variants[estado] ?? variants.onboarding}`}>
       {labels[estado] ?? estado}
     </span>
   );

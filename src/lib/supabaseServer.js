@@ -22,21 +22,25 @@ export function isSupabaseConfigurationError(error) {
 }
 
 let cachedClient = null;
+let cachedConfiguration = null;
 
 export function getSupabaseAdminClient() {
-  if (cachedClient) {
-    return cachedClient;
-  }
-
   const url = getEnv("NEXT_PUBLIC_SUPABASE_URL");
   const serviceRoleKey = getEnv("SUPABASE_SERVICE_ROLE_KEY");
+  const configuration = `${url}\u0000${serviceRoleKey}`;
+
+  if (cachedClient && cachedConfiguration === configuration) {
+    return cachedClient;
+  }
 
   cachedClient = createClient(url, serviceRoleKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
+      detectSessionInUrl: false,
     },
   });
+  cachedConfiguration = configuration;
 
   return cachedClient;
 }

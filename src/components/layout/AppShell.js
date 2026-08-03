@@ -1,14 +1,38 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Building2, Mail, Phone } from "lucide-react";
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
 import MobileNavigation from "@/components/layout/MobileNavigation";
+import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
+
+function getUserContext(session) {
+  const user = session?.user;
+  if (!user) return null;
+  return {
+    id: user.id,
+    name: user.user_metadata?.full_name || user.user_metadata?.name || user.email || "Usuario",
+    email: user.email || "",
+    role: user.app_metadata?.role || user.user_metadata?.role || "authenticated",
+    phone: user.user_metadata?.phone || "",
+    createdAt: user.created_at || null,
+    lastSignInAt: user.last_sign_in_at || null,
+    emailConfirmedAt: user.email_confirmed_at || null,
+    appMetadata: user.app_metadata || {},
+    userMetadata: user.user_metadata || {},
+  };
+}
 
 export default function AppShell({ children, title, description }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const pathname = usePathname();
+  const router = useRouter();
+  const [collapsed, setCollapsed] = useState(true);
   const [clientContext, setClientContext] = useState(null);
+  const [userContext, setUserContext] = useState(null);
+  const [sessionResolved, setSessionResolved] = useState(false);
+  const showClientContextBanner = pathname === "/modelo-gestion-modulos";
 
   useEffect(() => {
     const syncClientContext = () => {
@@ -28,13 +52,48 @@ export default function AppShell({ children, title, description }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (sessionResolved && !userContext) {
+      router.replace(`/login?next=${encodeURIComponent(pathname || "/")}`);
+    }
+  }, [pathname, router, sessionResolved, userContext]);
+
+  useEffect(() => {
+    let mounted = true;
+    try {
+      const supabase = getSupabaseBrowserClient();
+      supabase.auth.getSession().then(({ data }) => {
+        if (!mounted) return;
+        setUserContext(getUserContext(data.session));
+        setSessionResolved(true);
+      }).catch(() => {
+        if (!mounted) return;
+        setUserContext(null);
+        setSessionResolved(true);
+      });
+      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!mounted) return;
+        setUserContext(getUserContext(session));
+        setSessionResolved(true);
+      });
+      return () => {
+        mounted = false;
+        listener.subscription.unsubscribe();
+      };
+    } catch {
+      queueMicrotask(() => {
+        if (mounted) setSessionResolved(true);
+      });
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <div className="flex min-h-screen flex-col lg:flex-row">
-        <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} />
+        <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((value) => !value)} onHomeNavigate={() => setCollapsed(true)} clientContext={clientContext} userContext={userContext} />
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-          <Topbar title={title} description={description} onMenuClick={() => {}} clientContext={clientContext} />
-          {clientContext ? (
+          <Topbar title={title} description={description} onMenuClick={() => {}} clientContext={clientContext} userContext={userContext} sessionResolved={sessionResolved} />
+          {clientContext && showClientContextBanner ? (
             <section className="border-b border-[#BFD2FF] bg-[#EEF4FF] px-4 py-3 sm:px-6 lg:px-8">
               <div className="mx-auto flex w-full max-w-7xl flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex min-w-0 items-center gap-3">
@@ -51,7 +110,7 @@ export default function AppShell({ children, title, description }) {
           ) : null}
           <main className="min-w-0 flex-1 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
             <div className="mx-auto w-full max-w-7xl space-y-6">
-              <MobileNavigation onNavigate={() => {}} />
+              <MobileNavigation onNavigate={() => {}} clientContext={clientContext} />
               {children}
             </div>
           </main>

@@ -1,8 +1,9 @@
 import { ArrowUpRight } from "lucide-react";
+import Link from "next/link";
 
-export default function StatCard({ title, value, description, icon: Icon, trend }) {
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+export default function StatCard({ title, value, description, icon: Icon, trend, href }) {
+  const content = (
+    <div className={`h-full rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition ${href ? "cursor-pointer hover:-translate-y-1 hover:border-[#3150D8] hover:shadow-md" : ""}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-slate-500">{title}</p>
@@ -23,4 +24,10 @@ export default function StatCard({ title, value, description, icon: Icon, trend 
       ) : null}
     </div>
   );
+
+  return href ? (
+    <Link href={href} className="block h-full rounded-3xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3150D8] focus-visible:ring-offset-2" aria-label={`Ver información de ${title}`}>
+      {content}
+    </Link>
+  ) : content;
 }
