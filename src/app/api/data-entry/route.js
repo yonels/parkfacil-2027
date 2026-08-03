@@ -23,13 +23,14 @@ async function getActiveRate(db, parkingId) {
   return rates.find((rate) => rate.status === "ACTIVE" && new Date(rate.validFrom).getTime() <= now && (!rate.validUntil || new Date(rate.validUntil).getTime() > now)) || null;
 }
 
-async function getCoupon(db, rawToken) {
+async function getCoupon(db, rawToken, companyId) {
   if (!rawToken) return null;
   const token = String(rawToken).replace(/^PFC-COUPON:/i, "").trim();
   const { data, error } = await db.from("coupons").select("*").eq("qr_token", token).maybeSingle();
   if (error || !data) throw new Error("COUPON_NOT_FOUND");
   const now = Date.now();
   if (data.status !== "ACTIVE" || data.redeemed_at) throw new Error("COUPON_ALREADY_USED");
+  if (!companyId || data.company_id !== companyId) throw new Error("COUPON_WRONG_COMPANY");
   if (new Date(data.valid_from).getTime() > now) throw new Error("COUPON_NOT_YET_VALID");
   if (new Date(data.expires_at).getTime() <= now) throw new Error("COUPON_EXPIRED");
   return data;
@@ -38,8 +39,10 @@ async function getCoupon(db, rawToken) {
 async function quoteStay(db, stay, couponToken = null) {
   const rate = await getActiveRate(db, stay.parking_id);
   if (!rate) throw new Error("ACTIVE_RATE_NOT_FOUND");
+  const { data: parking } = await db.from("parkings").select("company_id").eq("id", stay.parking_id).maybeSingle();
+  if (!parking) throw new Error("PARKING_NOT_FOUND");
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(stay.entry_at).getTime()) / 1000));
-  const coupon = await getCoupon(db, couponToken);
+  const coupon = await getCoupon(db, couponToken, parking.company_id);
   const effectiveRate = coupon?.benefit_type === "FREE_MINUTES" ? { ...rate, freePeriodSeconds: Number(rate.freePeriodSeconds || 0) + Number(coupon.benefit_value) * 60 } : rate;
   const charge = calculateScheduledParkingCharge(effectiveRate, stay.entry_at, new Date());
   if (!charge.valid || charge.requiresDailyPolicy) throw new Error("RATE_REQUIRES_REVIEW");
@@ -107,7 +110,7 @@ export async function POST(request) {
     const stay = await findOpenStay(current.db, input, current.actor.parkingId);
     if (!stay) return fail("No existe una estadía abierta para el vehículo.", 404);
     let quote; try { quote = await quoteStay(current.db, stay, input.couponToken); } catch (error) {
-      const messages = { ACTIVE_RATE_NOT_FOUND: "El parking no tiene una tarifa activa.", COUPON_NOT_FOUND: "El cupón no existe.", COUPON_ALREADY_USED: "El cupón ya fue utilizado.", COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.", COUPON_EXPIRED: "El cupón está vencido." };
+      const messages = { ACTIVE_RATE_NOT_FOUND: "El parking no tiene una tarifa activa.", PARKING_NOT_FOUND: "El estacionamiento no existe.", COUPON_NOT_FOUND: "El cupón no existe.", COUPON_ALREADY_USED: "El cupón ya fue utilizado.", COUPON_WRONG_COMPANY: "El cupón no corresponde a este estacionamiento.", COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.", COUPON_EXPIRED: "El cupón está vencido." };
       return fail(messages[error.message] || "La tarifa requiere revisión administrativa.", 409);
     }
     const { data: parking } = await current.db.from("parkings").select("id,code,name,company_name,address,city").eq("id", stay.parking_id).single();
@@ -120,7 +123,12 @@ export async function POST(request) {
     }
     const update = { status: "PAID", exit_at: exitAt, exit_operator_id: current.actor.id, exit_operator_name: current.actor.name, elapsed_minutes: quote.elapsedMinutes, rate_id: quote.rate.id, rate_name: quote.rate.name, billing_mode: quote.rate.billingMode, subtotal_amount: quote.subtotal, discount_amount: quote.discount, coupon_id: quote.coupon?.id || null, coupon_code: quote.coupon?.code || null, net_amount: quote.net, tax_amount: quote.tax, total_amount: quote.total, payment_method: input.paymentMethod, payment_code: paymentCode, updated_at: exitAt };
     const { data, error } = await current.db.from("parking_stays").update(update).eq("id", stay.id).eq("status", "OPEN").select(publicStayFields).single();
-    if (error) return fail("No fue posible cerrar y pagar la estadía.", 503);
+    if (error) {
+      if (quote.coupon) {
+        await current.db.from("coupons").update({ status: "ACTIVE", redeemed_at: null, redeemed_by: null, redeemed_stay_id: null }).eq("id", quote.coupon.id).eq("status", "REDEEMED").eq("redeemed_stay_id", stay.id).eq("redeemed_at", exitAt);
+      }
+      return fail("No fue posible cerrar y pagar la estadía.", 503);
+    }
     return NextResponse.json({ data: { stay: data, parking, quote: { ...quote, paymentCode } } });
   }
   return fail("Acción operacional no reconocida.");
