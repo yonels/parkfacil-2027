@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
+import Link from "next/link";
+
 
 function getSafeDestination(value) {
   return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
