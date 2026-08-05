@@ -83,13 +83,13 @@ export default function LoginForm() {
       </label>
 
       <div className="-mt-1 flex justify-end">
-        <a
-          href="mailto:soporte@parkfacil.cl?subject=Recuperar%20contrasena"
-          className="text-sm font-semibold text-white underline decoration-white/50 underline-offset-4 transition hover:text-white/85 hover:decoration-white"
-        >
-          Recuperar contrasena
-        </a>
-      </div>
+  <Link
+    href="/recuperar-contrasena"
+    className="text-sm font-semibold text-white underline decoration-white/50 underline-offset-4 transition hover:text-white/85 hover:decoration-white"
+  >
+    Recuperar contraseña
+  </Link>
+</div>
 
       {error ? <p role="alert" className="rounded-2xl border border-red-200/50 bg-red-500/25 px-4 py-3 text-sm font-medium text-white">{error}</p> : null}
 
