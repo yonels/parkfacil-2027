@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
-import { getSupabaseAdminClient } from "@/lib/supabaseServer";
-import { getParking } from "@/lib/estacionamientosRepository";
+import { authorizeParkingRequest, requireParkingChild } from "@/lib/auth/parkingAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { sanitizeStreetSegment, validateStreetSegment } from "@/lib/parkingSegments.mjs";
 import { operationalError, validationError } from "@/lib/parkingApi";
 
@@ -12,45 +11,32 @@ const rowInput = (input, parkingId, areaId, streetId) => ({
   sort_order: input.sortOrder, notes: input.notes,
 });
 
-async function context(db, id, sectorId, calleId) {
-  const parking = await getParking(db, id);
-  if (!parking || parking.type !== "ON_STREET") return null;
-  const { data: street, error } = await db.from("parking_streets").select("id").eq("id", calleId).eq("parking_id", parking.id).eq("sector_id", sectorId).single();
-  if (error) return null;
-  return { parking, street };
-}
-
 export async function GET(request, { params }) {
-  const actor = await authenticateRequest(request);
-  if (!actor) return NextResponse.json({ error: "Debes iniciar sesión.", code: "AUTH_REQUIRED" }, { status: 401 });
   try {
     const { id, sectorId, calleId } = await params;
-    const db = getSupabaseAdminClient();
-    const parent = await context(db, id, sectorId, calleId);
-    if (!parent) return NextResponse.json({ error: "Calle no encontrada." }, { status: 404 });
-    const { data, error } = await db.from("parking_street_segments").select("*").eq("street_id", calleId).order("sort_order").order("from_number");
+    const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_READ); if (auth.response) return auth.response;
+    await requireParkingChild(auth.db, auth.context, auth.parking, "parking_sectors", sectorId);
+    await requireParkingChild(auth.db, auth.context, auth.parking, "parking_streets", calleId, { sector_id: sectorId });
+    const { data, error } = await auth.db.from("parking_street_segments").select("*").eq("parking_id", auth.parking.id).eq("area_id", sectorId).eq("street_id", calleId).order("sort_order").order("from_number");
     if (error) throw error;
     return NextResponse.json({ data });
-  } catch (error) { return operationalError(error, "No fue posible obtener los tramos."); }
+  } catch (error) { return operationalError(error, "No fue posible obtener los tramos.", request); }
 }
 
 export async function POST(request, { params }) {
-  const actor = await authenticateRequest(request);
-  if (!actor) return NextResponse.json({ error: "Debes iniciar sesión.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (!actor.isAdmin && !actor.isSupervisor) return NextResponse.json({ error: "No tienes permisos para crear tramos.", code: "FORBIDDEN" }, { status: 403 });
   try {
     const { id, sectorId, calleId } = await params;
-    const db = getSupabaseAdminClient();
-    const parent = await context(db, id, sectorId, calleId);
-    if (!parent) return NextResponse.json({ error: "Calle no encontrada." }, { status: 404 });
+    const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_MANAGE); if (auth.response) return auth.response;
+    await requireParkingChild(auth.db, auth.context, auth.parking, "parking_sectors", sectorId);
+    await requireParkingChild(auth.db, auth.context, auth.parking, "parking_streets", calleId, { sector_id: sectorId });
     const input = sanitizeStreetSegment(await request.json());
-    const { data: current, error: currentError } = await db.from("parking_street_segments").select("id,code,from_number,to_number,street_side,status").eq("street_id", calleId);
+    const { data: current, error: currentError } = await auth.db.from("parking_street_segments").select("id,code,from_number,to_number,street_side,status").eq("parking_id", auth.parking.id).eq("area_id", sectorId).eq("street_id", calleId);
     if (currentError) throw currentError;
     const existing = (current || []).map((item) => ({ id: item.id, code: item.code, fromNumber: item.from_number, toNumber: item.to_number, streetSide: item.street_side, status: item.status }));
     const errors = validateStreetSegment(input, existing);
     if (Object.keys(errors).length) return validationError(errors);
-    const { data, error } = await db.from("parking_street_segments").insert(rowInput(input, parent.parking.id, sectorId, calleId)).select("*").single();
+    const { data, error } = await auth.db.from("parking_street_segments").insert(rowInput(input, auth.parking.id, sectorId, calleId)).select("*").single();
     if (error) throw error;
     return NextResponse.json({ data }, { status: 201 });
-  } catch (error) { return operationalError(error, "No fue posible crear el tramo."); }
+  } catch (error) { return operationalError(error, "No fue posible crear el tramo.", request); }
 }

@@ -14,11 +14,11 @@ const mapRate = (row, blocks) => ({
 });
 
 export async function listParkingRates(db, parkingId) {
-  const [{ data: rates, error }, { data: blocks, error: blockError }] = await Promise.all([
-    db.from("parking_rates").select("*").eq("parking_id", parkingId).order("created_at", { ascending: false }),
-    db.from("parking_rate_blocks").select("*").order("sequence"),
-  ]);
+  const { data: rates, error } = await db.from("parking_rates").select("*").eq("parking_id", parkingId).order("created_at", { ascending: false });
   if (error) throw error;
+  const rateIds = (rates || []).map((rate) => rate.id);
+  if (!rateIds.length) return [];
+  const { data: blocks, error: blockError } = await db.from("parking_rate_blocks").select("*").in("rate_id", rateIds).order("sequence");
   if (blockError) throw blockError;
   return (rates || []).map((rate) => mapRate(rate, blocks || []));
 }

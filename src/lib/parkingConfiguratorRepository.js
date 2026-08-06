@@ -12,8 +12,8 @@ async function rows(db, table, parkingId, select = "*") {
   return result.data || [];
 }
 
-export async function getConfigurator(db, identifier) {
-  const parking = await getParking(db, identifier);
+export async function getConfigurator(db, identifier, { parking: authorizedParking = null, scope = {} } = {}) {
+  const parking = authorizedParking || await getParking(db, identifier, scope);
   if (!parking) return null;
   const summary = { levelCount: 0, zoneCount: 0, sectorCount: 0, streetCount: 0, segmentCount: 0, capacity: 0, occupied: 0, assignmentCount: 0, shiftCount: 0, pendingClosureCount: 0, rateCount: 0 };
   const availability = { rates: false, operators: false, shifts: false, closures: false };

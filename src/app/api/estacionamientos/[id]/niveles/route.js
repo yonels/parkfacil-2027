@@ -1,25 +1,21 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdminClient } from "@/lib/supabaseServer";
-import { getParking } from "@/lib/estacionamientosRepository";
 import { createLevel } from "@/lib/parkingStructureRepository";
 import { operationalError, validationError } from "@/lib/parkingApi";
 import { sanitizeLevelCreateInput, validateLevelCreateInput } from "@/lib/parkingOperations.mjs";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
+import { authorizeParkingRequest } from "@/lib/auth/parkingAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
-export async function GET(_request, { params }) {
-  try { const { id } = await params; const db = getSupabaseAdminClient(); const parking = await getParking(db, id); if (!parking) return NextResponse.json({ error: "Estacionamiento no encontrado." }, { status: 404 }); const { data, error } = await db.from("parking_levels").select("*").eq("parking_id", parking.id).order("code"); if (error) throw error; return NextResponse.json({ data }); } catch (error) { return operationalError(error); }
+export async function GET(request, { params }) {
+  try { const { id } = await params; const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_READ); if (auth.response) return auth.response; const { data, error } = await auth.db.from("parking_levels").select("*").eq("parking_id", auth.parking.id).order("code"); if (error) throw error; return NextResponse.json({ data }); } catch (error) { return operationalError(error); }
 }
 export async function POST(request, { params }) {
   try {
-    const actor = await authenticateRequest(request);
-    if (!actor) return NextResponse.json({ error: "Debes iniciar sesión para crear un nivel.", code: "AUTH_REQUIRED" }, { status: 401 });
     const { id } = await params;
+    const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_MANAGE); if (auth.response) return auth.response;
     const input = sanitizeLevelCreateInput(await request.json());
     const errors = validateLevelCreateInput(input);
     if (Object.keys(errors).length) return validationError(errors);
-    const db = getSupabaseAdminClient();
-    const parking = await getParking(db, id);
-    if (!parking) return NextResponse.json({ error: "Estacionamiento no encontrado.", code: "PARKING_NOT_FOUND" }, { status: 404 });
+    const { db, parking } = auth;
     if (parking.type !== "OFF_STREET") return NextResponse.json({ error: "Los niveles solo pertenecen a estacionamientos Off Street.", code: "INVALID_PARKING_TYPE" }, { status: 409 });
     const level = await createLevel(db, input, parking.id);
     return NextResponse.json({ data: level, message: `Nivel ${level.code} creado correctamente.` }, { status: 201 });

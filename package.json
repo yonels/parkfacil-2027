@@ -7,6 +7,7 @@
     "build": "next build",
     "test:auth": "node --test --experimental-test-isolation=none src/lib/auth/*.test.mjs",
     "test:lot-a": "node --test --experimental-test-isolation=none src/lib/auth/*.test.mjs src/lib/usersRepository.test.mjs",
+    "test:lot-b": "node --test --experimental-test-isolation=none src/lib/auth/*.test.mjs src/lib/usersRepository.test.mjs",
     "start": "next start",
     "lint": "eslint"
   },

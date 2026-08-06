@@ -55,7 +55,7 @@ export async function createLevel(supabase, input, parkingId) {
   });
   if (error) throw error;
   const created = Array.isArray(data) ? data[0] : data;
-  const { data: updated, error: updateError } = await supabase.from("parking_levels").update({ declared_capacity: input.capacity }).eq("id", created.id).select("*").single();
+  const { data: updated, error: updateError } = await supabase.from("parking_levels").update({ declared_capacity: input.capacity }).eq("id", created.id).eq("parking_id", parkingId).select("*").single();
   if (updateError) throw updateError;
   return updated;
 }

@@ -1,30 +1,25 @@
 import { NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
-import { getSupabaseAdminClient } from "@/lib/supabaseServer";
-import { getParking } from "@/lib/estacionamientosRepository";
 import { getConfigurator } from "@/lib/parkingConfiguratorRepository";
 import { sanitizeTypeChange } from "@/lib/parkingConfigurator.mjs";
+import { authorizeParkingRequest } from "@/lib/auth/parkingAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 export async function PATCH(request, { params }) {
-  const actor = await authenticateRequest(request);
-  if (!actor) return NextResponse.json({ error: "Debes iniciar sesión.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (!actor.isAdmin && !actor.isSupervisor) return NextResponse.json({ error: "No tienes permisos para cambiar el tipo.", code: "FORBIDDEN" }, { status: 403 });
   try {
     const { id } = await params;
+    const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_MANAGE); if (auth.response) return auth.response;
     const input = sanitizeTypeChange(await request.json());
     if (!input.type) return NextResponse.json({ error: "Selecciona un tipo válido.", code: "VALIDATION_ERROR" }, { status: 400 });
-    const db = getSupabaseAdminClient();
-    const parking = await getParking(db, id);
-    if (!parking) return NextResponse.json({ error: "Estacionamiento no encontrado.", code: "PARKING_NOT_FOUND" }, { status: 404 });
+    const { db, parking } = auth;
     const { data, error } = await db.rpc("change_parking_configuration_type", {
       p_parking_id: parking.id,
       p_new_type: input.type,
       p_confirmed: input.confirmed,
-      p_actor_id: actor.id,
+      p_actor_id: auth.context.userId,
       p_reason: input.reason,
     });
     if (error) throw error;
-    return NextResponse.json({ data: await getConfigurator(db, parking.id), change: data });
+    return NextResponse.json({ data: await getConfigurator(db, parking.id, { parking }), change: data });
   } catch (error) {
     console.error("[parking:configurator:type]", { code: error?.code, message: error?.message, details: error?.details });
     const message = String(error?.message || "");

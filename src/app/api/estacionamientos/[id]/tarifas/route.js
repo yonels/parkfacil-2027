@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
-import { getSupabaseAdminClient } from "@/lib/supabaseServer";
-import { getParking } from "@/lib/estacionamientosRepository";
+import { authorizeParkingRequest, requireParkingChild } from "@/lib/auth/parkingAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { createParkingRate, listParkingRates } from "@/lib/parkingRatesRepository";
 import { validateOperationalRate } from "@/lib/parkingRates.mjs";
 import { operationalError, validationError } from "@/lib/parkingApi";
@@ -52,29 +51,24 @@ function validate(input) {
 }
 
 export async function GET(request, { params }) {
-  const actor = await authenticateRequest(request);
-  if (!actor) return NextResponse.json({ error: "Debes iniciar sesión.", code: "AUTH_REQUIRED" }, { status: 401 });
   try {
     const { id } = await params;
-    const db = getSupabaseAdminClient();
-    const parking = await getParking(db, id);
-    if (!parking) return NextResponse.json({ error: "Estacionamiento no encontrado." }, { status: 404 });
-    return NextResponse.json({ data: await listParkingRates(db, parking.id), parking });
-  } catch (error) { return operationalError(error, "No fue posible obtener las tarifas."); }
+    const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_READ); if (auth.response) return auth.response;
+    return NextResponse.json({ data: await listParkingRates(auth.db, auth.parking.id), parking: auth.parking });
+  } catch (error) { return operationalError(error, "No fue posible obtener las tarifas.", request); }
 }
 
 export async function POST(request, { params }) {
-  const actor = await authenticateRequest(request);
-  if (!actor) return NextResponse.json({ error: "Debes iniciar sesión.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (!actor.isAdmin && !actor.isSupervisor) return NextResponse.json({ error: "No tienes permisos para crear tarifas.", code: "FORBIDDEN" }, { status: 403 });
   try {
     const { id } = await params;
-    const db = getSupabaseAdminClient();
-    const parking = await getParking(db, id);
-    if (!parking) return NextResponse.json({ error: "Estacionamiento no encontrado." }, { status: 404 });
+    const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_MANAGE); if (auth.response) return auth.response;
     const input = sanitize(await request.json());
     const errors = validate(input);
     if (Object.keys(errors).length) return validationError(errors);
-    return NextResponse.json({ data: await createParkingRate(db, parking.id, input) }, { status: 201 });
-  } catch (error) { return operationalError(error, "No fue posible crear la tarifa."); }
+    if (input.areaId) {
+      const areaTable = auth.parking.type === "OFF_STREET" ? "parking_levels" : "parking_sectors";
+      await requireParkingChild(auth.db, auth.context, auth.parking, areaTable, input.areaId);
+    }
+    return NextResponse.json({ data: await createParkingRate(auth.db, auth.parking.id, input) }, { status: 201 });
+  } catch (error) { return operationalError(error, "No fue posible crear la tarifa.", request); }
 }
