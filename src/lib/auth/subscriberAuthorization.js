@@ -44,7 +44,7 @@ export async function requireSubscriberParkingId(db, context, companyId, parking
 
 export async function requireActiveClientCompany(db, context, companyId) {
   if (!companyId) throw new AuthorizationError("RESOURCE_NOT_FOUND", 404, "No se encontro la empresa solicitada.", context);
-  const result = await db.from("companies").select("id,status,company_type").eq("id", companyId).eq("status", "active").eq("company_type", "client").maybeSingle();
+  const result = await db.from("companies").select("id,status,relationship_type").eq("id", companyId).eq("status", "active").eq("relationship_type", "client").maybeSingle();
   if (result.error) throw result.error;
   if (!result.data) throw new AuthorizationError("RESOURCE_NOT_FOUND", 404, "No se encontro la empresa solicitada.", context);
   return result.data;

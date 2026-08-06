@@ -1,20 +1,37 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdminClient } from "@/lib/supabaseServer";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
 import { calculateChileTax, joinChileanPlate } from "@/lib/dataEntry.mjs";
 import { calculateScheduledParkingCharge } from "@/lib/parkingRates.mjs";
 import { listParkingRates } from "@/lib/parkingRatesRepository";
+import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
+import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 
-const allowedRoles = new Set(["operator", "supervisor", "company_admin", "organization_admin", "admin", "platform_admin"]);
 const publicStayFields = "id,code,parking_id,license_plate,qr_token,status,entry_at,entry_operator_name,entry_source,exit_at,exit_operator_name,elapsed_minutes,rate_name,billing_mode,net_amount,tax_amount,total_amount,payment_method,payment_code,coupon_id,coupon_code,discount_amount,subtotal_amount";
 
 function fail(message, status = 400, details) { return NextResponse.json({ error: message, details }, { status }); }
 function code(prefix) { return `${prefix}-${new Date().toISOString().replace(/\D/g, "").slice(2, 14)}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`; }
 
-async function context(request) {
-  const actor = await authenticateRequest(request);
-  if (!actor || !allowedRoles.has(actor.role)) return null;
-  return { actor, db: getSupabaseAdminClient() };
+async function context(request, requestedParkingId = null) {
+  let authorization;
+  try {
+  authorization = await authorizeOperationRequest(request, PERMISSIONS.OPERATIONS_USE);
+  if (authorization.response) return { response: authorization.response };
+  let parkingId = requestedParkingId;
+  if (!parkingId && authorization.context.role === ROLES.OPERATOR) parkingId = authorization.assignedParkingIds?.[0] || null;
+  if (!parkingId) {
+    let query = authorization.db.from("parkings").select("id").eq("status", "ACTIVE").order("code").limit(1);
+    if (authorization.scope.companyId) query = query.eq("company_id", authorization.scope.companyId);
+    const result = await query;
+    if (result.error) throw result.error;
+    parkingId = result.data?.[0]?.id || null;
+  }
+  if (!parkingId) return { response: fail("El usuario no tiene un estacionamiento autorizado.", 404) };
+  const parking = await requireOperationalParking(authorization.db, authorization.context, authorization.scope, parkingId);
+  return { ...authorization, actor: { ...operationActor(authorization.context), parkingId: parking.id }, parking };
+  } catch (error) {
+    const denied = operationAuthorizationError(request, authorization?.context, error);
+    if (denied) return { response: denied };
+    throw error;
+  }
 }
 
 async function getActiveRate(db, parkingId) {
@@ -68,8 +85,8 @@ async function findOpenStay(db, input, assignedParkingId) {
 }
 
 export async function GET(request) {
-  const current = await context(request); if (!current) return fail("Acceso permitido solo a operadores y administradores.", 403);
-  if (!current.actor.parkingId) return fail("El usuario no tiene un estacionamiento asignado.", 409);
+  const requestedParkingId = new URL(request.url).searchParams.get("parkingId");
+  const current = await context(request, requestedParkingId); if (current.response) return current.response;
   const [parkingResult, stayResult] = await Promise.all([
     current.db.from("parkings").select("id,code,name,company_name,address,city,status").eq("id", current.actor.parkingId).eq("status", "ACTIVE").maybeSingle(),
     current.db.from("parking_stays").select(publicStayFields).eq("parking_id", current.actor.parkingId).eq("status", "OPEN").order("entry_at", { ascending: false }),
@@ -92,9 +109,8 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const current = await context(request); if (!current) return fail("Acceso permitido solo a operadores y administradores.", 403);
   const input = await request.json();
-  if (!current.actor.parkingId) return fail("El usuario no tiene un estacionamiento asignado.", 409);
+  const current = await context(request, input.parkingId || null); if (current.response) return current.response;
   if (input.action === "ENTRY") {
     const plate = joinChileanPlate(input.platePrefix, input.plateSuffix);
     if (!plate) return fail("Ingresa los cuatro caracteres iniciales y los dos finales de la patente.", 400, { plate: "Formato requerido: CXPY-93" });
