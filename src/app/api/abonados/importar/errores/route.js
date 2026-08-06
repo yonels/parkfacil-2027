@@ -1,8 +1,12 @@
 ﻿import { NextResponse } from "next/server";
 import { buildImportErrorsWorkbook, workbookToBuffer } from "@/lib/abonadosExcel";
+import { authorizeSubscriberRequest } from "@/lib/auth/subscriberAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 export async function POST(request) {
   try {
+    const authorization = await authorizeSubscriberRequest(request, PERMISSIONS.SUBSCRIBERS_MANAGE);
+    if (authorization.response) return authorization.response;
     const body = await request.json();
     const workbook = await buildImportErrorsWorkbook(Array.isArray(body?.errors) ? body.errors : []);
     const buffer = await workbookToBuffer(workbook);

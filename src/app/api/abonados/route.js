@@ -7,8 +7,10 @@ import {
   sanitizeAbonadoInput,
   validateAbonadoInput,
 } from "@/lib/abonados";
-import { getSupabaseAdminClient, isSupabaseConfigurationError } from "@/lib/supabaseServer";
+import { isSupabaseConfigurationError } from "@/lib/supabaseServer";
 import { fetchAbonadosBundle, parseAbonadosListParams } from "@/lib/abonadosRepository";
+import { authorizeSubscriberRequest, requireActiveClientCompany, requireSubscriberParkingId, subscriberAuthorizationError } from "@/lib/auth/subscriberAuthorization";
+import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 
 function jsonError(message, status = 500, details = null) {
   return NextResponse.json({ error: message, details }, { status });
@@ -48,9 +50,11 @@ async function resolveResponsableId(supabase, payload) {
 
 export async function GET(request) {
   try {
-    const supabase = getSupabaseAdminClient();
+    const authorization = await authorizeSubscriberRequest(request, PERMISSIONS.SUBSCRIBERS_READ);
+    if (authorization.response) return authorization.response;
+    const { db: supabase, scope } = authorization;
     const params = parseAbonadosListParams(new URL(request.url).searchParams);
-    const result = await fetchAbonadosBundle(supabase, params);
+    const result = await fetchAbonadosBundle(supabase, params, scope);
     return NextResponse.json(result);
   } catch (error) {
     console.error(error);
@@ -64,16 +68,22 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  let authorization;
   try {
+    authorization = await authorizeSubscriberRequest(request, PERMISSIONS.SUBSCRIBERS_MANAGE);
+    if (authorization.response) return authorization.response;
     const raw = await request.json();
     const payload = sanitizeAbonadoInput(raw);
+    if (authorization.context.role !== ROLES.PLATFORM_ADMIN) payload.empresaId = authorization.context.companyId;
     const validationErrors = validateAbonadoInput(payload);
 
     if (Object.keys(validationErrors).length > 0) {
       return jsonError("La informacion del abonado es invalida.", 400, validationErrors);
     }
 
-    const supabase = getSupabaseAdminClient();
+    const { db: supabase, scope } = authorization;
+    await requireActiveClientCompany(supabase, authorization.context, payload.empresaId);
+    await requireSubscriberParkingId(supabase, authorization.context, payload.empresaId, payload.estacionamientoId);
     payload.responsableId = await resolveResponsableId(supabase, payload);
 
     const { data: insertedRows, error: insertError } = await supabase
@@ -111,9 +121,11 @@ export async function POST(request) {
       }
     }
 
-    const created = await fetchAbonadosBundle(supabase, { id: inserted.id });
+    const created = await fetchAbonadosBundle(supabase, { id: inserted.id }, scope);
     return NextResponse.json({ data: created.data?.[0] || null }, { status: 201 });
   } catch (error) {
+    const denied = subscriberAuthorizationError(request, authorization?.context, error);
+    if (denied) return denied;
     if (isSupabaseConfigurationError(error)) return jsonError("Supabase no esta configurado en este entorno.", 503);
     if (error?.code === "23505") return jsonError("Ya existe un abonado, responsable, vehiculo o credencial con esos datos unicos.", 409);
     return jsonError("No fue posible crear el abonado.", 500);

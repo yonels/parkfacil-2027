@@ -1,8 +1,12 @@
 ﻿import { NextResponse } from "next/server";
 import { buildTemplateWorkbook, workbookToBuffer } from "@/lib/abonadosExcel";
+import { authorizeSubscriberRequest } from "@/lib/auth/subscriberAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
-export async function GET() {
+export async function GET(request) {
   try {
+    const authorization = await authorizeSubscriberRequest(request, PERMISSIONS.SUBSCRIBERS_MANAGE);
+    if (authorization.response) return authorization.response;
     const workbook = await buildTemplateWorkbook();
     const buffer = await workbookToBuffer(workbook);
     return new NextResponse(buffer, {

@@ -7,19 +7,17 @@ import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import AbonadoResumen from "@/components/abonados/AbonadoResumen";
 import AbonadosGrid from "@/components/abonados/AbonadosGrid";
-import { getAbonadosDemo, searchAbonados, filterAbonadosByEstado, filterAbonadosByTipo, filterAbonadosByEmpresa, filterAbonadosByEstacionamiento, filterAbonadosByTipoCredencial, filterAbonadosByVigencia, filterAbonadosBloqueados, filterAbonadosCredencialesPorVencer, getResumenAbonados, getTipoAbonadoLabel, getEstadoAbonadoLabel, getTipoCredencialLabel } from "@/data/abonados.mjs";
-import { getEmpresasDemo } from "@/data/empresas.mjs";
-import { getEstacionamientosDemo } from "@/data/estacionamientos.mjs";
-
-const abonados = getAbonadosDemo();
-const empresas = getEmpresasDemo();
-const estacionamientos = getEstacionamientosDemo();
+import { getTipoAbonadoLabel, getEstadoAbonadoLabel, getTipoCredencialLabel } from "@/data/abonados.mjs";
+import { getAbonadosSummary } from "@/lib/abonados";
 const estados = ["Todos", "active", "suspended", "pending", "blocked"];
 const tiposAbonado = ["Todos", "individual", "company_employee", "resident", "tenant", "supplier", "courtesy", "temporary", "other"];
 const tiposCredencial = ["Todos", "license_plate", "rfid_card", "qr_code", "mobile", "barcode", "pin", "biometric_reference", "manual", "other"];
 const vigencias = ["Todos", "Vigente", "Próximo a vencer", "Vencido"];
 
-export default function AbonadosClient() {
+export default function AbonadosClient({ initialAbonados = [], canManage = false }) {
+  const abonados = initialAbonados;
+  const empresas = useMemo(() => [...new Set(abonados.map((item) => item.empresaId).filter(Boolean))], [abonados]);
+  const estacionamientos = useMemo(() => [...new Set(abonados.flatMap((item) => item.estacionamientos || []))], [abonados]);
   const [busqueda, setBusqueda] = useState("");
   const [estado, setEstado] = useState("Todos");
   const [tipo, setTipo] = useState("Todos");
@@ -31,10 +29,11 @@ export default function AbonadosClient() {
   const [credencialesPorVencer, setCredencialesPorVencer] = useState(false);
 
   const resultados = useMemo(() => {
-    let base = searchAbonados(busqueda);
+    const term = busqueda.trim().toLowerCase();
+    let base = term ? abonados.filter((item) => [item.nombre, item.rut, item.correo, item.codigo, ...(item.vehiculos || []).map((v) => v.licensePlate), ...(item.credenciales || []).map((c) => c.numero)].some((value) => String(value || "").toLowerCase().includes(term))) : [...abonados];
 
     if (estado !== "Todos") {
-      base = filterAbonadosByEstado(estado);
+      base = base.filter((abonado) => abonado.estado === estado);
     }
     if (tipo !== "Todos") {
       base = base.filter((abonado) => abonado.tipo === tipo);
@@ -52,16 +51,16 @@ export default function AbonadosClient() {
       base = base.filter((abonado) => (vigencia === "Vigente" ? true : vigencia === "Próximo a vencer" ? true : false));
     }
     if (bloqueado) {
-      base = filterAbonadosBloqueados();
+      base = base.filter((abonado) => abonado.estado === "blocked" || abonado.credenciales.some((item) => item.accesoBloqueado));
     }
     if (credencialesPorVencer) {
-      base = filterAbonadosCredencialesPorVencer("2026-08-01");
+      base = base.filter((abonado) => abonado.credenciales.some((item) => item.fechaTermino && item.fechaTermino <= new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)));
     }
 
     return base;
-  }, [busqueda, estado, tipo, empresa, estacionamiento, credencial, vigencia, bloqueado, credencialesPorVencer]);
+  }, [abonados, busqueda, estado, tipo, empresa, estacionamiento, credencial, vigencia, bloqueado, credencialesPorVencer]);
 
-  const resumen = getResumenAbonados("2026-08-01");
+  const resumen = getAbonadosSummary(abonados, new Date().toISOString().slice(0, 10));
 
   return (
     <AppShell title="Abonados y Credenciales" description="Administración visual de personas, vehículos y permisos de acceso demostrativos">
@@ -69,12 +68,12 @@ export default function AbonadosClient() {
         <PageHeader
           title="Abonados y Credenciales"
           description="Administración visual de personas, vehículos, credenciales y permisos de acceso, con datos demostrativos y alcance de referencia para futuras etapas operativas."
-          actions={[
+          actions={canManage ? [
             <button key="nuevo" className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1E5EFF]">
               <Plus className="h-4 w-4" />
               Crear abonado
             </button>,
-          ]}
+          ] : []}
         />
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -124,14 +123,14 @@ export default function AbonadosClient() {
               <span>Empresa</span>
               <select value={empresa} onChange={(event) => setEmpresa(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
                 <option value="Todos">Todos</option>
-                {empresas.map((item) => <option key={item.id} value={item.id}>{item.nombreFantasia}</option>)}
+                {empresas.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </label>
             <label className="space-y-2 text-sm text-slate-600">
               <span>Estacionamiento</span>
               <select value={estacionamiento} onChange={(event) => setEstacionamiento(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
                 <option value="Todos">Todos</option>
-                {estacionamientos.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
+                {estacionamientos.map((item) => <option key={item} value={item}>{item}</option>)}
               </select>
             </label>
             <label className="space-y-2 text-sm text-slate-600">

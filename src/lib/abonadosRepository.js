@@ -1,6 +1,7 @@
 ﻿import "server-only";
 
 import { mapDbRowsToAbonados } from "@/lib/abonados";
+import { applySubscriberScope } from "@/lib/auth/subscriberAuthorization";
 
 const SORT_COLUMNS = {
   codigo: "codigo",
@@ -67,7 +68,7 @@ function applyBaseFilters(query, params) {
   return nextQuery;
 }
 
-export async function fetchAbonadosBundle(supabase, params = {}) {
+export async function fetchAbonadosBundle(supabase, params = {}, scope = {}) {
   const page = params.page || 1;
   const limit = params.limit || 50;
   const from = (page - 1) * limit;
@@ -79,6 +80,7 @@ export async function fetchAbonadosBundle(supabase, params = {}) {
     .from("abonados")
     .select("*", { count: "exact" })
     .order(sortColumn, { ascending });
+  query = applySubscriberScope(query, scope);
 
   if (params.id) {
     query = query.eq("id", params.id).limit(1);
@@ -118,13 +120,13 @@ export async function fetchAbonadosBundle(supabase, params = {}) {
   };
 }
 
-export async function fetchAllAbonadosForExport(supabase, params = {}) {
+export async function fetchAllAbonadosForExport(supabase, params = {}, scope = {}) {
   const limit = 100;
-  const first = await fetchAbonadosBundle(supabase, { ...params, page: 1, limit });
+  const first = await fetchAbonadosBundle(supabase, { ...params, page: 1, limit }, scope);
   const all = [...first.data];
 
   for (let page = 2; page <= first.totalPages; page += 1) {
-    const next = await fetchAbonadosBundle(supabase, { ...params, page, limit });
+    const next = await fetchAbonadosBundle(supabase, { ...params, page, limit }, scope);
     all.push(...next.data);
   }
 

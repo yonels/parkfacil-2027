@@ -3,22 +3,32 @@ import EstadoAbonadoBadge from "@/components/abonados/EstadoAbonadoBadge";
 import TipoAbonadoBadge from "@/components/abonados/TipoAbonadoBadge";
 import CredencialBadge from "@/components/abonados/CredencialBadge";
 import VigenciaAbonadoBadge from "@/components/abonados/VigenciaAbonadoBadge";
-import { getAbonadoById, resolveEmpresa, resolveEstacionamientos, resolveResponsable, resolveContrato, getVehiculos, getCredenciales, getPermisos, getPatentePrincipal, getTextoVigencia, formatDate } from "@/data/abonados.mjs";
+import { resolveEmpresa, resolveEstacionamientos, resolveResponsable, resolveContrato, getVehiculos, getCredenciales, getPermisos, getPatentePrincipal, getTextoVigencia, formatDate } from "@/data/abonados.mjs";
+import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
+import { assignedParkingIds } from "@/lib/auth/parkingAuthorization";
+import { subscriberQueryScope } from "@/lib/auth/subscriberAuthorizationCore.mjs";
+import { getSupabaseAdminClient } from "@/lib/supabaseServer";
+import { fetchAbonadosBundle } from "@/lib/abonadosRepository";
 
 export const metadata = {
   title: "Detalle de abonado | ParkFacil",
   description: "Detalle visual de un abonado y sus credenciales.",
 };
 
-export default function AbonadoDetallePage({ params }) {
-  const abonado = getAbonadoById(params.id);
+export default async function AbonadoDetallePage({ params }) {
+  const resolvedParams = await params;
+  const context = await getCurrentServerContext();
+  const db = getSupabaseAdminClient();
+  const assigned = await assignedParkingIds(db, context);
+  const result = await fetchAbonadosBundle(db, { id: resolvedParams.id }, subscriberQueryScope(context, assigned || []));
+  const abonado = result.data?.[0] || null;
 
   if (!abonado) {
     return (
       <AppShell title="Detalle de abonado" description="Abonado no encontrado">
         <div className="rounded-3xl border border-slate-200 bg-white p-10 text-center shadow-sm">
           <h1 className="text-2xl font-semibold text-[#041E42]">Abonado no encontrado</h1>
-          <p className="mt-2 text-sm text-slate-600">El identificador solicitado no existe en la muestra demo.</p>
+          <p className="mt-2 text-sm text-slate-600">El identificador solicitado no existe o no esta disponible.</p>
         </div>
       </AppShell>
     );
@@ -31,7 +41,7 @@ export default function AbonadoDetallePage({ params }) {
   const vehiculos = getVehiculos(abonado);
   const credenciales = getCredenciales(abonado);
   const permisos = getPermisos(abonado);
-  const vigencia = getTextoVigencia(abonado, "2026-08-01");
+  const vigencia = getTextoVigencia(abonado, new Date().toISOString().slice(0, 10));
 
   return (
     <AppShell title={abonado.nombre} description="Detalle visual del abonado">

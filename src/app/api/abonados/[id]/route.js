@@ -9,7 +9,9 @@ import {
   validateAbonadoInput,
   isValidUuid,
 } from "@/lib/abonados";
-import { getSupabaseAdminClient, isSupabaseConfigurationError } from "@/lib/supabaseServer";
+import { isSupabaseConfigurationError } from "@/lib/supabaseServer";
+import { authorizeSubscriberRequest, requireSubscriber, requireSubscriberParkingId, subscriberAuthorizationError } from "@/lib/auth/subscriberAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 function jsonError(message, status = 500, details = null) {
   return NextResponse.json({ error: message, details }, { status });
@@ -57,40 +59,52 @@ async function resolveResponsableId(supabase, payload) {
   return data?.[0]?.id || payload.responsableId;
 }
 
-export async function GET(_request, { params }) {
+export async function GET(request, { params }) {
+  let authorization;
   try {
     const resolvedParams = await params;
     const id = resolvedParams.id;
 
     if (!isValidUuid(id)) return jsonError("El identificador del abonado no es valido.", 400);
 
-    const supabase = getSupabaseAdminClient();
+    authorization = await authorizeSubscriberRequest(request, PERMISSIONS.SUBSCRIBERS_READ);
+    if (authorization.response) return authorization.response;
+    const { db: supabase } = authorization;
+    await requireSubscriber(supabase, authorization.context, authorization.scope, id);
     const abonado = await fetchAbonadoById(supabase, id);
     if (!abonado) return jsonError("Abonado no encontrado.", 404);
 
     return NextResponse.json({ data: abonado });
   } catch (error) {
+    const denied = subscriberAuthorizationError(request, authorization?.context, error);
+    if (denied) return denied;
     if (isSupabaseConfigurationError(error)) return jsonError("Supabase no esta configurado en este entorno.", 503);
     return jsonError("No fue posible obtener el abonado.", 500);
   }
 }
 
 export async function PATCH(request, { params }) {
+  let authorization;
   try {
     const resolvedParams = await params;
     const id = resolvedParams.id;
 
     if (!isValidUuid(id)) return jsonError("El identificador del abonado no es valido.", 400);
 
+    authorization = await authorizeSubscriberRequest(request, PERMISSIONS.SUBSCRIBERS_MANAGE);
+    if (authorization.response) return authorization.response;
+    const existing = await requireSubscriber(authorization.db, authorization.context, authorization.scope, id);
     const raw = await request.json();
     const payload = sanitizeAbonadoInput(raw);
+    payload.empresaId = existing.empresa_id;
     const validationErrors = validateAbonadoInput(payload);
 
     if (Object.keys(validationErrors).length > 0) {
       return jsonError("La informacion del abonado es invalida.", 400, validationErrors);
     }
 
-    const supabase = getSupabaseAdminClient();
+    const supabase = authorization.db;
+    await requireSubscriberParkingId(supabase, authorization.context, existing.empresa_id, payload.estacionamientoId);
     payload.responsableId = await resolveResponsableId(supabase, payload);
 
     const { data: updatedRows, error: updateError } = await supabase
@@ -136,6 +150,8 @@ export async function PATCH(request, { params }) {
     const updated = await fetchAbonadoById(supabase, id);
     return NextResponse.json({ data: updated });
   } catch (error) {
+    const denied = subscriberAuthorizationError(request, authorization?.context, error);
+    if (denied) return denied;
     if (isSupabaseConfigurationError(error)) return jsonError("Supabase no esta configurado en este entorno.", 503);
     if (error?.code === "23505") return jsonError("Ya existe un abonado, responsable, vehiculo o credencial con esos datos unicos.", 409);
     return jsonError("No fue posible actualizar el abonado.", 500);

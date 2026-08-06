@@ -1,7 +1,8 @@
 ﻿import { NextResponse } from "next/server";
 import { buildAbonadosWorkbook, workbookToBuffer } from "@/lib/abonadosExcel";
 import { fetchAllAbonadosForExport, parseAbonadosListParams } from "@/lib/abonadosRepository";
-import { getSupabaseAdminClient } from "@/lib/supabaseServer";
+import { authorizeSubscriberRequest } from "@/lib/auth/subscriberAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 function timestamp() {
   const now = new Date();
@@ -12,9 +13,11 @@ function timestamp() {
 
 export async function GET(request) {
   try {
-    const supabase = getSupabaseAdminClient();
+    const authorization = await authorizeSubscriberRequest(request, PERMISSIONS.SUBSCRIBERS_READ);
+    if (authorization.response) return authorization.response;
+    const { db: supabase, scope } = authorization;
     const params = parseAbonadosListParams(new URL(request.url).searchParams);
-    const abonados = await fetchAllAbonadosForExport(supabase, params);
+    const abonados = await fetchAllAbonadosForExport(supabase, params, scope);
     const workbook = await buildAbonadosWorkbook(abonados);
     const buffer = await workbookToBuffer(workbook);
     return new NextResponse(buffer, {

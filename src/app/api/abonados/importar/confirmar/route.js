@@ -6,23 +6,24 @@ import {
   sanitizeAbonadoInput,
   validateAbonadoInput,
 } from "@/lib/abonados";
-import { getSupabaseAdminClient } from "@/lib/supabaseServer";
+import { applySubscriberScope, authorizeSubscriberRequest, requireActiveClientCompany, requireSubscriberParkingId } from "@/lib/auth/subscriberAuthorization";
+import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 
 function jsonError(message, status = 400, details = null) {
   return NextResponse.json({ error: message, details }, { status });
 }
 
-async function findExisting(supabase, row) {
+async function findExisting(supabase, row, scope) {
   if (row.id) {
-    const { data } = await supabase.from("abonados").select("id").eq("id", row.id).limit(1);
+    const { data } = await applySubscriberScope(supabase.from("abonados").select("id"), scope).eq("id", row.id).limit(1);
     if (data?.[0]) return data[0].id;
   }
   if (row.codigo) {
-    const { data } = await supabase.from("abonados").select("id").eq("codigo", row.codigo).limit(1);
+    const { data } = await applySubscriberScope(supabase.from("abonados").select("id"), scope).eq("codigo", row.codigo).limit(1);
     if (data?.[0]) return data[0].id;
   }
   if (row.rutNormalizado) {
-    const { data } = await supabase.from("abonados").select("id").eq("rut", row.rutNormalizado).limit(1);
+    const { data } = await applySubscriberScope(supabase.from("abonados").select("id"), scope).eq("rut", row.rutNormalizado).limit(1);
     if (data?.[0]) return data[0].id;
   }
   return null;
@@ -30,9 +31,11 @@ async function findExisting(supabase, row) {
 
 export async function POST(request) {
   try {
+    const authorization = await authorizeSubscriberRequest(request, PERMISSIONS.SUBSCRIBERS_MANAGE);
+    if (authorization.response) return authorization.response;
     const body = await request.json();
     const rows = Array.isArray(body?.rows) ? body.rows : [];
-    const supabase = getSupabaseAdminClient();
+    const { db: supabase, scope } = authorization;
     const results = [];
 
     for (const row of rows) {
@@ -44,13 +47,16 @@ export async function POST(request) {
       const rawPayload = { ...(row.payload || {}) };
       if (rawPayload.credencialNumero === "IMPORT-PREVIEW") rawPayload.credencialNumero = "";
       const payload = sanitizeAbonadoInput(rawPayload);
+      if (authorization.context.role !== ROLES.PLATFORM_ADMIN) payload.empresaId = authorization.context.companyId;
       const errors = validateAbonadoInput(payload);
       if (Object.keys(errors).length > 0) {
         results.push({ row: row.row, status: "Error", message: "La fila no cumple las validaciones del servidor.", details: errors });
         continue;
       }
 
-      const existingId = await findExisting(supabase, { id: row.payload?.id, codigo: payload.codigo, rutNormalizado: payload.rutNormalizado });
+      await requireActiveClientCompany(supabase, authorization.context, payload.empresaId);
+      await requireSubscriberParkingId(supabase, authorization.context, payload.empresaId, payload.estacionamientoId);
+      const existingId = await findExisting(supabase, { id: row.payload?.id, codigo: payload.codigo, rutNormalizado: payload.rutNormalizado }, scope);
       if (existingId) {
         const { error } = await supabase.from("abonados").update(buildAbonadoRowInput(payload)).eq("id", existingId);
         if (error) {
