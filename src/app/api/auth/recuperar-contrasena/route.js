@@ -480,44 +480,65 @@ export async function POST(request) {
       "Generando enlace de recuperación para:",
       email
     );
-
+    diagnostico(
+  "Llamando a generateLink..."
+);
     const {
-      data,
-      error: errorGeneracion,
-    } =
-      await supabase.auth.admin.generateLink({
-        type: "recovery",
-        email,
-        options: {
-          redirectTo,
-        },
-      });
+  data,
+  error: errorGeneracion,
+} =
+  await supabase.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: {
+      redirectTo,
+    },
+  });
 
-    if (errorGeneracion) {
-      console.error(
-        "[RECUPERAR CONTRASEÑA] Error de generación:",
-        errorGeneracion
-      );
+diagnostico(
+  "Error generateLink:",
+  errorGeneracion
+);
 
-      return respuestaGenerica();
-    }
+diagnostico(
+  "Action link:",
+  data?.properties?.action_link
+);
 
-    const enlaceRecuperacion =
-      data?.properties?.action_link;
+diagnostico(
+  "Email OTP:",
+  data?.properties?.email_otp
+);
 
-    if (!enlaceRecuperacion) {
-      console.error(
-        "[RECUPERAR CONTRASEÑA] Supabase no generó el enlace."
-      );
+  diagnostico(
+  "Has properties:",
+  Boolean(data?.properties)
+);
 
-      return respuestaGenerica();
-    }
+if (errorGeneracion) {
+  console.error(
+    "[RECUPERAR CONTRASEÑA] Error de generación:",
+    errorGeneracion
+  );
 
-    const enlaceSeguro = escaparHtml(
-      enlaceRecuperacion
-    );
+  return respuestaGenerica();
+}
 
-    await enviarCorreoMicrosoft({
+const enlaceRecuperacion =
+  data?.properties?.action_link;
+
+if (!enlaceRecuperacion) {
+  console.error(
+    "[RECUPERAR CONTRASEÑA] Supabase no generó el enlace."
+  );
+
+  return respuestaGenerica();
+}
+
+const enlaceSeguro = escaparHtml(
+  enlaceRecuperacion
+);
+       await enviarCorreoMicrosoft({
       para: email,
       asunto:
         "Recuperación de contraseña | ParkFacil",
@@ -563,12 +584,16 @@ export async function POST(request) {
 
     return respuestaGenerica();
   } catch (error) {
-    console.error(
-      "[RECUPERAR CONTRASEÑA] Error interno:",
-      error
-    );
+  console.error(
+    "[RECUPERAR CONTRASEÑA] ERROR COMPLETO"
+  );
 
-    return respuestaGenerica();
+  console.error(error);
+
+  console.error("message:", error?.message);
+  console.error("stack:", error?.stack);
+
+  return respuestaGenerica();
   } finally {
     diagnostico(
       "Fin de solicitud"
