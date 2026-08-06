@@ -2,7 +2,7 @@
 
 ## Alcance
 
-Esta etapa agrega autenticación central del servidor, separación Root/Cliente, matriz inicial de permisos, protección de páginas y navegación por rol. No protege todavía el conjunto completo de APIs ni agrega las políticas RLS definitivas; esos controles pertenecen a las etapas 3 y 4.
+Esta etapa agrega un contexto central de autenticación validada y autorización, separación Root/Cliente, matriz inicial de permisos, protección de páginas y navegación por rol. Supabase Auth continúa siendo el único responsable de autenticar la identidad y validar la sesión: ParkFacil consume esa identidad para construir el contexto y decidir permisos, pero no sustituye ni replica la autenticación. No se protege todavía el conjunto completo de APIs ni se agregan las políticas RLS definitivas; esos controles pertenecen a las etapas 3 y 4.
 
 ## Determinación del contexto
 
