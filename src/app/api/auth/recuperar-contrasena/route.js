@@ -12,7 +12,6 @@ const ROLES_CLIENTE_PERMITIDOS = new Set([
 ]);
 
 const MODO_DIAGNOSTICO =
-  process.env.NODE_ENV !== "production";
 
 function diagnostico(etiqueta, valor = "") {
   if (!MODO_DIAGNOSTICO) {
