@@ -22,6 +22,7 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
   async function signOut() {
     setSigningOut(true);
     try {
+      await fetch("/api/auth/session", { method: "DELETE" });
       await getSupabaseBrowserClient().auth.signOut();
       router.replace("/login");
       router.refresh();

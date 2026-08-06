@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "test:auth": "node --test --experimental-test-isolation=none src/lib/auth/*.test.mjs",
     "start": "next start",
     "lint": "eslint"
   },

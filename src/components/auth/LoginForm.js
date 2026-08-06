@@ -11,7 +11,7 @@ function getSafeDestination(value) {
   return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
 }
 
-export default function LoginForm() {
+export default function LoginForm({ tipoAcceso }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
@@ -27,18 +27,28 @@ export default function LoginForm() {
 
     try {
       const supabase = getSupabaseBrowserClient();
-      const { error: authError } = await supabase.auth.signInWithPassword({
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
       if (authError) throw authError;
+      const sessionResponse = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ accessToken: data.session?.access_token }),
+      });
+      if (!sessionResponse.ok) {
+        const payload = await sessionResponse.json().catch(() => ({}));
+        await supabase.auth.signOut();
+        throw new Error(payload.error || `Esta cuenta no puede acceder al Portal ${tipoAcceso === "cliente" ? "Cliente" : "Root"}.`);
+      }
       router.replace(getSafeDestination(searchParams.get("next")));
       router.refresh();
     } catch (authError) {
       setError(
         authError?.message === "Invalid login credentials"
           ? "El correo o la contraseña no son correctos."
-          : "No fue posible iniciar sesión. Inténtalo nuevamente."
+          : authError?.message || "No fue posible iniciar sesión. Inténtalo nuevamente."
       );
     } finally {
       setSubmitting(false);

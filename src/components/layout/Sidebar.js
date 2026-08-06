@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, BookOpen, CircleUserRound, Mail, PanelLeftClose, PanelLeftOpen, ShieldCheck, UserRound } from "lucide-react";
 import { navigationItems } from "@/config/navigation";
+import { navigationVisibleForRole } from "@/lib/auth/permissions.mjs";
 import { useMemo, useState } from "react";
 
 function formatDate(value) {
@@ -51,8 +52,8 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
     `flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition ${active ? "bg-[#EEF4FF] text-[#3150D8] shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-[#041E42]"}`;
 
   const visibleItems = useMemo(
-    () => navigationItems.filter((item) => !clientContext || !item.requiresModule || clientContext.modules?.includes(item.requiresModule)),
-    [clientContext],
+    () => navigationItems.filter((item) => navigationVisibleForRole(item, userContext) && (!clientContext || !item.requiresModule || clientContext.modules?.includes(item.requiresModule))),
+    [clientContext, userContext],
   );
 
   const sections = useMemo(

@@ -49,7 +49,7 @@ function obtenerTipoAcceso(host) {
 
 export default async function LoginPage() {
   const encabezados = await headers();
-  const host = encabezados.get("host");
+  const host = encabezados.get("x-forwarded-host") || encabezados.get("host");
 
   const tipoAcceso = obtenerTipoAcceso(host);
   const configuracion = CONFIGURACION_ACCESO[tipoAcceso];

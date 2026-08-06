@@ -22,33 +22,15 @@ const RUTAS_PUBLICAS = [
   "/nueva-contrasena",
 ];
 
-function getUserContext(session) {
-  const user = session?.user;
-
-  if (!user) {
-    return null;
-  }
-
+function getUserContext(context) {
+  if (!context) return null;
   return {
-    id: user.id,
-    name:
-      user.user_metadata?.full_name ||
-      user.user_metadata?.name ||
-      user.email ||
-      "Usuario",
-    email: user.email || "",
-    role:
-      user.app_metadata?.role ||
-      user.user_metadata?.role ||
-      "authenticated",
-    phone: user.user_metadata?.phone || "",
-    createdAt: user.created_at || null,
-    lastSignInAt:
-      user.last_sign_in_at || null,
-    emailConfirmedAt:
-      user.email_confirmed_at || null,
-    appMetadata: user.app_metadata || {},
-    userMetadata: user.user_metadata || {},
+    id: context.userId,
+    name: context.membership?.fullName || context.email || "Usuario",
+    email: context.email,
+    role: context.role,
+    portal: context.portal,
+    companyId: context.companyId,
   };
 }
 
@@ -79,47 +61,6 @@ export default function AppShell({
     pathname === "/modelo-gestion-modulos";
 
   useEffect(() => {
-    const syncClientContext = () => {
-      try {
-        const value =
-          window.localStorage.getItem(
-            "parkfacil-client-context"
-          );
-
-        setClientContext(
-          value ? JSON.parse(value) : null
-        );
-      } catch {
-        setClientContext(null);
-      }
-    };
-
-    syncClientContext();
-
-    window.addEventListener(
-      "parkfacil-client-context",
-      syncClientContext
-    );
-
-    window.addEventListener(
-      "storage",
-      syncClientContext
-    );
-
-    return () => {
-      window.removeEventListener(
-        "parkfacil-client-context",
-        syncClientContext
-      );
-
-      window.removeEventListener(
-        "storage",
-        syncClientContext
-      );
-    };
-  }, []);
-
-  useEffect(() => {
     if (!sessionResolved) {
       return;
     }
@@ -146,20 +87,22 @@ export default function AppShell({
     let mounted = true;
 
     try {
-      const supabase =
-        getSupabaseBrowserClient();
-
-      supabase.auth
-        .getSession()
-        .then(({ data }) => {
+      const supabase = getSupabaseBrowserClient();
+      fetch("/api/auth/session", { cache: "no-store" })
+        .then(async (response) => {
           if (!mounted) {
             return;
           }
-
-          setUserContext(
-            getUserContext(data.session)
-          );
-
+          if (!response.ok) throw new Error("SESSION_INVALID");
+          const payload = await response.json();
+          const context = payload.data;
+          setUserContext(getUserContext(context));
+          const company = context.membership?.company;
+          setClientContext(company ? {
+            name: company.trade_name || company.business_name,
+            email: context.email,
+            modules: [],
+          } : null);
           setSessionResolved(true);
         })
         .catch(() => {
@@ -175,16 +118,21 @@ export default function AppShell({
         data: listener,
       } =
         supabase.auth.onAuthStateChange(
-          (_event, session) => {
+          async (event, session) => {
             if (!mounted) {
               return;
             }
-
-            setUserContext(
-              getUserContext(session)
-            );
-
-            setSessionResolved(true);
+            if (event === "SIGNED_OUT") {
+              setUserContext(null);
+              setClientContext(null);
+              setSessionResolved(true);
+            } else if (event === "TOKEN_REFRESHED" && session?.access_token) {
+              await fetch("/api/auth/session", {
+                method: "POST",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ accessToken: session.access_token }),
+              });
+            }
           }
         );
 
@@ -277,6 +225,7 @@ export default function AppShell({
               <MobileNavigation
                 onNavigate={() => {}}
                 clientContext={clientContext}
+                userContext={userContext}
               />
 
               {children}

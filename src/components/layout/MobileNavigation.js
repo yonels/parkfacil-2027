@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { navigationItems } from "@/config/navigation";
+import { navigationVisibleForRole } from "@/lib/auth/permissions.mjs";
 
-export default function MobileNavigation({ onNavigate, clientContext }) {
+export default function MobileNavigation({ onNavigate, clientContext, userContext }) {
   const pathname = usePathname();
 
   return (
     <nav className="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:hidden" aria-label="Navegación móvil">
-      {navigationItems.filter((item) => !clientContext || !item.requiresModule || clientContext.modules?.includes(item.requiresModule)).map((item) => {
+      {navigationItems.filter((item) => navigationVisibleForRole(item, userContext) && (!clientContext || !item.requiresModule || clientContext.modules?.includes(item.requiresModule))).map((item) => {
         const Icon = item.icon;
         const isActive = pathname === item.href;
 
