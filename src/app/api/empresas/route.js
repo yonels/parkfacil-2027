@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { listCompanies } from "@/lib/companiesRepository";
 import { randomUUID } from "node:crypto";
+import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
+import { companyScope, requirePermission, requirePlatformAdmin } from "@/lib/auth/apiAuthorizationCore.mjs";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 export async function GET(request) {
-  const actor = await authenticateRequest(request);
-  if (!actor) return NextResponse.json({ error: "Debes iniciar sesión.", code: "AUTH_REQUIRED" }, { status: 401 });
+  const authorization = await authorizeApiRequest(request);
+  if (authorization.response) return authorization.response;
   try {
-    return NextResponse.json({ data: await listCompanies(getSupabaseAdminClient()) });
+    requirePermission(authorization.context, PERMISSIONS.COMPANY_READ);
+    return NextResponse.json({ data: await listCompanies(getSupabaseAdminClient(), { companyId: companyScope(authorization.context) }) });
   } catch (error) {
+    if (error?.status) return authorizationErrorResponse(request, error, authorization.context);
     console.error("[companies:list]", error);
     return NextResponse.json({ error: "No fue posible obtener las empresas.", code: "COMPANIES_READ_FAILED" }, { status: 500 });
   }
@@ -47,18 +51,16 @@ function validateCreation(input) {
 }
 
 export async function POST(request) {
-  const actor = await authenticateRequest(request);
-  if (!actor) return NextResponse.json({ error: "Debes iniciar sesión.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (!actor.isPlatformAdmin) {
-    return NextResponse.json({ error: "Solo ParkFacil Root puede crear empresas.", code: "COMPANY_CREATE_FORBIDDEN" }, { status: 403 });
-  }
+  const authorization = await authorizeApiRequest(request);
+  if (authorization.response) return authorization.response;
+  try { requirePlatformAdmin(authorization.context); } catch (error) { return authorizationErrorResponse(request, error, authorization.context); }
 
   const input = await request.json();
   const { errors, accounts } = validateCreation(input);
   if (errors.length) return NextResponse.json({ error: "Revisa los datos de la empresa y sus cuentas.", details: errors }, { status: 400 });
 
   const db = getSupabaseAdminClient();
-  const companyId = text(input.id) || `emp-${randomUUID()}`;
+  const companyId = `emp-${randomUUID()}`;
   const createdUsers = [];
   let companyCreated = false;
   let parkingCreated = false;
@@ -188,7 +190,7 @@ export async function POST(request) {
     }
 
     return NextResponse.json({
-      data: (await listCompanies(db)).find((company) => company.id === companyId),
+      data: (await listCompanies(db, { companyId })).find((company) => company.id === companyId),
       parking: parkingResult.data,
       accounts: accounts.map(({ password: _password, ...account }) => ({ ...account, mustChangePassword: true })),
     }, { status: 201 });

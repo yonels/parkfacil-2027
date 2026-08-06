@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { getCompany } from "@/lib/companiesRepository";
+import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
+import { requirePlatformAdmin } from "@/lib/auth/apiAuthorizationCore.mjs";
 
 const clean = (value) => String(value || "").trim();
 const numberOrNull = (value) => value === "" || value === null || value === undefined ? null : Number(value);
@@ -14,13 +15,15 @@ const planCode = {
 };
 
 export async function PATCH(request, { params }) {
-  const actor = await authenticateRequest(request);
-  if (!actor) return NextResponse.json({ error: "Debes iniciar sesión.", code: "AUTH_REQUIRED" }, { status: 401 });
-  if (!actor.isPlatformAdmin) {
-    return NextResponse.json({ error: "Solo ParkFacil Root puede modificar empresas y contratos.", code: "COMPANY_UPDATE_FORBIDDEN" }, { status: 403 });
-  }
+  const authorization = await authorizeApiRequest(request);
+  if (authorization.response) return authorization.response;
+  try { requirePlatformAdmin(authorization.context); } catch (error) { return authorizationErrorResponse(request, error, authorization.context); }
 
   const { id } = await params;
+  const db = getSupabaseAdminClient();
+  const existing = await db.from("companies").select("id").eq("id", id).maybeSingle();
+  if (existing.error) return NextResponse.json({ error: "No fue posible consultar la empresa.", code: "COMPANY_READ_FAILED" }, { status: 500 });
+  if (!existing.data) return NextResponse.json({ error: "No se encontró la empresa solicitada.", code: "COMPANY_NOT_FOUND" }, { status: 404 });
   const input = await request.json();
   const monthlyValue = numberOrNull(input.contract?.monthlyValue);
   const annualDiscount = numberOrNull(input.contract?.annualDiscountPercent);
@@ -32,7 +35,6 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ error: "Los valores contractuales deben ser números iguales o mayores que cero.", code: "VALIDATION_ERROR" }, { status: 400 });
   }
 
-  const db = getSupabaseAdminClient();
   const companyResult = await db.from("companies").update({
     trade_name: clean(input.name),
     business_name: clean(input.legalName),

@@ -20,4 +20,6 @@ test("operator queda fuera de administración de usuarios y empresa", () => {
   assert.equal(canAccessPath(context, "/usuarios"), false);
   assert.equal(hasPermission("operator", PERMISSIONS.USERS_MANAGE), false);
   assert.equal(hasPermission("company_admin", PERMISSIONS.USERS_MANAGE), true);
+  assert.equal(hasPermission("company_admin", PERMISSIONS.USER_CREDENTIALS_MANAGE), true);
+  assert.equal(hasPermission("operator", PERMISSIONS.USER_CREDENTIALS_MANAGE), false);
 });

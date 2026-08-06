@@ -1,39 +1,40 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
+import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
+import { requireCompanyResource, requirePermission } from "@/lib/auth/apiAuthorizationCore.mjs";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 function createTemporaryPassword() {
   return `Pf!${randomBytes(9).toString("base64url")}9a`;
 }
 
 export async function POST(request, { params }) {
-  const actor = await authenticateRequest(request);
-  if (!actor) {
-    return NextResponse.json({ error: "Debes iniciar sesión.", code: "AUTH_REQUIRED" }, { status: 401 });
-  }
-  if (!actor.isPlatformAdmin) {
-    return NextResponse.json(
-      { error: "Solo ParkFacil Root puede administrar credenciales.", code: "CREDENTIAL_FORBIDDEN" },
-      { status: 403 },
-    );
-  }
+  const authorization = await authorizeApiRequest(request);
+  if (authorization.response) return authorization.response;
+  try { requirePermission(authorization.context, PERMISSIONS.USER_CREDENTIALS_MANAGE); } catch (error) { return authorizationErrorResponse(request, error, authorization.context); }
 
   const { id } = await params;
   const db = getSupabaseAdminClient();
-  const [{ data: member, error: memberError }, { data: authData, error: authError }] = await Promise.all([
-    db.from("company_members").select("user_id,role,status").eq("user_id", id).single(),
-    db.auth.admin.getUserById(id),
-  ]);
+  const { data: member, error: memberError } = await db
+    .from("company_members")
+    .select("user_id,company_id,role,status")
+    .eq("user_id", id)
+    .maybeSingle();
 
-  if (memberError || authError || !member || !authData?.user) {
+  if (memberError || !member) {
     return NextResponse.json({ error: "No se encontró el usuario solicitado.", code: "USER_NOT_FOUND" }, { status: 404 });
   }
+  try { requireCompanyResource(authorization.context, member.company_id); } catch (error) { return authorizationErrorResponse(request, error, authorization.context); }
   if (!["company_admin", "operator"].includes(member.role)) {
     return NextResponse.json(
       { error: "La generación de claves está disponible para administradores de empresa y operadores.", code: "ROLE_NOT_SUPPORTED" },
       { status: 400 },
     );
+  }
+  const { data: authData, error: authError } = await db.auth.admin.getUserById(id);
+  if (authError || !authData?.user) {
+    return NextResponse.json({ error: "No se encontró el usuario solicitado.", code: "USER_NOT_FOUND" }, { status: 404 });
   }
 
   const temporaryPassword = createTemporaryPassword();

@@ -1,5 +1,4 @@
 import "server-only";
-import { listParkings } from "@/lib/estacionamientosRepository";
 
 function mapParking(row) {
   return {
@@ -83,16 +82,30 @@ function mapCompany(row, parkings, contracts = [], members = []) {
   };
 }
 
-export async function listCompanies(supabase) {
-  const [{ data: companies, error }, parkings, contractResult, memberResult] = await Promise.all([
-    supabase.from("companies").select("*").order("business_name"),
-    listParkings(supabase),
-    supabase.from("company_contracts").select("*").order("starts_on", { ascending: false }),
-    supabase.from("company_members").select("company_id,role,status"),
+function scoped(query, companyId) {
+  return companyId ? query.eq("company_id", companyId) : query;
+}
+
+export async function listCompanies(supabase, { companyId = null } = {}) {
+  const companyQuery = supabase.from("companies").select("*").order("business_name");
+  const parkingQuery = supabase.from("parkings").select("*").order("code");
+  const contractQuery = supabase.from("company_contracts").select("*").order("starts_on", { ascending: false });
+  const memberQuery = supabase.from("company_members").select("company_id,role,status");
+  const [{ data: companies, error }, parkingResult, contractResult, memberResult] = await Promise.all([
+    companyId ? companyQuery.eq("id", companyId) : companyQuery,
+    scoped(parkingQuery, companyId),
+    scoped(contractQuery, companyId),
+    scoped(memberQuery, companyId),
   ]);
   if (error) throw error;
+  if (parkingResult.error) throw parkingResult.error;
   if (contractResult.error) throw contractResult.error;
   if (memberResult.error) throw memberResult.error;
+  const parkings = (parkingResult.data || []).map((row) => ({
+    id: row.id, name: row.name, code: row.code, address: row.address, city: row.city,
+    country: row.country, status: row.status, type: row.type, companyId: row.company_id,
+    metrics: { capacity: 0 },
+  }));
   return (companies || []).map((company) => mapCompany(
     company,
     parkings || [],
@@ -101,7 +114,8 @@ export async function listCompanies(supabase) {
   ));
 }
 
-export async function getCompany(supabase, id) {
-  const companies = await listCompanies(supabase);
+export async function getCompany(supabase, id, { companyId = null } = {}) {
+  if (companyId && companyId !== id) return null;
+  const companies = await listCompanies(supabase, { companyId: id });
   return companies.find((company) => company.id === id) || null;
 }
