@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdminClient, isSupabaseConfigurationError } from "@/lib/supabaseServer";
+import { isSupabaseConfigurationError } from "@/lib/supabaseServer";
 import { getNotificationProvidersStatus, listNotifications, getNotificationSummary, normalizeNotificationFilters, NotificationValidationError } from "@/lib/notifications";
+import { authorizeRemainingRequest, notificationScope } from "@/lib/auth/remainingAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -22,11 +24,14 @@ function isMissingNotificationsTable(error) {
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   try {
-    const supabase = getSupabaseAdminClient();
+    const authorization = await authorizeRemainingRequest(request, PERMISSIONS.NOTIFICATIONS_READ);
+    if (authorization.response) return authorization.response;
+    const supabase = authorization.db;
+    const scope = await notificationScope(supabase, authorization.context);
     const rawFilters = Object.fromEntries(searchParams.entries());
     const [list, summary] = await Promise.all([
-      listNotifications(supabase, rawFilters),
-      getNotificationSummary(supabase, rawFilters),
+      listNotifications(supabase, rawFilters, scope),
+      getNotificationSummary(supabase, rawFilters, scope),
     ]);
     return NextResponse.json({ ...list, summary, providers: getNotificationProvidersStatus() });
   } catch (error) {

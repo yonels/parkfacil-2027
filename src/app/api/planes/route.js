@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
+import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 const allowed = {
   status: ["active", "inactive", "draft", "archived"],
@@ -17,7 +18,9 @@ function map(row) {
 }
 
 export async function GET(request) {
-  const actor = await authenticateRequest(request);
+  const authorization = await authorizeRemainingRequest(request, PERMISSIONS.COMPANY_READ);
+  if (authorization.response) return authorization.response;
+  const actor = remainingActor(authorization.context);
   if (!actor) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
   const { data, error } = await getSupabaseAdminClient().from("commercial_plans").select("*").order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: "No fue posible cargar los planes.", code: error.code }, { status: 500 });
@@ -25,7 +28,9 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const actor = await authenticateRequest(request);
+  const authorization = await authorizeRemainingRequest(request, PERMISSIONS.PLATFORM_GLOBAL);
+  if (authorization.response) return authorization.response;
+  const actor = remainingActor(authorization.context);
   if (!actor) return NextResponse.json({ error: "Debes iniciar sesión." }, { status: 401 });
   if (!actor.isPlatformAdmin) return NextResponse.json({ error: "Solo ParkFacil Root puede crear planes." }, { status: 403 });
   const input = await request.json();

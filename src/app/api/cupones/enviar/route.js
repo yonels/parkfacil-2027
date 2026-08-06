@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
 import { isMicrosoftGraphConfigurationError, MicrosoftGraphSendError, sendMicrosoftGraphMail } from "@/lib/microsoftGraphMail";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import QRCode from "qrcode";
+import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,9 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character
 const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 export async function POST(request) {
-  const actor = await authenticateRequest(request);
+  const authorization = await authorizeRemainingRequest(request, PERMISSIONS.COUPONS_MANAGE);
+  if (authorization.response) return authorization.response;
+  const actor = remainingActor(authorization.context);
   if (!actor) return NextResponse.json({ ok: false, message: "Debes iniciar sesión." }, { status: 401 });
   try {
     const input = await request.json();

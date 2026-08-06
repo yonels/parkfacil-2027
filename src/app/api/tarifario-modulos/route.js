@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/supabaseAuthServer";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { sanitizeModulePricing, validateModulePricing } from "@/lib/modulePricing.mjs";
+import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,9 @@ function authRequired() {
 }
 
 export async function GET(request) {
-  const actor = await authenticateRequest(request);
+  const authorization = await authorizeRemainingRequest(request, PERMISSIONS.COMPANY_READ);
+  if (authorization.response) return authorization.response;
+  const actor = remainingActor(authorization.context);
   if (!actor) return authRequired();
   const { data, error } = await getSupabaseAdminClient()
     .from("module_pricing")
@@ -25,7 +28,9 @@ export async function GET(request) {
 }
 
 export async function PATCH(request) {
-  const actor = await authenticateRequest(request);
+  const authorization = await authorizeRemainingRequest(request, PERMISSIONS.PLATFORM_GLOBAL);
+  if (authorization.response) return authorization.response;
+  const actor = remainingActor(authorization.context);
   if (!actor) return authRequired();
   if (!actor.isPlatformAdmin) {
     return NextResponse.json({ error: "Solo ParkFacil Root puede modificar el tarifario.", code: "MODULE_PRICING_FORBIDDEN" }, { status: 403 });

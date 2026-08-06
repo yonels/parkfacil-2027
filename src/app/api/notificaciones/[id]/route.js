@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdminClient, isSupabaseConfigurationError } from "@/lib/supabaseServer";
+import { isSupabaseConfigurationError } from "@/lib/supabaseServer";
 import { getNotificationById, listNotificationAttempts } from "@/lib/notifications";
+import { authorizeRemainingRequest, notificationScope } from "@/lib/auth/remainingAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -8,11 +10,13 @@ function isMissingNotificationsTable(error) {
   return ["42P01", "PGRST205", "PGRST116"].includes(error?.code) || /notifications|notification_attempts/i.test(error?.message || "") && /schema cache|does not exist|not found/i.test(error?.message || "");
 }
 
-export async function GET(_request, context) {
+export async function GET(request, context) {
   try {
     const params = await context.params;
-    const supabase = getSupabaseAdminClient();
-    const notification = await getNotificationById(supabase, params.id);
+    const authorization = await authorizeRemainingRequest(request, PERMISSIONS.NOTIFICATIONS_READ);
+    if (authorization.response) return authorization.response;
+    const supabase = authorization.db;
+    const notification = await getNotificationById(supabase, params.id, await notificationScope(supabase, authorization.context));
     const attempts = await listNotificationAttempts(supabase, params.id);
     return NextResponse.json({ data: { ...notification, attempts } });
   } catch (error) {
