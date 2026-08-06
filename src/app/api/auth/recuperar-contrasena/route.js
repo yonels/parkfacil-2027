@@ -11,7 +11,7 @@ const ROLES_CLIENTE_PERMITIDOS = new Set([
   "operator",
 ]);
 
-const MODO_DIAGNOSTICO =
+const MODO_DIAGNOSTICO = true;
 
 function diagnostico(etiqueta, valor = "") {
   if (!MODO_DIAGNOSTICO) {
