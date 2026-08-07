@@ -17,6 +17,7 @@ export default function EmpresaEditButton({ empresa }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(() => ({ ...empresa, contrato: empresa.contrato ? { ...empresa.contrato } : null }));
+  const [parkingSpaces, setParkingSpaces] = useState(() => Object.fromEntries((empresa.estacionamientos || []).map((parking) => [parking.id, parking.plazasContratadas ?? ""])));
   const [status, setStatus] = useState({ saving: false, error: "" });
 
   const change = (key, value) => setForm((current) => ({ ...current, [key]: value }));
@@ -49,6 +50,25 @@ export default function EmpresaEditButton({ empresa }) {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No fue posible guardar la empresa.");
+
+      // Plazas contratadas viven por estacionamiento (contract_parking_spaces), no en
+      // company_contracts: se guardan aparte, reutilizando la misma API que consume el
+      // detalle del estacionamiento (que solo lee, nunca escribe, este dato).
+      if (contract) {
+        const entries = Object.entries(parkingSpaces).filter(([, value]) => value !== "" && value != null);
+        const results = await Promise.all(entries.map(([parkingId, value]) => {
+          const parking = (empresa.estacionamientos || []).find((item) => item.id === parkingId);
+          if (!parking) return Promise.resolve({ ok: true });
+          return authenticatedFetch(`/api/estacionamientos/${parking.codigo}/plazas-contratadas`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contractedSpaces: Number(value) }),
+          }).then(async (res) => ({ ok: res.ok, parking: parking.nombre, body: await res.json().catch(() => ({})) }));
+        }));
+        const failed = results.filter((result) => result.ok === false);
+        if (failed.length) throw new Error(`Empresa guardada, pero no se pudieron guardar las plazas contratadas de: ${failed.map((item) => `${item.parking} (${item.body?.error || "error"})`).join(", ")}`);
+      }
+
       setOpen(false);
       router.refresh();
     } catch (error) {
@@ -75,6 +95,16 @@ export default function EmpresaEditButton({ empresa }) {
             <legend className="px-2 font-bold text-[#041E42]">Contrato {form.contrato.numero}</legend>
             {[ ["valorMensual", "Valor mensual", "number"], ["fechaInicio", "Inicio", "date"], ["fechaTermino", "Término", "date"], ["avisoNoRenovacionDias", "Aviso no renovación (días)", "number"], ["descuentoAnualPorcentaje", "Descuento anual (%)", "number"], ["plazoPagoDias", "Plazo de pago (días)", "number"] ].map(([key, label, type]) => <label key={key} className="text-sm font-semibold text-slate-600"><span className="mb-1.5 block">{label}</span><input type={type} min={type === "number" ? "0" : undefined} step={key === "valorMensual" ? "0.01" : undefined} value={form.contrato[key] ?? ""} onChange={(event) => changeContract(key, event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal" /></label>)}
             <label className="flex items-end text-sm font-semibold text-slate-600"><span className="flex w-full items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5"><input type="checkbox" checked={Boolean(form.contrato.renovacionAutomatica)} onChange={(event) => changeContract("renovacionAutomatica", event.target.checked)} /> Renovación automática</span></label>
+          </fieldset> : null}
+          {form.contrato && empresa.estacionamientos?.length ? <fieldset className="grid gap-3 border-t border-slate-200 pt-5 sm:col-span-2">
+            <legend className="px-2 font-bold text-[#041E42]">Plazas contratadas — Contrato {form.contrato.numero || "vigente"}</legend>
+            <p className="text-xs font-normal text-slate-500">Defina la cantidad de plazas contratadas para cada estacionamiento asociado a este contrato.</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {empresa.estacionamientos.map((parking) => <label key={parking.id} className="text-sm font-semibold text-slate-600">
+                <span className="mb-1.5 block">{parking.nombre} <span className="font-normal text-slate-400">({parking.codigo})</span></span>
+                <input type="number" min="1" step="1" value={parkingSpaces[parking.id] ?? ""} onChange={(event) => setParkingSpaces((current) => ({ ...current, [parking.id]: event.target.value }))} placeholder="No definido" className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal outline-none focus:border-[#3150D8]" />
+              </label>)}
+            </div>
           </fieldset> : null}
           {status.error ? <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700 sm:col-span-2">{status.error}</p> : null}
         </div>

@@ -1,22 +1,27 @@
 import Link from "next/link";
+import { structureCreateHref, structureCreateLabel } from "@/lib/parkingDetailView.mjs";
+
+export { structureCreateHref, structureCreateLabel };
 
 export default function ParkingStructureAdmin({ parking, structure }) {
   const onStreet = parking.type === "ON_STREET";
   const entities = onStreet ? structure?.sectors || [] : structure?.levels || [];
-  return <section id="estructura" className="space-y-4">
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h2 className="text-xl font-semibold text-[#041E42]">{onStreet ? "Áreas, Calles y Tramos" : "Niveles y Zonas"}</h2>
-        <p className="mt-1 text-sm text-slate-600">La capacidad se calcula desde {onStreet ? "los tramos activos" : "las zonas activas"}.</p>
-      </div>
-      <Link href={`/estacionamientos/${parking.code}/${onStreet ? "sectores" : "niveles"}/nuevo`} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white">{onStreet ? "Crear área" : "Crear nivel"}</Link>
+  return <section className="space-y-4">
+    <div>
+      <h2 className="text-xl font-semibold text-[#041E42]">{onStreet ? "Áreas, Calles y Tramos" : "Niveles y Zonas"}</h2>
+      <p className="mt-1 text-sm text-slate-600">La capacidad se calcula desde {onStreet ? "los tramos activos" : "las zonas activas"}.</p>
     </div>
     {structure?.source === "demo" ? <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Datos demostrativos de solo lectura. La estructura persistente todavía no está disponible.</p> : null}
     {!entities.length
       ? <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">No hay {onStreet ? "áreas" : "niveles"} configurados.</div>
       : <StructureSpreadsheet parking={parking} entities={entities} onStreet={onStreet} />}
-    {onStreet ? <section id="operadores" className="rounded-3xl border border-slate-200 bg-white p-5"><h2 className="text-xl font-semibold text-[#041E42]">Operadores</h2><p className="mt-1 text-sm text-slate-600">Las asignaciones se administran desde cada calle y separan rango territorial, capacidad física y máximo operacional.</p></section> : null}
   </section>;
+}
+
+export function ParkingOperatorsPanel({ parking }) {
+  const onStreet = parking.type === "ON_STREET";
+  if (!onStreet) return <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">La asignación de operadores para estacionamientos Off Street aún no está disponible en esta etapa.</div>;
+  return <section className="rounded-3xl border border-slate-200 bg-white p-5"><h2 className="text-xl font-semibold text-[#041E42]">Operadores</h2><p className="mt-1 text-sm text-slate-600">Las asignaciones se administran desde cada calle y separan rango territorial, capacidad física y máximo operacional.</p></section>;
 }
 
 function StructureSpreadsheet({ parking, entities, onStreet }) {

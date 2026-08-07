@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { calculateChileTax, joinChileanPlate } from "@/lib/dataEntry.mjs";
-import { calculateScheduledParkingCharge } from "@/lib/parkingRates.mjs";
+import { calculateScheduledParkingCharge, selectActiveRate } from "@/lib/parkingRates.mjs";
 import { listParkingRates } from "@/lib/parkingRatesRepository";
 import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
@@ -34,10 +34,12 @@ async function context(request, requestedParkingId = null) {
   }
 }
 
+// Selección de la tarifa vigente: delega en el motor central (parkingRates.mjs) para no
+// mantener una segunda lectura de "qué tarifa está activa" — la misma función decide qué
+// tarifa se muestra como "Tarifa vigente" en el detalle del estacionamiento.
 async function getActiveRate(db, parkingId) {
   const rates = await listParkingRates(db, parkingId);
-  const now = Date.now();
-  return rates.find((rate) => rate.status === "ACTIVE" && new Date(rate.validFrom).getTime() <= now && (!rate.validUntil || new Date(rate.validUntil).getTime() > now)) || null;
+  return selectActiveRate(rates);
 }
 
 async function getCoupon(db, rawToken, companyId) {
@@ -64,12 +66,16 @@ async function quoteStay(db, stay, couponToken = null) {
   const charge = calculateScheduledParkingCharge(effectiveRate, stay.entry_at, new Date());
   if (!charge.valid || charge.requiresDailyPolicy) throw new Error("RATE_REQUIRES_REVIEW");
   const baseCharge = calculateScheduledParkingCharge(rate, stay.entry_at, new Date());
-  const subtotal = Math.max(0, Math.round(baseCharge.amount));
-  let discount = Math.max(0, subtotal - Math.round(charge.amount));
+  // calculateParkingCharge ya entrega el monto truncado (Math.floor); no se vuelve a
+  // redondear aquí para no reintroducir una aproximación al alza.
+  const subtotal = Math.max(0, baseCharge.amount);
+  let discount = Math.max(0, subtotal - charge.amount);
   if (coupon?.benefit_type === "PERCENTAGE") discount = Math.floor(subtotal * Math.min(100, Number(coupon.benefit_value)) / 100);
   if (coupon?.benefit_type === "FIXED_AMOUNT") discount = Math.min(subtotal, Number(coupon.benefit_value));
   const amounts = calculateChileTax(Math.max(0, subtotal - discount));
-  return { ...amounts, subtotal, discount, elapsedMinutes: Math.max(1, Math.ceil(elapsedSeconds / 60)), rate, charge, coupon: coupon ? { id: coupon.id, code: coupon.code, name: coupon.name, benefitType: coupon.benefit_type, value: Number(coupon.benefit_value) } : null };
+  // Minutos consumidos: informativo (no alimenta el cobro, que usa segundos exactos vía
+  // calculateScheduledParkingCharge). Se trunca, nunca se aproxima al alza.
+  return { ...amounts, subtotal, discount, elapsedMinutes: Math.max(0, Math.floor(elapsedSeconds / 60)), rate, charge, coupon: coupon ? { id: coupon.id, code: coupon.code, name: coupon.name, benefitType: coupon.benefit_type, value: Number(coupon.benefit_value) } : null };
 }
 
 async function findOpenStay(db, input, assignedParkingId) {

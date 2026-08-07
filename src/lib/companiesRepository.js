@@ -1,6 +1,6 @@
 import "server-only";
 
-function mapParking(row) {
+function mapParking(row, contractedSpacesByParkingId = {}) {
   return {
     id: row.id,
     nombre: row.name,
@@ -11,6 +11,7 @@ function mapParking(row) {
     estado: row.status,
     tipo: row.type,
     capacidad: row.metrics?.capacity ?? 0,
+    plazasContratadas: contractedSpacesByParkingId[row.id] ?? null,
   };
 }
 
@@ -39,7 +40,7 @@ function mapContract(row) {
   };
 }
 
-function mapCompany(row, parkings, contracts = [], members = []) {
+function mapCompany(row, parkings, contracts = [], members = [], contractedSpacesByParkingId = {}) {
   const companyContracts = contracts.filter((contract) => contract.company_id === row.id).map(mapContract);
   const companyMembers = members.filter((member) => member.company_id === row.id);
   return {
@@ -69,7 +70,7 @@ function mapCompany(row, parkings, contracts = [], members = []) {
       ENTERPRISE: "Enterprise",
       CUSTOM: "Personalizado",
     })[row.commercial_plan] || "Por definir",
-    estacionamientos: parkings.filter((parking) => parking.companyId === row.id).map(mapParking),
+    estacionamientos: parkings.filter((parking) => parking.companyId === row.id).map((parking) => mapParking(parking, contractedSpacesByParkingId)),
     usuarios: companyMembers.length,
     resumenUsuarios: {
       administradores: companyMembers.filter((member) => member.role === "company_admin").length,
@@ -106,11 +107,22 @@ export async function listCompanies(supabase, { companyId = null } = {}) {
     country: row.country, status: row.status, type: row.type, companyId: row.company_id,
     metrics: { capacity: 0 },
   }));
+  const parkingIds = parkings.map((parking) => parking.id);
+  let contractedSpacesByParkingId = {};
+  if (parkingIds.length) {
+    const { data: contractedSpaces, error: contractedSpacesError } = await supabase
+      .from("contract_parking_spaces").select("parking_id,contracted_spaces").in("parking_id", parkingIds);
+    // La tabla puede no existir aún en un entorno recién provisionado (42P01/PGRST205);
+    // en ese caso se degrada a "sin dato" en vez de romper el listado de empresas.
+    if (contractedSpacesError && !["42P01", "PGRST204", "PGRST205"].includes(contractedSpacesError.code)) throw contractedSpacesError;
+    contractedSpacesByParkingId = Object.fromEntries((contractedSpaces || []).map((row) => [row.parking_id, row.contracted_spaces]));
+  }
   return (companies || []).map((company) => mapCompany(
     company,
     parkings || [],
     contractResult.data || [],
     memberResult.data || [],
+    contractedSpacesByParkingId,
   ));
 }
 
