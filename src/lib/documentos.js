@@ -3,6 +3,18 @@ import path from "path";
 
 const documentos = [
   {
+    slug: "architecture-general",
+    title: "Arquitectura general",
+    description: "Decisiones y arquitectura general del proyecto.",
+    file: "docs/ArchitectureDecisionLog.md",
+  },
+  {
+    slug: "etapa-19-centro-notificaciones",
+    title: "Centro de Notificaciones",
+    description: "Fundacion del centro de notificaciones multicanal.",
+    file: "docs/ETAPA-19-01-CENTRO-NOTIFICACIONES-FUNDACION.md",
+  },
+  {
     slug: "master-project-document",
     title: "Master Project Document",
     description: "Resumen del proyecto y estado de la fundación.",
@@ -95,7 +107,10 @@ const documentos = [
 ];
 
 export function getDocumentos() {
-  return documentos;
+  return documentos.map((documento) => ({
+    ...documento,
+    category: documento.slug === "changelog" ? "Cambios" : documento.slug.startsWith("stage-") || documento.slug.startsWith("etapa-") ? "M\u00f3dulos" : "General",
+  }));
 }
 
 export async function getDocumento(slug) {
