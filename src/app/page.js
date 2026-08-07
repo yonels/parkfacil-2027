@@ -1,4 +1,4 @@
-import { BarChart3, Building2, Calculator, CreditCard, FileText, Handshake, KeyRound, MapPinned, RadioTower, ScanLine, ShieldAlert, TicketPercent, Users, Wallet, WalletCards } from "lucide-react";
+import { BarChart3, BadgeDollarSign, Building2, Calculator, CreditCard, FileText, Handshake, KeyRound, Layers, MapPinned, RadioTower, ScanLine, ShieldAlert, TicketPercent, Users, Wallet } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import StatCard from "@/components/ui/StatCard";
 import ModuleCard from "@/components/ui/ModuleCard";
@@ -13,7 +13,6 @@ const modules = [
   { title: "Usuarios", description: "Administradores, operadores y permisos de acceso.", icon: Users, href: "/usuarios", state: "Disponible" },
   { title: "Contratos", description: "Condiciones comerciales y vigencia contractual.", icon: FileText, href: "/contratos", state: "Disponible" },
   { title: "Recaudación", description: "Ingresos, medios de pago y control financiero.", icon: Wallet, href: "/recaudacion", state: "Disponible" },
-  { title: "Tarifas y planes", description: "Reglas de cobro y planes comerciales.", icon: WalletCards, href: "/tarifas", state: "Disponible" },
   { title: "Cupones", description: "Cupones, minutos gratis y beneficios aplicables.", icon: TicketPercent, href: "/cupones", state: "Disponible" },
   { title: "Convenios", description: "Acuerdos comerciales y beneficios para empresas asociadas.", icon: Handshake, href: "/convenios", state: "Disponible" },
   { title: "Facturación", description: "Documentos tributarios, cargos y seguimiento de cobros.", icon: FileText, href: "/recaudacion", state: "Disponible" },
@@ -23,6 +22,8 @@ const modules = [
   { title: "Simulador de tarifas", description: "Comparación de escenarios tarifarios sin alterar la tarifa vigente.", icon: Calculator, href: "/simulador-tarifas", state: "Disponible" },
   { title: "Dispositivos", description: "Inventario tecnológico y estado de conexión.", icon: RadioTower, href: "/dispositivos", state: "Disponible" },
   { title: "Monitoreo", description: "Centro operativo para dispositivos y alertas.", icon: RadioTower, href: "/monitoreo", state: "Disponible" },
+  { title: "Tarifas", description: "Configura y administra las tarifas de los estacionamientos.", icon: BadgeDollarSign, href: "/tarifas", state: "Disponible" },
+  { title: "Planes", description: "Administra los planes comerciales y sus condiciones.", icon: Layers, href: "/tarifas", state: "Disponible" },
 ];
 
 export default function Home() {
