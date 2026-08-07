@@ -38,7 +38,15 @@ function labelEstado(estado) {
 }
 
 export default function DispositivosPage() {
-  const [dispositivos, setDispositivos] = useState(() => cloneDemoDispositivos());
+  const [dispositivos, setDispositivos] = useState(() => {
+    if (typeof window === "undefined") return cloneDemoDispositivos();
+    try {
+      const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY) || "null");
+      return Array.isArray(parsed) ? parsed : cloneDemoDispositivos();
+    } catch {
+      return cloneDemoDispositivos();
+    }
+  });
   const [busqueda, setBusqueda] = useState("");
   const [tipo, setTipo] = useState("Todos");
   const [estado, setEstado] = useState("Todos");
@@ -54,18 +62,6 @@ export default function DispositivosPage() {
     ubicacion: "",
   });
   const [saveMessage, setSaveMessage] = useState("");
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (!Array.isArray(parsed)) return;
-      setDispositivos(parsed);
-    } catch {
-      setDispositivos(cloneDemoDispositivos());
-    }
-  }, []);
 
   useEffect(() => {
     try {
@@ -144,7 +140,7 @@ export default function DispositivosPage() {
       const matchesEstacionamiento = estacionamiento === "Todos" || dispositivo.estacionamientoId === estacionamiento;
       return matchesTipo && matchesEstado && matchesConexion && matchesEstacionamiento;
     });
-  }, [busqueda, tipo, estado, conexion, estacionamiento]);
+  }, [dispositivos, busqueda, tipo, estado, conexion, estacionamiento]);
 
   const resumen = {
     total: dispositivos.length,
