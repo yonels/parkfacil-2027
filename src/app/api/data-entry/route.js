@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { calculateChileTax, joinChileanPlate } from "@/lib/dataEntry.mjs";
+import { calculateChileTax, joinChileanPlate, resolveStayQuoteAvailability } from "@/lib/dataEntry.mjs";
 import { calculateScheduledParkingCharge, selectActiveRate } from "@/lib/parkingRates.mjs";
 import { listParkingRates } from "@/lib/parkingRatesRepository";
 import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
@@ -55,16 +55,25 @@ async function getCoupon(db, rawToken, companyId) {
   return data;
 }
 
+// Nunca usa un error HTTP como sustituto de un resultado operacional esperado: "no hay
+// tarifa válida" es un desenlace normal de cotizar una estadía, no una falla del
+// vehículo/ticket. Por eso quoteStay() nunca lanza para este caso — devuelve
+// { blocked: true, reason, ... } con toda la información del vehículo ya disponible
+// (permanencia incluida), para que el frontend siga mostrando patente/ticket/ingreso/
+// permanencia y bloquee únicamente el cálculo y el cobro.
 async function quoteStay(db, stay, couponToken = null) {
   const rate = await getActiveRate(db, stay.parking_id);
-  if (!rate) throw new Error("ACTIVE_RATE_NOT_FOUND");
+  if (!rate) {
+    const availability = resolveStayQuoteAvailability(null, stay.entry_at, new Date());
+    return availability; // { blocked: true, reason: "ACTIVE_RATE_NOT_FOUND", elapsedSeconds, elapsedMinutes }
+  }
   const { data: parking } = await db.from("parkings").select("company_id").eq("id", stay.parking_id).maybeSingle();
   if (!parking) throw new Error("PARKING_NOT_FOUND");
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(stay.entry_at).getTime()) / 1000));
   const coupon = await getCoupon(db, couponToken, parking.company_id);
   const effectiveRate = coupon?.benefit_type === "FREE_MINUTES" ? { ...rate, freePeriodSeconds: Number(rate.freePeriodSeconds || 0) + Number(coupon.benefit_value) * 60 } : rate;
-  const charge = calculateScheduledParkingCharge(effectiveRate, stay.entry_at, new Date());
-  if (!charge.valid || charge.requiresDailyPolicy) throw new Error("RATE_REQUIRES_REVIEW");
+  const availability = resolveStayQuoteAvailability(effectiveRate, stay.entry_at, new Date());
+  if (availability.blocked) return { ...availability, rate };
+  const { elapsedSeconds, elapsedMinutes, charge } = availability;
   const baseCharge = calculateScheduledParkingCharge(rate, stay.entry_at, new Date());
   // calculateParkingCharge ya entrega el monto truncado (Math.floor); no se vuelve a
   // redondear aquí para no reintroducir una aproximación al alza.
@@ -73,9 +82,7 @@ async function quoteStay(db, stay, couponToken = null) {
   if (coupon?.benefit_type === "PERCENTAGE") discount = Math.floor(subtotal * Math.min(100, Number(coupon.benefit_value)) / 100);
   if (coupon?.benefit_type === "FIXED_AMOUNT") discount = Math.min(subtotal, Number(coupon.benefit_value));
   const amounts = calculateChileTax(Math.max(0, subtotal - discount));
-  // Minutos consumidos: informativo (no alimenta el cobro, que usa segundos exactos vía
-  // calculateScheduledParkingCharge). Se trunca, nunca se aproxima al alza.
-  return { ...amounts, subtotal, discount, elapsedMinutes: Math.max(0, Math.floor(elapsedSeconds / 60)), rate, charge, coupon: coupon ? { id: coupon.id, code: coupon.code, name: coupon.name, benefitType: coupon.benefit_type, value: Number(coupon.benefit_value) } : null };
+  return { blocked: false, ...amounts, subtotal, discount, elapsedSeconds, elapsedMinutes, rate, charge, coupon: coupon ? { id: coupon.id, code: coupon.code, name: coupon.name, benefitType: coupon.benefit_type, value: Number(coupon.benefit_value) } : null };
 }
 
 async function findOpenStay(db, input, assignedParkingId) {
@@ -132,10 +139,17 @@ export async function POST(request) {
     const stay = await findOpenStay(current.db, input, current.actor.parkingId);
     if (!stay) return fail("No existe una estadía abierta para el vehículo.", 404);
     let quote; try { quote = await quoteStay(current.db, stay, input.couponToken); } catch (error) {
-      const messages = { ACTIVE_RATE_NOT_FOUND: "El parking no tiene una tarifa activa.", PARKING_NOT_FOUND: "El estacionamiento no existe.", COUPON_NOT_FOUND: "El cupón no existe.", COUPON_ALREADY_USED: "El cupón ya fue utilizado.", COUPON_WRONG_COMPANY: "El cupón no corresponde a este estacionamiento.", COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.", COUPON_EXPIRED: "El cupón está vencido." };
-      return fail(messages[error.message] || "La tarifa requiere revisión administrativa.", 409);
+      const messages = { PARKING_NOT_FOUND: "El estacionamiento no existe.", COUPON_NOT_FOUND: "El cupón no existe.", COUPON_ALREADY_USED: "El cupón ya fue utilizado.", COUPON_WRONG_COMPANY: "El cupón no corresponde a este estacionamiento.", COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.", COUPON_EXPIRED: "El cupón está vencido." };
+      return fail(messages[error.message] || "No fue posible calcular la tarifa.", 409);
     }
     const { data: parking } = await current.db.from("parkings").select("id,code,name,company_name,address,city").eq("id", stay.parking_id).single();
+    // Sin tarifa válida: el vehículo/ticket/permanencia SÍ se devuelven (200), solo se
+    // bloquea el cálculo/cobro. Un intento de EXIT igual se rechaza (defensa adicional;
+    // la UI ya no ofrece el botón de pago en este estado).
+    if (quote.blocked) {
+      if (input.action === "EXIT") return fail("No existe una tarifa activa. No es posible calcular el cobro. Contacte al administrador.", 409);
+      return NextResponse.json({ data: { stay, parking, quote } });
+    }
     if (input.action === "QUOTE") return NextResponse.json({ data: { stay, parking, quote } });
     if (!['CASH','CARD'].includes(input.paymentMethod)) return fail("Selecciona contado o tarjeta.");
     const exitAt = new Date().toISOString(); const paymentCode = code("PAG");

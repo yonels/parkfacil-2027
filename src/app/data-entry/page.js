@@ -189,6 +189,23 @@ export default function DataEntryPage() {
 }
 
 function PaymentSummary({ data, paymentMethod, setPaymentMethod, onPay, busy }) {
+  // Sin tarifa válida: la operación queda bloqueada, pero el vehículo/ticket/permanencia
+  // siguen visibles para el operador. No se ofrece cobro ni botón de pago en este estado.
+  if (data.quote.blocked) {
+    return <div className="rounded-3xl border-2 border-[#CFD8DC] bg-[#ECEFF1] p-5 sm:p-6">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Info label="Patente" value={data.stay.license_plate}/>
+        <Info label="Ticket" value={data.stay.code}/>
+        <Info label="Fecha ingreso" value={dateTime(data.stay.entry_at)}/>
+        <Info label="Permanencia" value={`${data.quote.elapsedMinutes} minutos`}/>
+        <Info label="Estado" value={data.stay.status}/>
+      </div>
+      <div className="mt-4 rounded-2xl border-2 border-rose-300 bg-rose-50 p-5 text-rose-800">
+        <p className="text-lg font-black uppercase tracking-wide">Operación bloqueada</p>
+        <p className="mt-1 text-sm font-semibold">No existe una tarifa activa.<br/>No es posible calcular el cobro.<br/>Contacte al administrador.</p>
+      </div>
+    </div>;
+  }
   return <div className="rounded-3xl border-2 border-[#CFD8DC] bg-[#ECEFF1] p-5 sm:p-6"><div className="grid gap-3 sm:grid-cols-2"><Info label="Patente" value={data.stay.license_plate}/><Info label="Fecha ingreso" value={dateTime(data.stay.entry_at)}/><Info label="Minutos consumidos" value={data.quote.elapsedMinutes}/><Info label="Tarifa" value={`${data.quote.rate.name} · ${data.quote.rate.billingMode === "EFFECTIVE_MINUTE" ? "por minuto" : "por tramos"}`}/><Info label="Subtotal" value={money(data.quote.subtotal)}/><Info label="Descuento" value={`-${money(data.quote.discount)}`}/><Info label="Neto" value={money(data.quote.net)}/><Info label="IVA 19%" value={money(data.quote.tax)}/></div>{data.quote.coupon ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><strong>Cupón aplicado: {data.quote.coupon.code}</strong><span className="ml-2">{data.quote.coupon.name}</span><p className="mt-1 text-xs">Se marcará como utilizado al confirmar el pago.</p></div> : null}<div className="mt-4 flex items-center justify-between rounded-2xl bg-[#263238] p-5 text-white"><span className="font-bold">TOTAL A PAGAR</span><b className="text-3xl">{money(data.quote.total)}</b></div><fieldset className="mt-5"><legend className="text-sm font-black text-[#263238]">FORMA DE PAGO</legend><div className="mt-2 grid grid-cols-2 gap-3"><button type="button" onClick={()=>setPaymentMethod("CASH")} className={`min-h-14 rounded-2xl border-2 font-black ${paymentMethod==="CASH"?"border-[#455A64] bg-white text-[#455A64]":"border-slate-200 bg-transparent text-slate-500"}`}>CONTADO</button><button type="button" onClick={()=>setPaymentMethod("CARD")} className={`min-h-14 rounded-2xl border-2 font-black ${paymentMethod==="CARD"?"border-[#455A64] bg-white text-[#455A64]":"border-slate-200 bg-transparent text-slate-500"}`}>TARJETA</button></div></fieldset><button onClick={onPay} disabled={busy} className="mt-5 flex min-h-18 w-full items-center justify-center gap-3 rounded-3xl bg-emerald-600 text-xl font-black text-white shadow-lg disabled:opacity-50">{busy?<LoaderCircle className="h-6 w-6 animate-spin"/>:<Printer className="h-6 w-6"/>}PAGAR E IMPRIMIR SALIDA</button></div>;
 }
 function Info({ label, value }) { return <div className="rounded-2xl bg-white p-4"><p className="text-xs font-bold uppercase tracking-wide text-[#78909C]">{label}</p><p className="mt-1 text-lg font-black text-[#263238]">{value}</p></div>; }

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
+import { rateStatusBadge } from "@/lib/rateStatusBadge.mjs";
 
 // Modelo legal: minuto efectivo (sin tramos) o tramo vencido con exactamente un tramo
 // inicial (mín. 30 min) y un tramo siguiente repetible (mín. 10 min). No existe un tercer
@@ -131,10 +132,12 @@ function RateCard({ rate }) {
   const vigenciaDesde = dateLabel(rate.validFrom);
   const vigenciaHasta = dateLabel(rate.validUntil);
   const needsReview = rate.compliance?.status === "REQUIRES_REVIEW";
+  const badge = rateStatusBadge(rate);
+  const badgeClass = badge.tone === "review" ? "bg-amber-100 text-amber-800" : badge.tone === "active" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600";
   return <article className={`rounded-3xl border p-5 shadow-sm ${needsReview ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}>
     <div className="flex justify-between gap-3">
       <div><p className="text-xs font-bold uppercase tracking-wider text-[#3150D8]">{billingModeLabel(rate.billingMode)}</p><h2 className="mt-1 text-lg font-semibold text-[#041E42]">{rate.name}</h2></div>
-      <span className={`h-fit rounded-full px-3 py-1 text-xs font-bold ${rate.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{rate.status === "ACTIVE" ? "Activa" : "Borrador"}</span>
+      <span className={`h-fit rounded-full px-3 py-1 text-xs font-bold ${badgeClass}`}>{badge.label}</span>
     </div>
     {needsReview ? <p className="mt-3 rounded-xl bg-amber-100 p-2.5 text-xs font-semibold text-amber-900">Requiere revisión administrativa: {rate.compliance.reasons.join(" ")}</p> : null}
     <div className="mt-4 space-y-2 text-sm text-slate-600">

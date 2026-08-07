@@ -1,3 +1,5 @@
+import { calculateScheduledParkingCharge } from "./parkingRates.mjs";
+
 const PLATE_PATTERN = /^[A-Z0-9]{4,8}$/;
 export const MOVEMENT_TYPES = ["ENTRY", "EXIT"];
 export const ENTRY_SOURCES = ["MOBILE", "POS", "TABLET", "DESKTOP", "OTHER"];
@@ -55,4 +57,19 @@ export function validateMovementInput(input) {
 
 export function movementLabel(type) {
   return type === "ENTRY" ? "Ingreso" : "Salida";
+}
+
+// Decide si una estadía puede cotizarse con la tarifa vigente. "No hay tarifa activa" y
+// "la tarifa requiere revisión" son desenlaces operacionales normales de cotizar una
+// estadía, no fallas del vehículo/ticket — por eso esta función nunca lanza: devuelve
+// { blocked, reason, elapsedSeconds, elapsedMinutes, charge? } con la permanencia ya
+// calculada, para que el llamador (API de Data Entry) siga mostrando el vehículo, el
+// ticket y la permanencia aunque el cálculo/cobro quede bloqueado.
+export function resolveStayQuoteAvailability(rate, entryAt, now = new Date()) {
+  const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - new Date(entryAt).getTime()) / 1000));
+  const elapsedMinutes = Math.max(0, Math.floor(elapsedSeconds / 60));
+  if (!rate) return { blocked: true, reason: "ACTIVE_RATE_NOT_FOUND", elapsedSeconds, elapsedMinutes };
+  const charge = calculateScheduledParkingCharge(rate, entryAt, now);
+  if (!charge.valid || charge.requiresDailyPolicy) return { blocked: true, reason: "RATE_REQUIRES_REVIEW", elapsedSeconds, elapsedMinutes, charge };
+  return { blocked: false, elapsedSeconds, elapsedMinutes, charge };
 }

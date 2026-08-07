@@ -217,3 +217,82 @@ test("plazas multiplican tarifa solo cuando la política lo indica", () => {
   assert.equal(calculateParkingCharge(base, 60, 3).amount, 100);
   assert.equal(calculateParkingCharge({ ...base, multiplyBySpaces: true }, 60, 3).amount, 300);
 });
+
+// ===== Cierre motor tarifario legal: estadías >= 24 horas =====
+
+test(">=24h: 23:59:59 (86399s) sigue dentro del motor legal y calcula normalmente", () => {
+  const result = calculateParkingCharge(minuteRate({ minuteAmount: 60 }), 86399);
+  assert.equal(result.requiresDailyPolicy, undefined);
+  assert.ok(result.valid);
+  assert.ok(Number.isFinite(result.amount));
+});
+
+test(">=24h: 24:00:00 (86400s) exige política >=24h, con dailyFlatAmount configurado", () => {
+  const result = calculateParkingCharge(minuteRate({ minuteAmount: 60, dailyFlatAmount: 15000 }), 86400);
+  assert.equal(result.requiresDailyPolicy, true);
+  assert.equal(result.amount, undefined);
+});
+
+test(">=24h: 24:00:00 (86400s) exige política >=24h aunque NO exista dailyFlatAmount", () => {
+  const result = calculateParkingCharge(minuteRate({ minuteAmount: 60 }), 86400);
+  assert.equal(result.requiresDailyPolicy, true);
+});
+
+test(">=24h: más de 24 horas exige política >=24h, con o sin dailyFlatAmount", () => {
+  assert.equal(calculateParkingCharge(minuteRate({ minuteAmount: 60 }), 86400 * 2).requiresDailyPolicy, true);
+  assert.equal(calculateParkingCharge(blockRate(), 86400 + 3600).requiresDailyPolicy, true);
+});
+
+test(">=24h: no inventa una tarifa diaria ni cobra automáticamente con MINUTE o EXPIRED_BLOCK", () => {
+  const minute = calculateParkingCharge(minuteRate({ minuteAmount: 60 }), 90000);
+  const block = calculateParkingCharge(blockRate(), 90000);
+  assert.equal(minute.amount, undefined);
+  assert.equal(block.amount, undefined);
+});
+
+// ===== Cierre motor tarifario legal: repeatAfter del tramo inicial =====
+
+test("repeatAfter: el tramo inicial (sequence 1) con repeatAfter=true es inválido", () => {
+  const errors = validateOperationalRate(blockRate({ blocks: [
+    { sequence: 1, durationSeconds: 1800, amount: 1000, repeatAfter: true },
+    { sequence: 2, durationSeconds: 600, amount: 300, repeatAfter: true },
+  ] }));
+  assert.ok(errors.block_repeat_1);
+});
+
+test("repeatAfter: el tramo siguiente (sequence 2) sí puede repetirse", () => {
+  const errors = validateOperationalRate(blockRate());
+  assert.equal(errors.block_repeat_1, undefined);
+  assert.equal(Object.keys(errors).length, 0);
+});
+
+// ===== Cierre motor tarifario legal: secuencias contiguas =====
+
+test("secuencia: [1,3] es inválida (salto, no contigua)", () => {
+  const errors = validateOperationalRate(blockRate({ blocks: [
+    { sequence: 1, durationSeconds: 1800, amount: 1000, repeatAfter: false },
+    { sequence: 3, durationSeconds: 600, amount: 300, repeatAfter: true },
+  ] }));
+  assert.ok(errors.blocks);
+});
+
+test("secuencia: [1,4] es inválida (salto, no contigua)", () => {
+  const errors = validateOperationalRate(blockRate({ blocks: [
+    { sequence: 1, durationSeconds: 1800, amount: 1000, repeatAfter: false },
+    { sequence: 4, durationSeconds: 600, amount: 300, repeatAfter: true },
+  ] }));
+  assert.ok(errors.blocks);
+});
+
+test("secuencia: duplicados (1,1) son inválidos", () => {
+  const errors = validateOperationalRate(blockRate({ blocks: [
+    { sequence: 1, durationSeconds: 1800, amount: 1000, repeatAfter: false },
+    { sequence: 1, durationSeconds: 600, amount: 300, repeatAfter: true },
+  ] }));
+  assert.ok(errors.blocks);
+});
+
+test("secuencia: [1,2] es válida", () => {
+  const errors = validateOperationalRate(blockRate());
+  assert.equal(errors.blocks, undefined);
+});

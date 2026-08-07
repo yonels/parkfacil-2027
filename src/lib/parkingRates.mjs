@@ -35,6 +35,11 @@ export function validateOperationalRate(rate) {
     if (rate.minuteAmount != null) errors.minuteAmount = "Tramo vencido no admite valor por minuto.";
     const blocks = [...(rate.blocks || [])].sort((a, b) => a.sequence - b.sequence);
     if (!blocks.length || blocks[0].sequence !== 1) errors.blocks = "Debes configurar el tramo inicial.";
+    // Secuencia valida y contigua: 1 (tramo inicial), 2 (tramo siguiente), ... sin saltos
+    // ni duplicados. Rechaza [1,3], [1,4] o cualquier secuencia arbitraria.
+    else if (!blocks.every((block, index) => block.sequence === index + 1)) {
+      errors.blocks = "Los tramos deben tener una secuencia contigua sin saltos ni duplicados.";
+    }
     blocks.forEach((block) => {
       const minimum = block.sequence === 1 ? LAW_20967_RULES.firstExpiredBlockMinimumSeconds : LAW_20967_RULES.followingExpiredBlockMinimumSeconds;
       if (!Number.isInteger(block.durationSeconds) || block.durationSeconds < minimum) {
@@ -43,6 +48,11 @@ export function validateOperationalRate(rate) {
           : "Los tramos siguientes no pueden ser inferiores a 10 minutos.";
       }
       if (!(Number(block.amount) >= 0)) errors[`block_amount_${block.sequence}`] = "Ingresa un valor válido.";
+      // El tramo inicial (sequence 1) nunca puede repetirse: solo el tramo siguiente
+      // puede volver a aplicarse mientras queden minutos por cobrar.
+      if (block.sequence === 1 && block.repeatAfter === true) {
+        errors[`block_repeat_${block.sequence}`] = "El tramo inicial no puede repetirse.";
+      }
     });
   }
 
@@ -107,9 +117,11 @@ export function calculateParkingCharge(rate, elapsedSeconds, spacesUsed = 1) {
   const spaces = Math.max(1, Math.floor(Number(spacesUsed) || 1));
   const chargeableSeconds = Math.max(0, elapsed - Number(rate.freePeriodSeconds || 0));
   const factor = rate.multiplyBySpaces ? spaces : 1;
-  if (elapsed >= 86400 && rate.dailyFlatAmount != null) {
-    // Régimen >=24h: fuera del alcance del motor legal de estadías transitorias.
-    // Se marca para revisión administrativa; no se inventa un cobro automático.
+  if (elapsed >= 86400) {
+    // Régimen >=24h: fuera del alcance del motor legal de estadías transitorias, exista o
+    // no un dailyFlatAmount configurado. No se inventa una tarifa diaria ni se cobra
+    // automáticamente con MINUTE o EXPIRED_BLOCK más allá de las 24 horas; se marca para
+    // revisión administrativa de forma uniforme.
     return { valid: true, requiresDailyPolicy: true, elapsedSeconds: elapsed, chargeableSeconds, spacesUsed: spaces };
   }
   if (rate.billingMode === BILLING_MODES.EFFECTIVE_MINUTE) {
