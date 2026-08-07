@@ -37,7 +37,8 @@ export default function LoginForm({ tipoAcceso }) {
       if (!sessionResponse.ok) {
         const payload = await sessionResponse.json().catch(() => ({}));
         await supabase.auth.signOut();
-        throw new Error(payload.error || `Esta cuenta no puede acceder al Portal ${tipoAcceso === "cliente" ? "Cliente" : "Root"}.`);
+        const nombrePortal = tipoAcceso === "cliente" ? "Portal Cliente" : tipoAcceso === "terminal" ? "ParkFacil Terminal" : "Portal Root";
+        throw new Error(payload.error || `Esta cuenta no puede acceder a ${nombrePortal}.`);
       }
       router.replace(destination);
     } catch (authError) {

@@ -1,13 +1,18 @@
 import { headers } from "next/headers";
 import { Suspense } from "react";
-import { Building2, ParkingSquare, ShieldCheck } from "lucide-react";
+import { Building2, ParkingSquare, ScanLine, ShieldCheck } from "lucide-react";
 
 import LoginForm from "@/components/auth/LoginForm";
 import { PORTALS, getPortalFromHost } from "@/lib/auth/portal.mjs";
+import { getSafeDestination } from "@/lib/auth/loginDestination.mjs";
 
 export const metadata = {
   title: "Iniciar sesión | ParkFacil 2027",
 };
+
+// Rutas internas que corresponden al Terminal operativo. El destino ya pasó por
+// getSafeDestination(), por lo que un `next` externo o inválido nunca llega hasta aquí.
+const TERMINAL_ROUTES = new Set(["/data-entry", "/data-entry/pos"]);
 
 const CONFIGURACION_ACCESO = {
   root: {
@@ -33,14 +38,56 @@ const CONFIGURACION_ACCESO = {
       "Ingresa con las credenciales asignadas por el administrador de tu empresa.",
     Icono: Building2,
   },
+
+  terminal: {
+    tipo: "terminal",
+    etiqueta: "ParkFacil Terminal",
+    tituloPrincipal: "Inicio de operación.",
+    descripcionPrincipal:
+      "Registra ingresos, salidas, pagos y vehículos del estacionamiento desde un solo lugar.",
+    tituloFormulario: "Inicio de Operación",
+    descripcionFormulario:
+      "Ingresa con tus credenciales de operador para comenzar a operar el estacionamiento.",
+    Icono: ScanLine,
+  },
 };
 
-export default async function LoginPage() {
+// Estilos por identidad: Root y Cliente conservan la marca corporativa (variables
+// globales); Terminal usa la paleta gris acerado propia, sin tocar esas variables.
+const ESTILO_ACCESO = {
+  root: {
+    panel: "linear-gradient(140deg, var(--pf-color-brand-primary) 0%, var(--pf-color-brand-primary-600) 56%, var(--pf-color-brand-primary-700) 100%)",
+    tarjeta: "linear-gradient(to bottom right, var(--pf-color-brand-500), var(--pf-color-brand-600), var(--pf-color-brand-700))",
+    borde: "var(--pf-color-brand-border)",
+    sombra: "0 25px 50px -12px var(--pf-color-brand-shadow)",
+    mancha: "var(--pf-color-brand-primary-800)",
+  },
+  cliente: {
+    panel: "linear-gradient(140deg, var(--pf-color-brand-primary) 0%, var(--pf-color-brand-primary-600) 56%, var(--pf-color-brand-primary-700) 100%)",
+    tarjeta: "linear-gradient(to bottom right, var(--pf-color-brand-500), var(--pf-color-brand-600), var(--pf-color-brand-700))",
+    borde: "var(--pf-color-brand-border)",
+    sombra: "0 25px 50px -12px var(--pf-color-brand-shadow)",
+    mancha: "var(--pf-color-brand-primary-800)",
+  },
+  terminal: {
+    panel: "linear-gradient(140deg, #455A64 0%, #37474F 56%, #263238 100%)",
+    tarjeta: "linear-gradient(to bottom right, #607D8B, #455A64, #37474F)",
+    borde: "#78909C",
+    sombra: "0 25px 50px -12px rgba(38,50,56,0.35)",
+    mancha: "#263238",
+  },
+};
+
+export default async function LoginPage({ searchParams }) {
   const encabezados = await headers();
   const host = encabezados.get("x-forwarded-host") || encabezados.get("host");
+  const parametros = await searchParams;
+  const destino = getSafeDestination(parametros?.next);
+  const esTerminal = TERMINAL_ROUTES.has(destino);
 
-  const tipoAcceso = getPortalFromHost(host) === PORTALS.CLIENT ? "cliente" : "root";
+  const tipoAcceso = esTerminal ? "terminal" : (getPortalFromHost(host) === PORTALS.CLIENT ? "cliente" : "root");
   const configuracion = CONFIGURACION_ACCESO[tipoAcceso];
+  const estilo = ESTILO_ACCESO[tipoAcceso];
   const IconoAcceso = configuracion.Icono;
 
   return (
@@ -48,13 +95,12 @@ export default async function LoginPage() {
       <section
         className="relative hidden overflow-hidden p-12 text-white lg:flex lg:flex-col lg:justify-between"
         style={{
-          backgroundImage:
-            "linear-gradient(140deg, var(--pf-color-brand-primary) 0%, var(--pf-color-brand-primary-600) 56%, var(--pf-color-brand-primary-700) 100%)",
+          backgroundImage: estilo.panel,
         }}
       >
         <span className="pointer-events-none absolute -right-24 -top-20 h-72 w-72 rounded-full bg-white/10 blur-3xl" />
 
-        <span className="pointer-events-none absolute -bottom-28 left-40 h-72 w-72 rounded-full bg-[var(--pf-color-brand-primary-800)]/45 blur-3xl" />
+        <span className="pointer-events-none absolute -bottom-28 left-40 h-72 w-72 rounded-full blur-3xl" style={{ backgroundColor: estilo.mancha, opacity: 0.45 }} />
 
         <span
           className="pointer-events-none absolute bottom-20 right-20 h-28 w-44 opacity-40"
@@ -102,17 +148,16 @@ export default async function LoginPage() {
 
       <section className="flex items-center justify-center px-5 py-10 sm:px-10">
         <div
-          className="relative w-full max-w-md overflow-hidden rounded-3xl border border-[var(--pf-color-brand-border)] p-7 shadow-2xl sm:p-10"
+          className="relative w-full max-w-md overflow-hidden rounded-3xl border p-7 shadow-2xl sm:p-10"
           style={{
-            backgroundImage:
-              "linear-gradient(to bottom right, var(--pf-color-brand-500), var(--pf-color-brand-600), var(--pf-color-brand-700))",
-            boxShadow:
-              "0 25px 50px -12px var(--pf-color-brand-shadow)",
+            backgroundImage: estilo.tarjeta,
+            boxShadow: estilo.sombra,
+            borderColor: estilo.borde,
           }}
         >
           <span className="pointer-events-none absolute -right-8 -top-8 h-36 w-36 rounded-full bg-white/10 blur-2xl" />
 
-          <span className="pointer-events-none absolute -bottom-12 left-10 h-32 w-32 rounded-full bg-[var(--pf-color-brand-primary-800)]/35 blur-2xl" />
+          <span className="pointer-events-none absolute -bottom-12 left-10 h-32 w-32 rounded-full blur-2xl" style={{ backgroundColor: estilo.mancha, opacity: 0.35 }} />
 
           <div className="relative z-10">
             <div className="flex items-center gap-3 lg:hidden">

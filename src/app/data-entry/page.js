@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
-import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Camera, CarFront, CheckCircle2, CircleParking, Home, LoaderCircle, LogOut, Menu, Printer, QrCode, X } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Camera, CarFront, CheckCircle2, CircleParking, Home, LoaderCircle, LogOut, Menu, Printer, QrCode, UserRound, X } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 
 const actions = [
@@ -31,11 +31,17 @@ async function printTicket(payload) {
   window.setTimeout(() => popup.print(), 250);
 }
 
+function pendingVehiclesHtml(list, parking, actor) {
+  const rows = list.map((stay) => `<tr><td>${stay.license_plate}</td><td>${stay.code}</td><td>${dateTime(stay.entry_at)}</td></tr>`).join("");
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Vehículos pendientes</title><style>body{font:12px Arial;color:#111;margin:16px}h1{font-size:16px;color:#041E42}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border-bottom:1px solid #ccc;padding:6px 8px;text-align:left;font-size:11px}th{text-transform:uppercase;color:#555}</style></head><body><h1>ParkFacil Terminal · Vehículos pendientes</h1><p>${parking?.name || ""}${parking?.code ? ` · ${parking.code}` : ""} · ${dateTime(new Date().toISOString())} · ${actor?.name || ""}</p><table><thead><tr><th>Patente</th><th>Ticket</th><th>Ingreso</th></tr></thead><tbody>${rows || `<tr><td colspan="3">Sin vehículos pendientes.</td></tr>`}</tbody></table></body></html>`;
+}
+
 export default function DataEntryPage() {
   const router = useRouter();
   const [view, setView] = useState("HOME");
   const [prefix, setPrefix] = useState(""); const [suffix, setSuffix] = useState("");
   const [parking, setParking] = useState(null); const [stays, setStays] = useState([]);
+  const [authorizedParkings, setAuthorizedParkings] = useState([]); const [activeParkingId, setActiveParkingId] = useState("");
   const [selectedStayId, setSelectedStayId] = useState(""); const [paymentMethod, setPaymentMethod] = useState("CARD");
   const [quote, setQuote] = useState(null); const [qrToken, setQrToken] = useState(""); const [actor, setActor] = useState(null);
   const [couponToken, setCouponToken] = useState("");
@@ -48,30 +54,60 @@ export default function DataEntryPage() {
     return fetch(url, { ...options, headers: { "Content-Type": "application/json", ...(data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {}) } });
   }
 
-  async function load() {
-    setBusy(true); const response = await authFetch("/api/data-entry");
+  function hasActiveOperation() {
+    return busy || (view === "EXIT" && Boolean(quote)) || (view === "ENTRY" && Boolean(prefix || suffix));
+  }
+
+  async function load(parkingId) {
+    setBusy(true);
+    const query = parkingId ? `?parkingId=${encodeURIComponent(parkingId)}` : "";
+    const response = await authFetch(`/api/data-entry${query}`);
     if (response.status === 401 || response.status === 403) { router.replace("/login?next=/data-entry"); return; }
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) { setMessage(payload.error || "No fue posible cargar la operación."); setBusy(false); return; }
     setParking(payload.data.parking); setStays(payload.data.stays); setActor(payload.data.actor); setMessage(payload.data.warning || ""); setBusy(false);
+    if (payload.data.parking?.id) setActiveParkingId(payload.data.parking.id);
+  }
+
+  async function bootstrap() {
+    setBusy(true);
+    // La autorización real vive en el servidor: esta llamada solo lista los estacionamientos
+    // que el usuario ya tiene autorizados (misma lógica que usa /api/data-entry).
+    const response = await authFetch("/api/estacionamientos");
+    if (response.status === 401 || response.status === 403) { router.replace("/login?next=/data-entry"); return; }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) { setMessage(payload.error || "No fue posible cargar los estacionamientos autorizados."); setBusy(false); return; }
+    const active = (payload.data || []).filter((item) => item.status === "ACTIVE").sort((a, b) => a.code.localeCompare(b.code));
+    setAuthorizedParkings(active);
+    const initialId = active[0]?.id || "";
+    setActiveParkingId(initialId);
+    if (!initialId) { setMessage("El usuario no tiene un estacionamiento autorizado."); setBusy(false); return; }
+    await load(initialId);
   }
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { void load(); }, 0);
+    const timer = window.setTimeout(() => { void bootstrap(); }, 0);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => () => { scannerRef.current?.getTracks().forEach((track) => track.stop()); }, []);
 
+  async function changeParking(nextId) {
+    if (!nextId || nextId === activeParkingId || hasActiveOperation()) return;
+    setView("HOME"); setStays([]); setQuote(null); setSelectedStayId(""); setCouponToken(""); setQrToken(""); setPrefix(""); setSuffix(""); setMessage(""); setParking(null);
+    setActiveParkingId(nextId);
+    await load(nextId);
+  }
+
   function selectView(key) { setView(key); setMessage(""); setQuote(null); if (key === "ENTRY") window.setTimeout(() => prefixRef.current?.focus(), 50); }
-  async function post(body) { setBusy(true); setMessage(""); const response = await authFetch("/api/data-entry", { method: "POST", body: JSON.stringify(body) }); const payload = await response.json().catch(() => ({})); setBusy(false); if (!response.ok) { setMessage(payload.error || "No fue posible completar la operación."); return null; } return payload.data; }
+  async function post(body) { setBusy(true); setMessage(""); const response = await authFetch("/api/data-entry", { method: "POST", body: JSON.stringify({ parkingId: activeParkingId, ...body }) }); const payload = await response.json().catch(() => ({})); setBusy(false); if (!response.ok) { setMessage(payload.error || "No fue posible completar la operación."); return null; } return payload.data; }
 
   async function registerEntry(event) {
     event.preventDefault(); const data = await post({ action: "ENTRY", platePrefix: prefix, plateSuffix: suffix, source: "WEB" }); if (!data) return;
-    setMessage(`Ingreso guardado: ${data.stay.license_plate}`); await printTicket({ kind: "ENTRY", ...data, actor }); setPrefix(""); setSuffix(""); await load();
+    setMessage(`Ingreso guardado: ${data.stay.license_plate}`); await printTicket({ kind: "ENTRY", ...data, actor }); setPrefix(""); setSuffix(""); await load(activeParkingId);
   }
   async function calculateExit(identifier = {}) { const data = await post({ action: "QUOTE", ...identifier }); if (data) { setQuote(data); setSelectedStayId(data.stay.id); if (identifier.couponToken) setCouponToken(identifier.couponToken); setView("EXIT"); } }
-  async function finishExit() { if (!quote) return; const data = await post({ action: "EXIT", stayId: quote.stay.id, paymentMethod, couponToken: couponToken || undefined }); if (!data) return; setQuote(data); setCouponToken(""); setMessage(`Pago registrado: ${data.stay.payment_code}`); await printTicket({ kind: "EXIT", ...data, actor }); await load(); }
+  async function finishExit() { if (!quote) return; const data = await post({ action: "EXIT", stayId: quote.stay.id, paymentMethod, couponToken: couponToken || undefined }); if (!data) return; setQuote(data); setCouponToken(""); setMessage(`Pago registrado: ${data.stay.payment_code}`); await printTicket({ kind: "EXIT", ...data, actor }); await load(activeParkingId); }
   async function processQr(value) {
     const token = String(value || "").trim();
     if (token.toUpperCase().startsWith("PFC-COUPON:")) {
@@ -94,28 +130,57 @@ export default function DataEntryPage() {
     } catch { setMessage("No fue posible acceder a la cámara. Revisa el permiso del navegador."); }
   }
   function stopScanner() { scannerRef.current?.getTracks().forEach((track) => track.stop()); scannerRef.current = null; setCameraOpen(false); }
+  function printPendingVehicles() {
+    const popup = window.open("", "parkfacil-pendientes", "width=480,height=720");
+    if (!popup) { setMessage("Permite ventanas emergentes para imprimir el listado."); return; }
+    popup.document.write(pendingVehiclesHtml(stays, parking, actor)); popup.document.close(); popup.focus();
+    window.setTimeout(() => popup.print(), 250);
+  }
   async function logout() { await getSupabaseBrowserClient().auth.signOut(); router.replace("/login"); }
-  return <div className="min-h-screen bg-[#EEF4FF] text-[#041E42]">
-    <aside className={`${posMenuOpen ? "w-64" : "w-20"} fixed inset-y-0 left-0 z-30 flex flex-col bg-[#3150D8] p-3 text-white shadow-2xl transition-all`}>
-      <div className="flex min-h-14 items-center gap-3 border-b border-white/25 px-1 pb-3"><button type="button" onClick={() => setPosMenuOpen((current) => !current)} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/15 hover:bg-white/25"><Menu className="h-6 w-6" /></button>{posMenuOpen ? <div className="min-w-0"><p className="font-black">ParkFacil</p><p className="truncate text-xs text-blue-100">Terminal POS</p></div> : null}</div>
-      {posMenuOpen ? <div className="mt-2 rounded-xl bg-white/15 p-2.5"><p className="text-[9px] font-black uppercase tracking-[.14em] text-blue-100">Estacionamiento</p><p className="mt-0.5 truncate text-xs font-bold">{parking?.name || "Cargando..."}</p><div className="mt-2 border-t border-white/20 pt-2"><p className="truncate text-[11px] font-bold">{actor?.name}</p><p className="text-[10px] text-blue-100">{roleLabel(actor?.role)}</p></div></div> : null}
+  return <div className="min-h-screen bg-[#ECEFF1] text-[#263238]">
+    <aside className={`${posMenuOpen ? "w-64" : "w-20"} fixed inset-y-0 left-0 z-30 flex flex-col bg-[#455A64] p-3 text-white shadow-2xl transition-all`}>
+      <div className="flex min-h-14 items-center gap-3 border-b border-white/20 px-1 pb-3"><button type="button" onClick={() => setPosMenuOpen((current) => !current)} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/15 hover:bg-white/25"><Menu className="h-6 w-6" /></button>{posMenuOpen ? <div className="min-w-0"><p className="font-black">ParkFacil Terminal</p></div> : null}</div>
+      {posMenuOpen ? <div className="mt-2 rounded-xl bg-white/10 p-2.5">
+        <p className="text-[9px] font-black uppercase tracking-[.14em] text-[#CFD8DC]">Estacionamiento activo</p>
+        {authorizedParkings.length > 1 ? (
+          <select
+            value={activeParkingId}
+            onChange={(event) => changeParking(event.target.value)}
+            disabled={hasActiveOperation()}
+            title={hasActiveOperation() ? "Termina la operación en curso para cambiar de estacionamiento" : "Cambiar estacionamiento activo"}
+            className="mt-1 w-full truncate rounded-lg border border-white/25 bg-white/10 px-2 py-1.5 text-xs font-bold text-white outline-none disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {authorizedParkings.map((item) => <option key={item.id} value={item.id} className="text-[#263238]">{item.name}</option>)}
+          </select>
+        ) : (
+          <p className="mt-0.5 truncate text-xs font-bold">{parking?.name || authorizedParkings[0]?.name || "Cargando..."}</p>
+        )}
+        <div className="mt-2 border-t border-white/15 pt-2"><p className="truncate text-[11px] font-bold">{actor?.name}</p><p className="text-[10px] text-[#CFD8DC]">{roleLabel(actor?.role)}</p></div>
+      </div> : null}
       <nav className="mt-3 flex-1 space-y-1.5">
-        <button type="button" onClick={() => selectView("HOME")} title="Inicio" className={`flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-sm font-bold transition ${view === "HOME" ? "bg-white text-[#3150D8]" : "bg-white/10 hover:bg-white/20"}`}><Home className="h-4.5 w-4.5 shrink-0" />{posMenuOpen ? "Inicio" : null}</button>
-        {actions.map((action) => { const Icon = action.icon; return <button key={action.key} type="button" onClick={() => selectView(action.key)} title={action.label} className={`flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-sm font-bold transition ${view === action.key ? "bg-white text-[#3150D8]" : "bg-white/10 hover:bg-white/20"}`}><Icon className="h-4.5 w-4.5 shrink-0" />{posMenuOpen ? action.label : null}</button>; })}
+        <button type="button" onClick={() => selectView("HOME")} title="Inicio" className={`flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-sm font-bold transition ${view === "HOME" ? "bg-white text-[#455A64]" : "bg-white/10 hover:bg-white/20"}`}><Home className="h-4.5 w-4.5 shrink-0" />{posMenuOpen ? "Inicio" : null}</button>
       </nav>
       <button type="button" onClick={logout} title="Cerrar sesión" className="flex min-h-11 w-full items-center gap-2.5 rounded-xl bg-white/10 px-3 text-sm font-bold text-white hover:bg-white/20"><LogOut className="h-4.5 w-4.5 shrink-0" />{posMenuOpen ? "Cerrar sesión" : null}</button>
     </aside>
-    <main className={`min-h-screen bg-[#EEF4FF] transition-all ${posMenuOpen ? "ml-64" : "ml-20"}`}>
-    <header className="flex min-h-16 items-center justify-between border-b border-[#BFD2FF] bg-white px-4 shadow-sm sm:px-5"><div className="flex items-center gap-3"><button type="button" onClick={() => router.push("/")} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#BFD2FF] bg-[#EEF4FF] px-3 text-xs font-bold text-[#3150D8] transition hover:bg-[#DCE7FF]" title="Volver"><ArrowLeft className="h-4 w-4" />Volver</button><div><p className="text-xl font-black">Park<span className="text-[#3150D8]">Facil</span></p><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">Operación de estacionamiento</p></div></div><div className="flex items-center gap-2"><div className="hidden text-right sm:block"><p className="text-xs font-bold">{actor?.name || "Cargando..."}</p><p className="text-[10px] text-[#3150D8]">{roleLabel(actor?.role)}</p></div><button onClick={logout} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-rose-600" title="Cerrar sesión"><LogOut className="h-4 w-4" /></button></div></header>
+    <main className={`min-h-screen bg-[#ECEFF1] transition-all ${posMenuOpen ? "ml-64" : "ml-20"}`}>
+    <header className="flex min-h-16 items-center justify-between border-b border-[#CFD8DC] bg-[#F8F9FA] px-4 shadow-sm sm:px-5"><div className="flex items-center gap-3"><button type="button" onClick={() => router.push("/")} className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#CFD8DC] bg-[#ECEFF1] px-3 text-xs font-bold text-[#455A64] transition hover:bg-[#CFD8DC]" title="Volver"><ArrowLeft className="h-4 w-4" />Volver</button><div><p className="text-xl font-black text-[#263238]">Park<span className="text-[#455A64]">Facil</span> Terminal</p><p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#78909C]">Inicio de operación</p></div></div><div className="flex items-center gap-2"><div className="hidden text-right sm:block"><p className="text-xs font-bold">{actor?.name || "Cargando..."}</p><p className="text-[10px] text-[#455A64]">{roleLabel(actor?.role)}</p></div><button onClick={logout} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 bg-white text-rose-600" title="Cerrar sesión"><LogOut className="h-4 w-4" /></button></div></header>
     <div className="mx-auto max-w-6xl p-3 sm:p-4">
       <section className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">{actions.map((action) => { const Icon = action.icon; return <button key={action.key} onClick={() => selectView(action.key)} className={`${action.color} min-h-20 rounded-2xl p-3 text-left text-white shadow-md transition active:scale-[.98] sm:min-h-24 sm:p-4`}><Icon className="h-6 w-6 sm:h-7 sm:w-7"/><span className="mt-1.5 block text-base font-black sm:text-lg">{action.label}</span><span className="block truncate text-[10px] text-white/80 sm:text-xs">{action.detail}</span></button>; })}</section>
-      <section className="mt-3 rounded-3xl border border-[#BFD2FF] bg-white p-4 shadow-lg sm:p-5">
-        <div className="mb-4 flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#3150D8]">{parking?.company_name || "ParkFacil"}</p><h1 className="mt-0.5 text-xl font-black">{view === "HOME" ? (parking?.name || "Estacionamiento en operación") : actions.find((item) => item.key === view)?.label}</h1><p className="text-xs font-bold text-slate-500">{view === "HOME" ? `Parking en operación${parking?.code ? ` · ${parking.code}` : ""}` : (parking?.name || "Estacionamiento asignado")}</p></div>{view !== "HOME" ? <button onClick={() => selectView("HOME")} className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100"><X className="h-4 w-4" /></button> : null}</div>
-        {view === "HOME" ? <div className="grid min-h-40 place-items-center text-center"><div><CarFront className="mx-auto h-11 w-11 text-[#3150D8]"/><p className="mt-2 text-base font-black">Seleccione uno de los cuatro botones</p><p className="mt-1 text-xs text-slate-500">Toda la operación se realiza desde este panel.</p></div></div> : null}
-        {view === "ENTRY" ? <form onSubmit={registerEntry} className="mx-auto max-w-2xl space-y-6"><div className="rounded-2xl border border-[#BFD2FF] bg-[#EEF4FF] p-4"><p className="text-xs font-black uppercase tracking-wide text-[#3150D8]">Estacionamiento asignado</p><p className="mt-1 text-lg font-black">{parking?.name || "Cargando asignación..."}</p></div><fieldset><legend className="text-sm font-black">PATENTE</legend><div className="mt-2 flex items-center justify-center gap-3"><input ref={prefixRef} required maxLength={4} value={prefix} onChange={(event) => { const value=event.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"");setPrefix(value);if(value.length===4)suffixRef.current?.focus(); }} placeholder="CXPY" className="min-h-24 w-48 min-w-0 rounded-3xl border-2 border-slate-200 bg-slate-50 text-center text-4xl font-black uppercase tracking-[.15em] outline-none focus:border-[#3150D8]"/><span className="text-4xl font-black">-</span><input ref={suffixRef} required maxLength={2} value={suffix} onChange={(event) => setSuffix(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g,""))} placeholder="93" className="min-h-24 w-28 min-w-0 rounded-3xl border-2 border-slate-200 bg-slate-50 text-center text-4xl font-black uppercase tracking-[.15em] outline-none focus:border-[#3150D8]"/></div></fieldset><button disabled={busy || !parking} className="flex min-h-18 w-full items-center justify-center gap-3 rounded-3xl bg-emerald-600 text-xl font-black text-white shadow-lg disabled:opacity-50">{busy?<LoaderCircle className="h-6 w-6 animate-spin"/>:<Printer className="h-6 w-6"/>}GUARDAR E IMPRIMIR INGRESO</button></form> : null}
-        {view === "EXIT" ? <div className="mx-auto max-w-3xl space-y-5"><label className="block text-sm font-black">VEHÍCULO EN EL PARKING<select value={selectedStayId} onChange={(event) => { setSelectedStayId(event.target.value); setQuote(null); if(event.target.value)void calculateExit({stayId:event.target.value}); }} className="mt-2 min-h-16 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 text-lg font-bold outline-none"><option value="">Seleccione una patente</option>{stays.map((stay)=><option key={stay.id} value={stay.id}>{stay.license_plate} · ingreso {dateTime(stay.entry_at)}</option>)}</select></label>{quote?<PaymentSummary data={quote} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} onPay={finishExit} busy={busy}/>:<p className="rounded-2xl bg-slate-50 p-6 text-center text-slate-500">Seleccione un vehículo o utilice el botón Código QR.</p>}</div> : null}
-        {view === "PARKED" ? <div className="overflow-hidden rounded-2xl border border-slate-200"><div className="grid grid-cols-[1fr_1.2fr_.8fr] bg-[#041E42] px-4 py-3 text-xs font-black uppercase text-white"><span>Patente</span><span>Ingreso</span><span>Operador</span></div>{stays.length?stays.map((stay)=><button key={stay.id} onClick={()=>{setSelectedStayId(stay.id);void calculateExit({stayId:stay.id});}} className="grid w-full grid-cols-[1fr_1.2fr_.8fr] border-t border-slate-100 px-4 py-4 text-left hover:bg-[#EEF4FF]"><b>{stay.license_plate}</b><span className="text-sm">{dateTime(stay.entry_at)}</span><span className="truncate text-sm">{stay.entry_operator_name}</span></button>):<p className="p-8 text-center text-slate-500">No hay vehículos dentro del parking.</p>}</div> : null}
-        {view === "QR" ? <div className="mx-auto max-w-2xl space-y-5"><p className="rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Para aplicar un cupón, selecciona primero el vehículo en Salida y luego lee su QR.</p><button onClick={startScanner} className="flex min-h-20 w-full items-center justify-center gap-3 rounded-3xl bg-amber-500 text-xl font-black text-[#041E42]"><Camera className="h-7 w-7"/>LEER QR CON CÁMARA</button>{cameraOpen?<div className="relative overflow-hidden rounded-3xl bg-black"><video ref={videoRef} className="aspect-video w-full object-cover"/><button onClick={stopScanner} className="absolute right-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-white"><X className="h-5 w-5"/></button></div>:null}<div className="flex gap-2"><input value={qrToken} onChange={(event)=>setQrToken(event.target.value.trim())} placeholder="Código QR manual" className="min-h-14 min-w-0 flex-1 rounded-2xl border-2 border-slate-200 px-4 font-mono outline-none focus:border-[#3150D8]"/><button onClick={()=>processQr(qrToken)} className="rounded-2xl bg-[#3150D8] px-5 font-black text-white">LEER QR</button></div></div> : null}
+      <section className="mt-3 rounded-3xl border border-[#CFD8DC] bg-[#F8F9FA] p-4 shadow-lg sm:p-5">
+        <div className="mb-4 flex items-center justify-between"><div><p className="text-[10px] font-black uppercase tracking-[0.16em] text-[#455A64]">{parking?.company_name || "ParkFacil"}</p><h1 className="mt-0.5 text-xl font-black text-[#263238]">{view === "HOME" ? (parking?.name || "Estacionamiento en operación") : actions.find((item) => item.key === view)?.label}</h1><p className="text-xs font-bold text-[#78909C]">{view === "HOME" ? `Parking en operación${parking?.code ? ` · ${parking.code}` : ""}` : (parking?.name || "Estacionamiento asignado")}</p></div>{view === "PARKED" ? <div className="flex items-center gap-2"><button onClick={() => selectView("HOME")} className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-[#ECEFF1] px-3 text-xs font-bold text-[#263238]"><ArrowLeft className="h-4 w-4" />Volver</button><button onClick={printPendingVehicles} title="Imprimir listado de vehículos pendientes" className="grid h-9 w-9 place-items-center rounded-lg border border-[#CFD8DC] bg-white text-[#455A64]"><Printer className="h-4 w-4" /></button></div> : view !== "HOME" ? <button onClick={() => selectView("HOME")} className="grid h-9 w-9 place-items-center rounded-lg bg-[#ECEFF1] text-[#263238]"><X className="h-4 w-4" /></button> : null}</div>
+        {view === "HOME" ? <div className="space-y-4">
+          <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+            <HomeStat icon={CarFront} label="Estacionamiento" value={parking?.name || "Cargando..."} />
+            <HomeStat icon={UserRound} label="Operador" value={actor?.name || "Cargando..."} sub={actor ? roleLabel(actor.role) : ""} />
+            <HomeStat icon={CheckCircle2} label="Estado" value={parking && !busy ? "Operativo" : "Cargando..."} tone={parking && !busy ? "ok" : "muted"} />
+            <HomeStat icon={CircleParking} label="Vehículos dentro" value={String(stays.length)} />
+          </div>
+          <div className="grid min-h-28 place-items-center rounded-2xl border border-dashed border-[#CFD8DC] p-6 text-center"><div><p className="text-base font-black text-[#263238]">Seleccione una de las cuatro acciones</p><p className="mt-1 text-xs text-[#607D8B]">Toda la operación se realiza desde este panel.</p></div></div>
+        </div> : null}
+        {view === "ENTRY" ? <form onSubmit={registerEntry} className="mx-auto max-w-2xl space-y-6"><div className="rounded-2xl border border-[#CFD8DC] bg-[#ECEFF1] p-4"><p className="text-xs font-black uppercase tracking-wide text-[#455A64]">Estacionamiento asignado</p><p className="mt-1 text-lg font-black text-[#263238]">{parking?.name || "Cargando asignación..."}</p></div><fieldset><legend className="text-sm font-black text-[#263238]">PATENTE</legend><div className="mt-2 flex items-center justify-center gap-3"><input ref={prefixRef} required maxLength={4} value={prefix} onChange={(event) => { const value=event.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"");setPrefix(value);if(value.length===4)suffixRef.current?.focus(); }} placeholder="CXPY" className="min-h-24 w-48 min-w-0 rounded-3xl border-2 border-slate-200 bg-slate-50 text-center text-4xl font-black uppercase tracking-[.15em] text-[#263238] outline-none focus:border-[#455A64]"/><span className="text-4xl font-black text-[#263238]">-</span><input ref={suffixRef} required maxLength={2} value={suffix} onChange={(event) => setSuffix(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g,""))} placeholder="93" className="min-h-24 w-28 min-w-0 rounded-3xl border-2 border-slate-200 bg-slate-50 text-center text-4xl font-black uppercase tracking-[.15em] text-[#263238] outline-none focus:border-[#455A64]"/></div></fieldset><button disabled={busy || !parking} className="flex min-h-18 w-full items-center justify-center gap-3 rounded-3xl bg-emerald-600 text-xl font-black text-white shadow-lg disabled:opacity-50">{busy?<LoaderCircle className="h-6 w-6 animate-spin"/>:<Printer className="h-6 w-6"/>}GUARDAR E IMPRIMIR INGRESO</button></form> : null}
+        {view === "EXIT" ? <div className="mx-auto max-w-3xl space-y-5"><label className="block text-sm font-black text-[#263238]">VEHÍCULO EN EL PARKING<select value={selectedStayId} onChange={(event) => { setSelectedStayId(event.target.value); setQuote(null); if(event.target.value)void calculateExit({stayId:event.target.value}); }} className="mt-2 min-h-16 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 text-lg font-bold text-[#263238] outline-none"><option value="">Seleccione una patente</option>{stays.map((stay)=><option key={stay.id} value={stay.id}>{stay.license_plate} · ingreso {dateTime(stay.entry_at)}</option>)}</select></label>{quote?<PaymentSummary data={quote} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} onPay={finishExit} busy={busy}/>:<p className="rounded-2xl bg-white p-6 text-center text-[#607D8B]">Seleccione un vehículo o utilice el botón Código QR.</p>}</div> : null}
+        {view === "PARKED" ? <div className="overflow-hidden rounded-2xl border border-[#CFD8DC]"><div className="grid grid-cols-[1fr_1.2fr_.8fr] bg-[#263238] px-4 py-3 text-xs font-black uppercase text-white"><span>Patente</span><span>Ingreso</span><span>Operador</span></div>{stays.length?stays.map((stay)=><button key={stay.id} onClick={()=>{setSelectedStayId(stay.id);void calculateExit({stayId:stay.id});}} className="grid w-full grid-cols-[1fr_1.2fr_.8fr] border-t border-[#ECEFF1] px-4 py-4 text-left text-[#263238] hover:bg-[#ECEFF1]"><b>{stay.license_plate}</b><span className="text-sm">{dateTime(stay.entry_at)}</span><span className="truncate text-sm">{stay.entry_operator_name}</span></button>):<p className="p-8 text-center text-[#607D8B]">No hay vehículos dentro del parking.</p>}</div> : null}
+        {view === "QR" ? <div className="mx-auto max-w-2xl space-y-5"><p className="rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Para aplicar un cupón, selecciona primero el vehículo en Salida y luego lee su QR.</p><button onClick={startScanner} className="flex min-h-20 w-full items-center justify-center gap-3 rounded-3xl bg-amber-500 text-xl font-black text-[#263238]"><Camera className="h-7 w-7"/>LEER QR CON CÁMARA</button>{cameraOpen?<div className="relative overflow-hidden rounded-3xl bg-black"><video ref={videoRef} className="aspect-video w-full object-cover"/><button onClick={stopScanner} className="absolute right-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-white"><X className="h-5 w-5"/></button></div>:null}<div className="flex gap-2"><input value={qrToken} onChange={(event)=>setQrToken(event.target.value.trim())} placeholder="Código QR manual" className="min-h-14 min-w-0 flex-1 rounded-2xl border-2 border-slate-200 bg-white px-4 font-mono text-[#263238] outline-none focus:border-[#455A64]"/><button onClick={()=>processQr(qrToken)} className="rounded-2xl bg-[#455A64] px-5 font-black text-white">LEER QR</button></div></div> : null}
         {message?<div className={`mt-3 flex items-center gap-2 rounded-xl p-3 text-sm font-bold ${message.includes("guardado")||message.includes("registrado")?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700"}`}><CheckCircle2 className="h-4 w-4 shrink-0"/>{message}</div>:null}
       </section>
     </div>
@@ -124,6 +189,10 @@ export default function DataEntryPage() {
 }
 
 function PaymentSummary({ data, paymentMethod, setPaymentMethod, onPay, busy }) {
-  return <div className="rounded-3xl border-2 border-[#BFD2FF] bg-[#EEF4FF] p-5 sm:p-6"><div className="grid gap-3 sm:grid-cols-2"><Info label="Patente" value={data.stay.license_plate}/><Info label="Fecha ingreso" value={dateTime(data.stay.entry_at)}/><Info label="Minutos consumidos" value={data.quote.elapsedMinutes}/><Info label="Tarifa" value={`${data.quote.rate.name} · ${data.quote.rate.billingMode === "EFFECTIVE_MINUTE" ? "por minuto" : "por tramos"}`}/><Info label="Subtotal" value={money(data.quote.subtotal)}/><Info label="Descuento" value={`-${money(data.quote.discount)}`}/><Info label="Neto" value={money(data.quote.net)}/><Info label="IVA 19%" value={money(data.quote.tax)}/></div>{data.quote.coupon ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><strong>Cupón aplicado: {data.quote.coupon.code}</strong><span className="ml-2">{data.quote.coupon.name}</span><p className="mt-1 text-xs">Se marcará como utilizado al confirmar el pago.</p></div> : null}<div className="mt-4 flex items-center justify-between rounded-2xl bg-[#041E42] p-5 text-white"><span className="font-bold">TOTAL A PAGAR</span><b className="text-3xl">{money(data.quote.total)}</b></div><fieldset className="mt-5"><legend className="text-sm font-black">FORMA DE PAGO</legend><div className="mt-2 grid grid-cols-2 gap-3"><button type="button" onClick={()=>setPaymentMethod("CASH")} className={`min-h-14 rounded-2xl border-2 font-black ${paymentMethod==="CASH"?"border-[#3150D8] bg-white text-[#3150D8]":"border-slate-200 bg-transparent text-slate-500"}`}>CONTADO</button><button type="button" onClick={()=>setPaymentMethod("CARD")} className={`min-h-14 rounded-2xl border-2 font-black ${paymentMethod==="CARD"?"border-[#3150D8] bg-white text-[#3150D8]":"border-slate-200 bg-transparent text-slate-500"}`}>TARJETA</button></div></fieldset><button onClick={onPay} disabled={busy} className="mt-5 flex min-h-18 w-full items-center justify-center gap-3 rounded-3xl bg-emerald-600 text-xl font-black text-white shadow-lg disabled:opacity-50">{busy?<LoaderCircle className="h-6 w-6 animate-spin"/>:<Printer className="h-6 w-6"/>}PAGAR E IMPRIMIR SALIDA</button></div>;
+  return <div className="rounded-3xl border-2 border-[#CFD8DC] bg-[#ECEFF1] p-5 sm:p-6"><div className="grid gap-3 sm:grid-cols-2"><Info label="Patente" value={data.stay.license_plate}/><Info label="Fecha ingreso" value={dateTime(data.stay.entry_at)}/><Info label="Minutos consumidos" value={data.quote.elapsedMinutes}/><Info label="Tarifa" value={`${data.quote.rate.name} · ${data.quote.rate.billingMode === "EFFECTIVE_MINUTE" ? "por minuto" : "por tramos"}`}/><Info label="Subtotal" value={money(data.quote.subtotal)}/><Info label="Descuento" value={`-${money(data.quote.discount)}`}/><Info label="Neto" value={money(data.quote.net)}/><Info label="IVA 19%" value={money(data.quote.tax)}/></div>{data.quote.coupon ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><strong>Cupón aplicado: {data.quote.coupon.code}</strong><span className="ml-2">{data.quote.coupon.name}</span><p className="mt-1 text-xs">Se marcará como utilizado al confirmar el pago.</p></div> : null}<div className="mt-4 flex items-center justify-between rounded-2xl bg-[#263238] p-5 text-white"><span className="font-bold">TOTAL A PAGAR</span><b className="text-3xl">{money(data.quote.total)}</b></div><fieldset className="mt-5"><legend className="text-sm font-black text-[#263238]">FORMA DE PAGO</legend><div className="mt-2 grid grid-cols-2 gap-3"><button type="button" onClick={()=>setPaymentMethod("CASH")} className={`min-h-14 rounded-2xl border-2 font-black ${paymentMethod==="CASH"?"border-[#455A64] bg-white text-[#455A64]":"border-slate-200 bg-transparent text-slate-500"}`}>CONTADO</button><button type="button" onClick={()=>setPaymentMethod("CARD")} className={`min-h-14 rounded-2xl border-2 font-black ${paymentMethod==="CARD"?"border-[#455A64] bg-white text-[#455A64]":"border-slate-200 bg-transparent text-slate-500"}`}>TARJETA</button></div></fieldset><button onClick={onPay} disabled={busy} className="mt-5 flex min-h-18 w-full items-center justify-center gap-3 rounded-3xl bg-emerald-600 text-xl font-black text-white shadow-lg disabled:opacity-50">{busy?<LoaderCircle className="h-6 w-6 animate-spin"/>:<Printer className="h-6 w-6"/>}PAGAR E IMPRIMIR SALIDA</button></div>;
 }
-function Info({ label, value }) { return <div className="rounded-2xl bg-white p-4"><p className="text-xs font-bold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 text-lg font-black text-[#041E42]">{value}</p></div>; }
+function Info({ label, value }) { return <div className="rounded-2xl bg-white p-4"><p className="text-xs font-bold uppercase tracking-wide text-[#78909C]">{label}</p><p className="mt-1 text-lg font-black text-[#263238]">{value}</p></div>; }
+function HomeStat({ icon: Icon, label, value, sub, tone = "neutral" }) {
+  const toneClass = tone === "ok" ? "text-emerald-600" : tone === "muted" ? "text-[#78909C]" : "text-[#455A64]";
+  return <div className="rounded-2xl border border-[#CFD8DC] bg-white p-3.5"><div className="flex items-center gap-2"><Icon className={`h-4.5 w-4.5 shrink-0 ${toneClass}`} /><p className="text-[10px] font-black uppercase tracking-wide text-[#78909C]">{label}</p></div><p className="mt-1.5 truncate text-sm font-black text-[#263238]">{value}</p>{sub ? <p className="text-[10px] font-bold text-[#90A4AE]">{sub}</p> : null}</div>;
+}
