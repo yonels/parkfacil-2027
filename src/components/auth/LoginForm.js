@@ -4,12 +4,8 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
+import { getSafeDestination } from "@/lib/auth/loginDestination.mjs";
 import Link from "next/link";
-
-
-function getSafeDestination(value) {
-  return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
-}
 
 export default function LoginForm({ tipoAcceso }) {
   const router = useRouter();
@@ -24,6 +20,7 @@ export default function LoginForm({ tipoAcceso }) {
     event.preventDefault();
     setError("");
     setSubmitting(true);
+    const destination = getSafeDestination(searchParams.get("next"));
 
     try {
       const supabase = getSupabaseBrowserClient();
@@ -42,8 +39,7 @@ export default function LoginForm({ tipoAcceso }) {
         await supabase.auth.signOut();
         throw new Error(payload.error || `Esta cuenta no puede acceder al Portal ${tipoAcceso === "cliente" ? "Cliente" : "Root"}.`);
       }
-      router.replace(getSafeDestination(searchParams.get("next")));
-      router.refresh();
+      router.replace(destination);
     } catch (authError) {
       setError(
         authError?.message === "Invalid login credentials"
