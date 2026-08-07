@@ -5,7 +5,7 @@ import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { assignedParkingIds } from "@/lib/auth/parkingAuthorization";
 import { ROLES } from "@/lib/auth/permissions.mjs";
-import { notificationScopeClauses } from "@/lib/auth/remainingAuthorizationCore.mjs";
+import { applyNotificationQueryScope } from "@/lib/auth/remainingAuthorizationCore.mjs";
 
 export async function authorizeRemainingRequest(request, permission) {
   const authorization = await authorizeApiRequest(request);
@@ -44,8 +44,7 @@ export async function notificationScope(db, context) {
 }
 
 export function applyNotificationScope(query, scope) {
-  if (!scope) return query;
-  return query.or(notificationScopeClauses(scope).join(","));
+  return applyNotificationQueryScope(query, scope);
 }
 
 export function remainingAuthorizationError(request, context, error) {

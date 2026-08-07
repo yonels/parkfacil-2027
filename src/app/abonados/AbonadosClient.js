@@ -67,7 +67,7 @@ export default function AbonadosClient({ initialAbonados = [], canManage = false
       <div className="space-y-6">
         <PageHeader
           title="Abonados y Credenciales"
-          description="Administración visual de personas, vehículos, credenciales y permisos de acceso, con datos demostrativos y alcance de referencia para futuras etapas operativas."
+          description="Administracion de personas, vehiculos, credenciales y permisos de acceso con aislamiento por empresa y estacionamiento."
           actions={canManage ? [
             <button key="nuevo" className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1E5EFF]">
               <Plus className="h-4 w-4" />
@@ -77,7 +77,7 @@ export default function AbonadosClient({ initialAbonados = [], canManage = false
         />
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          <AbonadoResumen title="Total de abonados" value={resumen.total} description="Abonados demostrativos" tone="info" />
+          <AbonadoResumen title="Total de abonados" value={resumen.total} description="Registros disponibles" tone="info" />
           <AbonadoResumen title="Abonados activos" value={resumen.activos} description="Estado activo" tone="positive" />
           <AbonadoResumen title="Abonados suspendidos" value={resumen.suspendidos} description="Con suspensión" tone="warning" />
           <AbonadoResumen title="Vehículos autorizados" value={resumen.vehiculosAutorizados} description="Vehículos válidos" tone="neutral" />
@@ -94,9 +94,9 @@ export default function AbonadosClient({ initialAbonados = [], canManage = false
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h3 className="text-xl font-semibold text-[#041E42]">Catálogo de abonados</h3>
-              <p className="mt-2 text-sm text-slate-600">Listado visual preparado para administración de accesos autorizados, con datos demostrativos y sin operaciones reales.</p>
+              <p className="mt-2 text-sm text-slate-600">Listado de accesos autorizados dentro del alcance de la sesion actual.</p>
             </div>
-            <StatusBadge variant="warning">Demostrativo</StatusBadge>
+            <StatusBadge variant="success">Datos persistentes</StatusBadge>
           </div>
 
           <div className="mt-6 flex flex-col gap-3 lg:flex-row lg:items-center">

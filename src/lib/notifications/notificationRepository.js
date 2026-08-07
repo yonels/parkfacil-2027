@@ -1,7 +1,7 @@
 import { CHANNEL_PROVIDER } from "./constants.js";
 import { mapNotificationRow, normalizeNotificationFilters, sanitizeNotificationPayload } from "./normalizers.js";
 import { assertStatusTransition, validateNotificationInput } from "./notificationValidators.js";
-import { applyNotificationScope } from "@/lib/auth/remainingAuthorization";
+import { applyNotificationQueryScope } from "../auth/remainingAuthorizationCore.mjs";
 
 function controlledRepositoryError(error, fallback = "notification_repository_error") {
   return { message: error?.message || "Error de repositorio de notificaciones.", code: error?.code || fallback, details: error?.details || null };
@@ -32,7 +32,7 @@ export async function createNotification(supabase, input = {}) {
 }
 
 export async function getNotificationById(supabase, id, scope = null) {
-  const { data, error } = await applyNotificationScope(supabase.from("notifications").select("*"), scope).eq("id", id).maybeSingle();
+  const { data, error } = await applyNotificationQueryScope(supabase.from("notifications").select("*"), scope).eq("id", id).maybeSingle();
   if (!data && !error) throw Object.assign(new Error("Notificacion no encontrada."), { code: "notification_not_found" });
   if (error) throw Object.assign(new Error("Notificación no encontrada."), controlledRepositoryError(error, "notification_not_found"));
   return mapNotificationRow(data);
@@ -47,7 +47,7 @@ export async function listNotificationAttempts(supabase, notificationId) {
 export async function listNotifications(supabase, filtersInput = {}, scope = null) {
   const filters = normalizeNotificationFilters(filtersInput);
   let query = supabase.from("notifications").select("*", { count: "exact" });
-  query = applyNotificationScope(query, scope);
+  query = applyNotificationQueryScope(query, scope);
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.channel) query = query.eq("channel", filters.channel);
   if (filters.type) query = query.eq("type", filters.type);
@@ -98,7 +98,7 @@ export async function recordNotificationAttempt(supabase, input = {}) {
 export async function getNotificationSummary(supabase, filtersInput = {}, scope = null) {
   const filters = normalizeNotificationFilters({ ...filtersInput, page: 1, page_size: 1 });
   let query = supabase.from("notifications").select("status", { count: "exact" });
-  query = applyNotificationScope(query, scope);
+  query = applyNotificationQueryScope(query, scope);
   if (filters.channel) query = query.eq("channel", filters.channel);
   if (filters.type) query = query.eq("type", filters.type);
   if (filters.subscriberId) query = query.eq("subscriber_id", filters.subscriberId);

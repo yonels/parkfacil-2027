@@ -6,3 +6,7 @@ export function notificationScopeClauses(scope) {
   if (scope.userId) clauses.push(`user_id.eq.${scope.userId}`);
   return clauses;
 }
+
+export function applyNotificationQueryScope(query, scope) {
+  return scope ? query.or(notificationScopeClauses(scope).join(",")) : query;
+}
