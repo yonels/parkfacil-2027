@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Building2, ParkingSquare, ShieldCheck } from "lucide-react";
 
 import LoginForm from "@/components/auth/LoginForm";
+import { PORTALS, getPortalFromHost } from "@/lib/auth/portal.mjs";
 
 export const metadata = {
   title: "Iniciar sesión | ParkFacil 2027",
@@ -34,24 +35,11 @@ const CONFIGURACION_ACCESO = {
   },
 };
 
-function obtenerTipoAcceso(host) {
-  const hostNormalizado = String(host || "")
-    .split(":")[0]
-    .trim()
-    .toLowerCase();
-
-  if (hostNormalizado === "cliente.parkfacilapp.cl") {
-    return "cliente";
-  }
-
-  return "root";
-}
-
 export default async function LoginPage() {
   const encabezados = await headers();
   const host = encabezados.get("x-forwarded-host") || encabezados.get("host");
 
-  const tipoAcceso = obtenerTipoAcceso(host);
+  const tipoAcceso = getPortalFromHost(host) === PORTALS.CLIENT ? "cliente" : "root";
   const configuracion = CONFIGURACION_ACCESO[tipoAcceso];
   const IconoAcceso = configuracion.Icono;
 
