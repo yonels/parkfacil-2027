@@ -43,7 +43,7 @@ export default function AppShell({
   const router = useRouter();
 
   const [collapsed, setCollapsed] =
-    useState(true);
+    useState(false);
   const [
     clientContext,
     setClientContext,
