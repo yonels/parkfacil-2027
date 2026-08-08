@@ -27,6 +27,20 @@ const statusLabel = {
   CANCELLED: "Cancelado",
 };
 
+function normalizeUserDetail(user) {
+  if (!user) return null;
+  return {
+    ...user,
+    organizationId: user.organizationId || null,
+    fechaIncorporacion: user.fechaIncorporacion || "Sin fecha informada",
+    observaciones: user.observaciones || "Sin observaciones registradas.",
+    permisos: Array.isArray(user.permisos) ? user.permisos : ["Permisos administrados por rol y empresa"],
+    historial: Array.isArray(user.historial) ? user.historial : ["Sin historial registrado"],
+    actividad: Array.isArray(user.actividad) ? user.actividad : ["Sin actividad registrada"],
+    perfilesSecundarios: Array.isArray(user.perfilesSecundarios) ? user.perfilesSecundarios : [],
+  };
+}
+
 export default function UsuarioDetalleClient({ userId }) {
   const [data, setData] = useState(null);
   const [shifts, setShifts] = useState([]);
@@ -41,7 +55,8 @@ export default function UsuarioDetalleClient({ userId }) {
         const body = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(body.error || "No se pudo cargar el catálogo de usuarios.");
         if (!active) return;
-        const user = (body.data || []).find((item) => item.id === userId) || null;
+        const rawUser = (body.data || []).find((item) => item.id === userId) || null;
+        const user = normalizeUserDetail(rawUser);
         const company = user ? (body.companies || []).find((item) => item.id === user.empresaId) || null : null;
         const parkings = user ? (body.parkings || []).filter((item) => (user.estacionamientos || []).includes(item.id)) : [];
         setData(user ? { user, company, parkings } : { user: null, company: null, parkings: [] });
