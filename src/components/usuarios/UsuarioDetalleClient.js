@@ -53,6 +53,7 @@ export default function UsuarioDetalleClient({ userId }) {
     authenticatedFetch("/api/usuarios", { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
+        if (response.status === 401) throw new Error("SESSION_EXPIRED");
         if (!response.ok) throw new Error(body.error || "No se pudo cargar el catálogo de usuarios.");
         if (!active) return;
         const rawUser = (body.data || []).find((item) => item.id === userId) || null;
@@ -71,6 +72,11 @@ export default function UsuarioDetalleClient({ userId }) {
         const shiftsResponse = await authenticatedFetch(`/api/usuarios/${userId}/turnos`, { cache: "no-store" });
         const shiftsBody = await shiftsResponse.json().catch(() => ({}));
         if (!active) return;
+        if (shiftsResponse.status === 401) {
+          setShifts([]);
+          setShiftsError("Tu sesión expiró. Vuelve a iniciar sesión para cargar turnos.");
+          return;
+        }
         if (!shiftsResponse.ok) {
           setShifts([]);
           setShiftsError(shiftsBody.error || "No se pudieron cargar los turnos del usuario.");
@@ -93,13 +99,17 @@ export default function UsuarioDetalleClient({ userId }) {
   const estacionamientos = data?.parkings || [];
 
   if (!usuario || error) {
+    const sessionExpired = error === "SESSION_EXPIRED";
     return (
       <AppShell title="Detalle de usuario" description="Usuario no encontrado">
         <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
-          <p className="text-lg font-semibold text-[#041E42]">No se encontró el usuario solicitado.</p>
-          <Link href="/usuarios" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#3150D8]">
-            <ArrowLeft className="h-4 w-4" /> Volver al catálogo
-          </Link>
+          <p className="text-lg font-semibold text-[#041E42]">{sessionExpired ? "Tu sesión expiró." : "No se encontró el usuario solicitado."}</p>
+          <p className="mt-2 text-sm text-slate-600">{sessionExpired ? "Inicia sesión nuevamente para continuar." : "Verifica el enlace o vuelve al catálogo de usuarios."}</p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+            <Link href={sessionExpired ? "/login" : "/usuarios"} className="inline-flex items-center gap-2 text-sm font-semibold text-[#3150D8]">
+              <ArrowLeft className="h-4 w-4" /> {sessionExpired ? "Ir a iniciar sesión" : "Volver al catálogo"}
+            </Link>
+          </div>
         </div>
       </AppShell>
     );
