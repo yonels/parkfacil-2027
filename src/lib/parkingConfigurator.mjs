@@ -166,7 +166,11 @@ export function buildConfigurator(parking, summary, availability = {}) {
     accesses: blocked("Persistencia de accesos pendiente"),
     barriers: blocked("Persistencia de barreras pendiente"),
     cameras: blocked("Persistencia de cámaras pendiente"),
-    rates: blocked("Persistencia de tarifas pendiente"),
+    rates: !availability.rates
+      ? blocked("Persistencia de tarifas pendiente")
+      : summary.rateCount > 0
+        ? { status: STEP_STATES.COMPLETED, detail: `${summary.rateCount} tarifas activas` }
+        : { status: STEP_STATES.IN_PROGRESS, detail: "Falta configurar una tarifa activa" },
   };
   const requirements = activationRequirements(parking, summary, availability, checklist);
   values.review = requirements.length ? { status: STEP_STATES.BLOCKED, detail: `${requirements.length} requisitos pendientes` } : { status: STEP_STATES.COMPLETED, detail: "Listo para activar" };

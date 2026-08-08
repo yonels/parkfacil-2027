@@ -28,6 +28,16 @@ test("tarifas sin persistencia bloquean activación", () => {
   const requirements = activationRequirements(parking, { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 10 }, { rates: false });
   assert.ok(requirements.some((item) => item.includes("tarifas")));
 });
+test("paso de tarifas usa el estado real de la persistencia y de la tarifa activa", () => {
+  const blockedResult = buildConfigurator(parking, { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 10 }, { rates: false });
+  assert.equal(blockedResult.steps.find((step) => step.key === "rates").status, "BLOQUEADO");
+
+  const pendingResult = buildConfigurator(parking, { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 10, rateCount: 0 }, { rates: true });
+  assert.equal(pendingResult.steps.find((step) => step.key === "rates").status, "EN_PROCESO");
+
+  const completedResult = buildConfigurator(parking, { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 10, rateCount: 1 }, { rates: true });
+  assert.equal(completedResult.steps.find((step) => step.key === "rates").status, "COMPLETADO");
+});
 test("activación Off Street exige nivel zona y capacidad", () => {
   const requirements = activationRequirements(parking, emptySummary, { rates: true });
   assert.ok(requirements.some((item) => item.includes("nivel")));
