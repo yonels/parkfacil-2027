@@ -1,5 +1,9 @@
 import "server-only";
 
+function relationUnavailable(error) {
+  return ["42P01", "PGRST204", "PGRST205"].includes(error?.code);
+}
+
 function mapParking(row, contractedSpacesByParkingId = {}) {
   return {
     id: row.id,
@@ -99,10 +103,15 @@ export async function listCompanies(supabase, { companyId = null } = {}) {
     scoped(memberQuery, companyId),
   ]);
   if (error) throw error;
-  if (parkingResult.error) throw parkingResult.error;
-  if (contractResult.error) throw contractResult.error;
-  if (memberResult.error) throw memberResult.error;
-  const parkings = (parkingResult.data || []).map((row) => ({
+  if (parkingResult.error && !relationUnavailable(parkingResult.error)) throw parkingResult.error;
+  if (contractResult.error && !relationUnavailable(contractResult.error)) throw contractResult.error;
+  if (memberResult.error && !relationUnavailable(memberResult.error)) throw memberResult.error;
+
+  const parkingRows = parkingResult.error ? [] : (parkingResult.data || []);
+  const contractRows = contractResult.error ? [] : (contractResult.data || []);
+  const memberRows = memberResult.error ? [] : (memberResult.data || []);
+
+  const parkings = parkingRows.map((row) => ({
     id: row.id, name: row.name, code: row.code, address: row.address, city: row.city,
     country: row.country, status: row.status, type: row.type, companyId: row.company_id,
     metrics: { capacity: 0 },
@@ -114,14 +123,14 @@ export async function listCompanies(supabase, { companyId = null } = {}) {
       .from("contract_parking_spaces").select("parking_id,contracted_spaces").in("parking_id", parkingIds);
     // La tabla puede no existir aún en un entorno recién provisionado (42P01/PGRST205);
     // en ese caso se degrada a "sin dato" en vez de romper el listado de empresas.
-    if (contractedSpacesError && !["42P01", "PGRST204", "PGRST205"].includes(contractedSpacesError.code)) throw contractedSpacesError;
+    if (contractedSpacesError && !relationUnavailable(contractedSpacesError)) throw contractedSpacesError;
     contractedSpacesByParkingId = Object.fromEntries((contractedSpaces || []).map((row) => [row.parking_id, row.contracted_spaces]));
   }
   return (companies || []).map((company) => mapCompany(
     company,
     parkings || [],
-    contractResult.data || [],
-    memberResult.data || [],
+    contractRows,
+    memberRows,
     contractedSpacesByParkingId,
   ));
 }
