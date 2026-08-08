@@ -26,6 +26,26 @@ function getContractDisplay(contract) {
   return contract.estado ? `${number} · ${contract.estado}` : number;
 }
 
+function contractStatusLabel(status) {
+  const labels = {
+    draft: "Borrador",
+    pending_signature: "Pendiente de firma",
+    active: "Activo",
+    suspended: "Suspendido",
+    expired: "Vencido",
+    terminated: "Terminado",
+    cancelled: "Cancelado",
+  };
+  return labels[status] || status || "Sin estado";
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString("es-CL");
+}
+
 function contactRoleLabel(role) {
   if (role === "company_admin") return "Administrador";
   if (role === "operator") return "Operador";
@@ -157,15 +177,34 @@ export default async function EmpresaDetallePage({ params }) {
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><FileText className="h-5 w-5" /><h4 className="font-semibold">Contratos</h4></div>
-              <ul className="mt-3 space-y-2 text-sm text-slate-600">
+              <div className="mt-3 space-y-2 text-sm text-slate-600">
                 {empresa.contratos.length > 0
-                  ? empresa.contratos.map((item, index) => (
-                    <li key={typeof item === "object" && item?.id ? item.id : `${getContractDisplay(item)}-${index}`}>
-                      • {getContractDisplay(item)}
-                    </li>
-                  ))
-                  : <li>• Sin contratos asociados</li>}
-              </ul>
+                  ? empresa.contratos.map((item, index) => {
+                    const key = typeof item === "object" && item?.id ? item.id : `${getContractDisplay(item)}-${index}`;
+                    if (typeof item !== "object" || !item) {
+                      return <p key={key}>• {getContractDisplay(item)}</p>;
+                    }
+                    return (
+                      <details key={key} className="group overflow-hidden rounded-xl border border-slate-200 bg-white">
+                        <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 font-semibold text-[#3150D8]">
+                          <span>{getContractDisplay(item)}</span>
+                          <span className="text-slate-400 transition group-open:rotate-90">›</span>
+                        </summary>
+                        <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-600">
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <p><strong>Estado:</strong> {contractStatusLabel(item.estado)}</p>
+                            <p><strong>Moneda:</strong> {item.moneda || "-"}</p>
+                            <p><strong>Inicio:</strong> {formatDate(item.fechaInicio)}</p>
+                            <p><strong>Término:</strong> {formatDate(item.fechaTermino)}</p>
+                            <p><strong>Firma:</strong> {formatDate(item.fechaFirma)}</p>
+                            <p><strong>Duración:</strong> {item.duracionMeses ? `${item.duracionMeses} meses` : "-"}</p>
+                          </div>
+                        </div>
+                      </details>
+                    );
+                  })
+                  : <p>• Sin contratos asociados</p>}
+              </div>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><History className="h-5 w-5" /><h4 className="font-semibold">Historial</h4></div>
