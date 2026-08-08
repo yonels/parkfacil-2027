@@ -22,7 +22,7 @@ const modules = [
   { title: "Simulador de tarifas", description: "Comparación de escenarios tarifarios sin alterar la tarifa vigente.", icon: Calculator, href: "/simulador-tarifas", state: "Disponible" },
   { title: "Dispositivos", description: "Inventario tecnológico y estado de conexión.", icon: RadioTower, href: "/dispositivos", state: "Disponible" },
   { title: "Monitoreo", description: "Centro operativo para dispositivos y alertas.", icon: RadioTower, href: "/monitoreo", state: "Disponible" },
-  { title: "Tarifas", description: "Configura y administra las tarifas de los estacionamientos.", icon: BadgeDollarSign, href: "/tarifas", state: "Disponible" },
+  { title: "Tarifas", description: "Configura y administra las tarifas de los estacionamientos.", icon: BadgeDollarSign, href: "/administracion-tarifas", state: "Disponible" },
   { title: "Planes", description: "Administra los planes comerciales y sus condiciones.", icon: Layers, href: "/tarifas", state: "Disponible" },
 ];
 

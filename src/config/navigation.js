@@ -1,4 +1,4 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent } from "lucide-react";
+import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent } from "lucide-react";
 
 export const navigationItems = [
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
@@ -14,7 +14,8 @@ export const navigationItems = [
   { href: "/modelo-gestion-modulos", label: "Gestión de módulos", icon: SlidersHorizontal },
   { href: "/contratos", label: "Contratos", icon: Handshake },
   { href: "/abonados", label: "Abonados y Credenciales", icon: KeyRound },
-  { href: "/tarifas", label: "Tarifas y Planes", icon: Wallet },
+  { href: "/administracion-tarifas", label: "Tarifas", icon: BadgeDollarSign },
+  { href: "/tarifas", label: "Planes", icon: Layers },
   { href: "/cupones", label: "Cupones y descuentos", icon: TicketPercent },
   { href: "/convenios", label: "Convenios", icon: Handshake },
   { href: "/simulador-tarifas", label: "Simulador de tarifas", icon: Calculator },
