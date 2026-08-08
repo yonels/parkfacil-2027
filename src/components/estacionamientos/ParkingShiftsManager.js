@@ -40,6 +40,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
   const [form, setForm] = useState(emptyForm);
   const [editingShiftId, setEditingShiftId] = useState("");
   const [deletingShiftId, setDeletingShiftId] = useState("");
+  const parkingTypeLabel = parking.type === "ON_STREET" ? "On Street" : parking.type === "OFF_STREET" ? "Off Street" : parking.type;
 
   const assignmentOptions = useMemo(() => (structure?.assignments || []).map((assignment) => {
     const sectors = structure?.sectors || [];
@@ -162,6 +163,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
         <div>
           <h2 className="text-xl font-semibold text-[#041E42]">Turnos del estacionamiento</h2>
           <p className="mt-1 text-sm text-slate-600">Desde aquí puedes programar un turno o abrirlo directamente si la operación ya inició. El cierre sigue utilizando el flujo existente.</p>
+          <div className="mt-2 inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Tipo: {parkingTypeLabel}</div>
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">{shifts.length} registrados</span>
       </div>
