@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { ArrowLeft, Building2, Mail, Phone, MapPin, Briefcase, Users, FileText, History, AlertTriangle } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
@@ -26,14 +28,47 @@ function getContractDisplay(contract) {
   return contract.estado ? `${number} · ${contract.estado}` : number;
 }
 
+function toSlugFileName(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const dot = text.lastIndexOf(".");
+  const hasExt = dot > 0 && dot < text.length - 1;
+  const base = hasExt ? text.slice(0, dot) : text;
+  const ext = hasExt ? text.slice(dot + 1) : "pdf";
+  const normalized = base
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toUpperCase();
+  return `${normalized}.${ext.toLowerCase()}`;
+}
+
 function getContractPdfHref(contract) {
   if (!contract || typeof contract !== "object") return null;
   const source = String(contract.documentoFuente || "").trim();
-  if (!source) return null;
+  if (!source && !contract.numero) return null;
   if (/^https?:\/\//i.test(source)) return source;
-  const normalized = source.replace(/^\/+/, "");
-  const path = normalized.startsWith("contratos/") ? normalized : `contratos/${normalized}`;
-  const encodedPath = path.split("/").map((part) => encodeURIComponent(part)).join("/");
+
+  const candidates = [];
+  if (source) {
+    const normalized = source.replace(/^\/+/, "");
+    candidates.push(normalized.startsWith("contratos/") ? normalized : `contratos/${normalized}`);
+    const fileName = normalized.split("/").pop();
+    const slugged = toSlugFileName(fileName);
+    if (slugged) candidates.push(`contratos/${slugged}`);
+  }
+  if (contract.numero) {
+    candidates.push(`contratos/${toSlugFileName(contract.numero)}.pdf`);
+  }
+
+  const existing = candidates.find((relativePath) => {
+    const absolutePath = path.join(process.cwd(), "public", ...relativePath.split("/"));
+    return existsSync(absolutePath);
+  });
+
+  if (!existing) return null;
+  const encodedPath = existing.split("/").map((part) => encodeURIComponent(part)).join("/");
   return `/${encodedPath}`;
 }
 
@@ -173,8 +208,11 @@ export default async function EmpresaDetallePage({ params }) {
                   ? empresa.contratos.map((item, index) => {
                     const key = typeof item === "object" && item?.id ? item.id : `${getContractDisplay(item)}-${index}`;
                     const pdfHref = getContractPdfHref(item);
-                    if (typeof item !== "object" || !item || !pdfHref) {
+                    if (typeof item !== "object" || !item) {
                       return <p key={key}>• {getContractDisplay(item)}</p>;
+                    }
+                    if (!pdfHref) {
+                      return <p key={key} className="rounded-xl border border-dashed border-slate-300 bg-slate-100 px-4 py-3 text-slate-500">• {getContractDisplay(item)} · PDF no disponible</p>;
                     }
                     return (
                       <a key={key} href={pdfHref} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 font-semibold text-[#3150D8] transition hover:border-[#3150D8] hover:bg-[#EEF4FF]">
