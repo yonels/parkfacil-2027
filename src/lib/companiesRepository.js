@@ -80,11 +80,34 @@ function mapCompany(row, parkings, contracts = [], members = [], contractedSpace
       administradores: companyMembers.filter((member) => member.role === "company_admin").length,
       operadores: companyMembers.filter((member) => member.role === "operator").length,
     },
+    contactos: companyMembers.map((member) => ({
+      id: member.user_id,
+      nombreCompleto: member.full_name,
+      rol: member.role,
+      estado: member.status,
+      correo: "",
+      telefono: "Sin telefono informado",
+    })),
     contrato: companyContracts.find((contract) => ["active", "pending_signature", "suspended"].includes(contract.estado)) || companyContracts[0] || null,
     contratos: companyContracts,
     documentos: [],
     historial: [],
   };
+}
+
+async function enrichContactsWithAuthData(supabase, contacts = []) {
+  const detailed = await Promise.all(contacts.map(async (contact) => {
+    if (!contact.id) return contact;
+    const result = await supabase.auth.admin.getUserById(contact.id);
+    const authUser = result.error ? null : result.data?.user;
+    return {
+      ...contact,
+      correo: authUser?.email || contact.correo || "Sin correo informado",
+      telefono: authUser?.user_metadata?.phone || contact.telefono || "Sin telefono informado",
+      ultimoAcceso: authUser?.last_sign_in_at || null,
+    };
+  }));
+  return detailed;
 }
 
 function scoped(query, companyId) {
@@ -95,7 +118,7 @@ export async function listCompanies(supabase, { companyId = null } = {}) {
   const companyQuery = supabase.from("companies").select("*").order("business_name");
   const parkingQuery = supabase.from("parkings").select("*").order("code");
   const contractQuery = supabase.from("company_contracts").select("*").order("starts_on", { ascending: false });
-  const memberQuery = supabase.from("company_members").select("company_id,role,status");
+  const memberQuery = supabase.from("company_members").select("user_id,company_id,full_name,role,status");
   const [{ data: companies, error }, parkingResult, contractResult, memberResult] = await Promise.all([
     companyId ? companyQuery.eq("id", companyId) : companyQuery,
     scoped(parkingQuery, companyId),
@@ -138,5 +161,8 @@ export async function listCompanies(supabase, { companyId = null } = {}) {
 export async function getCompany(supabase, id, { companyId = null } = {}) {
   if (companyId && companyId !== id) return null;
   const companies = await listCompanies(supabase, { companyId: id });
-  return companies.find((company) => company.id === id) || null;
+  const company = companies.find((item) => item.id === id) || null;
+  if (!company) return null;
+  company.contactos = await enrichContactsWithAuthData(supabase, company.contactos || []);
+  return company;
 }

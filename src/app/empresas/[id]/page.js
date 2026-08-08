@@ -26,6 +26,20 @@ function getContractDisplay(contract) {
   return contract.estado ? `${number} · ${contract.estado}` : number;
 }
 
+function contactRoleLabel(role) {
+  if (role === "company_admin") return "Administrador";
+  if (role === "operator") return "Operador";
+  return "Contacto";
+}
+
+function contactStatusLabel(status) {
+  if (status === "active") return "Activo";
+  if (status === "invited") return "Pendiente";
+  if (status === "suspended") return "Suspendido";
+  if (status === "inactive") return "Inactivo";
+  return status || "Sin estado";
+}
+
 export default async function EmpresaDetallePage({ params }) {
   const { id } = await params;
   const empresa = await getCompanyPageData(id);
@@ -44,6 +58,17 @@ export default async function EmpresaDetallePage({ params }) {
   }
 
   const estacionamientos = empresa.estacionamientos;
+  const contactos = Array.isArray(empresa.contactos) && empresa.contactos.length > 0
+    ? empresa.contactos
+    : [{
+      id: "contacto-principal",
+      nombreCompleto: empresa.contactoPrincipal,
+      rol: "contact",
+      estado: empresa.estado,
+      correo: empresa.correo,
+      telefono: empresa.telefono,
+      ultimoAcceso: null,
+    }];
 
   return (
     <AppShell title={empresa.razonSocial} description="Detalle visual de la empresa">
@@ -113,6 +138,16 @@ export default async function EmpresaDetallePage({ params }) {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><Users className="h-5 w-5" /><h4 className="font-semibold">Usuarios asociados</h4></div>
               <p className="mt-3 text-sm text-slate-600">{empresa.usuarios} usuarios de referencia.</p>
+              <div className="mt-4 space-y-2">
+                {contactos.map((contacto) => (
+                  <div key={contacto.id || `${contacto.nombreCompleto}-${contacto.correo}`} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
+                    <p className="font-semibold text-[#041E42]">{contacto.nombreCompleto || "Sin nombre informado"}</p>
+                    <p className="mt-1 text-xs text-slate-500">{contactRoleLabel(contacto.rol)} · {contactStatusLabel(contacto.estado)}</p>
+                    <p className="mt-2 text-sm text-slate-600">{contacto.correo || "Sin correo informado"}</p>
+                    <p className="text-sm text-slate-600">{contacto.telefono || "Sin telefono informado"}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </section>
