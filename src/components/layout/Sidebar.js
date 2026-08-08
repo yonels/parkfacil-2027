@@ -23,7 +23,7 @@ const sectionDefinitions = [
   {
     id: "administracion",
     title: "Administración",
-    labels: ["Empresas", "Usuarios", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Planes", "Simulador de tarifas", "Dispositivos", "Reportes", "Administración", "Integraciones"],
+    labels: ["Empresas", "Usuarios", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Planes", "Simulador de tarifas", "Dispositivos", "Reportes", "Administración", "Integraciones"],
   },
   {
     id: "soporte",
@@ -41,7 +41,7 @@ function isItemActive(pathname, href) {
 export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientContext, userContext }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [openSections, setOpenSections] = useState([]);
+  const [openSections, setOpenSections] = useState(["plataforma", "administracion"]);
   const [showAccountDetails, setShowAccountDetails] = useState(false);
   const [showMobileAccountDetails, setShowMobileAccountDetails] = useState(false);
   const normalizedOpenSections = Array.isArray(openSections)

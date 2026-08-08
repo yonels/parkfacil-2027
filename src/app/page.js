@@ -11,6 +11,7 @@ const modules = [
   { title: "Off Street", description: "Administración de recintos, niveles, zonas y capacidad.", icon: Building2, href: "/estacionamientos?tipo=OFF_STREET", state: "Disponible" },
   { title: "Empresas", description: "Clientes, contratos y estacionamientos asociados.", icon: Users, href: "/empresas", state: "Disponible" },
   { title: "Usuarios", description: "Administradores, operadores y permisos de acceso.", icon: Users, href: "/usuarios", state: "Disponible" },
+  { title: "Turnos", description: "Crear, editar, modificar y eliminar turnos por estacionamiento.", icon: Building2, href: "/turnos", state: "Disponible" },
   { title: "Contratos", description: "Condiciones comerciales y vigencia contractual.", icon: FileText, href: "/contratos", state: "Disponible" },
   { title: "Recaudación", description: "Ingresos, medios de pago y control financiero.", icon: Wallet, href: "/recaudacion", state: "Disponible" },
   { title: "Cupones", description: "Cupones, minutos gratis y beneficios aplicables.", icon: TicketPercent, href: "/cupones", state: "Disponible" },
