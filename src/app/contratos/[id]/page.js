@@ -122,7 +122,10 @@ export default async function ContratoDetallePage({ params }) {
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
                 {estacionamientos.length > 0 ? estacionamientos.map((item) => (
                   <li key={item.id}>
-                    • <Link href={`/estacionamientos/${item.id}`} className="font-semibold text-[#3150D8] underline-offset-2 hover:underline">{item.nombre}</Link>
+                    <Link href={`/estacionamientos/${item.id}`} className="group flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold text-[#3150D8] transition hover:border-[#3150D8] hover:bg-[#EEF4FF]">
+                      <span>{item.nombre}</span>
+                      <span aria-hidden="true" className="text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[#3150D8]">→</span>
+                    </Link>
                   </li>
                 )) : <li>• No disponible</li>}
               </ul>
@@ -132,7 +135,10 @@ export default async function ContratoDetallePage({ params }) {
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
                 {contrato.contactos.length > 0 ? contrato.contactos.map((item) => (
                   <li key={item}>
-                    • <Link href={empresa?.id ? `/empresas/${empresa.id}` : "/empresas"} className="font-semibold text-[#3150D8] underline-offset-2 hover:underline">{item}</Link>
+                    <Link href={empresa?.id ? `/empresas/${empresa.id}` : "/empresas"} className="group flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold text-[#3150D8] transition hover:border-[#3150D8] hover:bg-[#EEF4FF]">
+                      <span>{item}</span>
+                      <span aria-hidden="true" className="text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[#3150D8]">→</span>
+                    </Link>
                   </li>
                 )) : <li>• No disponible</li>}
               </ul>
@@ -148,7 +154,10 @@ export default async function ContratoDetallePage({ params }) {
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
                 {contrato.serviciosIncluidos.map((item) => (
                   <li key={item}>
-                    • <Link href={`/operacion?q=${queryFromLabel(item)}`} className="font-semibold text-[#3150D8] underline-offset-2 hover:underline">{item}</Link>
+                    <Link href={`/operacion?q=${queryFromLabel(item)}`} className="group flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold text-[#3150D8] transition hover:border-[#3150D8] hover:bg-[#EEF4FF]">
+                      <span>{item}</span>
+                      <span aria-hidden="true" className="text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[#3150D8]">→</span>
+                    </Link>
                   </li>
                 ))}
               </ul>
@@ -158,7 +167,10 @@ export default async function ContratoDetallePage({ params }) {
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
                 {contrato.equipamiento.length > 0 ? contrato.equipamiento.map((item) => (
                   <li key={item}>
-                    • <Link href={`/dispositivos?q=${queryFromLabel(item)}`} className="font-semibold text-[#3150D8] underline-offset-2 hover:underline">{item}</Link>
+                    <Link href={`/dispositivos?q=${queryFromLabel(item)}`} className="group flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold text-[#3150D8] transition hover:border-[#3150D8] hover:bg-[#EEF4FF]">
+                      <span>{item}</span>
+                      <span aria-hidden="true" className="text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[#3150D8]">→</span>
+                    </Link>
                   </li>
                 )) : <li>• No disponible</li>}
               </ul>
@@ -189,7 +201,10 @@ export default async function ContratoDetallePage({ params }) {
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
                 {contrato.historial.map((item) => (
                   <li key={item}>
-                    • <Link href={`/notificaciones?q=${queryFromLabel(item)}`} className="font-semibold text-[#3150D8] underline-offset-2 hover:underline">{item}</Link>
+                    <Link href={`/notificaciones?q=${queryFromLabel(item)}`} className="group flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 font-semibold text-[#3150D8] transition hover:border-[#3150D8] hover:bg-[#EEF4FF]">
+                      <span>{item}</span>
+                      <span aria-hidden="true" className="text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[#3150D8]">→</span>
+                    </Link>
                   </li>
                 ))}
               </ul>
