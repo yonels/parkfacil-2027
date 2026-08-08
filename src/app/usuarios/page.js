@@ -404,54 +404,56 @@ export default function UsuariosPage() {
         </section>
 
         {createOpen ? (
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-xl font-semibold text-[#041E42]">Crear usuario</h3>
-              <button type="button" onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cerrar</button>
-            </div>
-            <form onSubmit={submitCreateUser} className="mt-4 space-y-4">
-              {createError ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{createError}</p> : null}
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="space-y-1.5 text-sm text-slate-700">
-                  <span>Nombre completo</span>
-                  <input value={createDraft.fullName} onChange={(event) => setCreateDraft((current) => ({ ...current, fullName: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
-                </label>
-                <label className="space-y-1.5 text-sm text-slate-700">
-                  <span>Correo</span>
-                  <input type="email" value={createDraft.email} onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
-                </label>
-                <label className="space-y-1.5 text-sm text-slate-700">
-                  <span>Telefono</span>
-                  <input value={createDraft.phone} onChange={(event) => setCreateDraft((current) => ({ ...current, phone: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" />
-                </label>
-                <label className="space-y-1.5 text-sm text-slate-700">
-                  <span>Perfil principal</span>
-                  <select value={createDraft.role} onChange={(event) => setCreateDraft((current) => ({ ...current, role: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
-                    <option value="operator">Operador</option>
-                    <option value="company_admin">Administrador de empresa</option>
-                  </select>
-                </label>
-                <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
-                  <span>Empresa</span>
-                  <select value={createDraft.companyId} onChange={(event) => setCreateDraft((current) => ({ ...current, companyId: event.target.value, parkingIds: [] }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required>
-                    <option value="">Seleccionar empresa</option>
-                    {empresas.map((item) => <option key={item.id} value={item.id}>{item.nombreFantasia}</option>)}
-                  </select>
-                </label>
-                <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
-                  <span>Estacionamientos asignados</span>
-                  <select multiple value={createDraft.parkingIds} onChange={(event) => setCreateDraft((current) => ({ ...current, parkingIds: Array.from(event.target.selectedOptions, (option) => option.value) }))} className="min-h-28 w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
-                    {createCompanyParkings.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
-                  </select>
-                  <p className="text-xs text-slate-500">Puedes seleccionar uno o varios estacionamientos para acceso inicial.</p>
-                </label>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#041E42]/50 p-4">
+            <section className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-xl font-semibold text-[#041E42]">Crear usuario</h3>
+                <button type="button" onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cerrar</button>
               </div>
-              <div className="flex justify-end gap-3">
-                <button type="button" onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancelar</button>
-                <button type="submit" disabled={createLoading} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{createLoading ? "Creando..." : "Crear usuario"}</button>
-              </div>
-            </form>
-          </section>
+              <form onSubmit={submitCreateUser} className="mt-4 space-y-4">
+                {createError ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{createError}</p> : null}
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="space-y-1.5 text-sm text-slate-700">
+                    <span>Nombre completo</span>
+                    <input value={createDraft.fullName} onChange={(event) => setCreateDraft((current) => ({ ...current, fullName: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
+                  </label>
+                  <label className="space-y-1.5 text-sm text-slate-700">
+                    <span>Correo</span>
+                    <input type="email" value={createDraft.email} onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
+                  </label>
+                  <label className="space-y-1.5 text-sm text-slate-700">
+                    <span>Telefono</span>
+                    <input value={createDraft.phone} onChange={(event) => setCreateDraft((current) => ({ ...current, phone: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" />
+                  </label>
+                  <label className="space-y-1.5 text-sm text-slate-700">
+                    <span>Perfil principal</span>
+                    <select value={createDraft.role} onChange={(event) => setCreateDraft((current) => ({ ...current, role: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
+                      <option value="operator">Operador</option>
+                      <option value="company_admin">Administrador de empresa</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
+                    <span>Empresa</span>
+                    <select value={createDraft.companyId} onChange={(event) => setCreateDraft((current) => ({ ...current, companyId: event.target.value, parkingIds: [] }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required>
+                      <option value="">Seleccionar empresa</option>
+                      {empresas.map((item) => <option key={item.id} value={item.id}>{item.nombreFantasia}</option>)}
+                    </select>
+                  </label>
+                  <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
+                    <span>Estacionamientos asignados</span>
+                    <select multiple value={createDraft.parkingIds} onChange={(event) => setCreateDraft((current) => ({ ...current, parkingIds: Array.from(event.target.selectedOptions, (option) => option.value) }))} className="min-h-28 w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
+                      {createCompanyParkings.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
+                    </select>
+                    <p className="text-xs text-slate-500">Puedes seleccionar uno o varios estacionamientos para acceso inicial.</p>
+                  </label>
+                </div>
+                <div className="flex justify-end gap-3">
+                  <button type="button" onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancelar</button>
+                  <button type="submit" disabled={createLoading} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{createLoading ? "Creando..." : "Crear usuario"}</button>
+                </div>
+              </form>
+            </section>
+          </div>
         ) : null}
       </div>
     </AppShell>
