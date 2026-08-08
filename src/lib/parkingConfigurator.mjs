@@ -189,6 +189,16 @@ export function buildConfigurator(parking, summary, availability = {}) {
   };
 }
 
+export function configuratorStepHref(parking, stepKey, structureRoute = null) {
+  if (!parking?.code || !stepKey) return null;
+  if (stepKey === "general") return `/estacionamientos/${parking.code}/editar`;
+  if (stepKey === "review") return `/estacionamientos/${parking.code}/configuracion/revision`;
+  if (stepKey === "rates") return `/estacionamientos/${parking.code}/tarifas`;
+  if (stepKey === "shifts") return `/estacionamientos/${parking.code}/turnos`;
+  if (["levels", "zones", "sectors", "streets", "segments", "capacity"].includes(stepKey)) return structureRoute;
+  return null;
+}
+
 export function activationRequirements(parking, summary, availability = {}, checklist = null) {
   const currentChecklist = checklist || activationChecklist(parking, summary, availability);
   return requiredActivationMessages(currentChecklist);

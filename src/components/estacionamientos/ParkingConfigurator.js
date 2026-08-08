@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle2, CircleDashed, CircleX } from "lucide-react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
+import { configuratorStepHref } from "@/lib/parkingConfigurator.mjs";
 
 const STATUS_STYLES = {
   COMPLETADO: "bg-emerald-50 text-emerald-800",
@@ -148,7 +149,7 @@ function hasOperationalData(summary) {
   return ["levelCount", "zoneCount", "sectorCount", "streetCount", "segmentCount", "assignmentCount", "shiftCount", "rateCount"].some((key) => Number(summary?.[key] || 0) > 0);
 }
 function Step({ step, index, data }) {
-  const href = step.key === "general" ? `/estacionamientos/${data.parking.code}/editar` : step.key === "review" ? `/estacionamientos/${data.parking.code}/configuracion/revision` : step.key === "rates" ? `/estacionamientos/${data.parking.code}/tarifas` : ["levels", "zones", "sectors", "streets", "segments", "capacity"].includes(step.key) ? data.structureRoute : null;
+  const href = configuratorStepHref(data.parking, step.key, data.structureRoute);
   return <article className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white p-3.5"><span className="grid size-8 shrink-0 place-items-center rounded-full bg-slate-100 text-sm font-bold text-[#041E42]">{index + 1}</span><div className="min-w-0 flex-1"><h2 className="font-semibold text-[#041E42]">{step.label}</h2><p className="truncate text-sm text-slate-500">{step.detail}</p></div><span className={`hidden rounded-full px-2.5 py-1 text-xs font-semibold sm:block ${STATUS_STYLES[step.status] || "bg-slate-100"}`}>{step.status.replaceAll("_", " ")}</span>{href && <Link href={href} className="shrink-0 text-sm font-semibold text-[#3150D8]">Abrir</Link>}</article>;
 }
 function ConfirmChange({ confirmation, saving, cancel, accept }) {

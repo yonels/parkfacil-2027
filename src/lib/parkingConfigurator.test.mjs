@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activationRequirements, buildConfigurator, incompatibleRoute, sanitizeTypeChange } from "./parkingConfigurator.mjs";
+import { activationRequirements, buildConfigurator, configuratorStepHref, incompatibleRoute, sanitizeTypeChange } from "./parkingConfigurator.mjs";
 
 const parking = { id: "p1", code: "PC-001", name: "Centro", companyId: "c1", companyName: "Empresa", type: "OFF_STREET", address: "Calle 1", city: "Santiago", status: "CONFIGURING" };
 const emptySummary = { levelCount: 0, zoneCount: 0, sectorCount: 0, streetCount: 0, segmentCount: 0, capacity: 0, occupied: 0, available: 0, assignmentCount: 0, shiftCount: 0, rateCount: 0 };
@@ -80,4 +80,9 @@ test("estado ya activo se expone sin alterar el checklist", () => {
   const result = buildConfigurator({ ...parking, status: "ACTIVE" }, { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 20, rateCount: 1 }, { rates: true });
   assert.equal(result.isActive, true);
   assert.ok(result.activation.checklist.some((item) => item.status === "NO_APLICABLE" || item.status === "NO_APLICA"));
+});
+test("step href expone la ruta real de turnos del estacionamiento", () => {
+  assert.equal(configuratorStepHref({ ...parking, code: "PN-002" }, "shifts"), "/estacionamientos/PN-002/turnos");
+  assert.equal(configuratorStepHref({ ...parking, code: "PN-002" }, "rates"), "/estacionamientos/PN-002/tarifas");
+  assert.equal(configuratorStepHref({ ...parking, code: "PN-002" }, "capacity", "/estacionamientos/PN-002/sectores"), "/estacionamientos/PN-002/sectores");
 });
