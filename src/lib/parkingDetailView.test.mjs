@@ -6,9 +6,14 @@ import { hasPermission, PERMISSIONS } from "./auth/permissions.mjs";
 const onStreetParking = { code: "AAA", type: "ON_STREET" };
 const offStreetParking = { code: "PC-001", type: "OFF_STREET" };
 
-test("orden exacto de las cinco secciones del detalle", () => {
-  assert.deepEqual(PARKING_DETAIL_TAB_KEYS, ["resumen", "estructura", "tarifas", "operadores", "infraestructura"]);
-  assert.deepEqual(parkingDetailTabs(onStreetParking).map((tab) => tab.key), ["resumen", "estructura", "tarifas", "operadores", "infraestructura"]);
+test("orden exacto de las secciones del detalle", () => {
+  assert.deepEqual(PARKING_DETAIL_TAB_KEYS, ["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "infraestructura"]);
+  assert.deepEqual(parkingDetailTabs(onStreetParking).map((tab) => tab.key), ["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "infraestructura"]);
+});
+
+test("Plazas Contratadas es accesible como pestaña de primer nivel", () => {
+  assert.ok(parkingDetailTabs(onStreetParking).some((tab) => tab.key === "plazas-contratadas" && tab.label === "Plazas Contratadas"));
+  assert.ok(parkingDetailTabs(offStreetParking).some((tab) => tab.key === "plazas-contratadas" && tab.label === "Plazas Contratadas"));
 });
 
 test("la etiqueta de la segunda pestaña depende de la modalidad", () => {
@@ -23,17 +28,18 @@ test("Tarifas es accesible como pestaña de primer nivel en ambas modalidades", 
 
 test("Crear sector/área/nivel aparece únicamente cuando la pestaña activa es Estructura", () => {
   assert.equal(headerActionForTab("estructura"), "estructura");
-  for (const tab of ["resumen", "tarifas", "operadores", "infraestructura"]) assert.notEqual(headerActionForTab(tab), "estructura");
+  for (const tab of ["resumen", "plazas-contratadas", "tarifas", "operadores", "infraestructura"]) assert.notEqual(headerActionForTab(tab), "estructura");
 });
 
 test("Nueva tarifa aparece únicamente cuando la pestaña activa es Tarifas", () => {
   assert.equal(headerActionForTab("tarifas"), "tarifas");
-  for (const tab of ["resumen", "estructura", "operadores", "infraestructura"]) assert.notEqual(headerActionForTab(tab), "tarifas");
+  for (const tab of ["resumen", "plazas-contratadas", "estructura", "operadores", "infraestructura"]) assert.notEqual(headerActionForTab(tab), "tarifas");
 });
 
 test("Operadores e Infraestructura no exponen una acción contextual inventada", () => {
   assert.equal(headerActionForTab("operadores"), null);
   assert.equal(headerActionForTab("infraestructura"), null);
+  assert.equal(headerActionForTab("plazas-contratadas"), null);
   assert.equal(headerActionForTab("resumen"), null);
 });
 

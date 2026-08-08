@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CircleDashed, CircleX } from "lucide-react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 
 const STATUS_STYLES = {
@@ -60,6 +60,8 @@ export default function ParkingConfigurator({ parkingId, review = false }) {
   if (error && !data) return <State text={error} error />;
   const p = data.parking;
   const isOff = data.type === "OFF_STREET";
+  const pendingRequirements = data.activation.requirements.length;
+  const canContinueToReview = !review && pendingRequirements === 0;
   return <div className="space-y-5">
     <Link href={review ? `/estacionamientos/${p.code}/configuracion` : `/estacionamientos/${p.code}`} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] hover:border-[#3150D8] hover:text-[#3150D8]"><ArrowLeft className="h-4 w-4" /> Volver</Link>
     {error && <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
@@ -73,9 +75,67 @@ export default function ParkingConfigurator({ parkingId, review = false }) {
     <Summary data={data.summary} off={isOff} />
     <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <section className="space-y-2">{data.steps.map((step, index) => <Step key={step.key} step={step} index={index} data={data} />)}</section>
-      <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-5"><h2 className="font-semibold text-[#041E42]">Requisitos de activación</h2>{data.activation.requirements.length ? <ul className="mt-3 space-y-2 text-sm text-slate-600">{data.activation.requirements.map((item) => <li key={item}>• {item}</li>)}</ul> : <p className="mt-3 text-sm text-emerald-700">Configuración lista para activar.</p>}<button disabled={!data.activation.allowed || saving} onClick={activate} className="mt-5 w-full rounded-full bg-[#3150D8] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Procesando…" : "Activar estacionamiento"}</button></aside>
+      <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="font-semibold text-[#041E42]">Estado de activación</h2>
+        <ActivationPanel
+          review={review}
+          isActive={data.isActive}
+          activation={data.activation}
+          reviewRoute={data.reviewRoute}
+          saving={saving}
+          onActivate={activate}
+          canActivate={data.activation.allowed}
+          pendingRequirements={pendingRequirements}
+          canContinueToReview={canContinueToReview}
+        />
+      </aside>
     </div>
     {confirmation && <ConfirmChange confirmation={confirmation} saving={saving} cancel={() => setConfirmation(null)} accept={() => changeType(confirmation.type, true)} />}
+  </div>;
+}
+
+function ActivationPanel({ review, isActive, activation, reviewRoute, saving, onActivate, canActivate, pendingRequirements, canContinueToReview }) {
+  const total = activation.checklist.length;
+  const completed = activation.checklist.filter((item) => item.status === "COMPLETADO").length;
+  if (isActive) {
+    return <div className="mt-4 space-y-4">
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+        <p className="text-sm font-semibold uppercase tracking-wide text-emerald-800">Activo</p>
+        <p className="mt-1 text-sm text-emerald-900">Este estacionamiento ya está activo. La revisión final ya fue completada.</p>
+      </div>
+      <div className="space-y-2">{activation.checklist.map((item) => <ChecklistItem key={item.key} item={item} />)}</div>
+      <p className="text-xs text-slate-500">{completed}/{total} requisitos evaluados</p>
+    </div>;
+  }
+  return <div className="mt-4 space-y-4">
+    <div className={`rounded-2xl border p-4 ${canActivate ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+      <p className="text-sm font-semibold uppercase tracking-wide text-[#041E42]">{canActivate ? "Listo para revisión final" : "El estacionamiento aún no puede activarse."}</p>
+      <p className="mt-1 text-sm text-slate-700">
+        {canActivate
+          ? "Todos los requisitos obligatorios están completos. Puedes continuar a Revisión final."
+          : "La activación se realiza desde Revisión final una vez completados los requisitos obligatorios."}
+      </p>
+      <p className="mt-2 text-sm font-semibold text-[#041E42]">{canActivate ? "Todos los requisitos están completos." : `Faltan ${pendingRequirements} requisitos para poder activar este estacionamiento.`}</p>
+    </div>
+    <div className="space-y-2">
+      {activation.checklist.map((item) => <ChecklistItem key={item.key} item={item} />)}
+    </div>
+    {!review ? <Link href={reviewRoute} className={`inline-flex w-full items-center justify-center rounded-full px-4 py-2.5 text-sm font-semibold text-white ${canContinueToReview ? "bg-[#3150D8] hover:bg-[#2441c7]" : "bg-slate-300 pointer-events-auto"}`}>Ir a revisión final</Link> : null}
+    {review ? <button disabled={!canActivate || saving} onClick={onActivate} className="w-full rounded-full bg-[#3150D8] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{saving ? "Procesando…" : "Activar estacionamiento"}</button> : null}
+    <p className="text-xs text-slate-500">{completed}/{total} requisitos evaluados</p>
+  </div>;
+}
+
+function ChecklistItem({ item }) {
+  const Icon = item.status === "COMPLETADO" ? CheckCircle2 : item.status === "BLOQUEADO" ? CircleX : item.status === "NO_APLICA" ? CircleDashed : CircleX;
+  const tone = item.status === "COMPLETADO" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : item.status === "NO_APLICA" ? "border-slate-200 bg-slate-50 text-slate-600" : item.status === "BLOQUEADO" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-blue-200 bg-blue-50 text-blue-800";
+  return <div className={`flex items-start gap-3 rounded-2xl border p-3 ${tone}`}>
+    <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+    <div className="min-w-0 flex-1">
+      <p className="text-sm font-semibold text-[#041E42]">{item.label}</p>
+      <p className="text-xs">{item.detail}</p>
+    </div>
+    <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide">{item.status.replaceAll("_", " ")}</span>
   </div>;
 }
 

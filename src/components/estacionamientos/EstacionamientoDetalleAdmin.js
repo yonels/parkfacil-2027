@@ -126,6 +126,26 @@ export default function EstacionamientoDetalleAdmin({ parking, structure, compan
       </section> : null}
     </section> : null}
 
+    {activeTab === "plazas-contratadas" ? <section className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <EstacionamientoResumen
+          title="Plazas contratadas"
+          value={contracted === undefined ? "Cargando..." : (contractedSpaces == null ? "No definido" : contractedSpaces)}
+          description={contractedSpaces == null && contracted !== undefined ? (company ? "Se administra desde el contrato de la empresa" : "Cantidad comercial contratada") : "Cantidad comercial contratada"}
+          tone="info"
+        />
+        <EstacionamientoResumen title="Capacidad operativa" value={metrics.capacity} description={onStreet ? "Tramos activos" : "Zonas activas"} tone="info" />
+        <EstacionamientoResumen title="Diferencia" value={contractedSpaces == null ? "-" : metrics.capacity - contractedSpaces} description="Capacidad operativa menos plazas contratadas" tone={overCapacity ? "warning" : "positive"} />
+      </div>
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-xl font-semibold text-[#041E42]">Plazas contratadas</h2>
+        <p className="mt-2 text-sm text-slate-600">Este valor comercial se utiliza para contrastar la capacidad operativa del estacionamiento con lo pactado en el contrato vigente.</p>
+        {company ? <p className="mt-3 text-sm text-slate-600">La definición de plazas contratadas se administra desde el contrato de <Link href={`/empresas/${company.id}`} className="font-semibold text-[#3150D8] hover:underline">{company.razonSocial}</Link>.</p> : null}
+        {overCapacity ? <div className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><TriangleAlert className="mt-0.5 h-5 w-5 shrink-0" /><p>La capacidad operativa supera las plazas contratadas. Revise el contrato o la configuración del estacionamiento.</p></div> : null}
+        {!overCapacity && contractedSpaces != null ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"><p>La capacidad operativa se mantiene dentro de las plazas contratadas registradas.</p></div> : null}
+      </div>
+    </section> : null}
+
     {activeTab === "estructura" ? <ParkingStructureAdmin parking={parking} structure={structure} /> : null}
 
     {activeTab === "tarifas" ? <ParkingRatesManager parking={parking} showCreateButton={false} openSignal={tarifaSignal} /> : null}
