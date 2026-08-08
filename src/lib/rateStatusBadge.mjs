@@ -6,5 +6,10 @@
 export function rateStatusBadge(rate) {
   const needsReview = rate?.compliance?.status === "REQUIRES_REVIEW";
   if (needsReview) return { label: "Requiere revisión", tone: "review" };
-  return rate?.status === "ACTIVE" ? { label: "Activa", tone: "active" } : { label: "Borrador", tone: "draft" };
+  if (rate?.status === "ACTIVE") return { label: "Activa", tone: "active" };
+  if (rate?.status === "SUSPENDED") return { label: "Suspendida", tone: "suspended" };
+  // ENDED: tarifa histórica cuya vigencia se cerró al reemplazarla por una nueva versión
+  // (ver replaceParkingRate). Nunca se reescribe: solo deja de estar disponible para cobro.
+  if (rate?.status === "ENDED") return { label: "Finalizada", tone: "ended" };
+  return { label: "Borrador", tone: "draft" };
 }
