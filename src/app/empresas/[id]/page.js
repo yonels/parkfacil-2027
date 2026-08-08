@@ -26,24 +26,15 @@ function getContractDisplay(contract) {
   return contract.estado ? `${number} · ${contract.estado}` : number;
 }
 
-function contractStatusLabel(status) {
-  const labels = {
-    draft: "Borrador",
-    pending_signature: "Pendiente de firma",
-    active: "Activo",
-    suspended: "Suspendido",
-    expired: "Vencido",
-    terminated: "Terminado",
-    cancelled: "Cancelado",
-  };
-  return labels[status] || status || "Sin estado";
-}
-
-function formatDate(value) {
-  if (!value) return "-";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString("es-CL");
+function getContractPdfHref(contract) {
+  if (!contract || typeof contract !== "object") return null;
+  const source = String(contract.documentoFuente || "").trim();
+  if (!source) return null;
+  if (/^https?:\/\//i.test(source)) return source;
+  const normalized = source.replace(/^\/+/, "");
+  const path = normalized.startsWith("contratos/") ? normalized : `contratos/${normalized}`;
+  const encodedPath = path.split("/").map((part) => encodeURIComponent(part)).join("/");
+  return `/${encodedPath}`;
 }
 
 function contactRoleLabel(role) {
@@ -181,26 +172,15 @@ export default async function EmpresaDetallePage({ params }) {
                 {empresa.contratos.length > 0
                   ? empresa.contratos.map((item, index) => {
                     const key = typeof item === "object" && item?.id ? item.id : `${getContractDisplay(item)}-${index}`;
-                    if (typeof item !== "object" || !item) {
+                    const pdfHref = getContractPdfHref(item);
+                    if (typeof item !== "object" || !item || !pdfHref) {
                       return <p key={key}>• {getContractDisplay(item)}</p>;
                     }
                     return (
-                      <details key={key} className="group overflow-hidden rounded-xl border border-slate-200 bg-white">
-                        <summary className="flex cursor-pointer items-center justify-between gap-2 px-4 py-3 font-semibold text-[#3150D8]">
-                          <span>{getContractDisplay(item)}</span>
-                          <span className="text-slate-400 transition group-open:rotate-90">›</span>
-                        </summary>
-                        <div className="border-t border-slate-100 px-4 py-3 text-xs text-slate-600">
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <p><strong>Estado:</strong> {contractStatusLabel(item.estado)}</p>
-                            <p><strong>Moneda:</strong> {item.moneda || "-"}</p>
-                            <p><strong>Inicio:</strong> {formatDate(item.fechaInicio)}</p>
-                            <p><strong>Término:</strong> {formatDate(item.fechaTermino)}</p>
-                            <p><strong>Firma:</strong> {formatDate(item.fechaFirma)}</p>
-                            <p><strong>Duración:</strong> {item.duracionMeses ? `${item.duracionMeses} meses` : "-"}</p>
-                          </div>
-                        </div>
-                      </details>
+                      <a key={key} href={pdfHref} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 font-semibold text-[#3150D8] transition hover:border-[#3150D8] hover:bg-[#EEF4FF]">
+                        <span>{getContractDisplay(item)}</span>
+                        <span aria-hidden="true">Abrir PDF →</span>
+                      </a>
                     );
                   })
                   : <p>• Sin contratos asociados</p>}
