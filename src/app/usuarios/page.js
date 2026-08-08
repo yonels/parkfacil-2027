@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowUpDown, Check, Copy, Eye, GripVertical, KeyRound, Pencil, Plus, Save, Search, Trash2, X } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
@@ -49,6 +49,17 @@ export default function UsuariosPage() {
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState(null);
   const [sort, setSort] = useState({ key: "nombreCompleto", direction: "asc" });
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [createError, setCreateError] = useState("");
+  const [createDraft, setCreateDraft] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    role: "operator",
+    companyId: "",
+    parkingIds: [],
+  });
   const tableColumns = useMemo(() => [
     { key: "nombreCompleto", label: "Nombre", sortable: true },
     { key: "correo", label: "Usuario", sortable: true },
@@ -62,22 +73,79 @@ export default function UsuariosPage() {
   ], [canManageCredentials]);
   const { orderedColumns: orderedTableColumns, getHeaderProps } = useReorderableColumns(tableColumns, "usuarios-catalogo");
 
+  const loadUsers = useCallback(async () => {
+    const response = await authenticatedFetch("/api/usuarios", { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "No fue posible cargar los usuarios.");
+    setUsuarios((body.data || []).map((usuario) => ({ ...usuario, estacionamientos: usuario.estacionamientos || [] })));
+    setEmpresas(body.companies || []);
+    setEstacionamientos(body.parkings || []);
+    setCanManageCredentials(Boolean(body.canManageCredentials));
+    setDataSource("Datos persistentes");
+  }, []);
+
   useEffect(() => {
     let active = true;
-    authenticatedFetch("/api/usuarios", { cache: "no-store" })
-      .then(async (response) => {
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error || "No fue posible cargar los usuarios.");
-        if (!active) return;
-        setUsuarios((body.data || []).map((usuario) => ({ ...usuario, estacionamientos: usuario.estacionamientos || [] })));
-        setEmpresas(body.companies || []);
-        setEstacionamientos(body.parkings || []);
-        setCanManageCredentials(Boolean(body.canManageCredentials));
-        setDataSource("Datos persistentes");
-      })
-      .catch(() => { if (active) setDataSource("Demostrativo"); });
-    return () => { active = false; };
-  }, []);
+    const timer = window.setTimeout(() => {
+      loadUsers().catch(() => { if (active) setDataSource("Demostrativo"); });
+    }, 0);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [loadUsers]);
+
+  const openCreateModal = () => {
+    setCreateError("");
+    setCreateDraft((current) => ({
+      ...current,
+      fullName: "",
+      email: "",
+      phone: "",
+      role: "operator",
+      companyId: current.companyId || empresas[0]?.id || "",
+      parkingIds: [],
+    }));
+    setCreateOpen(true);
+  };
+
+  const createCompanyParkings = useMemo(() => {
+    return estacionamientos.filter((item) => !createDraft.companyId || item.empresaId === createDraft.companyId);
+  }, [createDraft.companyId, estacionamientos]);
+
+  const submitCreateUser = async (event) => {
+    event.preventDefault();
+    setCreateError("");
+    setCreateLoading(true);
+    try {
+      const response = await authenticatedFetch("/api/usuarios", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(createDraft),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No fue posible crear el usuario.");
+
+      if (body.data?.id) {
+        setUsuarios((current) => [
+          { ...body.data, estacionamientos: body.data.estacionamientos || [] },
+          ...current.filter((item) => item.id !== body.data.id),
+        ]);
+      } else {
+        await loadUsers();
+      }
+
+      if (body.credential?.userId) {
+        setTemporaryCredentials((current) => ({ ...current, [body.credential.userId]: body.credential }));
+        window.alert(`Usuario creado: ${body.credential.username}\nClave temporal: ${body.credential.temporaryPassword}`);
+      }
+      setCreateOpen(false);
+    } catch (error) {
+      setCreateError(error.message);
+    } finally {
+      setCreateLoading(false);
+    }
+  };
 
   const resultados = useMemo(() => {
     const normalized = normalizeUserSearch(busqueda);
@@ -168,7 +236,7 @@ export default function UsuariosPage() {
           title="Usuarios"
           description="Vista de referencia para la administración de personas con acceso a ParkFacil 2027, con datos demostrativos y estructura preparada para evolución de permisos."
           actions={[
-            <button key="nuevo" className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1E5EFF]">
+            <button key="nuevo" type="button" onClick={openCreateModal} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1E5EFF]">
               <Plus className="h-4 w-4" />
               Crear usuario
             </button>,
@@ -334,6 +402,57 @@ export default function UsuariosPage() {
             )}
           </div>
         </section>
+
+        {createOpen ? (
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-xl font-semibold text-[#041E42]">Crear usuario</h3>
+              <button type="button" onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cerrar</button>
+            </div>
+            <form onSubmit={submitCreateUser} className="mt-4 space-y-4">
+              {createError ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{createError}</p> : null}
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="space-y-1.5 text-sm text-slate-700">
+                  <span>Nombre completo</span>
+                  <input value={createDraft.fullName} onChange={(event) => setCreateDraft((current) => ({ ...current, fullName: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
+                </label>
+                <label className="space-y-1.5 text-sm text-slate-700">
+                  <span>Correo</span>
+                  <input type="email" value={createDraft.email} onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
+                </label>
+                <label className="space-y-1.5 text-sm text-slate-700">
+                  <span>Telefono</span>
+                  <input value={createDraft.phone} onChange={(event) => setCreateDraft((current) => ({ ...current, phone: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" />
+                </label>
+                <label className="space-y-1.5 text-sm text-slate-700">
+                  <span>Perfil principal</span>
+                  <select value={createDraft.role} onChange={(event) => setCreateDraft((current) => ({ ...current, role: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
+                    <option value="operator">Operador</option>
+                    <option value="company_admin">Administrador de empresa</option>
+                  </select>
+                </label>
+                <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
+                  <span>Empresa</span>
+                  <select value={createDraft.companyId} onChange={(event) => setCreateDraft((current) => ({ ...current, companyId: event.target.value, parkingIds: [] }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required>
+                    <option value="">Seleccionar empresa</option>
+                    {empresas.map((item) => <option key={item.id} value={item.id}>{item.nombreFantasia}</option>)}
+                  </select>
+                </label>
+                <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
+                  <span>Estacionamientos asignados</span>
+                  <select multiple value={createDraft.parkingIds} onChange={(event) => setCreateDraft((current) => ({ ...current, parkingIds: Array.from(event.target.selectedOptions, (option) => option.value) }))} className="min-h-28 w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
+                    {createCompanyParkings.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}
+                  </select>
+                  <p className="text-xs text-slate-500">Puedes seleccionar uno o varios estacionamientos para acceso inicial.</p>
+                </label>
+              </div>
+              <div className="flex justify-end gap-3">
+                <button type="button" onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancelar</button>
+                <button type="submit" disabled={createLoading} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{createLoading ? "Creando..." : "Crear usuario"}</button>
+              </div>
+            </form>
+          </section>
+        ) : null}
       </div>
     </AppShell>
   );
