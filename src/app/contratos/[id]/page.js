@@ -16,6 +16,10 @@ function DetailItem({ label, value }) {
   );
 }
 
+function queryFromLabel(value) {
+  return encodeURIComponent(String(value || "").trim());
+}
+
 export default async function ContratoDetallePage({ params }) {
   const resolvedParams = typeof params?.then === "function" ? await params : params;
   const routeId = decodeURIComponent(String(resolvedParams?.id || "")).trim();
@@ -116,13 +120,21 @@ export default async function ContratoDetallePage({ params }) {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><Building2 className="h-5 w-5" /><h4 className="font-semibold">Estacionamientos</h4></div>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                {estacionamientos.length > 0 ? estacionamientos.map((item) => <li key={item.id}>• {item.nombre}</li>) : <li>• No disponible</li>}
+                {estacionamientos.length > 0 ? estacionamientos.map((item) => (
+                  <li key={item.id}>
+                    • <Link href={`/estacionamientos/${item.id}`} className="font-semibold text-[#3150D8] underline-offset-2 hover:underline">{item.nombre}</Link>
+                  </li>
+                )) : <li>• No disponible</li>}
               </ul>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><UserRound className="h-5 w-5" /><h4 className="font-semibold">Contactos</h4></div>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                {contrato.contactos.length > 0 ? contrato.contactos.map((item) => <li key={item}>• {item}</li>) : <li>• No disponible</li>}
+                {contrato.contactos.length > 0 ? contrato.contactos.map((item) => (
+                  <li key={item}>
+                    • <Link href={empresa?.id ? `/empresas/${empresa.id}` : "/empresas"} className="font-semibold text-[#3150D8] underline-offset-2 hover:underline">{item}</Link>
+                  </li>
+                )) : <li>• No disponible</li>}
               </ul>
             </div>
           </div>
@@ -134,13 +146,21 @@ export default async function ContratoDetallePage({ params }) {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><ListChecks className="h-5 w-5" /><h4 className="font-semibold">Servicios incluidos</h4></div>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                {contrato.serviciosIncluidos.map((item) => <li key={item}>• {item}</li>)}
+                {contrato.serviciosIncluidos.map((item) => (
+                  <li key={item}>
+                    • <Link href={`/operacion?q=${queryFromLabel(item)}`} className="font-semibold text-[#3150D8] underline-offset-2 hover:underline">{item}</Link>
+                  </li>
+                ))}
               </ul>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><ShieldCheck className="h-5 w-5" /><h4 className="font-semibold">Equipamiento</h4></div>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                {contrato.equipamiento.length > 0 ? contrato.equipamiento.map((item) => <li key={item}>• {item}</li>) : <li>• No disponible</li>}
+                {contrato.equipamiento.length > 0 ? contrato.equipamiento.map((item) => (
+                  <li key={item}>
+                    • <Link href={`/dispositivos?q=${queryFromLabel(item)}`} className="font-semibold text-[#3150D8] underline-offset-2 hover:underline">{item}</Link>
+                  </li>
+                )) : <li>• No disponible</li>}
               </ul>
             </div>
           </div>
@@ -167,7 +187,11 @@ export default async function ContratoDetallePage({ params }) {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <div className="flex items-center gap-2 text-[#3150D8]"><History className="h-5 w-5" /><h4 className="font-semibold">Historial</h4></div>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                {contrato.historial.map((item) => <li key={item}>• {item}</li>)}
+                {contrato.historial.map((item) => (
+                  <li key={item}>
+                    • <Link href={`/notificaciones?q=${queryFromLabel(item)}`} className="font-semibold text-[#3150D8] underline-offset-2 hover:underline">{item}</Link>
+                  </li>
+                ))}
               </ul>
             </div>
           </div>
