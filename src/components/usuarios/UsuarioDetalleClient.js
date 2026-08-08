@@ -26,12 +26,15 @@ export default function UsuarioDetalleClient({ userId }) {
 
   useEffect(() => {
     let active = true;
-    authenticatedFetch(`/api/usuarios/${userId}`, { cache: "no-store" })
+    authenticatedFetch("/api/usuarios", { cache: "no-store" })
       .then(async (response) => {
         const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(body.error || "No se pudo cargar el usuario.");
+        if (!response.ok) throw new Error(body.error || "No se pudo cargar el catálogo de usuarios.");
         if (!active) return;
-        setData(body.data);
+        const user = (body.data || []).find((item) => item.id === userId) || null;
+        const company = user ? (body.companies || []).find((item) => item.id === user.empresaId) || null : null;
+        const parkings = user ? (body.parkings || []).filter((item) => (user.estacionamientos || []).includes(item.id)) : [];
+        setData(user ? { user, company, parkings } : { user: null, company: null, parkings: [] });
       })
       .catch((cause) => { if (active) setError(cause.message); })
       .finally(() => { if (active) setLoading(false); });
