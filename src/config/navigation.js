@@ -1,10 +1,11 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent } from "lucide-react";
+import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3 } from "lucide-react";
 
 export const navigationItems = [
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
   { href: "/modelo-dashboard", label: "Dashboard", icon: BarChart3 },
   { href: "/data-entry", label: "Data Entry", icon: ScanLine },
   { href: "/operacion", label: "Operación", icon: ParkingSquare },
+  { href: "/turnos", label: "Turnos", icon: Clock3 },
   { href: "/estacionamientos", label: "Estacionamientos", icon: ShieldCheck },
   { href: "/seguridad", label: "Seguridad", icon: KeyRound, requiresModule: "seguridad" },
   { href: "/recaudacion", label: "Recaudación", icon: Wallet },

@@ -18,7 +18,7 @@ const sectionDefinitions = [
   {
     id: "plataforma",
     title: "Plataforma",
-    labels: ["Inicio", "Dashboard", "Data Entry", "Operación", "Estacionamientos", "Seguridad", "Recaudación", "Medios de Pago", "Monitoreo"],
+    labels: ["Inicio", "Dashboard", "Data Entry", "Operación", "Turnos", "Estacionamientos", "Seguridad", "Recaudación", "Medios de Pago", "Monitoreo"],
   },
   {
     id: "administracion",

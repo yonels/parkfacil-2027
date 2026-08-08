@@ -39,6 +39,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [editingShiftId, setEditingShiftId] = useState("");
+  const [deletingShiftId, setDeletingShiftId] = useState("");
 
   const assignmentOptions = useMemo(() => (structure?.assignments || []).map((assignment) => {
     const sectors = structure?.sectors || [];
@@ -136,6 +137,24 @@ export default function ParkingShiftsManager({ parking, structure }) {
     }
   }
 
+  async function removeShift(shift) {
+    const accepted = window.confirm(`Se eliminará el turno del ${shift.shift_date || "sin fecha"}. Esta acción no se puede deshacer.`);
+    if (!accepted) return;
+    setFormError("");
+    setDeletingShiftId(shift.id);
+    try {
+      const response = await authenticatedFetch(`/api/estacionamientos/${parking.code}/turnos/${shift.id}`, { method: "DELETE" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No fue posible eliminar el turno.");
+      setShifts((current) => current.filter((item) => item.id !== shift.id));
+      if (editingShiftId === shift.id) resetForm();
+    } catch (cause) {
+      setFormError(cause.message);
+    } finally {
+      setDeletingShiftId("");
+    }
+  }
+
   if (parking.type !== "ON_STREET") {
     return <section className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">La gestión de turnos solo aplica a estacionamientos On Street.</section>;
   }
@@ -176,7 +195,8 @@ export default function ParkingShiftsManager({ parking, structure }) {
                   <div className="flex flex-wrap gap-3">
                     {!["CLOSED", "CLOSING"].includes(shift.status) ? <button type="button" onClick={() => startEdit(shift)} className="font-semibold text-[#3150D8] hover:underline">Editar</button> : null}
                     {["OPEN", "CLOSING"].includes(shift.status) ? <Link href={`/turnos/${shift.id}/cerrar`} className="font-semibold text-[#3150D8] hover:underline">Cerrar turno</Link> : null}
-                    {["CLOSED", "CANCELLED"].includes(shift.status) ? <span className="text-slate-400">Sin acción directa</span> : null}
+                    {["PROGRAMMED", "CANCELLED"].includes(shift.status) ? <button type="button" onClick={() => removeShift(shift)} disabled={deletingShiftId === shift.id} className="font-semibold text-rose-700 hover:underline disabled:opacity-60">{deletingShiftId === shift.id ? "Eliminando..." : "Eliminar"}</button> : null}
+                    {["CLOSED", "CLOSING"].includes(shift.status) ? <span className="text-slate-400">Sin acción directa</span> : null}
                   </div>
                 </td>
               </tr>;
