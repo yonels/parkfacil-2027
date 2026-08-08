@@ -42,17 +42,17 @@ export default async function TurnosPage({ searchParams }) {
             <div className="min-w-[260px] flex-1">
               <p className="text-sm font-semibold text-[#041E42]">Estacionamiento</p>
               <p className="mt-1 text-xs text-slate-500">Selecciona el estacionamiento para administrar turnos.</p>
-              <form className="mt-2">
+              <form className="mt-2 flex flex-wrap items-center gap-2">
                 <select
                   name="estacionamiento"
                   defaultValue={parking?.code || ""}
-                  className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"
-                  onChange={(event) => event.currentTarget.form?.requestSubmit()}
+                  className="min-w-[220px] flex-1 rounded-2xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"
                 >
                   {parkings.map((item) => (
                     <option key={item.id} value={item.code}>{item.name} ({item.code})</option>
                   ))}
                 </select>
+                <button type="submit" className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E5EFF]">Cargar</button>
               </form>
             </div>
             {parking ? (
