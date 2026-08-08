@@ -19,8 +19,18 @@ function DetailItem({ label, value }) {
   );
 }
 
+const statusLabel = {
+  PROGRAMMED: "Programado",
+  OPEN: "Abierto",
+  CLOSING: "En cierre",
+  CLOSED: "Cerrado",
+  CANCELLED: "Cancelado",
+};
+
 export default function UsuarioDetalleClient({ userId }) {
   const [data, setData] = useState(null);
+  const [shifts, setShifts] = useState([]);
+  const [shiftsError, setShiftsError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -35,6 +45,24 @@ export default function UsuarioDetalleClient({ userId }) {
         const company = user ? (body.companies || []).find((item) => item.id === user.empresaId) || null : null;
         const parkings = user ? (body.parkings || []).filter((item) => (user.estacionamientos || []).includes(item.id)) : [];
         setData(user ? { user, company, parkings } : { user: null, company: null, parkings: [] });
+
+        if (!user) {
+          setShiftsError("");
+          setShifts([]);
+          return;
+        }
+
+        setShiftsError("");
+        const shiftsResponse = await authenticatedFetch(`/api/usuarios/${userId}/turnos`, { cache: "no-store" });
+        const shiftsBody = await shiftsResponse.json().catch(() => ({}));
+        if (!active) return;
+        if (!shiftsResponse.ok) {
+          setShifts([]);
+          setShiftsError(shiftsBody.error || "No se pudieron cargar los turnos del usuario.");
+          return;
+        }
+        setShifts(shiftsBody.data || []);
+        setShiftsError("");
       })
       .catch((cause) => { if (active) setError(cause.message); })
       .finally(() => { if (active) setLoading(false); });
@@ -116,6 +144,27 @@ export default function UsuarioDetalleClient({ userId }) {
                 {usuario.permisos.map((permiso) => <li key={permiso}>• {permiso}</li>)}
               </ul>
             </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <h4 className="font-semibold text-[#041E42]">Turnos del operador</h4>
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">{shifts.length} turnos</span>
+            </div>
+            {shiftsError ? <p className="mt-3 text-sm text-rose-700">{shiftsError}</p> : null}
+            {shifts.length ? <ul className="mt-3 space-y-2 text-sm text-slate-700">
+              {shifts.map((shift) => (
+                <li key={shift.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong className="text-[#041E42]">{shift.date || "Sin fecha"}</strong>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{statusLabel[shift.status] || shift.status}</span>
+                  </div>
+                  <p className="mt-1">{shift.parkingName} ({shift.parkingCode})</p>
+                  <p className="text-xs text-slate-500">Horario: {[shift.scheduledStart, shift.scheduledEnd].filter(Boolean).join(" - ") || "Sin horario programado"}</p>
+                  <Link href={`/estacionamientos/${shift.parkingCode}/turnos`} className="mt-2 inline-flex text-xs font-semibold text-[#3150D8] hover:underline">Ver turnos del estacionamiento</Link>
+                </li>
+              ))}
+            </ul> : <p className="mt-3 text-sm text-slate-600">No hay turnos registrados para este operador.</p>}
           </div>
         </section>
 
