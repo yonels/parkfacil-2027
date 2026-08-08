@@ -155,10 +155,6 @@ export default function ParkingShiftsManager({ parking, structure }) {
     }
   }
 
-  if (parking.type !== "ON_STREET") {
-    return <section className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600">La gestión de turnos solo aplica a estacionamientos On Street.</section>;
-  }
-
   return <div className="space-y-5">
     {structure?.source === "demo" ? <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">La estructura cargó en modo demostrativo. Para crear turnos se requieren asignaciones persistidas del estacionamiento.</p> : null}
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
