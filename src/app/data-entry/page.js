@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
-import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Camera, CarFront, CheckCircle2, CircleParking, Home, LoaderCircle, LogOut, Menu, Printer, QrCode, UserRound, X } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Camera, CarFront, CheckCircle2, CircleParking, Home, LoaderCircle, LogOut, Menu, Printer, QrCode, Search, UserRound, X } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 
 const actions = [
@@ -15,7 +15,9 @@ const actions = [
 
 const money = (value) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(value || 0);
 const dateTime = (value) => new Intl.DateTimeFormat("es-CL", { dateStyle: "short", timeStyle: "medium" }).format(new Date(value));
-const roleLabel = (role) => role === "operator" ? "Operador" : "Administrador";
+const roleLabel = (role) => role === "operator" ? "Operador" : role === "platform_admin" ? "Root" : "Administrador";
+const normalizeSearchText = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+const matchesSearchText = (value, search) => !normalizeSearchText(search) || normalizeSearchText(value).includes(normalizeSearchText(search));
 
 function ticketHtml({ kind, stay, parking, quote, qrImage, actor }) {
   const isEntry = kind === "ENTRY";
@@ -42,6 +44,11 @@ export default function DataEntryPage() {
   const [prefix, setPrefix] = useState(""); const [suffix, setSuffix] = useState("");
   const [parking, setParking] = useState(null); const [stays, setStays] = useState([]);
   const [authorizedParkings, setAuthorizedParkings] = useState([]); const [activeParkingId, setActiveParkingId] = useState("");
+  const [companyOptions, setCompanyOptions] = useState([]); const [activeCompanyId, setActiveCompanyId] = useState("");
+  const [companySearch, setCompanySearch] = useState("");
+  const [companySearchOpen, setCompanySearchOpen] = useState(false);
+  const [parkingSearch, setParkingSearch] = useState("");
+  const [parkingSearchOpen, setParkingSearchOpen] = useState(false);
   const [selectedStayId, setSelectedStayId] = useState(""); const [paymentMethod, setPaymentMethod] = useState("CARD");
   const [quote, setQuote] = useState(null); const [qrToken, setQrToken] = useState(""); const [actor, setActor] = useState(null);
   const [couponToken, setCouponToken] = useState("");
@@ -56,6 +63,10 @@ export default function DataEntryPage() {
 
   function hasActiveOperation() {
     return busy || (view === "EXIT" && Boolean(quote)) || (view === "ENTRY" && Boolean(prefix || suffix));
+  }
+
+  function resetWorkingState() {
+    setView("HOME"); setStays([]); setQuote(null); setSelectedStayId(""); setCouponToken(""); setQrToken(""); setPrefix(""); setSuffix(""); setMessage(""); setParking(null);
   }
 
   async function load(parkingId) {
@@ -73,16 +84,36 @@ export default function DataEntryPage() {
     setBusy(true);
     // La autorización real vive en el servidor: esta llamada solo lista los estacionamientos
     // que el usuario ya tiene autorizados (misma lógica que usa /api/data-entry).
-    const response = await authFetch("/api/estacionamientos");
+    const [response, companiesResponse] = await Promise.all([
+      authFetch("/api/estacionamientos"),
+      authFetch("/api/empresas"),
+    ]);
     if (response.status === 401 || response.status === 403) { router.replace("/login?next=/data-entry"); return; }
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) { setMessage(payload.error || "No fue posible cargar los estacionamientos autorizados."); setBusy(false); return; }
+
+    const companiesPayload = companiesResponse.ok ? await companiesResponse.json().catch(() => ({})) : {};
     const active = (payload.data || []).filter((item) => item.status === "ACTIVE").sort((a, b) => a.code.localeCompare(b.code));
     setAuthorizedParkings(active);
-    const initialId = active[0]?.id || "";
-    setActiveParkingId(initialId);
-    if (!initialId) { setMessage("El usuario no tiene un estacionamiento autorizado."); setBusy(false); return; }
-    await load(initialId);
+
+    const companiesMap = new Map();
+    (companiesPayload.data || []).forEach((company) => {
+      if (!company?.id) return;
+      companiesMap.set(company.id, { id: company.id, name: company.nombreFantasia || company.razonSocial || company.id });
+    });
+    active.forEach((item) => {
+      if (!item.companyId || companiesMap.has(item.companyId)) return;
+      companiesMap.set(item.companyId, { id: item.companyId, name: item.companyName || item.companyId });
+    });
+    const companyList = [...companiesMap.values()].sort((a, b) => a.name.localeCompare(b.name));
+    setCompanyOptions(companyList);
+
+    const initialCompanyId = active[0]?.companyId || companyList[0]?.id || "";
+    setActiveCompanyId(initialCompanyId);
+    const initialParking = active.find((item) => item.companyId === initialCompanyId) || active[0];
+    if (!initialParking?.id) { setMessage("El usuario no tiene un estacionamiento autorizado."); setBusy(false); return; }
+    setActiveParkingId(initialParking.id);
+    await load(initialParking.id);
   }
 
   useEffect(() => {
@@ -94,9 +125,95 @@ export default function DataEntryPage() {
 
   async function changeParking(nextId) {
     if (!nextId || nextId === activeParkingId || hasActiveOperation()) return;
-    setView("HOME"); setStays([]); setQuote(null); setSelectedStayId(""); setCouponToken(""); setQrToken(""); setPrefix(""); setSuffix(""); setMessage(""); setParking(null);
+    resetWorkingState();
     setActiveParkingId(nextId);
     await load(nextId);
+  }
+
+  async function changeCompany(nextCompanyId) {
+    if (!nextCompanyId || nextCompanyId === activeCompanyId || hasActiveOperation()) return;
+    setActiveCompanyId(nextCompanyId);
+    const nextParking = authorizedParkings.find((item) => item.companyId === nextCompanyId) || null;
+    if (!nextParking?.id) {
+      resetWorkingState();
+      setActiveParkingId("");
+      setBusy(false);
+      setMessage("La empresa seleccionada no tiene estacionamientos activos habilitados para Data Entry.");
+      return;
+    }
+    await changeParking(nextParking.id);
+  }
+
+  const hasCompanyOptions = companyOptions.length > 0;
+  const canChooseCompany = companyOptions.length > 1;
+  const filteredCompanyOptions = canChooseCompany
+    ? companyOptions.filter((item) => {
+      return matchesSearchText(item.name, companySearch);
+    })
+    : companyOptions;
+  const companySelectValue = filteredCompanyOptions.some((item) => item.id === activeCompanyId) ? activeCompanyId : "";
+  const visibleParkings = canChooseCompany && activeCompanyId
+    ? authorizedParkings.filter((item) => item.companyId === activeCompanyId)
+    : authorizedParkings;
+  const canChooseParking = visibleParkings.length > 1;
+  const filteredParkingOptions = canChooseParking
+    ? visibleParkings.filter((item) => {
+      const label = `${item.companyName || ""} ${item.name || ""} ${item.code || ""}`;
+      return matchesSearchText(label, parkingSearch);
+    })
+    : visibleParkings;
+  const parkingSelectValue = filteredParkingOptions.some((item) => item.id === activeParkingId) ? activeParkingId : "";
+
+  function renderSearchableSelector({
+    title,
+    buttonLabel,
+    open,
+    setOpen,
+    search,
+    setSearch,
+    canSearch,
+    disabled,
+    value,
+    onChange,
+    options,
+    emptyLabel,
+    optionLabel,
+    inputPlaceholder,
+    selectTitle,
+  }) {
+    return <>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[9px] font-black uppercase tracking-[.14em] text-[#CFD8DC]">{title}</p>
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className="inline-flex items-center gap-1 rounded-full border border-white/20 bg-white/10 px-2 py-1 text-[10px] font-black uppercase tracking-[.08em] text-white hover:bg-white/20"
+        >
+          <Search className="h-3.5 w-3.5" />
+          {buttonLabel}
+        </button>
+      </div>
+      {open ? <>
+        <input
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder={inputPlaceholder}
+          disabled={disabled || !canSearch}
+          autoFocus
+          className="mt-1 w-full rounded-lg border border-white/25 bg-white/10 px-2 py-1.5 text-xs font-bold text-white placeholder:text-white/70 outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        />
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          disabled={disabled || !canSearch}
+          title={selectTitle}
+          className="mt-1 w-full truncate rounded-lg border border-white/25 bg-white/10 px-2 py-1.5 text-xs font-bold text-white outline-none disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {!options.length ? <option value="" className="text-[#263238]">{emptyLabel}</option> : null}
+          {options.map((item) => <option key={item.id} value={item.id} className="text-[#263238]">{optionLabel(item)}</option>)}
+        </select>
+      </> : null}
+    </>;
   }
 
   function selectView(key) { setView(key); setMessage(""); setQuote(null); if (key === "ENTRY") window.setTimeout(() => prefixRef.current?.focus(), 50); }
@@ -141,20 +258,42 @@ export default function DataEntryPage() {
     <aside className={`${posMenuOpen ? "w-64" : "w-20"} fixed inset-y-0 left-0 z-30 flex flex-col bg-[#455A64] p-3 text-white shadow-2xl transition-all`}>
       <div className="flex min-h-14 items-center gap-3 border-b border-white/20 px-1 pb-3"><button type="button" onClick={() => setPosMenuOpen((current) => !current)} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/15 hover:bg-white/25"><Menu className="h-6 w-6" /></button>{posMenuOpen ? <div className="min-w-0"><p className="font-black">ParkFacil Terminal</p></div> : null}</div>
       {posMenuOpen ? <div className="mt-2 rounded-xl bg-white/10 p-2.5">
-        <p className="text-[9px] font-black uppercase tracking-[.14em] text-[#CFD8DC]">Estacionamiento activo</p>
-        {authorizedParkings.length > 1 ? (
-          <select
-            value={activeParkingId}
-            onChange={(event) => changeParking(event.target.value)}
-            disabled={hasActiveOperation()}
-            title={hasActiveOperation() ? "Termina la operación en curso para cambiar de estacionamiento" : "Cambiar estacionamiento activo"}
-            className="mt-1 w-full truncate rounded-lg border border-white/25 bg-white/10 px-2 py-1.5 text-xs font-bold text-white outline-none disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {authorizedParkings.map((item) => <option key={item.id} value={item.id} className="text-[#263238]">{item.name}</option>)}
-          </select>
-        ) : (
-          <p className="mt-0.5 truncate text-xs font-bold">{parking?.name || authorizedParkings[0]?.name || "Cargando..."}</p>
-        )}
+        {renderSearchableSelector({
+          title: "Empresa activa",
+          buttonLabel: "Buscar",
+          open: companySearchOpen,
+          setOpen: setCompanySearchOpen,
+          search: companySearch,
+          setSearch: setCompanySearch,
+          canSearch: canChooseCompany,
+          disabled: hasActiveOperation(),
+          value: companySelectValue,
+          onChange: changeCompany,
+          options: filteredCompanyOptions,
+          emptyLabel: "Sin resultados",
+          optionLabel: (item) => item.name,
+          inputPlaceholder: "Buscar empresa",
+          selectTitle: hasActiveOperation() ? "Termina la operación en curso para cambiar de empresa" : "Cambiar empresa activa",
+        })}
+        <div className="mt-2">
+          {renderSearchableSelector({
+            title: "Estacionamiento activo",
+            buttonLabel: "Buscar",
+            open: parkingSearchOpen,
+            setOpen: setParkingSearchOpen,
+            search: parkingSearch,
+            setSearch: setParkingSearch,
+            canSearch: canChooseParking,
+            disabled: hasActiveOperation(),
+            value: parkingSelectValue,
+            onChange: changeParking,
+            options: filteredParkingOptions,
+            emptyLabel: "Sin resultados",
+            optionLabel: (item) => `${item.companyName ? `${item.companyName} · ` : ""}${item.name}${item.code ? ` (${item.code})` : ""}`,
+            inputPlaceholder: "Buscar estacionamiento",
+            selectTitle: hasActiveOperation() ? "Termina la operación en curso para cambiar de estacionamiento" : "Cambiar estacionamiento activo",
+          })}
+        </div>
         <div className="mt-2 border-t border-white/15 pt-2"><p className="truncate text-[11px] font-bold">{actor?.name}</p><p className="text-[10px] text-[#CFD8DC]">{roleLabel(actor?.role)}</p></div>
       </div> : null}
       <nav className="mt-3 flex-1 space-y-1.5">
