@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 
 const emptyForm = {
+  operatorId: "",
   assignmentId: "",
   date: new Date().toISOString().slice(0, 10),
   scheduledStart: "",
@@ -59,6 +60,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
   }), [structure, users]);
 
   const selectedAssignment = assignmentOptions.find((item) => item.id === form.assignmentId) || null;
+  const allowOffStreetDirectOperator = parking.type === "OFF_STREET" && assignmentOptions.length === 0;
 
   useEffect(() => {
     let active = true;
@@ -92,6 +94,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
   function startEdit(shift) {
     setEditingShiftId(shift.id);
     setForm({
+      operatorId: shift.operator_id || "",
       assignmentId: shift.assignment_id || "",
       date: shift.shift_date || emptyForm.date,
       scheduledStart: shift.scheduled_start || "",
@@ -106,19 +109,24 @@ export default function ParkingShiftsManager({ parking, structure }) {
   async function submit(event) {
     event.preventDefault();
     setFormError("");
-    if (!selectedAssignment) {
+    if (!selectedAssignment && !allowOffStreetDirectOperator) {
       setFormError("Selecciona una asignación para crear el turno.");
+      return;
+    }
+    if (allowOffStreetDirectOperator && !form.operatorId) {
+      setFormError("Selecciona un operador para crear el turno.");
       return;
     }
     setSaving(true);
     try {
+      const operatorId = selectedAssignment?.operatorId || form.operatorId;
       const payload = {
-        assignmentId: selectedAssignment.id,
-        operatorId: selectedAssignment.operatorId,
+        assignmentId: selectedAssignment?.id || form.assignmentId || undefined,
+        operatorId,
         supervisorId: form.supervisorId || selectedAssignment.supervisorId || undefined,
         date: form.date,
-        scheduledStart: form.scheduledStart || undefined,
-        scheduledEnd: form.scheduledEnd || undefined,
+        scheduledStart: form.scheduledStart || "00:00",
+        scheduledEnd: form.scheduledEnd || "23:59",
         status: form.status,
         notes: form.notes,
       };
@@ -212,10 +220,13 @@ export default function ParkingShiftsManager({ parking, structure }) {
         </div>
         {editingShiftId ? <button type="button" onClick={resetForm} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancelar edición</button> : null}
       </div>
-      {!assignmentOptions.length ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">No hay asignaciones activas disponibles para crear turnos. Configura primero los operadores y sus asignaciones desde la estructura operativa.</div> : <form onSubmit={submit} className="mt-4 space-y-4">
+      {!assignmentOptions.length && !allowOffStreetDirectOperator ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">No hay asignaciones activas disponibles para crear turnos. Configura primero los operadores y sus asignaciones desde la estructura operativa.</div> : <form onSubmit={submit} className="mt-4 space-y-4">
         {formError ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{formError}</p> : null}
+        {allowOffStreetDirectOperator ? <p className="rounded-2xl border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900">Off Street: cuando no existen asignaciones de estructura, el sistema genera una asignación operativa base para el operador seleccionado.</p> : null}
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="Asignación"><select value={form.assignmentId} onChange={(event) => set("assignmentId", event.target.value)} className={inputClass}><option value="">Seleccionar asignación</option>{assignmentOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field>
+          {allowOffStreetDirectOperator
+            ? <Field label="Operador"><select value={form.operatorId} onChange={(event) => set("operatorId", event.target.value)} className={inputClass}><option value="">Seleccionar operador</option>{users.map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select></Field>
+            : <Field label="Asignación"><select value={form.assignmentId} onChange={(event) => set("assignmentId", event.target.value)} className={inputClass}><option value="">Seleccionar asignación</option>{assignmentOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field>}
           <Field label="Estado inicial"><select value={form.status} onChange={(event) => set("status", event.target.value)} className={inputClass}><option value="PROGRAMMED">Programado</option><option value="OPEN">Abierto</option></select></Field>
           <Field label="Fecha"><input type="date" value={form.date} onChange={(event) => set("date", event.target.value)} className={inputClass} /></Field>
           <Field label="Supervisor (opcional)"><select value={form.supervisorId} onChange={(event) => set("supervisorId", event.target.value)} className={inputClass}><option value="">Sin supervisor</option>{users.map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select></Field>

@@ -112,14 +112,14 @@ function activationChecklist(parking, summary, availability = {}) {
       detail: !availability.rates
         ? "La fuente persistente de tarifas aún no está disponible."
         : summary.rateCount > 0
-          ? `${summary.rateCount} tarifas activas`
-          : "Falta configurar una tarifa activa",
+          ? `${summary.rateCount} tarifas vigentes`
+          : "Falta configurar una tarifa vigente",
       required: true,
       requirements: !availability.rates
         ? ["La fuente persistente de tarifas aún no está disponible."]
         : summary.rateCount > 0
           ? []
-          : ["Configurar al menos una tarifa válida."],
+          : ["Configurar al menos una tarifa activa y vigente."],
     },
     {
       key: "operators",
@@ -169,8 +169,8 @@ export function buildConfigurator(parking, summary, availability = {}) {
     rates: !availability.rates
       ? blocked("Persistencia de tarifas pendiente")
       : summary.rateCount > 0
-        ? { status: STEP_STATES.COMPLETED, detail: `${summary.rateCount} tarifas activas` }
-        : { status: STEP_STATES.IN_PROGRESS, detail: "Falta configurar una tarifa activa" },
+        ? { status: STEP_STATES.COMPLETED, detail: `${summary.rateCount} tarifas vigentes` }
+        : { status: STEP_STATES.IN_PROGRESS, detail: "Falta configurar una tarifa vigente" },
   };
   const requirements = activationRequirements(parking, summary, availability, checklist);
   values.review = requirements.length ? { status: STEP_STATES.BLOCKED, detail: `${requirements.length} requisitos pendientes` } : { status: STEP_STATES.COMPLETED, detail: "Listo para activar" };

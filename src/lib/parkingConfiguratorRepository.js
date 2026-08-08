@@ -17,6 +17,7 @@ export async function getConfigurator(db, identifier, { parking: authorizedParki
   if (!parking) return null;
   const summary = { levelCount: 0, zoneCount: 0, sectorCount: 0, streetCount: 0, segmentCount: 0, capacity: 0, occupied: 0, assignmentCount: 0, shiftCount: 0, pendingClosureCount: 0, rateCount: 0 };
   const availability = { rates: false, operators: false, shifts: false, closures: false };
+  const now = Date.now();
   try {
     if (parking.type === "OFF_STREET") {
       const [levels, zones] = await Promise.all([rows(db, "parking_levels", parking.id, "id,status"), rows(db, "parking_zones", parking.id, "id,status,capacity,occupied")]);
@@ -45,8 +46,13 @@ export async function getConfigurator(db, identifier, { parking: authorizedParki
       availability.shifts = true;
       availability.closures = true;
     }
-    const rates = await rows(db, "parking_rates", parking.id, "id,status");
-    summary.rateCount = rates.filter((item) => item.status === "ACTIVE").length;
+    const rates = await rows(db, "parking_rates", parking.id, "id,status,valid_from,valid_until");
+    summary.rateCount = rates.filter((item) => {
+      if (item.status !== "ACTIVE") return false;
+      const from = item.valid_from ? new Date(item.valid_from).getTime() : Number.NEGATIVE_INFINITY;
+      const until = item.valid_until ? new Date(item.valid_until).getTime() : Number.POSITIVE_INFINITY;
+      return Number.isFinite(from) && from <= now && until > now;
+    }).length;
     availability.rates = true;
   } catch (error) {
     if (!unavailable(error)) throw error;

@@ -20,7 +20,7 @@ export default function ParkingStructureAdmin({ parking, structure }) {
 
 export function ParkingOperatorsPanel({ parking }) {
   const onStreet = parking.type === "ON_STREET";
-  if (!onStreet) return <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">La asignación de operadores para estacionamientos Off Street aún no está disponible en esta etapa.</div>;
+  if (!onStreet) return <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">En Off Street, los turnos pueden crearse directamente desde el módulo Turnos seleccionando operador. El sistema genera una asignación operativa base de apoyo cuando corresponde.</div>;
   return <section className="rounded-3xl border border-slate-200 bg-white p-5"><h2 className="text-xl font-semibold text-[#041E42]">Operadores</h2><p className="mt-1 text-sm text-slate-600">Las asignaciones se administran desde cada calle y separan rango territorial, capacidad física y máximo operacional.</p></section>;
 }
 
