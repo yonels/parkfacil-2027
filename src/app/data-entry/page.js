@@ -54,6 +54,7 @@ export default function DataEntryPage() {
   const [couponToken, setCouponToken] = useState("");
   const [busy, setBusy] = useState(true); const [message, setMessage] = useState(""); const [cameraOpen, setCameraOpen] = useState(false);
   const [posMenuOpen, setPosMenuOpen] = useState(true);
+  const loadSequenceRef = useRef(0);
   const prefixRef = useRef(null); const suffixRef = useRef(null); const videoRef = useRef(null); const scannerRef = useRef(null);
 
   async function authFetch(url, options = {}) {
@@ -70,11 +71,13 @@ export default function DataEntryPage() {
   }
 
   async function load(parkingId) {
+    const sequence = ++loadSequenceRef.current;
     setBusy(true);
     const query = parkingId ? `?parkingId=${encodeURIComponent(parkingId)}` : "";
     const response = await authFetch(`/api/data-entry${query}`);
     if (response.status === 401 || response.status === 403) { router.replace("/login?next=/data-entry"); return; }
     const payload = await response.json().catch(() => ({}));
+    if (sequence !== loadSequenceRef.current) return;
     if (!response.ok) { setMessage(payload.error || "No fue posible cargar la operación."); setBusy(false); return; }
     setParking(payload.data.parking); setStays(payload.data.stays); setActor(payload.data.actor); setMessage(payload.data.warning || ""); setBusy(false);
     if (payload.data.parking?.id) setActiveParkingId(payload.data.parking.id);
@@ -135,10 +138,13 @@ export default function DataEntryPage() {
     setActiveCompanyId(nextCompanyId);
     const nextParking = authorizedParkings.find((item) => item.companyId === nextCompanyId) || null;
     if (!nextParking?.id) {
+      // Invalida cualquier carga previa para que no repinte un parking antiguo.
+      loadSequenceRef.current += 1;
       resetWorkingState();
       setActiveParkingId("");
       setBusy(false);
-      setMessage("La empresa seleccionada no tiene estacionamientos activos habilitados para Data Entry.");
+      const selectedCompany = companyOptions.find((item) => item.id === nextCompanyId);
+      setMessage(`La empresa ${selectedCompany?.name || "seleccionada"} no tiene estacionamientos activos habilitados para Data Entry.`);
       return;
     }
     await changeParking(nextParking.id);
