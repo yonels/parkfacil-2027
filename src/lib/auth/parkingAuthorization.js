@@ -54,7 +54,8 @@ export async function requireSupervisorForParking(db, context, parking, userId) 
   const memberResult = await db.from("company_members").select("user_id,company_id,role,status").eq("user_id", userId).maybeSingle();
   if (memberResult.error) throw memberResult.error;
   const member = memberResult.data;
-  if (!member || member.status !== "active" || member.company_id !== context.companyId) throw new AuthorizationError("RESOURCE_NOT_FOUND", 404, "No se encontró el supervisor solicitado.", context);
+  const companyAllowed = context?.role === ROLES.PLATFORM_ADMIN || member?.company_id === context?.companyId;
+  if (!member || member.status !== "active" || !companyAllowed) throw new AuthorizationError("RESOURCE_NOT_FOUND", 404, "No se encontró el supervisor solicitado.", context);
   if (member.role === ROLES.COMPANY_ADMIN) return member;
   return requireOperatorForParking(db, context, parking, userId);
 }
