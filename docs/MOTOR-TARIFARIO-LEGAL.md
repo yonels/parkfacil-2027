@@ -28,9 +28,13 @@ tramo vencido.
 ## 3. Minuto efectivo
 
 - Valor por minuto (`minuteAmount`), obligatorio y mayor que cero.
-- El motor trabaja en segundos: `chargeableSeconds = floor(elapsedSeconds) - freePeriodSeconds`.
-- El monto es `floor(chargeableSeconds * minuteAmount / 60)` — el minuto efectivo se
-  paga proporcionalmente al segundo, nunca se infla al minuto completo siguiente.
+- El motor conserva los segundos reales para auditoría:
+  `chargeableSeconds = floor(elapsedSeconds) - freePeriodSeconds`.
+- La unidad facturable es el minuto efectivo completo:
+  `chargedMinutes = floor(chargeableSeconds / 60)` y
+  `amount = chargedMinutes * minuteAmount`.
+- Los segundos de un minuto todavía incompleto no se cobran ni se aproximan al minuto
+  siguiente. Esto mantiene alineados los minutos informados y el valor cobrado.
 - Prohibido: tramos, bloques, redondeo, cobro mínimo por duración.
 
 ## 4. Tramo vencido
@@ -55,16 +59,16 @@ nunca se cobra retroactivamente.
 ## 6. Prohibición de redondeo al alza
 
 - Tiempo transcurrido: `Math.floor((exit - entry) / 1000)`.
-- Monto de minuto efectivo y de tramos: `Math.floor(...)`.
+- Minutos efectivos cobrables y monto: `Math.floor(...)`, nunca `Math.ceil`.
 - Conteo de tramos vencidos: comparación `>=` en un bucle, nunca `Math.ceil`.
 - `Math.round` fue eliminado de la ruta de cobro de Data Entry (`subtotal`/`discount` ya
   llegan enteros desde el motor; envolverlos en `Math.round` era innecesario y se retiró
   para no dejar ambigüedad).
 - El campo informativo "minutos consumidos" del ticket usa `Math.floor`, no `Math.ceil`
   (antes inflaba artificialmente el tiempo mostrado al cliente).
-- El impuesto (IVA, `calculateChileTax`) sí usa redondeo estándar de centavos — es una
-  obligación tributaria distinta a la tarifa de estacionamiento y no forma parte de este
-  motor ni de la Ley 20.967.
+- Los valores configurados e informados al consumidor incluyen impuestos. El IVA se
+  desglosa desde el precio final con `splitChileTaxFromTotal`; nunca se agrega sobre la
+  tarifa exhibida. Así, 20 minutos a $50 tienen un total de $1.000.
 
 ## 7. Ticket perdido
 
@@ -93,7 +97,7 @@ parkingRateInput.mjs (sanitize/validate)      (entrada API)
 parkingRates.mjs                              (ÚNICO motor de cálculo)
    - validateOperationalRate()                (única regla de dominio)
    - classifyRateCompliance()                 (VALID | REQUIRES_REVIEW)
-   - calculateParkingCharge()                 (cálculo central por segundos)
+   - calculateParkingCharge()                 (segundos reales; cobro por minutos completos)
    - calculateScheduledParkingCharge()        (envoltorio por timestamps)
    - selectActiveRate()                       (tarifa vigente: ACTIVE + vigente + VALID)
         ↓                                              ↓

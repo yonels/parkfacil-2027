@@ -125,8 +125,12 @@ export function calculateParkingCharge(rate, elapsedSeconds, spacesUsed = 1) {
     return { valid: true, requiresDailyPolicy: true, elapsedSeconds: elapsed, chargeableSeconds, spacesUsed: spaces };
   }
   if (rate.billingMode === BILLING_MODES.EFFECTIVE_MINUTE) {
-    const raw = chargeableSeconds * Number(rate.minuteAmount) / 60;
-    return { valid: true, amount: Math.floor(raw) * factor, elapsedSeconds: elapsed, chargeableSeconds, spacesUsed: spaces, chargedBlocks: [] };
+    // La tarifa está expresada por minuto. Solo se cobran minutos efectivos completos:
+    // una fracción pendiente nunca se convierte ni se prorratea como un minuto adicional.
+    // Esto mantiene alineados el tiempo informado y la base del cobro, sin aproximar al alza.
+    const chargedMinutes = Math.floor(chargeableSeconds / 60);
+    const amount = Math.floor(chargedMinutes * Number(rate.minuteAmount));
+    return { valid: true, amount: amount * factor, elapsedSeconds: elapsed, chargeableSeconds, chargedMinutes, spacesUsed: spaces, chargedBlocks: [] };
   }
   const blocks = [...rate.blocks].sort((a, b) => a.sequence - b.sequence);
   let remaining = chargeableSeconds;

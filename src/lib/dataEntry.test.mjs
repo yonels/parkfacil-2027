@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { calculateChileTax, joinChileanPlate, normalizePlate, resolveStayQuoteAvailability, sanitizeMovementInput, splitChileanPlate, validateMovementInput } from "./dataEntry.mjs";
+import { joinChileanPlate, normalizePlate, resolveStayQuoteAvailability, sanitizeMovementInput, splitChileTaxFromTotal, splitChileanPlate, validateMovementInput } from "./dataEntry.mjs";
 
 test("normaliza patentes para captura táctil", () => assert.equal(normalizePlate("ab-cd 12"), "ABCD12"));
 test("valida campos operacionales obligatorios", () => {
@@ -15,7 +15,7 @@ test("compone patente chilena en dos campos", () => {
   assert.equal(joinChileanPlate("cxpy", "93"), "CXPY-93");
   assert.deepEqual(splitChileanPlate("CXPY-93"), { prefix: "CXPY", suffix: "93" });
 });
-test("calcula neto IVA y total", () => assert.deepEqual(calculateChileTax(1000), { net: 1000, tax: 190, total: 1190, taxRate: 0.19 }));
+test("desglosa neto e IVA desde el precio final informado", () => assert.deepEqual(splitChileTaxFromTotal(1000), { net: 840, tax: 160, total: 1000, taxRate: 0.19 }));
 
 // ===== Cierre Data Entry: bloqueo operacional sin tarifa válida =====
 // El vehículo/ticket/permanencia deben seguir disponibles aunque no haya tarifa: por eso

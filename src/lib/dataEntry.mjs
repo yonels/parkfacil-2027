@@ -19,10 +19,11 @@ export function splitChileanPlate(value) {
   return { prefix: normalized.slice(0, 4), suffix: normalized.slice(4, 6) };
 }
 
-export function calculateChileTax(netAmount, taxRate = 0.19) {
-  const net = Math.max(0, Math.round(Number(netAmount) || 0));
-  const tax = Math.round(net * taxRate);
-  return { net, tax, total: net + tax, taxRate };
+export function splitChileTaxFromTotal(totalAmount, taxRate = 0.19) {
+  const total = Math.max(0, Math.round(Number(totalAmount) || 0));
+  const net = Math.round(total / (1 + taxRate));
+  const tax = total - net;
+  return { net, tax, total, taxRate };
 }
 
 export function detectDeviceSource(userAgent = "") {

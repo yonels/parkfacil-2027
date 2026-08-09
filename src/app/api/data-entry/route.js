@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { calculateChileTax, joinChileanPlate, resolveStayQuoteAvailability } from "@/lib/dataEntry.mjs";
+import { joinChileanPlate, resolveStayQuoteAvailability, splitChileTaxFromTotal } from "@/lib/dataEntry.mjs";
 import { calculateScheduledParkingCharge, selectActiveRate } from "@/lib/parkingRates.mjs";
 import { listParkingRates } from "@/lib/parkingRatesRepository";
 import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 
 const publicStayFields = "id,code,parking_id,license_plate,qr_token,status,entry_at,entry_operator_name,entry_source,exit_at,exit_operator_name,elapsed_minutes,rate_name,billing_mode,net_amount,tax_amount,total_amount,payment_method,payment_code,coupon_id,coupon_code,discount_amount,subtotal_amount";
+const ticketParkingFields = "id,code,name,company_name,address,city,status,company:companies(business_name,address,district,city,rut_number,rut_dv,phone)";
 
 function fail(message, status = 400, details) { return NextResponse.json({ error: message, details }, { status }); }
 function code(prefix) { return `${prefix}-${new Date().toISOString().replace(/\D/g, "").slice(2, 14)}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`; }
@@ -81,7 +82,9 @@ async function quoteStay(db, stay, couponToken = null) {
   let discount = Math.max(0, subtotal - charge.amount);
   if (coupon?.benefit_type === "PERCENTAGE") discount = Math.floor(subtotal * Math.min(100, Number(coupon.benefit_value)) / 100);
   if (coupon?.benefit_type === "FIXED_AMOUNT") discount = Math.min(subtotal, Number(coupon.benefit_value));
-  const amounts = calculateChileTax(Math.max(0, subtotal - discount));
+  // La tarifa exhibida al consumidor es el precio final con impuestos incluidos.
+  // El IVA se desglosa desde ese total; nunca se agrega sobre el valor informado.
+  const amounts = splitChileTaxFromTotal(Math.max(0, subtotal - discount));
   return { blocked: false, ...amounts, subtotal, discount, elapsedSeconds, elapsedMinutes, rate, charge, coupon: coupon ? { id: coupon.id, code: coupon.code, name: coupon.name, benefitType: coupon.benefit_type, value: Number(coupon.benefit_value) } : null };
 }
 
@@ -101,7 +104,7 @@ export async function GET(request) {
   const requestedParkingId = new URL(request.url).searchParams.get("parkingId");
   const current = await context(request, requestedParkingId); if (current.response) return current.response;
   const [parkingResult, stayResult] = await Promise.all([
-    current.db.from("parkings").select("id,code,name,company_name,address,city,status").eq("id", current.actor.parkingId).eq("status", "ACTIVE").maybeSingle(),
+    current.db.from("parkings").select(ticketParkingFields).eq("id", current.actor.parkingId).eq("status", "ACTIVE").maybeSingle(),
     current.db.from("parking_stays").select(publicStayFields).eq("parking_id", current.actor.parkingId).eq("status", "OPEN").order("entry_at", { ascending: false }),
   ]);
   const { data: parking, error: parkingError } = parkingResult;
@@ -132,7 +135,7 @@ export async function POST(request) {
     const { data, error } = await current.db.from("parking_stays").insert(row).select(publicStayFields).single();
     if (error?.code === "23505") return fail("La patente ya tiene una estadía abierta en este parking.", 409);
     if (error) return fail("No fue posible guardar el ingreso.", 503);
-    const { data: parking } = await current.db.from("parkings").select("id,code,name,company_name,address,city").eq("id", assignedParkingId).single();
+    const { data: parking } = await current.db.from("parkings").select(ticketParkingFields).eq("id", assignedParkingId).single();
     return NextResponse.json({ data: { stay: data, parking } }, { status: 201 });
   }
   if (["QUOTE", "EXIT"].includes(input.action)) {
@@ -142,7 +145,7 @@ export async function POST(request) {
       const messages = { PARKING_NOT_FOUND: "El estacionamiento no existe.", COUPON_NOT_FOUND: "El cupón no existe.", COUPON_ALREADY_USED: "El cupón ya fue utilizado.", COUPON_WRONG_COMPANY: "El cupón no corresponde a este estacionamiento.", COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.", COUPON_EXPIRED: "El cupón está vencido." };
       return fail(messages[error.message] || "No fue posible calcular la tarifa.", 409);
     }
-    const { data: parking } = await current.db.from("parkings").select("id,code,name,company_name,address,city").eq("id", stay.parking_id).single();
+    const { data: parking } = await current.db.from("parkings").select(ticketParkingFields).eq("id", stay.parking_id).single();
     // Sin tarifa válida: el vehículo/ticket/permanencia SÍ se devuelven (200), solo se
     // bloquea el cálculo/cobro. Un intento de EXIT igual se rechaza (defensa adicional;
     // la UI ya no ofrece el botón de pago en este estado).

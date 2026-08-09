@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { ArrowDownToLine, ArrowLeft, ArrowUpFromLine, Camera, CarFront, CheckCircle2, CircleParking, Home, LoaderCircle, LogOut, Menu, Printer, QrCode, Search, UserRound, X } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
+import { filteredSelectState } from "@/lib/dataEntrySelector.mjs";
+import { rateDisplay, ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
 
 const actions = [
   { key: "ENTRY", label: "Ingresar", detail: "Registrar vehículo", icon: ArrowDownToLine, color: "bg-emerald-600 hover:bg-emerald-700" },
@@ -21,12 +23,16 @@ const matchesSearchText = (value, search) => !normalizeSearchText(search) || nor
 
 function ticketHtml({ kind, stay, parking, quote, qrImage, actor }) {
   const isEntry = kind === "ENTRY";
-  return `<!doctype html><html><head><meta charset="utf-8"><title>Ticket ${stay.code}</title><style>@page{size:80mm auto;margin:4mm}body{width:72mm;margin:0;font:12px Arial;color:#111}.center{text-align:center}.brand{font-size:22px;font-weight:800;color:#041E42}.rule{border-top:1px dashed #555;margin:10px 0}.row{display:flex;justify-content:space-between;gap:8px;margin:5px 0}.plate{font-size:25px;font-weight:900;letter-spacing:2px;margin:10px}.total{font-size:18px;font-weight:900}img{width:35mm;height:35mm}</style></head><body><div class="center"><div class="brand">ParkFacil</div><b>${parking.company_name || "Empresa"}</b><br>${parking.name}<br>${parking.address || ""} ${parking.city || ""}<div class="rule"></div><b>TICKET DE ${isEntry ? "INGRESO" : "SALIDA Y PAGO"}</b><div class="plate">${stay.license_plate}</div></div><div class="row"><span>Código</span><b>${isEntry ? stay.code : stay.payment_code}</b></div><div class="row"><span>Fecha ingreso</span><b>${dateTime(stay.entry_at)}</b></div>${isEntry ? "" : `<div class="row"><span>Fecha salida</span><b>${dateTime(stay.exit_at)}</b></div><div class="row"><span>Tiempo</span><b>${stay.elapsed_minutes} minutos</b></div><div class="row"><span>Tarifa</span><b>${stay.rate_name}</b></div><div class="rule"></div>${stay.coupon_code ? `<div class="row"><span>Subtotal</span><b>${money(stay.subtotal_amount)}</b></div><div class="row"><span>Cupón ${stay.coupon_code}</span><b>-${money(stay.discount_amount)}</b></div>` : ""}<div class="row"><span>Neto</span><b>${money(stay.net_amount)}</b></div><div class="row"><span>IVA 19%</span><b>${money(stay.tax_amount)}</b></div><div class="row total"><span>TOTAL</span><b>${money(stay.total_amount)}</b></div>`}<div class="rule"></div><div class="row"><span>Operador</span><b>${actor.name}</b></div><div class="center"><img src="${qrImage}"/><br>${isEntry ? stay.qr_token : stay.payment_code}<p>${isEntry ? "Conserve este ticket para registrar su salida." : "Pago registrado. Gracias por su visita."}</p></div></body></html>`;
+  const header = ticketHeaderData(parking, stay, isEntry);
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Ticket ${stay.code}</title><style>@page{size:80mm auto;margin:4mm}body{width:72mm;margin:0;font:12px Arial;color:#111}.center{text-align:center}.brand{font-size:22px;font-weight:800;color:#041E42}.rule{border-top:1px dashed #555;margin:10px 0}.row{display:flex;justify-content:space-between;gap:8px;margin:5px 0}.plate{font-size:25px;font-weight:900;letter-spacing:2px;margin:10px}.total{font-size:18px;font-weight:900}.qr{width:35mm;height:35mm}.qr-paid{width:28mm;height:28mm}.footer{margin-top:12px;font-weight:700}</style></head><body><div class="center"><div class="brand">ParkFacil</div></div><div class="row"><span>Razón social</span><b>${header.businessName}</b></div><div class="row"><span>Dirección</span><b>${header.address}</b></div><div class="row"><span>RUT</span><b>${header.rut}</b></div><div class="row"><span>Teléfono de contacto</span><b>${header.phone}</b></div><div class="row"><span>Fecha y hora</span><b>${dateTime(header.issuedAt)}</b></div><div class="rule"></div><div class="center"><b>TICKET DE ${isEntry ? "INGRESO" : "SALIDA Y PAGO"}</b><br>${parking.name}<div class="plate">${stay.license_plate}</div></div><div class="row"><span>Código</span><b>${isEntry ? stay.code : stay.payment_code}</b></div><div class="row"><span>Fecha ingreso</span><b>${dateTime(stay.entry_at)}</b></div>${isEntry ? "" : `<div class="row"><span>Fecha salida</span><b>${dateTime(stay.exit_at)}</b></div><div class="row"><span>Tiempo</span><b>${stay.elapsed_minutes} minutos</b></div><div class="row"><span>Tarifa</span><b>${stay.rate_name}</b></div><div class="rule"></div>${stay.coupon_code ? `<div class="row"><span>Subtotal</span><b>${money(stay.subtotal_amount)}</b></div><div class="row"><span>Cupón ${stay.coupon_code}</span><b>-${money(stay.discount_amount)}</b></div>` : ""}<div class="row"><span>Neto</span><b>${money(stay.net_amount)}</b></div><div class="row"><span>IVA 19%</span><b>${money(stay.tax_amount)}</b></div><div class="row total"><span>TOTAL</span><b>${money(stay.total_amount)}</b></div>`}<div class="rule"></div><div class="row"><span>Operador</span><b>${actor.name}</b></div><div class="center">${qrImage ? `<img class="${isEntry ? "qr" : "qr-paid"}" src="${qrImage}"/><br>` : ""}${isEntry ? stay.qr_token : stay.payment_code}<p>${isEntry ? "Conserve este ticket para registrar su salida." : "Pago registrado. Gracias por su visita."}</p><p class="footer">parkfacilapp.cl</p></div></body></html>`;
 }
 
 async function printTicket(payload) {
   const qrValue = payload.kind === "ENTRY" ? payload.stay.qr_token : payload.stay.payment_code;
-  const qrImage = await QRCode.toDataURL(qrValue, { width: 320, margin: 1, color: { dark: "#041E42", light: "#FFFFFF" } });
+  const includeQr = payload.kind === "ENTRY" || payload.includeQr !== false;
+  const qrImage = includeQr
+    ? await QRCode.toDataURL(qrValue, { width: 320, margin: 1, color: { dark: "#041E42", light: "#FFFFFF" } })
+    : null;
   const popup = window.open("", "parkfacil-ticket", "width=420,height=720");
   if (!popup) throw new Error("Permite ventanas emergentes para imprimir el ticket.");
   popup.document.write(ticketHtml({ ...payload, qrImage })); popup.document.close(); popup.focus();
@@ -50,11 +56,13 @@ export default function DataEntryPage() {
   const [parkingSearch, setParkingSearch] = useState("");
   const [parkingSearchOpen, setParkingSearchOpen] = useState(false);
   const [selectedStayId, setSelectedStayId] = useState(""); const [paymentMethod, setPaymentMethod] = useState("CARD");
+  const [printExitQr, setPrintExitQr] = useState(true);
   const [quote, setQuote] = useState(null); const [qrToken, setQrToken] = useState(""); const [actor, setActor] = useState(null);
   const [couponToken, setCouponToken] = useState("");
   const [busy, setBusy] = useState(true); const [message, setMessage] = useState(""); const [cameraOpen, setCameraOpen] = useState(false);
   const [posMenuOpen, setPosMenuOpen] = useState(true);
   const loadSequenceRef = useRef(0);
+  const operationRequestRef = useRef(false);
   const prefixRef = useRef(null); const suffixRef = useRef(null); const videoRef = useRef(null); const scannerRef = useRef(null);
 
   async function authFetch(url, options = {}) {
@@ -157,7 +165,7 @@ export default function DataEntryPage() {
       return matchesSearchText(item.name, companySearch);
     })
     : companyOptions;
-  const companySelectValue = filteredCompanyOptions.some((item) => item.id === activeCompanyId) ? activeCompanyId : "";
+  const companySelectState = filteredSelectState(activeCompanyId, filteredCompanyOptions);
   const visibleParkings = canChooseCompany && activeCompanyId
     ? authorizedParkings.filter((item) => item.companyId === activeCompanyId)
     : authorizedParkings;
@@ -168,7 +176,7 @@ export default function DataEntryPage() {
       return matchesSearchText(label, parkingSearch);
     })
     : visibleParkings;
-  const parkingSelectValue = filteredParkingOptions.some((item) => item.id === activeParkingId) ? activeParkingId : "";
+  const parkingSelectState = filteredSelectState(activeParkingId, filteredParkingOptions);
 
   function renderSearchableSelector({
     title,
@@ -180,6 +188,7 @@ export default function DataEntryPage() {
     canSearch,
     disabled,
     value,
+    showSelectionPrompt,
     onChange,
     options,
     emptyLabel,
@@ -215,6 +224,7 @@ export default function DataEntryPage() {
           title={selectTitle}
           className="mt-1 w-full truncate rounded-lg border border-white/25 bg-white/10 px-2 py-1.5 text-xs font-bold text-white outline-none disabled:cursor-not-allowed disabled:opacity-60"
         >
+          {showSelectionPrompt ? <option value="" disabled className="text-[#263238]">Seleccione un resultado</option> : null}
           {!options.length ? <option value="" className="text-[#263238]">{emptyLabel}</option> : null}
           {options.map((item) => <option key={item.id} value={item.id} className="text-[#263238]">{optionLabel(item)}</option>)}
         </select>
@@ -223,14 +233,34 @@ export default function DataEntryPage() {
   }
 
   function selectView(key) { setView(key); setMessage(""); setQuote(null); if (key === "ENTRY") window.setTimeout(() => prefixRef.current?.focus(), 50); }
-  async function post(body) { setBusy(true); setMessage(""); const response = await authFetch("/api/data-entry", { method: "POST", body: JSON.stringify({ parkingId: activeParkingId, ...body }) }); const payload = await response.json().catch(() => ({})); setBusy(false); if (!response.ok) { setMessage(payload.error || "No fue posible completar la operación."); return null; } return payload.data; }
+  async function post(body) {
+    if (operationRequestRef.current) return null;
+    operationRequestRef.current = true;
+    setBusy(true);
+    setMessage("");
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await authFetch("/api/data-entry", { method: "POST", signal: controller.signal, body: JSON.stringify({ parkingId: activeParkingId, ...body }) });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) { setMessage(payload.error || "No fue posible completar la operación."); return null; }
+      return payload.data;
+    } catch (error) {
+      setMessage(error?.name === "AbortError" ? "La operación tardó demasiado. Intenta nuevamente." : "No fue posible conectar con el servicio de operación.");
+      return null;
+    } finally {
+      window.clearTimeout(timeout);
+      operationRequestRef.current = false;
+      setBusy(false);
+    }
+  }
 
   async function registerEntry(event) {
     event.preventDefault(); const data = await post({ action: "ENTRY", platePrefix: prefix, plateSuffix: suffix, source: "WEB" }); if (!data) return;
     setMessage(`Ingreso guardado: ${data.stay.license_plate}`); await printTicket({ kind: "ENTRY", ...data, actor }); setPrefix(""); setSuffix(""); await load(activeParkingId);
   }
-  async function calculateExit(identifier = {}) { const data = await post({ action: "QUOTE", ...identifier }); if (data) { setQuote(data); setSelectedStayId(data.stay.id); if (identifier.couponToken) setCouponToken(identifier.couponToken); setView("EXIT"); } }
-  async function finishExit() { if (!quote) return; const data = await post({ action: "EXIT", stayId: quote.stay.id, paymentMethod, couponToken: couponToken || undefined }); if (!data) return; setQuote(data); setCouponToken(""); setMessage(`Pago registrado: ${data.stay.payment_code}`); await printTicket({ kind: "EXIT", ...data, actor }); await load(activeParkingId); }
+  async function calculateExit(identifier = {}) { const data = await post({ action: "QUOTE", ...identifier }); if (data) { if (!quote || quote.stay.id !== data.stay.id) setPrintExitQr(true); setQuote(data); setSelectedStayId(data.stay.id); if (identifier.couponToken) setCouponToken(identifier.couponToken); setView("EXIT"); } }
+  async function finishExit() { if (!quote) return; const data = await post({ action: "EXIT", stayId: quote.stay.id, paymentMethod, couponToken: couponToken || undefined }); if (!data) return; setQuote(data); setCouponToken(""); setMessage(`Pago registrado: ${data.stay.payment_code}`); await printTicket({ kind: "EXIT", ...data, actor, includeQr: printExitQr }); await load(activeParkingId); }
   async function processQr(value) {
     const token = String(value || "").trim();
     if (token.toUpperCase().startsWith("PFC-COUPON:")) {
@@ -273,7 +303,8 @@ export default function DataEntryPage() {
           setSearch: setCompanySearch,
           canSearch: canChooseCompany,
           disabled: hasActiveOperation(),
-          value: companySelectValue,
+          value: companySelectState.value,
+          showSelectionPrompt: companySelectState.showSelectionPrompt,
           onChange: changeCompany,
           options: filteredCompanyOptions,
           emptyLabel: "Sin resultados",
@@ -291,7 +322,8 @@ export default function DataEntryPage() {
             setSearch: setParkingSearch,
             canSearch: canChooseParking,
             disabled: hasActiveOperation(),
-            value: parkingSelectValue,
+            value: parkingSelectState.value,
+            showSelectionPrompt: parkingSelectState.showSelectionPrompt,
             onChange: changeParking,
             options: filteredParkingOptions,
             emptyLabel: "Sin resultados",
@@ -323,7 +355,7 @@ export default function DataEntryPage() {
           <div className="grid min-h-28 place-items-center rounded-2xl border border-dashed border-[#CFD8DC] p-6 text-center"><div><p className="text-base font-black text-[#263238]">Seleccione una de las cuatro acciones</p><p className="mt-1 text-xs text-[#607D8B]">Toda la operación se realiza desde este panel.</p></div></div>
         </div> : null}
         {view === "ENTRY" ? <form onSubmit={registerEntry} className="mx-auto max-w-2xl space-y-6"><div className="rounded-2xl border border-[#CFD8DC] bg-[#ECEFF1] p-4"><p className="text-xs font-black uppercase tracking-wide text-[#455A64]">Estacionamiento asignado</p><p className="mt-1 text-lg font-black text-[#263238]">{parking?.name || "Cargando asignación..."}</p></div><fieldset><legend className="text-sm font-black text-[#263238]">PATENTE</legend><div className="mt-2 flex items-center justify-center gap-3"><input ref={prefixRef} required maxLength={4} value={prefix} onChange={(event) => { const value=event.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"");setPrefix(value);if(value.length===4)suffixRef.current?.focus(); }} placeholder="CXPY" className="min-h-24 w-48 min-w-0 rounded-3xl border-2 border-slate-200 bg-slate-50 text-center text-4xl font-black uppercase tracking-[.15em] text-[#263238] outline-none focus:border-[#455A64]"/><span className="text-4xl font-black text-[#263238]">-</span><input ref={suffixRef} required maxLength={2} value={suffix} onChange={(event) => setSuffix(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g,""))} placeholder="93" className="min-h-24 w-28 min-w-0 rounded-3xl border-2 border-slate-200 bg-slate-50 text-center text-4xl font-black uppercase tracking-[.15em] text-[#263238] outline-none focus:border-[#455A64]"/></div></fieldset><button disabled={busy || !parking} className="flex min-h-18 w-full items-center justify-center gap-3 rounded-3xl bg-emerald-600 text-xl font-black text-white shadow-lg disabled:opacity-50">{busy?<LoaderCircle className="h-6 w-6 animate-spin"/>:<Printer className="h-6 w-6"/>}GUARDAR E IMPRIMIR INGRESO</button></form> : null}
-        {view === "EXIT" ? <div className="mx-auto max-w-3xl space-y-5"><label className="block text-sm font-black text-[#263238]">VEHÍCULO EN EL PARKING<select value={selectedStayId} onChange={(event) => { setSelectedStayId(event.target.value); setQuote(null); if(event.target.value)void calculateExit({stayId:event.target.value}); }} className="mt-2 min-h-16 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 text-lg font-bold text-[#263238] outline-none"><option value="">Seleccione una patente</option>{stays.map((stay)=><option key={stay.id} value={stay.id}>{stay.license_plate} · ingreso {dateTime(stay.entry_at)}</option>)}</select></label>{quote?<PaymentSummary data={quote} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} onPay={finishExit} busy={busy}/>:<p className="rounded-2xl bg-white p-6 text-center text-[#607D8B]">Seleccione un vehículo o utilice el botón Código QR.</p>}</div> : null}
+        {view === "EXIT" ? <div className="mx-auto max-w-3xl space-y-5"><label className="block text-sm font-black text-[#263238]">VEHÍCULO EN EL PARKING<select value={selectedStayId} onChange={(event) => { setSelectedStayId(event.target.value); setQuote(null); if(event.target.value)void calculateExit({stayId:event.target.value}); }} className="mt-2 min-h-16 w-full rounded-2xl border-2 border-slate-200 bg-white px-4 text-lg font-bold text-[#263238] outline-none"><option value="">Seleccione una patente</option>{stays.map((stay)=><option key={stay.id} value={stay.id}>{stay.license_plate} · ingreso {dateTime(stay.entry_at)}</option>)}</select></label>{quote?<PaymentSummary data={quote} paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod} printQr={printExitQr} setPrintQr={setPrintExitQr} onPay={finishExit} busy={busy}/>:<p className="rounded-2xl bg-white p-6 text-center text-[#607D8B]">Seleccione un vehículo o utilice el botón Código QR.</p>}</div> : null}
         {view === "PARKED" ? <div className="overflow-hidden rounded-2xl border border-[#CFD8DC]"><div className="grid grid-cols-[1fr_1.2fr_.8fr] bg-[#263238] px-4 py-3 text-xs font-black uppercase text-white"><span>Patente</span><span>Ingreso</span><span>Operador</span></div>{stays.length?stays.map((stay)=><button key={stay.id} onClick={()=>{setSelectedStayId(stay.id);void calculateExit({stayId:stay.id});}} className="grid w-full grid-cols-[1fr_1.2fr_.8fr] border-t border-[#ECEFF1] px-4 py-4 text-left text-[#263238] hover:bg-[#ECEFF1]"><b>{stay.license_plate}</b><span className="text-sm">{dateTime(stay.entry_at)}</span><span className="truncate text-sm">{stay.entry_operator_name}</span></button>):<p className="p-8 text-center text-[#607D8B]">No hay vehículos dentro del parking.</p>}</div> : null}
         {view === "QR" ? <div className="mx-auto max-w-2xl space-y-5"><p className="rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Para aplicar un cupón, selecciona primero el vehículo en Salida y luego lee su QR.</p><button onClick={startScanner} className="flex min-h-20 w-full items-center justify-center gap-3 rounded-3xl bg-amber-500 text-xl font-black text-[#263238]"><Camera className="h-7 w-7"/>LEER QR CON CÁMARA</button>{cameraOpen?<div className="relative overflow-hidden rounded-3xl bg-black"><video ref={videoRef} className="aspect-video w-full object-cover"/><button onClick={stopScanner} className="absolute right-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-white"><X className="h-5 w-5"/></button></div>:null}<div className="flex gap-2"><input value={qrToken} onChange={(event)=>setQrToken(event.target.value.trim())} placeholder="Código QR manual" className="min-h-14 min-w-0 flex-1 rounded-2xl border-2 border-slate-200 bg-white px-4 font-mono text-[#263238] outline-none focus:border-[#455A64]"/><button onClick={()=>processQr(qrToken)} className="rounded-2xl bg-[#455A64] px-5 font-black text-white">LEER QR</button></div></div> : null}
         {message?<div className={`mt-3 flex items-center gap-2 rounded-xl p-3 text-sm font-bold ${message.includes("guardado")||message.includes("registrado")?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-700"}`}><CheckCircle2 className="h-4 w-4 shrink-0"/>{message}</div>:null}
@@ -333,7 +365,7 @@ export default function DataEntryPage() {
   </div>;
 }
 
-function PaymentSummary({ data, paymentMethod, setPaymentMethod, onPay, busy }) {
+function PaymentSummary({ data, paymentMethod, setPaymentMethod, printQr, setPrintQr, onPay, busy }) {
   // Sin tarifa válida: la operación queda bloqueada, pero el vehículo/ticket/permanencia
   // siguen visibles para el operador. No se ofrece cobro ni botón de pago en este estado.
   if (data.quote.blocked) {
@@ -351,7 +383,7 @@ function PaymentSummary({ data, paymentMethod, setPaymentMethod, onPay, busy }) 
       </div>
     </div>;
   }
-  return <div className="rounded-3xl border-2 border-[#CFD8DC] bg-[#ECEFF1] p-5 sm:p-6"><div className="grid gap-3 sm:grid-cols-2"><Info label="Patente" value={data.stay.license_plate}/><Info label="Fecha ingreso" value={dateTime(data.stay.entry_at)}/><Info label="Minutos consumidos" value={data.quote.elapsedMinutes}/><Info label="Tarifa" value={`${data.quote.rate.name} · ${data.quote.rate.billingMode === "EFFECTIVE_MINUTE" ? "por minuto" : "por tramos"}`}/><Info label="Subtotal" value={money(data.quote.subtotal)}/><Info label="Descuento" value={`-${money(data.quote.discount)}`}/><Info label="Neto" value={money(data.quote.net)}/><Info label="IVA 19%" value={money(data.quote.tax)}/></div>{data.quote.coupon ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><strong>Cupón aplicado: {data.quote.coupon.code}</strong><span className="ml-2">{data.quote.coupon.name}</span><p className="mt-1 text-xs">Se marcará como utilizado al confirmar el pago.</p></div> : null}<div className="mt-4 flex items-center justify-between rounded-2xl bg-[#263238] p-5 text-white"><span className="font-bold">TOTAL A PAGAR</span><b className="text-3xl">{money(data.quote.total)}</b></div><fieldset className="mt-5"><legend className="text-sm font-black text-[#263238]">FORMA DE PAGO</legend><div className="mt-2 grid grid-cols-2 gap-3"><button type="button" onClick={()=>setPaymentMethod("CASH")} className={`min-h-14 rounded-2xl border-2 font-black ${paymentMethod==="CASH"?"border-[#455A64] bg-white text-[#455A64]":"border-slate-200 bg-transparent text-slate-500"}`}>CONTADO</button><button type="button" onClick={()=>setPaymentMethod("CARD")} className={`min-h-14 rounded-2xl border-2 font-black ${paymentMethod==="CARD"?"border-[#455A64] bg-white text-[#455A64]":"border-slate-200 bg-transparent text-slate-500"}`}>TARJETA</button></div></fieldset><button onClick={onPay} disabled={busy} className="mt-5 flex min-h-18 w-full items-center justify-center gap-3 rounded-3xl bg-emerald-600 text-xl font-black text-white shadow-lg disabled:opacity-50">{busy?<LoaderCircle className="h-6 w-6 animate-spin"/>:<Printer className="h-6 w-6"/>}PAGAR E IMPRIMIR SALIDA</button></div>;
+  return <div className="rounded-3xl border-2 border-[#CFD8DC] bg-[#ECEFF1] p-5 sm:p-6"><div className="grid gap-3 sm:grid-cols-2"><Info label="Patente" value={data.stay.license_plate}/><Info label="Fecha ingreso" value={dateTime(data.stay.entry_at)}/><Info label="Minutos consumidos" value={data.quote.elapsedMinutes}/><Info label="Tarifa" value={rateDisplay(data.quote.rate, money)}/><Info label="Subtotal" value={money(data.quote.subtotal)}/><Info label="Descuento" value={`-${money(data.quote.discount)}`}/><Info label="Neto" value={money(data.quote.net)}/><Info label="IVA 19%" value={money(data.quote.tax)}/></div>{data.quote.coupon ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"><strong>Cupón aplicado: {data.quote.coupon.code}</strong><span className="ml-2">{data.quote.coupon.name}</span><p className="mt-1 text-xs">Se marcará como utilizado al confirmar el pago.</p></div> : null}<div className="mt-4 flex items-center justify-between rounded-2xl bg-[#263238] p-5 text-white"><span className="font-bold">TOTAL A PAGAR</span><b className="text-3xl">{money(data.quote.total)}</b></div><fieldset className="mt-5"><legend className="text-sm font-black text-[#263238]">FORMA DE PAGO</legend><div className="mt-2 grid grid-cols-2 gap-3"><button type="button" onClick={()=>setPaymentMethod("CASH")} className={`min-h-14 rounded-2xl border-2 font-black ${paymentMethod==="CASH"?"border-[#455A64] bg-white text-[#455A64]":"border-slate-200 bg-transparent text-slate-500"}`}>CONTADO</button><button type="button" onClick={()=>setPaymentMethod("CARD")} className={`min-h-14 rounded-2xl border-2 font-black ${paymentMethod==="CARD"?"border-[#455A64] bg-white text-[#455A64]":"border-slate-200 bg-transparent text-slate-500"}`}>TARJETA</button></div></fieldset><fieldset className="mt-5 rounded-2xl border-2 border-transparent p-3"><legend className="px-1 text-sm font-black text-[#263238]">¿IMPRIMIR QR EN EL TICKET?</legend><div className="mt-1 grid grid-cols-2 gap-3"><button type="button" onClick={()=>setPrintQr(true)} aria-pressed={printQr === true} className={`min-h-12 rounded-2xl border-2 font-black ${printQr === true?"border-[#455A64] bg-white text-[#455A64]":"border-slate-200 bg-transparent text-slate-500"}`}>SÍ</button><button type="button" onClick={()=>setPrintQr(false)} aria-pressed={printQr === false} className={`min-h-12 rounded-2xl border-2 font-black ${printQr === false?"border-[#455A64] bg-white text-[#455A64]":"border-slate-200 bg-transparent text-slate-500"}`}>NO</button></div></fieldset><button type="button" onClick={onPay} disabled={busy} className="mt-5 flex min-h-18 w-full items-center justify-center gap-3 rounded-3xl bg-emerald-600 text-xl font-black text-white shadow-lg disabled:opacity-50">{busy?<LoaderCircle className="h-6 w-6 animate-spin"/>:<Printer className="h-6 w-6"/>}PAGAR E IMPRIMIR SALIDA</button></div>;
 }
 function Info({ label, value }) { return <div className="rounded-2xl bg-white p-4"><p className="text-xs font-bold uppercase tracking-wide text-[#78909C]">{label}</p><p className="mt-1 text-lg font-black text-[#263238]">{value}</p></div>; }
 function HomeStat({ icon: Icon, label, value, sub, tone = "neutral" }) {

@@ -36,10 +36,11 @@ test("minuto: exactamente al final del período gratuito no cobra nada", () => {
   assert.equal(calculateParkingCharge(minuteRate({ freePeriodSeconds: 600 }), 600).amount, 0);
 });
 
-test("minuto: un segundo después del período gratuito cobra el segundo consumido", () => {
+test("minuto: un segundo después del período gratuito no completa un minuto cobrable", () => {
   const result = calculateParkingCharge(minuteRate({ minuteAmount: 60, freePeriodSeconds: 600 }), 601);
   assert.equal(result.chargeableSeconds, 1);
-  assert.equal(result.amount, 1); // 1s * 60/60 = 1, truncado
+  assert.equal(result.chargedMinutes, 0);
+  assert.equal(result.amount, 0);
 });
 
 test("minuto: el valor por minuto define el monto unitario", () => {
@@ -48,9 +49,15 @@ test("minuto: el valor por minuto define el monto unitario", () => {
 
 test("minuto: cero redondeos — fracciones de minuto nunca se aproximan al alza", () => {
   const rate = minuteRate({ minuteAmount: 100 });
-  assert.equal(calculateParkingCharge(rate, 1).amount, 1);
-  assert.equal(calculateParkingCharge(rate, 59).amount, 98);
-  assert.equal(calculateParkingCharge(rate, 61).amount, 101);
+  assert.equal(calculateParkingCharge(rate, 1).amount, 0);
+  assert.equal(calculateParkingCharge(rate, 59).amount, 0);
+  assert.equal(calculateParkingCharge(rate, 61).amount, 100);
+});
+
+test("minuto: 20 minutos y segundos incompletos a $50 cobran $1.000", () => {
+  const result = calculateParkingCharge(minuteRate({ minuteAmount: 50 }), (20 * 60) + 59);
+  assert.equal(result.chargedMinutes, 20);
+  assert.equal(result.amount, 1000);
 });
 
 test("minuto: no admite ningún bloque configurado", () => {
