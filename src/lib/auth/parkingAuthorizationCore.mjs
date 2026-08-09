@@ -14,7 +14,8 @@ export function requireParkingChildRow(context, row) {
 }
 
 export function requireAssignedOperator(context, member, assigned) {
-  if (!member || member.status !== "active" || member.role !== ROLES.OPERATOR || member.company_id !== context.companyId || !assigned) {
+  const companyAllowed = context?.role === ROLES.PLATFORM_ADMIN || member?.company_id === context?.companyId;
+  if (!member || member.status !== "active" || member.role !== ROLES.OPERATOR || !companyAllowed || !assigned) {
     throw new AuthorizationError("RESOURCE_NOT_FOUND", 404, "No se encontró el operador solicitado.", context || null);
   }
   return member;
