@@ -16,6 +16,7 @@ const STATUS_STYLES = {
 export default function ParkingConfigurator({ parkingId, review = false }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
+  const [activationFeedback, setActivationFeedback] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [confirmation, setConfirmation] = useState(null);
@@ -34,7 +35,7 @@ export default function ParkingConfigurator({ parkingId, review = false }) {
   }, [parkingId, review]);
 
   async function changeType(type, confirmed = false) {
-    setSaving(true); setError("");
+    setSaving(true); setError(""); setActivationFeedback(null);
     try {
       const response = await authenticatedFetch(`/api/estacionamientos/${parkingId}/tipo`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type, confirmed }),
@@ -48,12 +49,16 @@ export default function ParkingConfigurator({ parkingId, review = false }) {
 
   async function activate() {
     if (!window.confirm("¿Confirmas la activación del estacionamiento?")) return;
-    setSaving(true); setError("");
+    setSaving(true); setError(""); setActivationFeedback(null);
     try {
       const response = await authenticatedFetch(`/api/estacionamientos/${parkingId}/activar`, { method: "POST" });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.details?.join(" ") || body.error);
+      if (!response.ok) {
+        setActivationFeedback({ tone: "error", message: "Estacionamiento no se pudo activar" });
+        throw new Error(body.details?.join(" ") || body.error);
+      }
       setData(body.data);
+      setActivationFeedback({ tone: "success", message: "Estacionamiento correctamente activado" });
     } catch (cause) { setError(cause.message); } finally { setSaving(false); }
   }
 
@@ -65,6 +70,7 @@ export default function ParkingConfigurator({ parkingId, review = false }) {
   const canContinueToReview = !review && pendingRequirements === 0;
   return <div className="space-y-5">
     <Link href={review ? `/estacionamientos/${p.code}/configuracion` : `/estacionamientos/${p.code}`} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] hover:border-[#3150D8] hover:text-[#3150D8]"><ArrowLeft className="h-4 w-4" /> Volver</Link>
+    {activationFeedback ? <p role="status" className={`rounded-2xl border p-3 text-sm font-semibold ${activationFeedback.tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>{activationFeedback.message}</p> : null}
     {error && <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
     <section className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -97,7 +103,7 @@ export default function ParkingConfigurator({ parkingId, review = false }) {
 
 function ActivationPanel({ review, isActive, activation, reviewRoute, saving, onActivate, canActivate, pendingRequirements, canContinueToReview }) {
   const total = activation.checklist.length;
-  const completed = activation.checklist.filter((item) => item.status === "COMPLETADO").length;
+  const completed = activation.checklist.filter((item) => ["COMPLETADO", "NO_APLICA"].includes(item.status)).length;
   if (isActive) {
     return <div className="mt-4 space-y-4">
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
@@ -105,6 +111,7 @@ function ActivationPanel({ review, isActive, activation, reviewRoute, saving, on
         <p className="mt-1 text-sm text-emerald-900">Este estacionamiento ya está activo. La revisión final ya fue completada.</p>
       </div>
       <div className="space-y-2">{activation.checklist.map((item) => <ChecklistItem key={item.key} item={item} />)}</div>
+      <button disabled className="w-full rounded-full bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white opacity-100">Estacionamiento activo</button>
       <p className="text-xs text-slate-500">{completed}/{total} requisitos evaluados</p>
     </div>;
   }

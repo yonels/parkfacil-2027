@@ -12,7 +12,7 @@ function formatSegment(segment) {
     .replace(/Documentos/g, "Documentación");
 }
 
-export default function Breadcrumbs() {
+export default function Breadcrumbs({ onBack }) {
   const pathname = usePathname();
   const segments = pathname.split("/").filter(Boolean);
   const parentHref = getParentHref(pathname);
@@ -30,7 +30,9 @@ export default function Breadcrumbs() {
 
   return (
     <nav aria-label="Ubicación actual" className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-2 text-sm text-slate-600">
-      {parentHref ? <Link href={parentHref} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-1 font-semibold text-[#3150D8] shadow-sm transition hover:bg-[#EEF4FF]" aria-label="Volver a la página padre"><ArrowLeft className="h-4 w-4" /><span>Volver</span></Link> : null}
+      {onBack ? (
+        <button type="button" onClick={onBack} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-1 font-semibold text-[#3150D8] shadow-sm transition hover:bg-[#EEF4FF]" aria-label="Volver a la página principal de Facturación"><ArrowLeft className="h-4 w-4" /><span>Volver</span></button>
+      ) : parentHref ? <Link href={parentHref} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-1 font-semibold text-[#3150D8] shadow-sm transition hover:bg-[#EEF4FF]" aria-label="Volver a la página padre"><ArrowLeft className="h-4 w-4" /><span>Volver</span></Link> : null}
       <span className="hidden text-[10px] font-bold uppercase tracking-wider text-slate-400 xl:inline">Estás en</span>
       {items.map((item, index) => (
         <div key={item.href} className="flex items-center gap-2">

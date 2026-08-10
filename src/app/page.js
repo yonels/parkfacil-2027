@@ -1,4 +1,4 @@
-import { BarChart3, BadgeDollarSign, Building2, Calculator, CreditCard, FileText, Handshake, KeyRound, Layers, MapPinned, RadioTower, ScanLine, ShieldAlert, TicketPercent, Users, Wallet } from "lucide-react";
+import { BarChart3, BadgeDollarSign, Building2, Calculator, CreditCard, FileText, Handshake, KeyRound, Layers, MapPinned, RadioTower, ReceiptText, ScanLine, ShieldAlert, TicketPercent, Users, Wallet } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import StatCard from "@/components/ui/StatCard";
 import ModuleCard from "@/components/ui/ModuleCard";
@@ -16,7 +16,7 @@ const modules = [
   { title: "Recaudación", description: "Ingresos, medios de pago y control financiero.", icon: Wallet, href: "/recaudacion", state: "Disponible" },
   { title: "Cupones", description: "Cupones, minutos gratis y beneficios aplicables.", icon: TicketPercent, href: "/cupones", state: "Disponible" },
   { title: "Convenios", description: "Acuerdos comerciales y beneficios para empresas asociadas.", icon: Handshake, href: "/convenios", state: "Disponible" },
-  { title: "Facturación", description: "Documentos tributarios, cargos y seguimiento de cobros.", icon: FileText, href: "/recaudacion", state: "Disponible" },
+  { title: "Facturación", description: "Prefacturación, documentos, cuenta corriente, cobranza y conciliación de clientes.", icon: ReceiptText, href: "/facturacion", state: "Disponible" },
   { title: "Data Entry", description: "Ingreso, salida y cobro operacional de vehículos.", icon: ScanLine, href: "/data-entry", state: "Disponible" },
   { title: "Medios de pago", description: "Configuración y consulta de formas de pago.", icon: CreditCard, href: "/recaudacion#medios-de-pago", state: "Disponible" },
   { title: "Abonados y credenciales", description: "Administración de abonados, vehículos y accesos.", icon: KeyRound, href: "/abonados", state: "Disponible" },

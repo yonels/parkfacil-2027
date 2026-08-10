@@ -101,7 +101,15 @@ export default function EstacionamientoDetalleAdmin({ parking, structure, compan
           <Detail label="Empresa" value={company ? <Link href={`/empresas/${company.id}`} className="text-[#3150D8] hover:underline">{company.razonSocial}</Link> : parking.companyName} />
           <Detail label="Dirección" value={parking.address} />
           <Detail label="Ciudad y país" value={`${parking.city}, ${parking.country}`} />
-          <Detail label="Horario" value={parking.schedule} />
+          <Detail
+            label="Horario"
+            value={(
+              <Link href={`/estacionamientos/${parking.code}/editar`} className="inline-flex items-center gap-2 text-[#3150D8] hover:underline">
+                <span>{parking.schedule || "Pendiente de configuración"}</span>
+                <Pencil className="h-4 w-4" />
+              </Link>
+            )}
+          />
           <Detail label="Tipo" value={onStreet ? "On Street" : "Off Street"} />
           <Detail label="Estado" value={parking.status === "ACTIVE" ? "Activo" : parking.status === "INACTIVE" ? "Inactivo" : "En mantenimiento"} />
           <Detail label={onStreet ? "Sectores" : "Niveles"} value={onStreet ? structure?.sectors?.length || 0 : structure?.levels?.length || 0} />

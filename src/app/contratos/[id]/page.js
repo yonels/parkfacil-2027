@@ -39,6 +39,7 @@ export default async function ContratoDetallePage({ params }) {
   }
 
   const empresa = resolveEmpresa(contrato);
+  const contractTitle = `${contrato.numeroContrato} · ${empresa?.razonSocial || "Razón social no disponible"}`;
   const estacionamientos = resolveEstacionamientos(contrato);
   const responsable = resolveResponsable(contrato);
   const vigencia = calcularVigencia(contrato, new Date("2026-01-15"));
@@ -65,11 +66,11 @@ export default async function ContratoDetallePage({ params }) {
   }) || null;
 
   return (
-    <AppShell title={contrato.numeroContrato} description="Detalle visual del contrato">
+    <AppShell title={contractTitle} description="Detalle visual del contrato">
       <div className="space-y-6">
         <PageHeader
-          title={contrato.numeroContrato}
-          description={`${empresa?.razonSocial || "No disponible"} · ${contrato.observaciones}`}
+          title={contractTitle}
+          description={contrato.observaciones}
           actions={[
             <Link key="volver" href="/contratos" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
               <ArrowLeft className="h-4 w-4" /> Volver

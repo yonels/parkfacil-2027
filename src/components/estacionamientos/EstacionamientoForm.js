@@ -8,11 +8,59 @@ import { authenticatedFetch } from "@/lib/supabaseBrowser";
 
 const empty = { code: "", name: "", companyId: "", companyName: "", type: "OFF_STREET", status: "DRAFT", address: "", city: "", country: "Chile", schedule: "", description: "", accessCount: 0, exitCount: 0 };
 
+function toDateTimeLocalValue(raw) {
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  const hours = String(parsed.getHours()).padStart(2, "0");
+  const minutes = String(parsed.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function parseScheduleRange(scheduleText) {
+  const text = String(scheduleText || "").trim();
+  const match = text.match(/^Inicio:\s*([^|]+)\|\s*T[eé]rmino:\s*(.+)$/i);
+  if (!match) return { scheduleStart: "", scheduleEnd: "" };
+  return {
+    scheduleStart: toDateTimeLocalValue(match[1].trim()),
+    scheduleEnd: toDateTimeLocalValue(match[2].trim()),
+  };
+}
+
+function formatScheduleDisplay(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-CL", {
+    dateStyle: "short",
+    timeStyle: "short",
+    hour12: false,
+  }).format(date);
+}
+
+function buildScheduleValue(start, end, legacy = "") {
+  if (start && end) {
+    return `Inicio: ${formatScheduleDisplay(start)} | Término: ${formatScheduleDisplay(end)}`;
+  }
+  return legacy;
+}
+
 export default function EstacionamientoForm({ parking = null, structure = null }) {
   const editing = Boolean(parking);
   const router = useRouter();
   const formRef = useRef(null);
-  const [values, setValues] = useState({ ...empty, ...(parking || {}) });
+  const [values, setValues] = useState(() => {
+    const base = { ...empty, ...(parking || {}) };
+    const parsed = parseScheduleRange(base.schedule);
+    return {
+      ...base,
+      scheduleStart: parsed.scheduleStart,
+      scheduleEnd: parsed.scheduleEnd,
+      scheduleLegacy: base.schedule || "",
+    };
+  });
   const [companies, setCompanies] = useState([]);
   const [errors, setErrors] = useState({});
   const [requestError, setRequestError] = useState("");
@@ -48,12 +96,22 @@ export default function EstacionamientoForm({ parking = null, structure = null }
 
   async function submit(event) {
     event.preventDefault();
-    const payload = sanitizeParkingInput(values);
+    const scheduleValidation = {};
+    if (values.scheduleStart && !values.scheduleEnd) scheduleValidation.scheduleEnd = "Debes indicar la fecha y hora de término.";
+    if (!values.scheduleStart && values.scheduleEnd) scheduleValidation.scheduleStart = "Debes indicar la fecha y hora de inicio.";
+    if (values.scheduleStart && values.scheduleEnd && values.scheduleEnd <= values.scheduleStart) {
+      scheduleValidation.scheduleEnd = "La fecha y hora de término debe ser posterior al inicio.";
+    }
+    const payload = sanitizeParkingInput({
+      ...values,
+      schedule: buildScheduleValue(values.scheduleStart, values.scheduleEnd, values.scheduleLegacy),
+    });
     const validation = validateParkingInput(payload, [], parking?.id);
-    setErrors(validation);
+    const mergedValidation = { ...validation, ...scheduleValidation };
+    setErrors(mergedValidation);
     setRequestError("");
-    if (Object.keys(validation).length) {
-      const firstField = Object.keys(validation)[0];
+    if (Object.keys(mergedValidation).length) {
+      const firstField = Object.keys(mergedValidation)[0];
       window.setTimeout(() => formRef.current?.querySelector(`[data-field="${firstField}"]`)?.focus(), 0);
       return;
     }
@@ -91,7 +149,8 @@ export default function EstacionamientoForm({ parking = null, structure = null }
         <Field label="Dirección" error={errors.address}><input data-field="address" value={values.address} onChange={(e) => setValue("address", e.target.value)} className={inputClass()} /></Field>
         <Field label="Ciudad" error={errors.city}><input data-field="city" value={values.city} onChange={(e) => setValue("city", e.target.value)} className={inputClass()} /></Field>
         <Field label="País"><input value={values.country} onChange={(e) => setValue("country", e.target.value)} className={inputClass()} /></Field>
-        <Field label="Horario de operación"><input value={values.schedule} onChange={(e) => setValue("schedule", e.target.value)} placeholder="Ej. 24/7 o Lun-Dom 07:00–23:00" className={inputClass()} /></Field>
+        <Field label="Inicio (fecha y hora)" error={errors.scheduleStart}><input data-field="scheduleStart" type="datetime-local" value={values.scheduleStart || ""} onChange={(e) => setValue("scheduleStart", e.target.value)} className={inputClass()} /></Field>
+        <Field label="Término (fecha y hora)" error={errors.scheduleEnd}><input data-field="scheduleEnd" type="datetime-local" value={values.scheduleEnd || ""} onChange={(e) => setValue("scheduleEnd", e.target.value)} className={inputClass()} /></Field>
         {!onStreet && <><Field label="Accesos declarados" error={errors.accessCount}><input data-field="accessCount" type="number" min="0" step="1" value={values.accessCount} onChange={(e) => setValue("accessCount", e.target.value)} className={inputClass()} /></Field><Field label="Salidas declaradas" error={errors.exitCount}><input data-field="exitCount" type="number" min="0" step="1" value={values.exitCount} onChange={(e) => setValue("exitCount", e.target.value)} className={inputClass()} /></Field></>}
         <Field label="Descripción" wide><textarea rows="4" value={values.description} onChange={(e) => setValue("description", e.target.value)} placeholder="Describe la instalación y sus condiciones generales." className={inputClass()} /></Field>
       </div>

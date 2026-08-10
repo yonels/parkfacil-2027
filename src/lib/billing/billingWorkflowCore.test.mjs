@@ -1,0 +1,14 @@
+import test from "node:test";import assert from "node:assert/strict";
+import {adjustmentAmount,BILLING_AUDIT_ACTIONS,BillingWorkflowError,normalizeReviewComment,requireEditable,requireExpectedVersion,requireTransition,validateApproval} from "./billingWorkflowCore.mjs";
+test("inicia revision desde calculada",()=>assert.equal(requireTransition("CALCULATED","UNDER_REVIEW"),true));
+test("aprueba solo desde revision",()=>assert.throws(()=>requireTransition("CALCULATED","APPROVED"),BillingWorkflowError));
+test("ready_to_issue sigue a approved",()=>assert.equal(requireTransition("APPROVED","READY_TO_ISSUE"),true));
+test("cancelacion solo ocurre antes de aprobar",()=>{assert.equal(requireTransition("UNDER_REVIEW","CANCELLED"),true);assert.throws(()=>requireTransition("APPROVED","CANCELLED"));});
+test("bloquea edicion aprobada",()=>assert.throws(()=>requireEditable("APPROVED"),e=>e.code==="PREINVOICE_LOCKED"));
+test("optimistic locking detecta concurrencia",()=>assert.throws(()=>requireExpectedVersion(3,2),e=>e.code==="PREINVOICE_VERSION_CONFLICT"));
+test("doble aprobacion es transicion invalida e idempotente sin efectos",()=>assert.throws(()=>requireTransition("APPROVED","APPROVED")));
+test("valida condiciones para aprobar",()=>assert.equal(validateApproval({status:"UNDER_REVIEW",companyActive:true,contractActive:true,lineCount:2,totalAmount:10}),true));
+test("UF provisional no impide aprobacion",()=>assert.equal(validateApproval({status:"UNDER_REVIEW",companyActive:true,contractActive:true,lineCount:1,totalAmount:2,currency:"UF",ufIsProvisional:true}),true));
+test("observacion exige texto y lo normaliza",()=>{assert.equal(normalizeReviewComment("  Revisar device  "),"Revisar device");assert.throws(()=>normalizeReviewComment(" "));});
+test("ajuste manual conserva signo de descuento y cargo",()=>{assert.equal(adjustmentAmount({type:"DISCOUNT",quantity:1,unitPrice:0.2}),-0.2);assert.equal(adjustmentAmount({type:"EXTRA_CHARGE",quantity:2,unitPrice:10}),20);});
+test("auditoria cubre todas las acciones financieras de etapa 3",()=>assert.deepEqual(BILLING_AUDIT_ACTIONS,["REVIEW_STARTED","COMMENT_ADDED","ADJUSTMENT_ADDED","ADJUSTMENT_REMOVED","RECALCULATED","APPROVED","MARKED_READY_TO_ISSUE","CANCELLED"]));

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Pencil, Save, Search, X } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
@@ -37,7 +38,7 @@ function labelEstado(estado) {
   return labels[estado] ?? estado;
 }
 
-export default function DispositivosPage() {
+function DevicesInventory({ initialType }) {
   const [dispositivos, setDispositivos] = useState(() => {
     if (typeof window === "undefined") return cloneDemoDispositivos();
     try {
@@ -48,7 +49,7 @@ export default function DispositivosPage() {
     }
   });
   const [busqueda, setBusqueda] = useState("");
-  const [tipo, setTipo] = useState("Todos");
+  const [tipo, setTipo] = useState(initialType);
   const [estado, setEstado] = useState("Todos");
   const [conexion, setConexion] = useState("Todos");
   const [estacionamiento, setEstacionamiento] = useState("Todos");
@@ -358,4 +359,15 @@ export default function DispositivosPage() {
       ) : null}
     </AppShell>
   );
+}
+
+function DispositivosContent() {
+  const searchParams = useSearchParams();
+  const requestedType = searchParams.get("tipo");
+  const initialType = tipos.includes(requestedType) ? requestedType : "Todos";
+  return <DevicesInventory key={initialType} initialType={initialType} />;
+}
+
+export default function DispositivosPage() {
+  return <Suspense fallback={<div className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-slate-500">Cargando dispositivos...</div>}><DispositivosContent /></Suspense>;
 }

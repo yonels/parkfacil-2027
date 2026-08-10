@@ -8,6 +8,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import TarifaResumen from "@/components/tarifas/TarifaResumen";
 import TarifasGrid from "@/components/tarifas/TarifasGrid";
 import PlanCreateModal from "@/components/tarifas/PlanCreateModal";
+import SpreadsheetTable from "@/components/ui/SpreadsheetTable";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import {
   getTarifasDemo,
@@ -26,6 +27,20 @@ const modalidades = ["Todos", "monthly", "annual", "one_time", "per_transaction"
 const implementacion = ["Todos", "si", "no"];
 const personalizados = ["Todos", "si", "no"];
 
+function searchableVariants(value) {
+  const normalized = String(value || "").normalize("NFD").replace(/\p{Diacritic}/gu, "").toLocaleLowerCase("es");
+  return [normalized, normalized.replace(/\b(\d+)([a-z]+)\b/g, "$2$1"), normalized.replace(/\b([a-z]+)(\d+)\b/g, "$2$1")];
+}
+
+function matchesSearch(values, query) {
+  if (!query.trim()) return true;
+  const queryVariants = searchableVariants(query);
+  return values.some((value) => {
+    const valueVariants = searchableVariants(value);
+    return queryVariants.some((needle) => valueVariants.some((haystack) => haystack.includes(needle)));
+  });
+}
+
 export default function TarifasPage() {
   const [tarifas, setTarifas] = useState(demoTarifas);
   const [busqueda, setBusqueda] = useState("");
@@ -35,6 +50,7 @@ export default function TarifasPage() {
   const [modalidad, setModalidad] = useState("Todos");
   const [conImplementacion, setConImplementacion] = useState("Todos");
   const [customizado, setCustomizado] = useState("Todos");
+  const [empresas, setEmpresas] = useState([]);
 
   useEffect(() => {
     let active = true;
@@ -43,12 +59,16 @@ export default function TarifasPage() {
       const body = await response.json();
       if (active && Array.isArray(body.data)) setTarifas([...body.data, ...demoTarifas]);
     }).catch(() => {});
+    authenticatedFetch("/api/empresas", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return null;
+      const body = await response.json();
+      if (active && Array.isArray(body.data)) setEmpresas(body.data);
+    }).catch(() => {});
     return () => { active = false; };
   }, []);
 
   const resultados = useMemo(() => {
-    const query = busqueda.trim().toLowerCase();
-    let base = tarifas.filter((tarifa) => [tarifa.nombre, tarifa.codigo, tarifa.tipo, tarifa.descripcion].some((value) => String(value || "").toLowerCase().includes(query)));
+    let base = tarifas.filter((tarifa) => matchesSearch([tarifa.nombre, tarifa.codigo, tarifa.tipo, tarifa.descripcion], busqueda));
 
     if (estado !== "Todos") {
       base = base.filter((tarifa) => tarifa.estado === estado);
@@ -74,14 +94,30 @@ export default function TarifasPage() {
     return base;
   }, [tarifas, busqueda, estado, tipo, moneda, modalidad, conImplementacion, customizado]);
 
+  const empresasFiltradas = useMemo(() => empresas.filter((empresa) => matchesSearch([
+    empresa.razonSocial,
+    empresa.nombreFantasia,
+    `${empresa.rutNumero || ""}-${empresa.rutDv || ""}`,
+    empresa.plan,
+  ], busqueda)), [empresas, busqueda]);
+
+  const companyColumns = useMemo(() => [
+    { key: "razonSocial", label: "Razón social", className: "font-semibold text-[#041E42]" },
+    { key: "nombreFantasia", label: "Nombre de fantasía" },
+    { key: "rut", label: "RUT", render: (empresa) => [empresa.rutNumero, empresa.rutDv].filter(Boolean).join("-") || "No informado" },
+    { key: "plan", label: "Plan asignado" },
+    { key: "contrato", label: "Contrato", render: (empresa) => empresa.contrato?.numero || "Sin contrato" },
+    { key: "estado", label: "Estado" },
+  ], []);
+
   const resumen = useMemo(() => tarifas.reduce((value, tarifa) => { value.total += 1; value[tarifa.estado] = (value[tarifa.estado] || 0) + 1; if (tarifa.tipo === "per_parking") value.porEstacionamiento += 1; if (tarifa.tipo === "per_transaction") value.porTransaccion += 1; if (isCustomPlan(tarifa)) value.personalizados += 1; return value; }, { total: 0, active: 0, inactive: 0, draft: 0, archived: 0, porEstacionamiento: 0, porTransaccion: 0, personalizados: 0 }), [tarifas]);
 
   return (
-    <AppShell title="Tarifas y Planes" description="Administración visual de planes y condiciones comerciales demostrativas">
+    <AppShell title="Planes" description="Administración de planes y condiciones comerciales">
       <div className="space-y-6">
         <PageHeader
-          title="Tarifas y Planes"
-          description="Vista de referencia para la administración de planes, cargos y condiciones comerciales de ParkFacil, con datos demostrativos y estructura preparada para futuras etapas operativas."
+          title="Planes"
+          description="Administración de planes, asignaciones por empresa y condiciones comerciales de ParkFacil."
           actions={[
             <PlanCreateModal key="nuevo" onCreated={(plan) => setTarifas((current) => [plan, ...current])} />,
           ]}
@@ -108,7 +144,7 @@ export default function TarifasPage() {
           <div className="mt-6 space-y-4">
             <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
               <Search className="h-4 w-4 text-[#3150D8]" />
-              <input value={busqueda} onChange={(event) => setBusqueda(event.target.value)} placeholder="Buscar por nombre, código, tipo o descripción" className="w-full bg-transparent outline-none" />
+              <input value={busqueda} onChange={(event) => setBusqueda(event.target.value)} placeholder="Buscar plan, empresa, razón social, RUT o descripción" className="w-full bg-transparent outline-none" />
             </label>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -159,6 +195,17 @@ export default function TarifasPage() {
                 No hay planes que coincidan con los filtros aplicados.
               </div>
             )}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div>
+            <h3 className="text-xl font-semibold text-[#041E42]">Empresas y planes asignados</h3>
+            <p className="mt-2 text-sm text-slate-600">Empresas registradas en ParkFacil y su clasificación comercial actual.</p>
+          </div>
+          <div className="mt-6">
+            <SpreadsheetTable columns={companyColumns} rows={empresasFiltradas} rowHref={(empresa) => `/empresas/${empresa.id}`} minWidth={1000} />
+            {!empresasFiltradas.length ? <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">No hay empresas que coincidan con la búsqueda.</p> : null}
           </div>
         </section>
       </div>

@@ -50,6 +50,7 @@ const completeGeneral = (parking) => ["name", "companyId", "type", "address", "c
 const completeCompany = (parking) => Boolean(String(parking?.companyId || "").trim());
 const stateForCount = (count) => count > 0 ? STEP_STATES.COMPLETED : STEP_STATES.NOT_STARTED;
 const blocked = (label) => ({ status: STEP_STATES.BLOCKED, detail: label });
+const notApplicable = (label = "No aplica en esta etapa") => ({ status: STEP_STATES.NOT_APPLICABLE, detail: label });
 
 function activationChecklist(parking, summary, availability = {}) {
   const offStreet = parking.type === "OFF_STREET";
@@ -123,13 +124,17 @@ function activationChecklist(parking, summary, availability = {}) {
     },
     {
       key: "operators",
-      label: "Operadores",
-      status: parking.type === "ON_STREET"
-        ? (availability.operators ? (summary.assignmentCount > 0 ? STEP_STATES.COMPLETED : STEP_STATES.IN_PROGRESS) : STEP_STATES.BLOCKED)
-        : STEP_STATES.NOT_APPLICABLE,
-      detail: parking.type === "ON_STREET"
-        ? (availability.operators ? `${summary.assignmentCount} asignaciones` : "Fuente de operadores pendiente")
-        : "No aplica para este tipo",
+      label: parking.type === "OFF_STREET" ? "Operadores y turnos" : "Operadores",
+      status: parking.type === "OFF_STREET"
+        ? (availability.shifts ? stateForCount(summary.shiftCount) : STEP_STATES.BLOCKED)
+        : parking.type === "ON_STREET"
+          ? (availability.operators ? (summary.assignmentCount > 0 ? STEP_STATES.COMPLETED : STEP_STATES.IN_PROGRESS) : STEP_STATES.BLOCKED)
+          : STEP_STATES.NOT_APPLICABLE,
+      detail: parking.type === "OFF_STREET"
+        ? (availability.shifts ? `${summary.shiftCount} turnos` : "Estructura de turnos pendiente")
+        : parking.type === "ON_STREET"
+          ? (availability.operators ? `${summary.assignmentCount} asignaciones` : "Fuente de operadores pendiente")
+          : "No aplica para este tipo",
       required: false,
       requirements: [],
     },
@@ -151,6 +156,9 @@ function requiredActivationMessages(checklist) {
 export function buildConfigurator(parking, summary, availability = {}) {
   const offStreet = parking.type === "OFF_STREET";
   const checklist = activationChecklist(parking, summary, availability);
+  const offStreetOperatorStep = availability.shifts
+    ? { status: stateForCount(summary.shiftCount), detail: `${summary.shiftCount} turnos` }
+    : blocked("Estructura de turnos pendiente");
   const values = {
     general: completeGeneral(parking) ? { status: STEP_STATES.COMPLETED, detail: "Datos obligatorios completos" } : { status: STEP_STATES.IN_PROGRESS, detail: "Faltan datos obligatorios" },
     levels: { status: stateForCount(summary.levelCount), detail: `${summary.levelCount} configurados` },
@@ -160,12 +168,16 @@ export function buildConfigurator(parking, summary, availability = {}) {
     segments: { status: stateForCount(summary.segmentCount), detail: `${summary.segmentCount} configurados` },
     capacity: { status: summary.capacity > 0 ? STEP_STATES.COMPLETED : STEP_STATES.IN_PROGRESS, detail: `${summary.capacity} plazas` },
     assignments: { status: stateForCount(summary.assignmentCount), detail: `${summary.assignmentCount} asignaciones` },
-    operators: availability.operators ? { status: stateForCount(summary.assignmentCount), detail: `${summary.assignmentCount} asignaciones` } : blocked("Fuente de operadores pendiente"),
+    operators: offStreet
+      ? offStreetOperatorStep
+      : availability.operators
+        ? { status: stateForCount(summary.assignmentCount), detail: `${summary.assignmentCount} asignaciones` }
+        : blocked("Fuente de operadores pendiente"),
     shifts: availability.shifts ? { status: stateForCount(summary.shiftCount), detail: `${summary.shiftCount} turnos` } : blocked("Estructura de turnos pendiente"),
     closures: availability.closures ? { status: STEP_STATES.IN_PROGRESS, detail: `${summary.pendingClosureCount || 0} cierres pendientes` } : blocked("Fuente operacional pendiente"),
-    accesses: blocked("Persistencia de accesos pendiente"),
-    barriers: blocked("Persistencia de barreras pendiente"),
-    cameras: blocked("Persistencia de cámaras pendiente"),
+    accesses: notApplicable(),
+    barriers: notApplicable(),
+    cameras: notApplicable(),
     rates: !availability.rates
       ? blocked("Persistencia de tarifas pendiente")
       : summary.rateCount > 0
@@ -175,14 +187,15 @@ export function buildConfigurator(parking, summary, availability = {}) {
   const requirements = activationRequirements(parking, summary, availability, checklist);
   values.review = requirements.length ? { status: STEP_STATES.BLOCKED, detail: `${requirements.length} requisitos pendientes` } : { status: STEP_STATES.COMPLETED, detail: "Listo para activar" };
   const steps = definition[parking.type].map(([key, label]) => ({ key, label, ...values[key] }));
-  const completed = steps.filter((step) => step.status === STEP_STATES.COMPLETED).length;
+  const actionableSteps = steps.filter((step) => step.status !== STEP_STATES.NOT_APPLICABLE);
+  const completed = actionableSteps.filter((step) => step.status === STEP_STATES.COMPLETED).length;
   return {
     parking,
     type: parking.type,
     isActive: parking.status === "ACTIVE",
     summary,
     steps,
-    progress: Math.round((completed / steps.length) * 100),
+    progress: actionableSteps.length ? Math.round((completed / actionableSteps.length) * 100) : 100,
     activation: { allowed: requirements.length === 0, requirements, checklist },
     structureRoute: `/estacionamientos/${parking.code}/${offStreet ? "niveles" : "sectores"}`,
     reviewRoute: `/estacionamientos/${parking.code}/configuracion/revision`,
@@ -194,6 +207,7 @@ export function configuratorStepHref(parking, stepKey, structureRoute = null) {
   if (stepKey === "general") return `/estacionamientos/${parking.code}/editar`;
   if (stepKey === "review") return `/estacionamientos/${parking.code}/configuracion/revision`;
   if (stepKey === "rates") return `/estacionamientos/${parking.code}/tarifas`;
+  if (stepKey === "operators" && parking.type === "OFF_STREET") return `/estacionamientos/${parking.code}/turnos`;
   if (stepKey === "shifts") return `/estacionamientos/${parking.code}/turnos`;
   if (["levels", "zones", "sectors", "streets", "segments", "capacity"].includes(stepKey)) return structureRoute;
   return null;

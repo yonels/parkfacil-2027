@@ -1,5 +1,5 @@
 import { useState } from "react";
-import Image from "next/image";
+import NextImage from "next/image";
 import { useRouter } from "next/navigation";
 import { Bell, LoaderCircle, LogOut, UserCircle2 } from "lucide-react";
 import Breadcrumbs from "@/components/layout/Breadcrumbs";
@@ -14,9 +14,16 @@ const roleLabels = {
   authenticated: "Usuario",
 };
 
-export default function Topbar({ title, description, onMenuClick, userContext, sessionResolved }) {
+const BANNER_SOURCES = [
+  "/images/inicio-parkfacil-corporativo-recortado.png",
+  "/images/inicio-parkfacil-corporativo.png",
+  "/images/inicio-parkfacil.png",
+];
+
+export default function Topbar({ title, description, onMenuClick, userContext, sessionResolved, onBack }) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
+  const [bannerSourceIndex, setBannerSourceIndex] = useState(0);
   const roleLabel = userContext ? roleLabels[userContext.role] || userContext.role : "";
 
   async function signOut() {
@@ -45,7 +52,7 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
         </div>
         <div className="min-w-0 space-y-2 lg:justify-self-end">
           <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-            <Breadcrumbs />
+            <Breadcrumbs onBack={onBack} />
             <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
               <Bell className="h-4 w-4" />
               <span>Notificaciones</span>
@@ -71,14 +78,19 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
         </div>
       </div>
       <div className="mx-auto mt-4 w-full max-w-7xl overflow-hidden rounded-2xl border border-[#5271E8] bg-[#3150D8] shadow-sm">
-        <Image
-          src="/images/inicio-parkfacil-corporativo-recortado.png"
+        <NextImage
+          key={bannerSourceIndex}
+          src={BANNER_SOURCES[bannerSourceIndex]}
           alt="ParkFacil, sistema de administración de estacionamientos"
           width={1642}
           height={514}
           priority
+          unoptimized
           sizes="(max-width: 1024px) 100vw, calc(100vw - 18rem)"
           className="block h-auto w-full"
+          onError={() => {
+            setBannerSourceIndex((current) => Math.min(current + 1, BANNER_SOURCES.length - 1));
+          }}
         />
       </div>
     </header>

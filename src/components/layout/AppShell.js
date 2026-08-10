@@ -38,6 +38,7 @@ export default function AppShell({
   children,
   title,
   description,
+  onBack,
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -174,6 +175,7 @@ export default function AppShell({
             clientContext={clientContext}
             userContext={userContext}
             sessionResolved={sessionResolved}
+            onBack={onBack}
           />
 
           {clientContext &&

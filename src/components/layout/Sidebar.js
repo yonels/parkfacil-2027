@@ -23,7 +23,7 @@ const sectionDefinitions = [
   {
     id: "administracion",
     title: "Administración",
-    labels: ["Empresas", "Usuarios", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Planes", "Simulador de tarifas", "Dispositivos", "Reportes", "Administración", "Integraciones"],
+    labels: ["Empresas", "Usuarios", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Dispositivos", "Facturación", "Reportes", "Administración", "Integraciones"],
   },
   {
     id: "soporte",
@@ -34,14 +34,44 @@ const sectionDefinitions = [
 
 function isItemActive(pathname, href) {
   if (!href) return false;
-  const [baseHref] = href.split("#");
-  return pathname === baseHref;
+  const [withoutHash] = href.split("#");
+  const [baseHref, expectedQuery = ""] = withoutHash.split("?");
+  return pathname === baseHref && !expectedQuery;
+}
+
+function isTreeActive(pathname, item) {
+  return isItemActive(pathname, item.href) || item.children?.some((child) => isItemActive(pathname, child.href));
+}
+
+const FOLDER_PALETTES = {
+  plataforma: { top: "#6D8CFF", body: "#AFC3FF", line: "#4B67D2" },
+  administracion: { top: "#F5B249", body: "#FFD27C", line: "#D49331" },
+  soporte: { top: "#5FBF95", body: "#9EE0C1", line: "#3E9873" },
+  default: { top: "#F5B249", body: "#FFD27C", line: "#D49331" },
+};
+
+function getSectionColorKey(itemLabel) {
+  const section = sectionDefinitions.find((entry) => entry.labels.includes(itemLabel));
+  return section?.id || "default";
+}
+
+function FolderItemIcon({ tone = "default" }) {
+  const palette = FOLDER_PALETTES[tone] || FOLDER_PALETTES.default;
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true" className="h-[18px] w-[18px] shrink-0">
+      <path d="M1.25 4.75C1.25 3.7835 2.0335 3 3 3H6.1C6.536 3 6.958 3.161 7.284 3.452L8.066 4.148C8.392 4.439 8.814 4.6 9.25 4.6H15C15.9665 4.6 16.75 5.3835 16.75 6.35V7H1.25V4.75Z" fill={palette.top} />
+      <path d="M1.25 7H16.75V13.25C16.75 14.2165 15.9665 15 15 15H3C2.0335 15 1.25 14.2165 1.25 13.25V7Z" fill={palette.body} />
+      <path d="M1.25 7H16.75" stroke={palette.line} strokeWidth="1" />
+      <path d="M3 14.5H15" stroke={palette.line} strokeWidth="1" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientContext, userContext }) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openSections, setOpenSections] = useState(["plataforma", "administracion"]);
+  const [openTrees, setOpenTrees] = useState(["Tarifas", "Dispositivos", "Facturación"]);
   const [showAccountDetails, setShowAccountDetails] = useState(false);
   const [showMobileAccountDetails, setShowMobileAccountDetails] = useState(false);
   const normalizedOpenSections = Array.isArray(openSections)
@@ -66,14 +96,37 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
     [visibleItems],
   );
 
-  const renderNavItem = (item, onNavigate) => {
-    const Icon = item.icon;
-    const active = isItemActive(pathname, item.href);
+  const renderNavItem = (item, onNavigate, tone) => {
+    const active = isTreeActive(pathname, item);
+
+    if (item.children?.length) {
+      const expanded = openTrees.includes(item.label);
+      return (
+        <div key={item.label} className="relative">
+          <div className={linkClasses(active)}>
+            <FolderItemIcon tone={tone} />
+            <Link href={item.href} onClick={onNavigate} className="min-w-0 flex-1"><span>{item.label}</span></Link>
+            <button type="button" aria-label={`${expanded ? "Contraer" : "Expandir"} ${item.label}`} aria-expanded={expanded} onClick={() => setOpenTrees((current) => current.includes(item.label) ? current.filter((label) => label !== item.label) : [...current, item.label])} className="rounded-md p-1 hover:bg-white/70">
+              <ChevronDown className={`h-4 w-4 transition ${expanded ? "rotate-180" : ""}`} />
+            </button>
+          </div>
+          {expanded ? (
+            <div className="relative ml-6 mt-1 space-y-0.5 border-l border-slate-300 pl-3">
+              {item.children.map((child) => (
+                <Link key={child.href} href={child.href} onClick={onNavigate} className={`relative block rounded-lg px-3 py-2 text-xs font-medium transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${isItemActive(pathname, child.href) ? "bg-[#EEF4FF] text-[#3150D8]" : "text-slate-600 hover:bg-[#EEF4FF] hover:text-[#3150D8]"}`}>
+                  {child.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
 
     if (item.href) {
       return (
         <Link key={item.label} href={item.href} onClick={onNavigate} className={linkClasses(active)}>
-          <Icon className="h-4.5 w-4.5" />
+          <FolderItemIcon tone={tone} />
           <span>{item.label}</span>
         </Link>
       );
@@ -81,7 +134,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
 
     return (
       <div key={item.label} className={linkClasses(false)}>
-        <Icon className="h-4.5 w-4.5" />
+        <FolderItemIcon tone={tone} />
         <span>{item.label}</span>
         <span className="ml-auto rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500">Próximamente</span>
       </div>
@@ -92,7 +145,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
     <div className="space-y-2">
       {sections.map((section) => {
         const expanded = normalizedOpenSections.includes(section.id);
-        const containsActive = section.items.some((item) => isItemActive(pathname, item.href));
+        const containsActive = section.items.some((item) => isTreeActive(pathname, item));
         return (
           <section key={section.id} className="rounded-2xl border border-slate-200 bg-white p-2">
             <button
@@ -111,7 +164,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
               <span>{section.title}</span>
               <ChevronDown className={`h-4 w-4 transition ${expanded ? "rotate-180" : ""}`} />
             </button>
-            {expanded ? <div className="mt-1 space-y-1">{section.items.map((item) => renderNavItem(item, onNavigate))}</div> : null}
+            {expanded ? <div className="mt-1 space-y-1">{section.items.map((item) => renderNavItem(item, onNavigate, section.id))}</div> : null}
           </section>
         );
       })}
@@ -135,18 +188,18 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
           {collapsed ? (
             <div className="space-y-1.5">
               {visibleItems.map((item) => {
-                const Icon = item.icon;
-                const active = isItemActive(pathname, item.href);
+                const active = isTreeActive(pathname, item);
+                const tone = getSectionColorKey(item.label);
                 if (item.href) {
                   return (
                     <Link key={item.label} href={item.href} className={linkClasses(active)}>
-                      <Icon className="h-4.5 w-4.5" />
+                      <FolderItemIcon tone={tone} />
                     </Link>
                   );
                 }
                 return (
                   <div key={item.label} className={linkClasses(false)}>
-                    <Icon className="h-4.5 w-4.5" />
+                    <FolderItemIcon tone={tone} />
                   </div>
                 );
               })}

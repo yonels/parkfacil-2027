@@ -1,0 +1,9 @@
+import test from "node:test";import assert from "node:assert/strict";import {calculateAccount,movementAmounts} from "./accountCore.mjs";
+const m=(id,type,amount,date="2026-08-01",due="2026-08-31")=>{const a=movementAmounts(type,amount);return{id,movementType:type,movementDate:date,dueDate:due,currency:"CLP",debitAmount:a.debit,creditAmount:a.credit};};
+test("factura y ND generan debito; NC y pago credito",()=>{assert.deepEqual(movementAmounts("INVOICE",10),{debit:10,credit:0});assert.deepEqual(movementAmounts("CREDIT_NOTE",10),{debit:0,credit:10});assert.deepEqual(movementAmounts("DEBIT_NOTE",10),{debit:10,credit:0});assert.deepEqual(movementAmounts("PAYMENT",10),{debit:0,credit:10});});
+test("ejemplo contable produce saldo 275000",()=>{const r=calculateAccount([m("1","INVOICE",500000),m("2","PAYMENT",200000),m("3","CREDIT_NOTE",50000),m("4","DEBIT_NOTE",25000)]);assert.deepEqual(r.summary,{totalDebits:525000,totalCredits:250000,balance:275000,overdue:0,current:275000});assert.equal(r.rows.at(-1).runningBalance,275000);});
+test("saldo acumulado usa todo el historial ordenado",()=>{const r=calculateAccount([m("2","PAYMENT",20,"2026-02-01"),m("1","INVOICE",100,"2026-01-01")]);assert.deepEqual(r.rows.map(x=>x.runningBalance),[100,80]);});
+test("detecta vencimiento sin guardar dias estaticos",()=>assert.equal(calculateAccount([m("1","INVOICE",100,"2026-01-01","2026-01-31")],{today:"2026-02-01"}).rows[0].accountStatus,"OVERDUE"));
+test("pago parcial queda preparado por movimiento",()=>assert.equal(calculateAccount([m("1","INVOICE",100),m("2","PAYMENT",40)]).summary.balance,60));
+test("UF definitiva entra como CLP convertido",()=>assert.equal(calculateAccount([m("1","INVOICE",200000)]).summary.balance,200000));
+test("no suma monedas incompatibles",()=>assert.throws(()=>calculateAccount([m("1","INVOICE",10),{...m("2","INVOICE",10),currency:"USD"}]),/INCOMPATIBLE/));

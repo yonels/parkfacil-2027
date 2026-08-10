@@ -38,6 +38,16 @@ test("paso de tarifas usa el estado real de la persistencia y de la tarifa activ
   const completedResult = buildConfigurator(parking, { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 10, rateCount: 1 }, { rates: true });
   assert.equal(completedResult.steps.find((step) => step.key === "rates").status, "COMPLETADO");
 });
+test("Off Street expone operadores y turnos desde el módulo de turnos", () => {
+  const blockedResult = buildConfigurator(parking, { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 10 }, { shifts: false, rates: true });
+  assert.equal(blockedResult.steps.find((step) => step.key === "operators").status, "BLOQUEADO");
+
+  const pendingResult = buildConfigurator(parking, { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 10, shiftCount: 0 }, { shifts: true, rates: true });
+  assert.equal(pendingResult.steps.find((step) => step.key === "operators").status, "NO_INICIADO");
+  assert.equal(pendingResult.steps.find((step) => step.key === "operators").detail, "0 turnos");
+  assert.equal(pendingResult.activation.checklist.find((step) => step.key === "operators").status, "NO_INICIADO");
+  assert.equal(pendingResult.activation.checklist.find((step) => step.key === "operators").label, "Operadores y turnos");
+});
 test("activación Off Street exige nivel zona y capacidad", () => {
   const requirements = activationRequirements(parking, emptySummary, { rates: true });
   assert.ok(requirements.some((item) => item.includes("nivel")));
@@ -63,6 +73,14 @@ test("progreso deriva de pasos completados", () => {
   const result = buildConfigurator(parking, { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 20 }, {});
   assert.ok(result.progress > 0 && result.progress < 100);
 });
+test("progreso llega a 100 cuando todos los pasos aplicables están completos", () => {
+  const result = buildConfigurator(
+    parking,
+    { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 20, rateCount: 1, shiftCount: 1 },
+    { rates: true, shifts: true },
+  );
+  assert.equal(result.progress, 100);
+});
 test("buildConfigurator expone checklist de activacion consistente", () => {
   const result = buildConfigurator(parking, { ...emptySummary, levelCount: 1, zoneCount: 1, capacity: 20, rateCount: 0 }, { rates: true });
   assert.ok(Array.isArray(result.activation.checklist));
@@ -82,6 +100,7 @@ test("estado ya activo se expone sin alterar el checklist", () => {
   assert.ok(result.activation.checklist.some((item) => item.status === "NO_APLICABLE" || item.status === "NO_APLICA"));
 });
 test("step href expone la ruta real de turnos del estacionamiento", () => {
+  assert.equal(configuratorStepHref({ ...parking, code: "PF-001" }, "operators"), "/estacionamientos/PF-001/turnos");
   assert.equal(configuratorStepHref({ ...parking, code: "PN-002" }, "shifts"), "/estacionamientos/PN-002/turnos");
   assert.equal(configuratorStepHref({ ...parking, code: "PN-002" }, "rates"), "/estacionamientos/PN-002/tarifas");
   assert.equal(configuratorStepHref({ ...parking, code: "PN-002" }, "capacity", "/estacionamientos/PN-002/sectores"), "/estacionamientos/PN-002/sectores");

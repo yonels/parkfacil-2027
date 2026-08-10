@@ -20,12 +20,19 @@ export async function getConfigurator(db, identifier, { parking: authorizedParki
   const now = Date.now();
   try {
     if (parking.type === "OFF_STREET") {
-      const [levels, zones] = await Promise.all([rows(db, "parking_levels", parking.id, "id,status"), rows(db, "parking_zones", parking.id, "id,status,capacity,occupied")]);
+      const [levels, zones, shifts] = await Promise.all([
+        rows(db, "parking_levels", parking.id, "id,status"),
+        rows(db, "parking_zones", parking.id, "id,status,capacity,occupied"),
+        rows(db, "operator_shifts", parking.id, "id,status"),
+      ]);
       const active = zones.filter((item) => item.status === "ACTIVE");
       summary.levelCount = levels.length;
       summary.zoneCount = zones.length;
       summary.capacity = active.reduce((sum, item) => sum + Number(item.capacity || 0), 0);
       summary.occupied = active.reduce((sum, item) => sum + Number(item.occupied || 0), 0);
+      summary.shiftCount = shifts.length;
+      availability.shifts = true;
+      availability.closures = true;
     } else {
       const [sectors, streets, segments, assignments, shifts] = await Promise.all([
         rows(db, "parking_sectors", parking.id, "id,status"),

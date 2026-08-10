@@ -19,6 +19,11 @@ export const PERMISSIONS = Object.freeze({
   COUPONS_MANAGE: "coupons:manage",
   OPERATIONS_USE: "operations:use",
   REPORTS_READ: "reports:read",
+  BILLING_READ: "billing:read",
+  BILLING_MANAGE: "billing:manage",
+  BILLING_REVIEW: "billing:review",
+  BILLING_APPROVE: "billing:approve",
+  BILLING_ISSUE: "billing:issue",
 });
 
 const ROLE_PERMISSIONS = Object.freeze({
@@ -56,7 +61,7 @@ export function permissionsForRole(role) {
   return [...(ROLE_PERMISSIONS[role] || [])];
 }
 
-const ROOT_ONLY_PREFIXES = ["/empresas", "/contratos", "/modelo-gestion-modulos"];
+const ROOT_ONLY_PREFIXES = ["/empresas", "/contratos", "/facturacion", "/modelo-gestion-modulos"];
 const COMPANY_ADMIN_PREFIXES = ["/usuarios"];
 
 function matchesPrefix(pathname, prefixes) {

@@ -12,6 +12,13 @@ test("company_admin no entra a módulos exclusivos de Root", () => {
   assert.equal(canAccessPath(context, "/usuarios"), true);
   assert.equal(canAccessPath(context, "/empresas"), false);
   assert.equal(canAccessPath(context, "/contratos/123"), false);
+  assert.equal(canAccessPath(context, "/facturacion"), false);
+});
+
+test("Facturación queda temporalmente disponible solo para platform_admin desde Root", () => {
+  assert.equal(canAccessPath({ portal: "root", role: "platform_admin" }, "/facturacion"), true);
+  assert.equal(canAccessPath({ portal: "client", role: "company_admin" }, "/facturacion"), false);
+  assert.equal(canAccessPath({ portal: "client", role: "operator" }, "/facturacion"), false);
 });
 
 test("operator queda fuera de administración de usuarios y empresa", () => {
