@@ -40,6 +40,7 @@ export async function GET(request) {
     return NextResponse.json({
       ...result,
       canManageCredentials: [ROLES.PLATFORM_ADMIN, ROLES.COMPANY_ADMIN].includes(authorization.context.role),
+      canSetDirectPassword: authorization.context.role === ROLES.PLATFORM_ADMIN && authorization.context.portal === "root",
       persistent: true,
     });
   } catch (error) {

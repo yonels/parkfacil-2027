@@ -20,6 +20,23 @@ const estados = ["Todos", "active", "inactive", "pending"];
 const perfiles = ["Todos", "platform_admin", "organization_admin", "company_admin", "parking_manager", "operator", "cashier", "auditor", "support", "viewer"];
 const multiples = ["Todos", "con", "sin"];
 
+function generateSecurePassword() {
+  const groups = ["ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", "!@#$%&*-_+"];
+  const alphabet = groups.join("");
+  const randomIndex = (length) => {
+    const value = new Uint32Array(1);
+    window.crypto.getRandomValues(value);
+    return value[0] % length;
+  };
+  const characters = groups.map((group) => group[randomIndex(group.length)]);
+  while (characters.length < 16) characters.push(alphabet[randomIndex(alphabet.length)]);
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const target = randomIndex(index + 1);
+    [characters[index], characters[target]] = [characters[target], characters[index]];
+  }
+  return characters.join("");
+}
+
 function labelEstado(estado) {
   const labels = {
     active: "Activo",
@@ -42,10 +59,14 @@ export default function UsuariosPage() {
   const [estacionamientoId, setEstacionamientoId] = useState("Todos");
   const [multiple, setMultiple] = useState("Todos");
   const [canManageCredentials, setCanManageCredentials] = useState(false);
+  const [canSetDirectPassword, setCanSetDirectPassword] = useState(false);
   const [temporaryCredentials, setTemporaryCredentials] = useState({});
   const [credentialLoadingId, setCredentialLoadingId] = useState(null);
   const [credentialError, setCredentialError] = useState("");
   const [copiedCredentialId, setCopiedCredentialId] = useState(null);
+  const [passwordUser, setPasswordUser] = useState(null);
+  const [passwordDraft, setPasswordDraft] = useState({ password: "", confirmation: "", mustChangePassword: true });
+  const [passwordError, setPasswordError] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState(null);
   const [sort, setSort] = useState({ key: "nombreCompleto", direction: "asc" });
@@ -81,6 +102,7 @@ export default function UsuariosPage() {
     setEmpresas(body.companies || []);
     setEstacionamientos(body.parkings || []);
     setCanManageCredentials(Boolean(body.canManageCredentials));
+    setCanSetDirectPassword(Boolean(body.canSetDirectPassword));
     setDataSource("Datos persistentes");
   }, []);
 
@@ -224,9 +246,57 @@ export default function UsuariosPage() {
   const copyCredential = async (usuario) => {
     const credential = temporaryCredentials[usuario.id];
     if (!credential || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(`Usuario: ${credential.username}\nClave temporal: ${credential.temporaryPassword}`);
+    await navigator.clipboard.writeText(`Usuario: ${credential.username}\n${credential.mustChangePassword ? "Clave temporal" : "Clave"}: ${credential.temporaryPassword}`);
     setCopiedCredentialId(usuario.id);
     window.setTimeout(() => setCopiedCredentialId(null), 2000);
+  };
+
+  const openPasswordModal = (usuario) => {
+    setPasswordUser(usuario);
+    setPasswordDraft({ password: "", confirmation: "", mustChangePassword: true });
+    setPasswordError("");
+  };
+
+  const closePasswordModal = () => {
+    if (credentialLoadingId) return;
+    setPasswordUser(null);
+    setPasswordError("");
+  };
+
+  const fillSecurePassword = () => {
+    const password = generateSecurePassword();
+    setPasswordDraft((current) => ({ ...current, password, confirmation: password }));
+    setPasswordError("");
+  };
+
+  const submitDirectPassword = async (event) => {
+    event.preventDefault();
+    if (!passwordUser) return;
+    if (passwordDraft.password !== passwordDraft.confirmation) {
+      setPasswordError("Las claves no coinciden.");
+      return;
+    }
+    setPasswordError("");
+    setCredentialError("");
+    setCredentialLoadingId(passwordUser.id);
+    try {
+      const response = await authenticatedFetch(`/api/usuarios/${passwordUser.id}/credencial`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: passwordDraft.password, mustChangePassword: passwordDraft.mustChangePassword }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No fue posible cambiar la clave.");
+      setTemporaryCredentials((current) => ({ ...current, [passwordUser.id]: body.data }));
+      setUsuarios((current) => current.map((item) => (
+        item.id === passwordUser.id ? { ...item, debeCambiarClave: body.data.mustChangePassword } : item
+      )));
+      setPasswordUser(null);
+    } catch (error) {
+      setPasswordError(error.message);
+    } finally {
+      setCredentialLoadingId(null);
+    }
   };
 
   return (
@@ -362,6 +432,7 @@ export default function UsuariosPage() {
                                 {copiedCredentialId === usuario.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                                 {copiedCredentialId === usuario.id ? "Copiado" : "Copiar usuario y clave"}
                               </button>
+                              {canSetDirectPassword ? <button type="button" onClick={() => openPasswordModal(usuario)} className="ml-3 inline-flex items-center gap-1 text-xs font-bold text-amber-800"><KeyRound className="h-3.5 w-3.5" />Cambiar clave</button> : null}
                               <p className="text-[10px] text-amber-700">Visible solamente durante esta sesión.</p>
                             </div>
                           ) : (
@@ -370,6 +441,7 @@ export default function UsuariosPage() {
                               <button type="button" onClick={() => generateTemporaryCredential(usuario)} disabled={credentialLoadingId === usuario.id} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs font-bold text-amber-800 disabled:opacity-60">
                                 <KeyRound className="h-3.5 w-3.5" />{credentialLoadingId === usuario.id ? "Generando..." : "Generar clave temporal"}
                               </button>
+                              {canSetDirectPassword ? <button type="button" onClick={() => openPasswordModal(usuario)} className="ml-2 inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-white px-2.5 py-2 text-xs font-bold text-amber-800"><Pencil className="h-3.5 w-3.5" />Cambiar clave</button> : null}
                             </div>
                           )}
                         </td>
@@ -450,6 +522,42 @@ export default function UsuariosPage() {
                 <div className="flex justify-end gap-3">
                   <button type="button" onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancelar</button>
                   <button type="submit" disabled={createLoading} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{createLoading ? "Creando..." : "Crear usuario"}</button>
+                </div>
+              </form>
+            </section>
+          </div>
+        ) : null}
+
+        {passwordUser ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#041E42]/55 p-4">
+            <section role="dialog" aria-modal="true" aria-labelledby="change-password-title" className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 id="change-password-title" className="text-xl font-semibold text-[#041E42]">Cambiar clave de acceso</h3>
+                  <p className="mt-1 text-sm text-slate-600">{passwordUser.nombreCompleto} · {passwordUser.correo}</p>
+                </div>
+                <button type="button" onClick={closePasswordModal} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600" aria-label="Cerrar"><X className="h-4 w-4" /></button>
+              </div>
+              <form onSubmit={submitDirectPassword} className="mt-5 space-y-4">
+                {passwordError ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{passwordError}</p> : null}
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 text-xs text-slate-600">La clave se actualizará directamente en Supabase Auth y no quedará almacenada en texto visible.</div>
+                <label className="block space-y-1.5 text-sm text-slate-700">
+                  <span>Nueva clave</span>
+                  <input type="password" autoComplete="new-password" value={passwordDraft.password} onChange={(event) => setPasswordDraft((current) => ({ ...current, password: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required minLength={12} />
+                </label>
+                <label className="block space-y-1.5 text-sm text-slate-700">
+                  <span>Confirmar nueva clave</span>
+                  <input type="password" autoComplete="new-password" value={passwordDraft.confirmation} onChange={(event) => setPasswordDraft((current) => ({ ...current, confirmation: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required minLength={12} />
+                </label>
+                <button type="button" onClick={fillSecurePassword} className="inline-flex items-center gap-2 rounded-xl border border-[#3150D8] px-3 py-2 text-sm font-semibold text-[#3150D8]"><KeyRound className="h-4 w-4" />Generar clave segura</button>
+                <p className="text-xs text-slate-500">Mínimo 12 caracteres, con mayúscula, minúscula, número y símbolo.</p>
+                <label className="flex items-start gap-3 rounded-2xl border border-slate-200 p-3 text-sm text-slate-700">
+                  <input type="checkbox" checked={passwordDraft.mustChangePassword} onChange={(event) => setPasswordDraft((current) => ({ ...current, mustChangePassword: event.target.checked }))} className="mt-0.5" />
+                  <span><strong>Solicitar cambio posterior</strong><span className="mt-1 block text-xs text-slate-500">Mantiene la nueva clave como temporal hasta que el usuario la reemplace.</span></span>
+                </label>
+                <div className="flex justify-end gap-3">
+                  <button type="button" onClick={closePasswordModal} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancelar</button>
+                  <button type="submit" disabled={credentialLoadingId === passwordUser.id} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{credentialLoadingId === passwordUser.id ? "Actualizando..." : "Actualizar clave"}</button>
                 </div>
               </form>
             </section>
