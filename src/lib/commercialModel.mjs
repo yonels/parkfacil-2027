@@ -1,0 +1,4 @@
+export function resolvePrimaryContract(contracts=[]){return contracts.find(x=>["active","pending_signature","suspended"].includes(x.estado||x.status))||contracts[0]||null}
+export function resolveContractPlan(contract){const version=contract?.planVersion||contract?.commercial_plan_versions||null,plan=version?.plan||version?.commercial_plans||null;return plan?{code:plan.codigo||plan.code,name:plan.nombre||plan.name,version:version.version}:null}
+export function contractParkingCount(contract){return new Set(contract?.parkingIds||contract?.contract_parking_spaces?.map(x=>x.parking_id)||[]).size}
+export function groupPlanAssignments(contracts=[]){return contracts.flatMap(c=>{const spaces=c.contract_parking_spaces||[];return spaces.length?spaces.map(s=>({contractId:c.id,companyId:c.company_id,parkingId:s.parking_id})): [{contractId:c.id,companyId:c.company_id,parkingId:null}]})}

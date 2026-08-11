@@ -8,7 +8,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import TarifaResumen from "@/components/tarifas/TarifaResumen";
 import TarifasGrid from "@/components/tarifas/TarifasGrid";
 import PlanCreateModal from "@/components/tarifas/PlanCreateModal";
-import SpreadsheetTable from "@/components/ui/SpreadsheetTable";
+import ParkFacilDataGrid from "@/components/ui/ParkFacilDataGrid";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import {
   getTarifasDemo,
@@ -98,15 +98,20 @@ export default function TarifasPage() {
     empresa.razonSocial,
     empresa.nombreFantasia,
     `${empresa.rutNumero || ""}-${empresa.rutDv || ""}`,
-    empresa.plan,
+    empresa.planAsignado?.codigo,
+    empresa.planAsignado?.nombre,
+    empresa.contrato?.numero,
   ], busqueda)), [empresas, busqueda]);
 
   const companyColumns = useMemo(() => [
     { key: "razonSocial", label: "Razón social", className: "font-semibold text-[#041E42]" },
     { key: "nombreFantasia", label: "Nombre de fantasía" },
-    { key: "rut", label: "RUT", render: (empresa) => [empresa.rutNumero, empresa.rutDv].filter(Boolean).join("-") || "No informado" },
-    { key: "plan", label: "Plan asignado" },
-    { key: "contrato", label: "Contrato", render: (empresa) => empresa.contrato?.numero || "Sin contrato" },
+    { key: "rut", label: "RUT", render: (_,empresa) => [empresa.rutNumero, empresa.rutDv].filter(Boolean).join("-") || "No informado" },
+    { key: "codigoPlan", label: "Código plan", render: (_,empresa) => empresa.planAsignado?.codigo || "—" },
+    { key: "planAsignado", label: "Plan asignado", render: (_,empresa) => empresa.planAsignado?.nombre || "Sin plan asignado" },
+    { key: "contrato", label: "Contrato", render: (_,empresa) => empresa.contrato?.numero || "Sin contrato" },
+    { key: "vigencia", label: "Vigencia", render: (_,empresa) => empresa.contrato ? `${empresa.contrato.fechaInicio} → ${empresa.contrato.fechaTermino}` : "—" },
+    { key: "estacionamientos", label: "Estacionamientos", render: (_,empresa) => empresa.estacionamientosContrato || 0 },
     { key: "estado", label: "Estado" },
   ], []);
 
@@ -201,10 +206,10 @@ export default function TarifasPage() {
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div>
             <h3 className="text-xl font-semibold text-[#041E42]">Empresas y planes asignados</h3>
-            <p className="mt-2 text-sm text-slate-600">Empresas registradas en ParkFacil y su clasificación comercial actual.</p>
+            <p className="mt-2 text-sm text-slate-600">Asignaciones contractuales reales. La clasificación comercial legacy no se utiliza como plan.</p>
           </div>
           <div className="mt-6">
-            <SpreadsheetTable columns={companyColumns} rows={empresasFiltradas} rowHref={(empresa) => `/empresas/${empresa.id}`} minWidth={1000} />
+            <ParkFacilDataGrid storageKey="tarifas:empresas-planes" columns={companyColumns} rows={empresasFiltradas} onRowDoubleClick={(empresa)=>{window.location.href=`/empresas/${empresa.id}`}} globalSearchPlaceholder="Buscar empresa, contrato o plan..." emptyMessage="Sin empresas" exportFilename="empresas_planes_asignados" exportSheetName="Empresas y planes" />
             {!empresasFiltradas.length ? <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">No hay empresas que coincidan con la búsqueda.</p> : null}
           </div>
         </section>

@@ -19,7 +19,7 @@ function mapParking(row, contractedSpacesByParkingId = {}) {
   };
 }
 
-function mapContract(row) {
+function mapContract(row, parkingLinks = []) {
   if (!row) return null;
   return {
     id: row.id,
@@ -41,12 +41,28 @@ function mapContract(row) {
     multaEquipo: row.equipment_penalty_value,
     documentoFuente: row.source_document,
     condiciones: row.commercial_terms || {},
+    planVersionId: row.commercial_plan_version_id || null,
+    planVersion: row.commercial_plan_versions ? {
+      id: row.commercial_plan_versions.id,
+      version: row.commercial_plan_versions.version,
+      estado: row.commercial_plan_versions.status,
+      vigenteDesde: row.commercial_plan_versions.valid_from,
+      vigenteHasta: row.commercial_plan_versions.valid_to,
+      plan: row.commercial_plan_versions.commercial_plans ? {
+        id: row.commercial_plan_versions.commercial_plans.id,
+        codigo: row.commercial_plan_versions.commercial_plans.code,
+        nombre: row.commercial_plan_versions.commercial_plans.name,
+        estado: row.commercial_plan_versions.commercial_plans.status,
+      } : null,
+    } : null,
+    parkingIds: parkingLinks.filter((link) => link.contract_id === row.id).map((link) => link.parking_id),
   };
 }
 
-function mapCompany(row, parkings, contracts = [], members = [], contractedSpacesByParkingId = {}) {
-  const companyContracts = contracts.filter((contract) => contract.company_id === row.id).map(mapContract);
+function mapCompany(row, parkings, contracts = [], members = [], contractedSpacesByParkingId = {}, parkingLinks = []) {
+  const companyContracts = contracts.filter((contract) => contract.company_id === row.id).map((contract) => mapContract(contract, parkingLinks));
   const companyMembers = members.filter((member) => member.company_id === row.id);
+  const primaryContract=companyContracts.find((contract)=>["active","pending_signature","suspended"].includes(contract.estado))||companyContracts[0]||null;
   return {
     id: row.id,
     razonSocial: row.business_name,
@@ -74,6 +90,7 @@ function mapCompany(row, parkings, contracts = [], members = [], contractedSpace
       ENTERPRISE: "Enterprise",
       CUSTOM: "Personalizado",
     })[row.commercial_plan] || "Por definir",
+    clasificacionLegacy: ({UNASSIGNED:"Por definir",ESSENTIAL:"Esencial",PROFESSIONAL:"Profesional",ENTERPRISE:"Enterprise",CUSTOM:"Personalizado"})[row.commercial_plan]||"Por definir",
     estacionamientos: parkings.filter((parking) => parking.companyId === row.id).map((parking) => mapParking(parking, contractedSpacesByParkingId)),
     usuarios: companyMembers.length,
     resumenUsuarios: {
@@ -88,7 +105,10 @@ function mapCompany(row, parkings, contracts = [], members = [], contractedSpace
       correo: "",
       telefono: "Sin telefono informado",
     })),
-    contrato: companyContracts.find((contract) => ["active", "pending_signature", "suspended"].includes(contract.estado)) || companyContracts[0] || null,
+    contrato: primaryContract,
+    planAsignado: primaryContract?.planVersion?.plan||null,
+    versionPlan: primaryContract?.planVersion||null,
+    estacionamientosContrato: primaryContract?.parkingIds?.length||0,
     contratos: companyContracts,
     documentos: [],
     historial: [],
@@ -117,7 +137,7 @@ function scoped(query, companyId) {
 export async function listCompanies(supabase, { companyId = null } = {}) {
   const companyQuery = supabase.from("companies").select("*").order("business_name");
   const parkingQuery = supabase.from("parkings").select("*").order("code");
-  const contractQuery = supabase.from("company_contracts").select("*").order("starts_on", { ascending: false });
+  const contractQuery = supabase.from("company_contracts").select("*,commercial_plan_versions(id,version,status,valid_from,valid_to,commercial_plans(id,code,name,status))").order("starts_on", { ascending: false });
   const memberQuery = supabase.from("company_members").select("user_id,company_id,full_name,role,status");
   const [{ data: companies, error }, parkingResult, contractResult, memberResult] = await Promise.all([
     companyId ? companyQuery.eq("id", companyId) : companyQuery,
@@ -140,14 +160,15 @@ export async function listCompanies(supabase, { companyId = null } = {}) {
     metrics: { capacity: 0 },
   }));
   const parkingIds = parkings.map((parking) => parking.id);
-  let contractedSpacesByParkingId = {};
+  let contractedSpacesByParkingId = {},parkingLinks=[];
   if (parkingIds.length) {
     const { data: contractedSpaces, error: contractedSpacesError } = await supabase
-      .from("contract_parking_spaces").select("parking_id,contracted_spaces").in("parking_id", parkingIds);
+      .from("contract_parking_spaces").select("contract_id,parking_id,contracted_spaces").in("parking_id", parkingIds);
     // La tabla puede no existir aún en un entorno recién provisionado (42P01/PGRST205);
     // en ese caso se degrada a "sin dato" en vez de romper el listado de empresas.
     if (contractedSpacesError && !relationUnavailable(contractedSpacesError)) throw contractedSpacesError;
     contractedSpacesByParkingId = Object.fromEntries((contractedSpaces || []).map((row) => [row.parking_id, row.contracted_spaces]));
+    parkingLinks=contractedSpaces||[];
   }
   return (companies || []).map((company) => mapCompany(
     company,
@@ -155,6 +176,7 @@ export async function listCompanies(supabase, { companyId = null } = {}) {
     contractRows,
     memberRows,
     contractedSpacesByParkingId,
+    parkingLinks,
   ));
 }
 

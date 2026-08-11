@@ -6,7 +6,7 @@ import EstadoTarifaBadge from "@/components/tarifas/EstadoTarifaBadge";
 import TipoTarifaBadge from "@/components/tarifas/TipoTarifaBadge";
 import ModalidadCobroBadge from "@/components/tarifas/ModalidadCobroBadge";
 import { getTarifaById, formatCurrency, resolveContratos, getPlanTotalReferencial } from "@/data/tarifas.mjs";
-import { getCommercialPlanPageData } from "@/lib/commercialPlansServer";
+import { getCommercialPlanAssignments, getCommercialPlanPageData } from "@/lib/commercialPlansServer";
 
 function DetailItem({ label, value }) {
   return (
@@ -35,6 +35,7 @@ export default async function TarifaDetallePage({ params }) {
   }
 
   const contratos = resolveContratos(tarifa);
+  const asignaciones = await getCommercialPlanAssignments(tarifa.id || tarifa.codigo);
 
   return (
     <AppShell title={tarifa.nombre} description="Detalle visual del plan comercial">
@@ -120,6 +121,11 @@ export default async function TarifaDetallePage({ params }) {
               </ul>
             </div>
           </div>
+        </section>
+
+        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h3 className="text-xl font-semibold text-[#041E42]">Asignaciones</h3>
+          {asignaciones.length ? <div className="mt-5 overflow-x-auto"><table className="min-w-full text-left text-sm"><thead><tr className="border-b"><th className="p-3">Empresa</th><th className="p-3">Contrato</th><th className="p-3">Estacionamiento</th><th className="p-3">Versión</th><th className="p-3">Vigencia</th><th className="p-3">Estado</th></tr></thead><tbody>{asignaciones.map((a,index)=><tr key={`${a.contractId}:${a.parking?.id||index}`} className="border-b"><td className="p-3"><Link className="font-semibold text-[#3150D8]" href={`/empresas/${a.company?.id}`}>{a.company?.business_name}</Link></td><td className="p-3"><Link className="text-[#3150D8]" href={`/contratos/${a.contractId}`}>{a.contractNumber}</Link></td><td className="p-3">{a.parking?.name||"Sin estacionamiento"}</td><td className="p-3">v{a.version?.version}</td><td className="p-3">{a.startsOn} → {a.endsOn}</td><td className="p-3">{a.contractStatus}</td></tr>)}</tbody></table></div> : <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-600">Plan de catálogo sin asignación activa</p>}
         </section>
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
