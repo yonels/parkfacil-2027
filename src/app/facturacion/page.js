@@ -7,6 +7,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import ParkFacilDataGrid from "@/components/ui/ParkFacilDataGrid";
 import PreinvoiceWorkspace from "@/components/billing/PreinvoiceWorkspace";
 import AccountWorkspace from "@/components/billing/AccountWorkspace";
+import ReconciliationWorkspace from "@/components/billing/ReconciliationWorkspace";
 
 const column = (key, label, width = 150, pinned = false) => ({ key, label, width, pinned, required: pinned });
 
@@ -128,7 +129,7 @@ export default function FacturacionPage() {
         ) : (
           <section className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#3150D8]">Planilla de Facturación</p><h2 className="mt-1 text-2xl font-bold text-[#041E42]">{activeModule.title}</h2><p className="mt-1 text-sm text-slate-600">{activeModule.description}</p></div><button type="button" onClick={closeModule} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] shadow-sm hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /> Volver a Facturación</button></div>
-            {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
+            {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
           </section>
         )}
       </div>
