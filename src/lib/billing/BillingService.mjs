@@ -19,4 +19,14 @@ export class BillingService{
     const status=result.result===PROVIDER_RESULTS.ISSUED?"ISSUED":result.result===PROVIDER_RESULTS.PENDING?"PROVIDER_PENDING":result.result===PROVIDER_RESULTS.REJECTED?"PROVIDER_REJECTED":"ISSUED";
     return this.repository.saveProviderResult({preinvoiceId,idempotencyKey,actorId,invoiceDate,definitive,result,status});
   }
+  async issueRelatedDocument(input){
+    const{validateRelatedInput}=await import("./documentCore.mjs");validateRelatedInput(input);
+    const origin=await this.repository.getDocumentForIssue(input.originId,input.companyId);if(!origin)throw new BillingServiceError("ORIGIN_DOCUMENT_NOT_FOUND","Factura origen no encontrada.");
+    const reserved=await this.repository.beginRelated(input);if(reserved.reused)return reserved;
+    const document=await this.repository.getDocumentForProvider(reserved.documentId);
+    const request={idempotencyKey:input.idempotencyKey,documentType:input.documentType,issueDate:input.issueDate,currency:document.currency,issuer:{provider:"mock"},customer:document.customer_snapshot,lines:document.lines,totals:{net:Number(document.net_amount),tax:Number(document.tax_amount),total:Number(document.total_amount)},reference:{documentId:origin.id,folio:origin.folio},reason:input.reason};
+    let result;try{result=input.documentType==="CREDIT_NOTE"?await this.provider.emitCreditNote(request):await this.provider.emitDebitNote(request);}catch(error){await this.repository.finalizeRelated({...input,documentId:reserved.documentId,status:"ISSUE_ERROR",providerStatus:error.code});throw new BillingServiceError(error.code||"PROVIDER_ERROR",error.message,{retryable:error.retryable});}
+    const status=result.result===PROVIDER_RESULTS.ISSUED||result.result===PROVIDER_RESULTS.DUPLICATE?"ISSUED":result.result===PROVIDER_RESULTS.PENDING?"PROVIDER_PENDING":"PROVIDER_REJECTED";
+    return this.repository.finalizeRelated({...input,documentId:reserved.documentId,status,providerDocumentId:result.providerDocumentId,providerStatus:result.providerStatus||result.providerCode,folio:result.folio});
+  }
 }

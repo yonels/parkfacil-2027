@@ -1,0 +1,6 @@
+import test from"node:test";import assert from"node:assert/strict";import{derivedInvoiceState,financialState,validateRelatedInput}from"./documentCore.mjs";
+const invoice={currency:"CLP",total_amount:100000};
+test("NC parcial y total derivan estado sin eliminar factura",()=>{assert.equal(derivedInvoiceState(invoice,[{document_type:"CREDIT_NOTE",status:"ISSUED",currency:"CLP",total_amount:30000}]),"PARTIALLY_CREDITED");assert.equal(derivedInvoiceState(invoice,[{document_type:"CREDIT_NOTE",status:"ISSUED",currency:"CLP",total_amount:100000}]),"FULLY_CREDITED")});
+test("estado financiero resta pagos y créditos",()=>assert.deepEqual(financialState({total:100000,applied:40000,credits:20000,dueDate:"2099-01-01",today:"2026-08-10"}),{balance:40000,status:"PARTIAL"}));
+test("NC requiere monto parcial",()=>{assert.throws(()=>validateRelatedInput({documentType:"CREDIT_NOTE",mode:"PARTIAL",amount:0,reason:"x",issueDate:"2026-08-10",idempotencyKey:"12345678"}),/positivo/);assert.doesNotThrow(()=>validateRelatedInput({documentType:"CREDIT_NOTE",mode:"TOTAL",reason:"corrección",issueDate:"2026-08-10",idempotencyKey:"12345678"}))});
+test("ND requiere monto positivo",()=>assert.throws(()=>validateRelatedInput({documentType:"DEBIT_NOTE",amount:-1,reason:"x",issueDate:"2026-08-10",idempotencyKey:"12345678"}),/positivo/));
