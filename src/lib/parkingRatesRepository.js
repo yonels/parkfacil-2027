@@ -1,5 +1,4 @@
-import "server-only";
-import { classifyRateCompliance } from "@/lib/parkingRates.mjs";
+import { classifyRateCompliance } from "./parkingRates.mjs";
 
 const mapBlock = (row) => ({ id: row.id, sequence: row.sequence, durationSeconds: row.duration_seconds, amount: Number(row.amount), repeatAfter: row.repeat_after });
 function mapRate(row, blocks, usedRateIds = new Set()) {

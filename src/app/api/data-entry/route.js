@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { joinChileanPlate, resolveStayQuoteAvailability, splitChileTaxFromTotal } from "@/lib/dataEntry.mjs";
-import { calculateScheduledParkingCharge, selectActiveRate } from "@/lib/parkingRates.mjs";
-import { listParkingRates } from "@/lib/parkingRatesRepository";
+import { joinChileanPlate } from "@/lib/dataEntry.mjs";
+import { quoteParkingStay } from "@/lib/parkingStayQuoteService";
 import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 
@@ -33,59 +32,6 @@ async function context(request, requestedParkingId = null) {
     if (denied) return { response: denied };
     throw error;
   }
-}
-
-// Selección de la tarifa vigente: delega en el motor central (parkingRates.mjs) para no
-// mantener una segunda lectura de "qué tarifa está activa" — la misma función decide qué
-// tarifa se muestra como "Tarifa vigente" en el detalle del estacionamiento.
-async function getActiveRate(db, parkingId) {
-  const rates = await listParkingRates(db, parkingId);
-  return selectActiveRate(rates);
-}
-
-async function getCoupon(db, rawToken, companyId) {
-  if (!rawToken) return null;
-  const token = String(rawToken).replace(/^PFC-COUPON:/i, "").trim();
-  const { data, error } = await db.from("coupons").select("*").eq("qr_token", token).maybeSingle();
-  if (error || !data) throw new Error("COUPON_NOT_FOUND");
-  const now = Date.now();
-  if (data.status !== "ACTIVE" || data.redeemed_at) throw new Error("COUPON_ALREADY_USED");
-  if (!companyId || data.company_id !== companyId) throw new Error("COUPON_WRONG_COMPANY");
-  if (new Date(data.valid_from).getTime() > now) throw new Error("COUPON_NOT_YET_VALID");
-  if (new Date(data.expires_at).getTime() <= now) throw new Error("COUPON_EXPIRED");
-  return data;
-}
-
-// Nunca usa un error HTTP como sustituto de un resultado operacional esperado: "no hay
-// tarifa válida" es un desenlace normal de cotizar una estadía, no una falla del
-// vehículo/ticket. Por eso quoteStay() nunca lanza para este caso — devuelve
-// { blocked: true, reason, ... } con toda la información del vehículo ya disponible
-// (permanencia incluida), para que el frontend siga mostrando patente/ticket/ingreso/
-// permanencia y bloquee únicamente el cálculo y el cobro.
-async function quoteStay(db, stay, couponToken = null) {
-  const rate = await getActiveRate(db, stay.parking_id);
-  if (!rate) {
-    const availability = resolveStayQuoteAvailability(null, stay.entry_at, new Date());
-    return availability; // { blocked: true, reason: "ACTIVE_RATE_NOT_FOUND", elapsedSeconds, elapsedMinutes }
-  }
-  const { data: parking } = await db.from("parkings").select("company_id").eq("id", stay.parking_id).maybeSingle();
-  if (!parking) throw new Error("PARKING_NOT_FOUND");
-  const coupon = await getCoupon(db, couponToken, parking.company_id);
-  const effectiveRate = coupon?.benefit_type === "FREE_MINUTES" ? { ...rate, freePeriodSeconds: Number(rate.freePeriodSeconds || 0) + Number(coupon.benefit_value) * 60 } : rate;
-  const availability = resolveStayQuoteAvailability(effectiveRate, stay.entry_at, new Date());
-  if (availability.blocked) return { ...availability, rate };
-  const { elapsedSeconds, elapsedMinutes, charge } = availability;
-  const baseCharge = calculateScheduledParkingCharge(rate, stay.entry_at, new Date());
-  // calculateParkingCharge ya entrega el monto truncado (Math.floor); no se vuelve a
-  // redondear aquí para no reintroducir una aproximación al alza.
-  const subtotal = Math.max(0, baseCharge.amount);
-  let discount = Math.max(0, subtotal - charge.amount);
-  if (coupon?.benefit_type === "PERCENTAGE") discount = Math.floor(subtotal * Math.min(100, Number(coupon.benefit_value)) / 100);
-  if (coupon?.benefit_type === "FIXED_AMOUNT") discount = Math.min(subtotal, Number(coupon.benefit_value));
-  // La tarifa exhibida al consumidor es el precio final con impuestos incluidos.
-  // El IVA se desglosa desde ese total; nunca se agrega sobre el valor informado.
-  const amounts = splitChileTaxFromTotal(Math.max(0, subtotal - discount));
-  return { blocked: false, ...amounts, subtotal, discount, elapsedSeconds, elapsedMinutes, rate, charge, coupon: coupon ? { id: coupon.id, code: coupon.code, name: coupon.name, benefitType: coupon.benefit_type, value: Number(coupon.benefit_value) } : null };
 }
 
 async function findOpenStay(db, input, assignedParkingId) {
@@ -141,7 +87,7 @@ export async function POST(request) {
   if (["QUOTE", "EXIT"].includes(input.action)) {
     const stay = await findOpenStay(current.db, input, current.actor.parkingId);
     if (!stay) return fail("No existe una estadía abierta para el vehículo.", 404);
-    let quote; try { quote = await quoteStay(current.db, stay, input.couponToken); } catch (error) {
+    let quote; try { quote = await quoteParkingStay(current.db, stay, { couponToken: input.couponToken, now: new Date() }); } catch (error) {
       const messages = { PARKING_NOT_FOUND: "El estacionamiento no existe.", COUPON_NOT_FOUND: "El cupón no existe.", COUPON_ALREADY_USED: "El cupón ya fue utilizado.", COUPON_WRONG_COMPANY: "El cupón no corresponde a este estacionamiento.", COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.", COUPON_EXPIRED: "El cupón está vencido." };
       return fail(messages[error.message] || "No fue posible calcular la tarifa.", 409);
     }
