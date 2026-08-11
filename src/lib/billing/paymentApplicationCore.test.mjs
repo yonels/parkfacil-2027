@@ -1,0 +1,15 @@
+import test from "node:test";import assert from "node:assert/strict";import {financialState,paymentApplicationState,validateApplicationInput,validateApplicationReversal} from "./paymentApplicationCore.mjs";
+test("valida aplicación",()=>assert.deepEqual(validateApplicationInput({documentId:" d1 ",amount:"400",applicationDate:"2026-08-11",idempotencyKey:"12345678"}),{documentId:"d1",amount:400,applicationDate:"2026-08-11",idempotencyKey:"12345678"}));
+test("rechaza monto no positivo",()=>assert.throws(()=>validateApplicationInput({documentId:"d1",amount:0,applicationDate:"2026-08-11",idempotencyKey:"12345678"}),/APPLICATION_AMOUNT_INVALID/));
+test("rechaza fecha inválida",()=>assert.throws(()=>validateApplicationInput({documentId:"d1",amount:1,applicationDate:"11-08-2026",idempotencyKey:"12345678"}),/APPLICATION_DATE_INVALID/));
+test("reverso exige motivo",()=>assert.throws(()=>validateApplicationReversal({reason:" "}),/APPLICATION_REVERSAL_REASON_REQUIRED/));
+test("documento pendiente",()=>assert.deepEqual(financialState({total:1000,applied:0,dueDate:"2026-12-01",today:"2026-08-11"}),{balance:1000,status:"PENDING",isOverdue:false}));
+test("documento parcial",()=>assert.deepEqual(financialState({total:1000,applied:400,dueDate:"2026-12-01",today:"2026-08-11"}),{balance:600,status:"PARTIAL",isOverdue:false}));
+test("documento parcial vencido conserva parcialidad y mora",()=>assert.deepEqual(financialState({total:1000,applied:400,dueDate:"2026-01-01",today:"2026-08-11"}),{balance:600,status:"PARTIAL",isOverdue:true}));
+test("documento pagado",()=>assert.deepEqual(financialState({total:1000,applied:1000}),{balance:0,status:"PAID",isOverdue:false}));
+test("documento vencido",()=>assert.deepEqual(financialState({total:1000,applied:0,dueDate:"2026-01-01",today:"2026-08-11"}),{balance:1000,status:"OVERDUE",isOverdue:true}));
+test("no permite sobreaplicación documental",()=>assert.throws(()=>financialState({total:1000,applied:1001}),/INVALID_FINANCIAL_TOTALS/));
+test("pago no aplicado",()=>assert.deepEqual(paymentApplicationState({total:1000,applied:0}),{available:1000,status:"UNAPPLIED"}));
+test("pago parcialmente aplicado",()=>assert.deepEqual(paymentApplicationState({total:1000,applied:600}),{available:400,status:"PARTIALLY_APPLIED"}));
+test("pago aplicado",()=>assert.deepEqual(paymentApplicationState({total:1000,applied:1000}),{available:0,status:"APPLIED"}));
+test("no permite sobreaplicación del pago",()=>assert.throws(()=>paymentApplicationState({total:1000,applied:1001}),/INVALID_APPLICATION_TOTALS/));

@@ -39,3 +39,6 @@ test("guarda de empresa soporta records de tablas con columnas distintas", async
   assert.match(migration, /to_jsonb\(new\)/i);
   assert.doesNotMatch(migration, /new\.parking_id/i);
 });
+
+test("Etapa 6 usa RPC atómica con locking, idempotencia, RLS y reverso", async()=>{const migration=await read("../../../supabase/migrations/20260811100000_billing_payment_applications.sql");assert.match(migration,/for update/gi);assert.match(migration,/unique \(company_id,idempotency_key\)/i);assert.match(migration,/enable row level security/i);assert.match(migration,/revoke all[\s\S]*anon,authenticated/i);assert.match(migration,/PAYMENT_APPLICATION_CREATED/);assert.match(migration,/PAYMENT_APPLICATION_REVERSED/);assert.match(migration,/APPLICATION_EXCEEDS_SOURCE_AVAILABLE/);assert.match(migration,/APPLICATION_EXCEEDS_DOCUMENT_BALANCE/);assert.match(migration,/APPLICATION_CURRENCY_MISMATCH/);});
+test("APIs de aplicaciones conservan permisos y scope server-side",async()=>{const apply=await read("../../app/api/billing/accounts/payments/[paymentId]/applications/route.js"),reverse=await read("../../app/api/billing/accounts/payments/[paymentId]/applications/[applicationId]/reverse/route.js");for(const source of [apply,reverse]){assert.match(source,/PERMISSIONS\.BILLING_MANAGE/);assert.match(source,/remainingCompanyScope/);assert.doesNotMatch(source,/body\.companyId/);}});
