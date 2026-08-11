@@ -1,0 +1,24 @@
+import "server-only";
+
+function fail(error,message){if(error){error.message=`${message}: ${error.message}`;throw error;}}
+function one(value){return Array.isArray(value)?value[0]:value;}
+
+export class BillingDocumentRepository{
+  constructor(db){this.db=db;}
+  async getReadyPreinvoice(id){
+    const r=await this.db.from("billing_preinvoices").select("id,company_id,contract_id,period,currency,status,due_date,net_amount,tax_amount,total_amount,companies!inner(business_name,rut_number,rut_dv,business_activity,address,district,city,email,status),company_contracts!inner(id,status),billing_preinvoice_lines!inner(description,quantity,unit_price,total_amount,line_status,billable_concepts!inner(tax_category))").eq("id",id).maybeSingle();fail(r.error,"No fue posible resolver prefactura lista para emisión");if(!r.data)return null;
+    const company=one(r.data.companies),lines=(r.data.billing_preinvoice_lines||[]).filter(x=>x.line_status==="ACTIVE");
+    return{status:r.data.status,companyId:r.data.company_id,contractId:r.data.contract_id,period:r.data.period,currency:r.data.currency,dueDate:r.data.due_date,netAmount:Number(r.data.net_amount),taxAmount:Number(r.data.tax_amount),totalAmount:Number(r.data.total_amount),issuer:{provider:"mock"},customer:{businessName:company?.business_name,rut:company?`${company.rut_number}-${company.rut_dv}`:"",businessActivity:company?.business_activity,address:company?.address,district:company?.district,city:company?.city,billingEmail:company?.email},lines:lines.map(x=>({description:x.description,taxCategory:one(x.billable_concepts)?.tax_category,quantity:Number(x.quantity),unitPrice:Number(x.unit_price),total:Number(x.total_amount) }))};
+  }
+  async markIssuing({preinvoiceId,idempotencyKey,actorId,invoiceDate,definitive}){
+    const p=await this.db.from("billing_preinvoices").select("id,company_id,contract_id,due_date,status").eq("id",preinvoiceId).maybeSingle();fail(p.error,"No fue posible bloquear prefactura");if(!p.data||p.data.status!=="READY_TO_ISSUE")throw Object.assign(new Error("La prefactura no está lista para emitir."),{code:"PREINVOICE_NOT_READY"});
+    const changed=await this.db.from("billing_preinvoices").update({status:"ISSUING",updated_at:new Date().toISOString()}).eq("id",preinvoiceId).eq("status","READY_TO_ISSUE").select("id").maybeSingle();fail(changed.error,"No fue posible iniciar emisión");if(!changed.data)throw Object.assign(new Error("La prefactura cambió durante la emisión."),{code:"PREINVOICE_VERSION_CONFLICT"});
+    const document={company_id:p.data.company_id,contract_id:p.data.contract_id,preinvoice_id:preinvoiceId,provider:"mock",document_type:"INVOICE",invoice_date:invoiceDate,due_date:p.data.due_date,currency:definitive.amountUf?"UF":definitive.currency,net_amount:definitive.net,tax_amount:definitive.tax,total_amount:definitive.amountUf||definitive.total,amount_uf:definitive.amountUf||null,uf_reference_date:definitive.ufReferenceDate||null,uf_value:definitive.ufValue||null,uf_source:definitive.ufSource||null,converted_amount_clp:definitive.convertedAmountClp||null,status:"ISSUING",idempotency_key:idempotencyKey,created_by:actorId};
+    const inserted=await this.db.from("billing_documents").insert(document);if(inserted.error){await this.db.from("billing_preinvoices").update({status:"READY_TO_ISSUE"}).eq("id",preinvoiceId).eq("status","ISSUING");fail(inserted.error,"No fue posible crear documento");}
+  }
+  async markIssueError({preinvoiceId,idempotencyKey,code}){await this.db.from("billing_documents").update({status:"ISSUE_ERROR",provider_status:code,updated_at:new Date().toISOString()}).eq("preinvoice_id",preinvoiceId).eq("idempotency_key",idempotencyKey).eq("status","ISSUING");await this.db.from("billing_preinvoices").update({status:"ISSUE_ERROR",updated_at:new Date().toISOString()}).eq("id",preinvoiceId).eq("status","ISSUING");}
+  async saveProviderResult({preinvoiceId,idempotencyKey,definitive,result,status}){
+    const updated=await this.db.from("billing_documents").update({provider_document_id:result.providerDocumentId||null,provider_status:result.providerStatus||result.providerCode||null,folio:result.folio||null,status,updated_at:new Date().toISOString(),uf_reference_date:definitive.ufReferenceDate||null,uf_value:definitive.ufValue||null,uf_source:definitive.ufSource||null,converted_amount_clp:definitive.convertedAmountClp||null}).eq("preinvoice_id",preinvoiceId).eq("idempotency_key",idempotencyKey).eq("status","ISSUING").select("id,status,folio,provider_document_id").single();fail(updated.error,"No fue posible persistir resultado del proveedor");
+    const preinvoice=await this.db.from("billing_preinvoices").update({status,updated_at:new Date().toISOString()}).eq("id",preinvoiceId).eq("status","ISSUING");fail(preinvoice.error,"No fue posible cerrar emisión");return{...updated.data,definitive,result};
+  }
+}
