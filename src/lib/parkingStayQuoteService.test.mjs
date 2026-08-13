@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import { toPagueAquiQuote } from "./parkingStayQuoteService.js";
 
@@ -65,4 +66,11 @@ test("cotización bloqueada no fuerza monto cero", () => {
   assert.equal(payload.amount, null);
   assert.equal(payload.blockedReason, "NO_ACTIVE_RATE");
   assert.equal(payload.elapsedMinutes, 127);
+});
+
+test("el motor selecciona la tarifa vigente en el timestamp cotizado, nunca en la hora actual implícita", async () => {
+  const source = await readFile(new URL("./parkingStayQuoteService.js", import.meta.url), "utf8");
+  assert.match(source, /getActiveRate\(db, stay\.parking_id, now\)/);
+  assert.match(source, /selectActiveRate\(rates, at\)/);
+  assert.doesNotMatch(source, /selectActiveRate\(rates\);/);
 });

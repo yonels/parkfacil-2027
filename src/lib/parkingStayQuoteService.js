@@ -1,6 +1,7 @@
 import { resolveStayQuoteAvailability, splitChileTaxFromTotal } from "./dataEntry.mjs";
 import { calculateScheduledParkingCharge, selectActiveRate } from "./parkingRates.mjs";
 import { listParkingRates } from "./parkingRatesRepository.js";
+import { signWebpayQuoteEvidence } from "./webpayQuoteEvidence.mjs";
 
 function mapBlockedReason(reason) {
   if (reason === "ACTIVE_RATE_NOT_FOUND") {
@@ -10,9 +11,9 @@ function mapBlockedReason(reason) {
   return reason || "UNKNOWN";
 }
 
-async function getActiveRate(db, parkingId) {
+async function getActiveRate(db, parkingId, at = new Date()) {
   const rates = await listParkingRates(db, parkingId);
-  return selectActiveRate(rates);
+  return selectActiveRate(rates, at);
 }
 
 async function getCoupon(db, rawToken, companyId) {
@@ -36,7 +37,7 @@ export async function quoteParkingStay(db, stay, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const couponToken = options.couponToken || null;
 
-  const rate = await getActiveRate(db, stay.parking_id);
+  const rate = await getActiveRate(db, stay.parking_id, now);
   if (!rate) {
     return resolveStayQuoteAvailability(null, stay.entry_at, now);
   }
@@ -131,7 +132,7 @@ export function toPagueAquiQuote({ stay, parkingName, quote, calculatedAt = new 
 export async function quoteParkingStayById(db, stayId, options = {}) {
   const { data: stay, error } = await db
     .from("parking_stays")
-    .select("id,code,parking_id,license_plate,entry_at,status,rate_id,rate_name,billing_mode")
+    .select("id,code,parking_id,license_plate,entry_at,status,rate_id,rate_name,billing_mode,updated_at")
     .eq("id", stayId)
     .maybeSingle();
 
@@ -152,14 +153,59 @@ export async function quoteParkingStayById(db, stayId, options = {}) {
 
   const calculatedAt = options.now instanceof Date ? options.now : new Date();
   const quote = await quoteParkingStay(db, stay, { ...options, now: calculatedAt });
+  const publicQuote = toPagueAquiQuote({
+    stay,
+    parkingName: parking?.name || "Estacionamiento",
+    quote,
+    calculatedAt,
+  });
+
+  if (publicQuote.payable) {
+    const evidence = signWebpayQuoteEvidence({
+      stayId: stay.id,
+      stayUpdatedAt: stay.updated_at,
+      calculatedAt,
+      rateId: quote.rate.id,
+      rateUpdatedAt: quote.rate.updatedAt,
+      rateBlocksSnapshot: quote.rate.blocks,
+      elapsedMinutes: quote.elapsedMinutes,
+      rateName: quote.rate.name,
+      billingMode: quote.rate.billingMode,
+      subtotalAmount: quote.subtotal,
+      discountAmount: quote.discount,
+      netAmount: quote.net,
+      taxAmount: quote.tax,
+      totalAmount: quote.total,
+    }, process.env.WEBPAY_QUOTE_HMAC_SECRET);
+    const { data: quoteId, error: snapshotError } = await db.rpc("create_webpay_stay_quote", {
+      p_stay_id: stay.id,
+      p_stay_updated_at: stay.updated_at,
+      p_calculated_at: calculatedAt.toISOString(),
+      p_rate_id: quote.rate.id,
+      p_rate_updated_at: quote.rate.updatedAt,
+      p_rate_blocks_snapshot: quote.rate.blocks.map((block) => ({
+        id: block.id,
+        sequence: block.sequence,
+        durationSeconds: block.durationSeconds,
+        amount: block.amount,
+        repeatAfter: block.repeatAfter,
+      })),
+      p_elapsed_minutes: quote.elapsedMinutes,
+      p_rate_name: quote.rate.name,
+      p_billing_mode: quote.rate.billingMode,
+      p_subtotal_amount: quote.subtotal,
+      p_discount_amount: quote.discount,
+      p_net_amount: quote.net,
+      p_tax_amount: quote.tax,
+      p_total_amount: quote.total,
+      p_evidence: evidence,
+    });
+    if (snapshotError) throw snapshotError;
+    publicQuote.quoteId = quoteId;
+  }
 
   return {
     ok: true,
-    quote: toPagueAquiQuote({
-      stay,
-      parkingName: parking?.name || "Estacionamiento",
-      quote,
-      calculatedAt,
-    }),
+    quote: publicQuote,
   };
 }

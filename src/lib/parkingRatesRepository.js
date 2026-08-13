@@ -14,7 +14,7 @@ function mapRate(row, blocks, usedRateIds = new Set()) {
     regularStartTime: row.regular_start_time?.slice(0, 5) || null, regularEndTime: row.regular_end_time?.slice(0, 5) || null,
     overnightEndTime: row.overnight_end_time?.slice(0, 5) || null,
     overnightFlatAmount: row.overnight_flat_amount == null ? null : Number(row.overnight_flat_amount),
-    validFrom: row.valid_from, validUntil: row.valid_until, status: row.status, notes: row.notes || "",
+    validFrom: row.valid_from, validUntil: row.valid_until, updatedAt: row.updated_at, status: row.status, notes: row.notes || "",
     blocks: blocks.filter((block) => block.rate_id === row.id).map(mapBlock).sort((a, b) => a.sequence - b.sequence),
     hasCharges,
   };
