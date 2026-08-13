@@ -11,7 +11,7 @@ const ROLES_CLIENTE_PERMITIDOS = new Set([
   "operator",
 ]);
 
-const MODO_DIAGNOSTICO = true;
+const MODO_DIAGNOSTICO = false;
 
 function diagnostico(etiqueta, valor = "") {
   if (!MODO_DIAGNOSTICO) {
@@ -500,16 +500,6 @@ diagnostico(
   errorGeneracion
 );
 
-diagnostico(
-  "Action link:",
-  data?.properties?.action_link
-);
-
-diagnostico(
-  "Email OTP:",
-  data?.properties?.email_otp
-);
-
   diagnostico(
   "Has properties:",
   Boolean(data?.properties)
@@ -517,8 +507,12 @@ diagnostico(
 
 if (errorGeneracion) {
   console.error(
-    "[RECUPERAR CONTRASEÑA] Error de generación:",
-    errorGeneracion
+    "[RECUPERAR CONTRASEÑA] Error de generación",
+    {
+      type: errorGeneracion?.name || "AuthError",
+      code: errorGeneracion?.code || "RECOVERY_LINK_FAILED",
+      status: errorGeneracion?.status || null,
+    }
   );
 
   return respuestaGenerica();
@@ -585,13 +579,13 @@ const enlaceSeguro = escaparHtml(
     return respuestaGenerica();
   } catch (error) {
   console.error(
-    "[RECUPERAR CONTRASEÑA] ERROR COMPLETO"
+    "[RECUPERAR CONTRASEÑA] Error interno",
+    {
+      type: error?.name || "Error",
+      code: error?.code || "RECOVERY_REQUEST_FAILED",
+      status: error?.status || null,
+    }
   );
-
-  console.error(error);
-
-  console.error("message:", error?.message);
-  console.error("stack:", error?.stack);
 
   return respuestaGenerica();
   } finally {
