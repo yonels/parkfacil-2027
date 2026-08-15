@@ -1,4 +1,4 @@
-import { BarChart3, BadgeDollarSign, Building2, Calculator, CreditCard, FileText, Handshake, KeyRound, Layers, MapPinned, RadioTower, ReceiptText, ScanLine, ShieldAlert, TicketPercent, Users, Wallet } from "lucide-react";
+import { BarChart3, BadgeDollarSign, Building2, Calculator, CreditCard, FileText, Handshake, KeyRound, Layers, MapPinned, MessageCircle, RadioTower, ReceiptText, ScanLine, ShieldAlert, TicketPercent, Users, Wallet } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import StatCard from "@/components/ui/StatCard";
 import ModuleCard from "@/components/ui/ModuleCard";
@@ -26,6 +26,8 @@ const modules = [
   { title: "Tarifas", description: "Configura y administra las tarifas de los estacionamientos.", icon: BadgeDollarSign, href: "/administracion-tarifas", state: "Disponible" },
   { title: "Planes", description: "Administra los planes comerciales y sus condiciones.", icon: Layers, href: "/tarifas", state: "Disponible" },
 ];
+
+const whatsappUrl = "https://wa.me/56966514044?text=Hola%20ParkFacil%2C%20necesito%20informaci%C3%B3n.";
 
 export default function Home() {
   return (
@@ -56,6 +58,15 @@ export default function Home() {
 
         </section>
       </div>
+      <a
+        href={whatsappUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="Contactar a ParkFacil por WhatsApp"
+        className="fixed bottom-5 right-5 z-30 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition hover:scale-105 hover:bg-[#20BD5A] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25D366] focus-visible:ring-offset-2"
+      >
+        <MessageCircle className="h-7 w-7" aria-hidden="true" />
+      </a>
     </AppShell>
   );
 }
