@@ -7,7 +7,12 @@ import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { getSafeDestination } from "@/lib/auth/loginDestination.mjs";
 import Link from "next/link";
 
-export default function LoginForm({ tipoAcceso }) {
+export default function LoginForm({
+  tipoAcceso,
+  loginScope = "default",
+  defaultDestination = "/",
+  forcePosDestination = false,
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
@@ -20,7 +25,10 @@ export default function LoginForm({ tipoAcceso }) {
     event.preventDefault();
     setError("");
     setSubmitting(true);
-    const destination = getSafeDestination(searchParams.get("next"));
+    const requestedDestination = getSafeDestination(searchParams.get("next"));
+    const destination = forcePosDestination
+      ? (requestedDestination === "/pos" || requestedDestination.startsWith("/pos/") ? requestedDestination : "/pos")
+      : (requestedDestination === "/" ? defaultDestination : requestedDestination);
 
     try {
       const supabase = getSupabaseBrowserClient();
@@ -31,8 +39,11 @@ export default function LoginForm({ tipoAcceso }) {
       if (authError) throw authError;
       const sessionResponse = await fetch("/api/auth/session", {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ accessToken: data.session?.access_token }),
+        headers: {
+          "content-type": "application/json",
+          ...(tipoAcceso === "terminal" ? { "x-parkfacil-portal": "terminal" } : {}),
+        },
+        body: JSON.stringify({ accessToken: data.session?.access_token, scope: loginScope }),
       });
       if (!sessionResponse.ok) {
         const payload = await sessionResponse.json().catch(() => ({}));
