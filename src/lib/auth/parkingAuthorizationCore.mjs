@@ -3,8 +3,8 @@ import { ROLES } from "./permissions.mjs";
 
 export function parkingQueryScope(context, assignedParkingIds = []) {
   if (context?.role === ROLES.PLATFORM_ADMIN && context?.portal === "root") return { companyId: null, parkingIds: null };
-  if (context?.role === ROLES.COMPANY_ADMIN && context?.portal === "client") return { companyId: context.companyId, parkingIds: null };
-  if (context?.role === ROLES.OPERATOR && context?.portal === "client") return { companyId: context.companyId, parkingIds: [...new Set(assignedParkingIds)] };
+  if (context?.role === ROLES.COMPANY_ADMIN && ["client", "terminal"].includes(context?.portal)) return { companyId: context.companyId, parkingIds: null };
+  if (context?.role === ROLES.OPERATOR && ["client", "terminal"].includes(context?.portal)) return { companyId: context.companyId, parkingIds: [...new Set(assignedParkingIds)] };
   throw new AuthorizationError("PARKING_ACCESS_FORBIDDEN", 403, "No tienes permiso para acceder a estacionamientos.", context || null);
 }
 

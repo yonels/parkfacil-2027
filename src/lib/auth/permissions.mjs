@@ -69,6 +69,10 @@ function matchesPrefix(pathname, prefixes) {
 }
 
 export function canAccessPath({ portal, role }, pathname) {
+  if (portal === "terminal") {
+    const terminalPath = pathname === "/pos" || pathname.startsWith("/pos/");
+    return terminalPath && hasPermission(role, PERMISSIONS.OPERATIONS_USE);
+  }
   if (role === ROLES.PLATFORM_ADMIN) {
     return portal === "root";
   }

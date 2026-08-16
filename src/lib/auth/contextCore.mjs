@@ -1,4 +1,4 @@
-import { ROLES } from "./permissions.mjs";
+import { hasPermission, PERMISSIONS, ROLES } from "./permissions.mjs";
 
 export class AuthorizationError extends Error {
   constructor(code, status, message, auditContext = null) {
@@ -26,7 +26,10 @@ export async function resolveAuthenticatedContext({ user, portal, loadMembership
   if (![ROLES.COMPANY_ADMIN, ROLES.OPERATOR].includes(membership.role)) {
     throw new AuthorizationError("ROLE_FORBIDDEN", 403, "El rol de la membresía no está autorizado.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
   }
-  if (portal !== "client") throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al Portal Cliente.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
+  if (!["client", "terminal"].includes(portal)) throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al Portal Cliente o Terminal.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
+  if (portal === "terminal" && !hasPermission(membership.role, PERMISSIONS.OPERATIONS_USE)) {
+    throw new AuthorizationError("PERMISSION_FORBIDDEN", 403, "Esta cuenta no tiene permiso para operar el Terminal.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
+  }
   if (!membership.company || membership.company.status !== "active" || membership.company.relationship_type !== "client") {
     throw new AuthorizationError("COMPANY_INACTIVE", 403, "La empresa no está habilitada como cliente.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
   }
