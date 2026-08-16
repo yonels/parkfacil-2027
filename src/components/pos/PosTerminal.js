@@ -20,6 +20,78 @@ function formatEntryDate(value) {
   };
 }
 
+function formatBridgeEntryDateTime(value) {
+  const source = String(value ?? "");
+  const match = source.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (match) {
+    const [, year, month, day, hour, minute] = match;
+    return { entryDate: `${day}-${month}-${year}`, entryTime: `${hour}:${minute}` };
+  }
+
+  const date = new Date(source);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const year = String(date.getUTCFullYear());
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+
+  return { entryDate: `${day}-${month}-${year}`, entryTime: `${hour}:${minute}` };
+}
+
+function formatTicketPlate(value) {
+  const normalized = normalizePlateInput(value);
+  if (normalized.length === 6) {
+    return `${normalized.slice(0, 4)}-${normalized.slice(4)}`;
+  }
+  return String(value ?? "").toUpperCase();
+}
+
+function buildEntryPrintPayload(stay, parkingResponse) {
+  if (!stay || !parkingResponse) return null;
+  const normalizedDateTime = formatBridgeEntryDateTime(stay.entry_at);
+  if (!normalizedDateTime) return null;
+
+  const payload = {
+    type: "ENTRY",
+    companyName: String(parkingResponse?.company?.business_name || parkingResponse?.company_name || "").trim(),
+    parkingName: String(parkingResponse?.name || "").trim(),
+    operator: String(stay?.entry_operator_name || "").trim(),
+    plate: formatTicketPlate(stay?.license_plate),
+    entryDate: normalizedDateTime.entryDate,
+    entryTime: normalizedDateTime.entryTime,
+    ticketNumber: String(stay?.code || "").trim(),
+    qrValue: String(stay?.qr_token || "").trim(),
+  };
+
+  if (!payload.companyName || !payload.parkingName || !payload.operator || !payload.ticketNumber || !payload.qrValue) {
+    return null;
+  }
+
+  return payload;
+}
+
+function getNativePrinterBridge() {
+  if (typeof window === "undefined") return null;
+  const bridge = window?.ParkFacilDevice;
+  if (!bridge || typeof bridge.print !== "function") return null;
+  return bridge;
+}
+
+async function executeNativePrint(payload) {
+  const bridge = getNativePrinterBridge();
+  if (!bridge || !payload) return { attempted: false, ok: false };
+
+  try {
+    const raw = await bridge.print(JSON.stringify(payload));
+    const response = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return { attempted: true, ok: Boolean(response?.ok) };
+  } catch {
+    return { attempted: true, ok: false };
+  }
+}
+
 async function getSessionContext() {
   const response = await fetch("/api/auth/session", {
     headers: { "x-parkfacil-portal": "terminal" },
@@ -52,6 +124,9 @@ export default function PosTerminal() {
   const [entrySubmitting, setEntrySubmitting] = useState(false);
   const [entryError, setEntryError] = useState("");
   const [entrySuccess, setEntrySuccess] = useState(null);
+  const [entryPrintPayload, setEntryPrintPayload] = useState(null);
+  const [entryPrintBusy, setEntryPrintBusy] = useState(false);
+  const [entryPrintStatus, setEntryPrintStatus] = useState("");
 
   const loadTerminalState = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -103,6 +178,8 @@ export default function PosTerminal() {
 
   function openEntryForm() {
     setEntrySuccess(null);
+    setEntryPrintPayload(null);
+    setEntryPrintStatus("");
     setEntryError("");
     setEntryPlate("");
     setEntryOpen(true);
@@ -111,6 +188,23 @@ export default function PosTerminal() {
   function closeEntryForm() {
     setEntryOpen(false);
     setEntryError("");
+  }
+
+  async function printLastEntryTicket(payload) {
+    const printPayload = payload || entryPrintPayload;
+    if (!printPayload) return;
+
+    setEntryPrintBusy(true);
+    const result = await executeNativePrint(printPayload);
+
+    if (!result.attempted) {
+      setEntryPrintStatus("");
+      setEntryPrintBusy(false);
+      return;
+    }
+
+    setEntryPrintStatus(result.ok ? "Ticket impreso" : "Entrada registrada. No fue posible imprimir el ticket.");
+    setEntryPrintBusy(false);
   }
 
   async function submitEntry(event) {
@@ -144,10 +238,17 @@ export default function PosTerminal() {
       const stay = payload?.data?.stay || null;
       const parkingResponse = payload?.data?.parking || parking;
       setEntrySuccess(stay ? { stay, parking: parkingResponse } : null);
+      const printPayload = buildEntryPrintPayload(stay, parkingResponse);
+      setEntryPrintPayload(printPayload);
       setEntryPlate("");
       setEntryOpen(false);
       setVehiclesInside((current) => current + 1);
       void loadTerminalState(true);
+      if (printPayload) {
+        await printLastEntryTicket(printPayload);
+      } else {
+        setEntryPrintStatus("Entrada registrada. No fue posible imprimir el ticket.");
+      }
     } catch {
       setEntryError("Error de red al registrar la entrada.");
     } finally {
@@ -247,6 +348,25 @@ export default function PosTerminal() {
                     <p className="mt-1 break-all font-mono text-sm font-bold">{entrySuccess.stay?.qr_token || "-"}</p>
                   </div>
                 </div>
+
+                {entryPrintStatus ? (
+                  <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-3 text-sm font-bold text-emerald-800">
+                    {entryPrintStatus}
+                  </div>
+                ) : null}
+
+                {entryPrintPayload ? (
+                  <div className="mt-4">
+                    <button
+                      type="button"
+                      onClick={() => void printLastEntryTicket(entryPrintPayload)}
+                      disabled={entryPrintBusy}
+                      className="rounded-2xl border border-emerald-400 bg-emerald-100 px-4 py-3 text-sm font-black text-emerald-900 transition hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {entryPrintBusy ? "Reimprimiendo..." : "REIMPRIMIR TICKET"}
+                    </button>
+                  </div>
+                ) : null}
               </article>
             ) : null}
 
