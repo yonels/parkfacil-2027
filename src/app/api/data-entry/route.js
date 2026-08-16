@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { joinChileanPlate } from "@/lib/dataEntry.mjs";
+import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
 import { quoteParkingStay } from "@/lib/parkingStayQuoteService";
 import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
@@ -72,14 +72,23 @@ export async function GET(request) {
 
 export async function POST(request) {
   const input = await request.json();
-  const current = await context(request, input.parkingId || null); if (current.response) return current.response;
+  const current = await context(request); if (current.response) return current.response;
   if (input.action === "ENTRY") {
-    const plate = joinChileanPlate(input.platePrefix, input.plateSuffix);
-    if (!plate) return fail("Ingresa los cuatro caracteres iniciales y los dos finales de la patente.", 400, { plate: "Formato requerido: CXPY-93" });
+    const plate = formatChileanPlate(input.plate || joinChileanPlate(input.platePrefix, input.plateSuffix));
+    if (!plate) return fail("Ingresa una patente válida.", 400, { plate: "Formato requerido: CXPY93" });
     const assignedParkingId = current.actor.parkingId;
+    const existing = await current.db
+      .from("parking_stays")
+      .select(publicStayFields)
+      .eq("parking_id", assignedParkingId)
+      .eq("license_plate", plate)
+      .eq("status", "OPEN")
+      .maybeSingle();
+    if (existing.error) return fail("No fue posible validar la entrada del vehículo.", 503);
+    if (existing.data) return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409);
     const row = { code: code("ING"), parking_id: assignedParkingId, license_plate: plate, entry_operator_id: current.actor.id, entry_operator_name: current.actor.name, entry_source: input.source === "POS" ? "POS" : "WEB" };
     const { data, error } = await current.db.from("parking_stays").insert(row).select(publicStayFields).single();
-    if (error?.code === "23505") return fail("La patente ya tiene una estadía abierta en este parking.", 409);
+    if (error?.code === "23505") return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409);
     if (error) return fail("No fue posible guardar el ingreso.", 503);
     const { data: parking } = await current.db.from("parkings").select(ticketParkingFields).eq("id", assignedParkingId).single();
     return NextResponse.json({ data: { stay: data, parking } }, { status: 201 });

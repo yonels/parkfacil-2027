@@ -7,6 +7,19 @@ import { LoaderCircle, LogOut, RefreshCw } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
 
+function normalizePlateInput(value) {
+  return String(value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+}
+
+function formatEntryDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: "-", time: "-" };
+  return {
+    date: new Intl.DateTimeFormat("es-CL", { dateStyle: "medium" }).format(date),
+    time: new Intl.DateTimeFormat("es-CL", { timeStyle: "short" }).format(date),
+  };
+}
+
 async function getSessionContext() {
   const response = await fetch("/api/auth/session", {
     headers: { "x-parkfacil-portal": "terminal" },
@@ -34,6 +47,11 @@ export default function PosTerminal() {
   const [context, setContext] = useState(null);
   const [parking, setParking] = useState(null);
   const [vehiclesInside, setVehiclesInside] = useState(0);
+  const [entryOpen, setEntryOpen] = useState(false);
+  const [entryPlate, setEntryPlate] = useState("");
+  const [entrySubmitting, setEntrySubmitting] = useState(false);
+  const [entryError, setEntryError] = useState("");
+  const [entrySuccess, setEntrySuccess] = useState(null);
 
   const loadTerminalState = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -81,6 +99,60 @@ export default function PosTerminal() {
     await supabase.auth.signOut();
     await fetch("/api/auth/session", { method: "DELETE" }).catch(() => null);
     router.replace("/pos/login");
+  }
+
+  function openEntryForm() {
+    setEntrySuccess(null);
+    setEntryError("");
+    setEntryPlate("");
+    setEntryOpen(true);
+  }
+
+  function closeEntryForm() {
+    setEntryOpen(false);
+    setEntryError("");
+  }
+
+  async function submitEntry(event) {
+    event.preventDefault();
+    const plate = normalizePlateInput(entryPlate);
+    if (plate.length !== 6) {
+      setEntryError("Ingresa una patente válida. Ejemplo: CXPY93.");
+      return;
+    }
+
+    setEntrySubmitting(true);
+    setEntryError("");
+
+    try {
+      const response = await fetch("/api/data-entry", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-parkfacil-portal": "terminal",
+        },
+        cache: "no-store",
+        body: JSON.stringify({ action: "ENTRY", plate, source: "POS" }),
+      });
+      const payload = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setEntryError(payload?.error || "No fue posible registrar la entrada.");
+        return;
+      }
+
+      const stay = payload?.data?.stay || null;
+      const parkingResponse = payload?.data?.parking || parking;
+      setEntrySuccess(stay ? { stay, parking: parkingResponse } : null);
+      setEntryPlate("");
+      setEntryOpen(false);
+      setVehiclesInside((current) => current + 1);
+      void loadTerminalState(true);
+    } catch {
+      setEntryError("Error de red al registrar la entrada.");
+    } finally {
+      setEntrySubmitting(false);
+    }
   }
 
   useEffect(() => {
@@ -137,6 +209,117 @@ export default function PosTerminal() {
               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Vehículos dentro</p>
               <p className="mt-1 text-2xl font-black text-slate-800">{vehiclesInside}</p>
             </article>
+
+            {entrySuccess ? (
+              <article className="rounded-3xl border border-emerald-300 bg-emerald-50 p-5 text-emerald-950 shadow-sm">
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Entrada registrada</p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Patente</p>
+                    <p className="mt-1 text-lg font-black">{entrySuccess.stay?.license_plate || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Ticket / operación</p>
+                    <p className="mt-1 text-lg font-black">{entrySuccess.stay?.code || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Fecha</p>
+                    <p className="mt-1 font-bold">{formatEntryDate(entrySuccess.stay?.entry_at).date}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Hora</p>
+                    <p className="mt-1 font-bold">{formatEntryDate(entrySuccess.stay?.entry_at).time}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Estacionamiento</p>
+                    <p className="mt-1 font-bold">{entrySuccess.parking?.name || parking?.name || "-"}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Operador</p>
+                    <p className="mt-1 font-bold">{entrySuccess.stay?.entry_operator_name || context?.email || "-"}</p>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Empresa</p>
+                    <p className="mt-1 font-bold">{entrySuccess.parking?.company?.business_name || entrySuccess.parking?.company_name || "-"}</p>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">QR</p>
+                    <p className="mt-1 break-all font-mono text-sm font-bold">{entrySuccess.stay?.qr_token || "-"}</p>
+                  </div>
+                </div>
+              </article>
+            ) : null}
+
+            {entryOpen ? (
+              <form onSubmit={submitEntry} className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Entrada</p>
+                    <h2 className="mt-1 text-xl font-black text-slate-800">Registrar vehículo</h2>
+                    <p className="mt-1 text-sm text-slate-600">Se usará el estacionamiento asignado a tu sesión.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeEntryForm}
+                    className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-white"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+
+                <label className="mt-5 block">
+                  <span className="mb-2 block text-sm font-bold text-slate-700">Patente</span>
+                  <input
+                    value={entryPlate}
+                    onChange={(event) => setEntryPlate(event.target.value.toUpperCase())}
+                    inputMode="text"
+                    autoCapitalize="characters"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    placeholder="CXPY93"
+                    maxLength={12}
+                    className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-2xl font-black tracking-[0.16em] text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-amber-500"
+                  />
+                </label>
+
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Formato sugerido: CXPY93
+                </p>
+
+                {entryError ? (
+                  <div className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
+                    {entryError}
+                  </div>
+                ) : null}
+
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="submit"
+                    disabled={entrySubmitting}
+                    className="rounded-2xl bg-amber-500 px-4 py-4 text-lg font-black text-slate-950 shadow-lg shadow-amber-200 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {entrySubmitting ? "Registrando..." : "Confirmar entrada"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={closeEntryForm}
+                    disabled={entrySubmitting}
+                    className="rounded-2xl border border-slate-300 px-4 py-4 text-lg font-black text-slate-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={openEntryForm}
+                className="w-full rounded-3xl bg-amber-500 px-6 py-8 text-3xl font-black tracking-[0.16em] text-slate-950 shadow-xl shadow-amber-200 transition hover:bg-amber-400"
+              >
+                ENTRADA
+              </button>
+            )}
 
             <div className="flex justify-end">
               <button

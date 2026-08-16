@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { joinChileanPlate, normalizePlate, resolveStayQuoteAvailability, sanitizeMovementInput, splitChileTaxFromTotal, splitChileanPlate, validateMovementInput } from "./dataEntry.mjs";
+import { formatChileanPlate, joinChileanPlate, normalizePlate, resolveStayQuoteAvailability, sanitizeMovementInput, splitChileTaxFromTotal, splitChileanPlate, validateMovementInput } from "./dataEntry.mjs";
 
 test("normaliza patentes para captura táctil", () => assert.equal(normalizePlate("ab-cd 12"), "ABCD12"));
 test("valida campos operacionales obligatorios", () => {
@@ -14,6 +14,10 @@ test("acepta un ingreso completo desde POS", () => {
 test("compone patente chilena en dos campos", () => {
   assert.equal(joinChileanPlate("cxpy", "93"), "CXPY-93");
   assert.deepEqual(splitChileanPlate("CXPY-93"), { prefix: "CXPY", suffix: "93" });
+});
+test("formatea una patente chilena capturada como texto único", () => {
+  assert.equal(formatChileanPlate("cxpy-93"), "CXPY-93");
+  assert.equal(formatChileanPlate("abc"), "");
 });
 test("desglosa neto e IVA desde el precio final informado", () => assert.deepEqual(splitChileTaxFromTotal(1000), { net: 840, tax: 160, total: 1000, taxRate: 0.19 }));
 

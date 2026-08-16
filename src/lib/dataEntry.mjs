@@ -14,6 +14,11 @@ export function joinChileanPlate(prefix, suffix) {
   return first.length === 4 && last.length === 2 ? `${first}-${last}` : "";
 }
 
+export function formatChileanPlate(value) {
+  const normalized = normalizePlate(value);
+  return normalized.length === 6 ? `${normalized.slice(0, 4)}-${normalized.slice(4, 6)}` : "";
+}
+
 export function splitChileanPlate(value) {
   const normalized = normalizePlate(value);
   return { prefix: normalized.slice(0, 4), suffix: normalized.slice(4, 6) };
