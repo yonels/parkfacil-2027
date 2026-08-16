@@ -85,10 +85,33 @@ async function executeNativePrint(payload) {
 
   try {
     const raw = await bridge.print(JSON.stringify(payload));
-    const response = typeof raw === "string" ? JSON.parse(raw) : raw;
-    return { attempted: true, ok: Boolean(response?.ok) };
-  } catch {
-    return { attempted: true, ok: false };
+    let response = raw;
+    if (typeof raw === "string") {
+      try {
+        response = JSON.parse(raw);
+      } catch {
+        return {
+          attempted: true,
+          ok: false,
+          code: "INVALID_BRIDGE_RESPONSE",
+          message: `Respuesta no JSON: ${raw}`,
+        };
+      }
+    }
+
+    return {
+      attempted: true,
+      ok: Boolean(response?.ok),
+      code: response?.code ? String(response.code) : "",
+      message: response?.message ? String(response.message) : "",
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      ok: false,
+      code: "PRINT_EXCEPTION",
+      message: error instanceof Error ? error.message : String(error ?? "Error desconocido"),
+    };
   }
 }
 
@@ -192,19 +215,37 @@ export default function PosTerminal() {
 
   async function printLastEntryTicket(payload) {
     const printPayload = payload || entryPrintPayload;
-    if (!printPayload) return;
-
-    setEntryPrintBusy(true);
-    const result = await executeNativePrint(printPayload);
-
-    if (!result.attempted) {
-      setEntryPrintStatus("");
-      setEntryPrintBusy(false);
+    if (!printPayload) {
+      setEntryPrintStatus("No hay un ticket disponible para reimpresión.");
       return;
     }
 
-    setEntryPrintStatus(result.ok ? "Ticket impreso" : "Entrada registrada. No fue posible imprimir el ticket.");
-    setEntryPrintBusy(false);
+    const bridge = getNativePrinterBridge();
+    if (!bridge) {
+      setEntryPrintStatus("Impresión disponible solo desde el dispositivo POS.");
+      return;
+    }
+
+    setEntryPrintBusy(true);
+    setEntryPrintStatus("Imprimiendo...");
+
+    try {
+      const result = await executeNativePrint(printPayload);
+
+      if (result.ok) {
+        setEntryPrintStatus("Ticket impreso.");
+      } else {
+        const details = [];
+        if (result.code) details.push(`Código: ${result.code}`);
+        if (result.message) details.push(`Detalle: ${result.message}`);
+        setEntryPrintStatus([
+          "Entrada registrada. No fue posible imprimir el ticket.",
+          ...details,
+        ].join("\n"));
+      }
+    } finally {
+      setEntryPrintBusy(false);
+    }
   }
 
   async function submitEntry(event) {
@@ -350,7 +391,7 @@ export default function PosTerminal() {
                 </div>
 
                 {entryPrintStatus ? (
-                  <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-3 text-sm font-bold text-emerald-800">
+                  <div className="mt-4 whitespace-pre-line rounded-2xl border border-emerald-200 bg-white p-3 text-sm font-bold text-emerald-800">
                     {entryPrintStatus}
                   </div>
                 ) : null}
