@@ -1,7 +1,7 @@
 import { quoteParkingStay } from "./parkingStayQuoteService.js";
 import { filterPaidStaysForOperationalDay, summarizeDailyPayments, toDailyPaymentRow } from "./pos/paymentsDayCore.mjs";
 
-const parkingFields = "id,name,company_name,address,city,status,company:companies(business_name,address,district,city,rut_number,rut_dv,phone)";
+const parkingFields = "id,code,name,company_name,address,city,status,company:companies(business_name,address,district,city,rut_number,rut_dv,phone)";
 const stayFields = "id,code,parking_id,license_plate,qr_token,status,entry_at,entry_operator_name,entry_source,exit_at,exit_operator_name,elapsed_minutes,rate_name,billing_mode,net_amount,tax_amount,total_amount,payment_method,payment_code,coupon_id,coupon_code,discount_amount,subtotal_amount";
 // Ventana amplia (36h) usada solo para acotar la consulta SQL antes de filtrar
 // por día operacional en memoria; evita calcular límites UTC exactos para

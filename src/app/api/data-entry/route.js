@@ -4,7 +4,7 @@ import { quoteParkingStay } from "@/lib/parkingStayQuoteService";
 import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 
-const publicStayFields = "id,code,parking_id,license_plate,qr_token,status,entry_at,entry_operator_name,entry_source,exit_at,exit_operator_name,elapsed_minutes,rate_name,billing_mode,net_amount,tax_amount,total_amount,payment_method,payment_code,coupon_id,coupon_code,discount_amount,subtotal_amount";
+const publicStayFields = "id,code,parking_id,license_plate,qr_token,status,entry_at,entry_operator_name,entry_source,entry_shift_id,exit_at,exit_operator_name,payment_shift_id,elapsed_minutes,rate_name,billing_mode,net_amount,tax_amount,total_amount,payment_method,payment_code,coupon_id,coupon_code,discount_amount,subtotal_amount";
 const ticketParkingFields = "id,code,name,company_name,address,city,status,company:companies(business_name,address,district,city,rut_number,rut_dv,phone)";
 
 function fail(message, status = 400, details) { return NextResponse.json({ error: message, details }, { status }); }
@@ -46,6 +46,13 @@ async function findOpenStay(db, input, assignedParkingId) {
   return data;
 }
 
+async function requireOpenPosShift(db, actor) {
+  const { data, error } = await db.from("operator_shifts").select("id,operator_id,parking_id,status")
+    .eq("operator_id", actor.id).eq("parking_id", actor.parkingId).eq("status", "OPEN").limit(1).maybeSingle();
+  if (error) throw error;
+  return data || null;
+}
+
 export async function GET(request) {
   const requestedParkingId = new URL(request.url).searchParams.get("parkingId");
   const current = await context(request, requestedParkingId); if (current.response) return current.response;
@@ -73,6 +80,11 @@ export async function GET(request) {
 export async function POST(request) {
   const input = await request.json();
   const current = await context(request); if (current.response) return current.response;
+  const isPosRequest = String(request.headers.get("x-parkfacil-portal") || "").toLowerCase() === "terminal";
+  const posShift = isPosRequest ? await requireOpenPosShift(current.db, current.actor) : null;
+  if (isPosRequest && !posShift && (input.action === "ENTRY" || input.action === "EXIT")) {
+    return fail("Debes iniciar un turno antes de realizar esta operación en el POS.", 409, { code: "OPEN_SHIFT_REQUIRED" });
+  }
   if (input.action === "ENTRY") {
     const plate = formatChileanPlate(input.plate || joinChileanPlate(input.platePrefix, input.plateSuffix));
     if (!plate) return fail("Ingresa una patente válida.", 400, { plate: "Formato requerido: CXPY93" });
@@ -86,7 +98,7 @@ export async function POST(request) {
       .maybeSingle();
     if (existing.error) return fail("No fue posible validar la entrada del vehículo.", 503);
     if (existing.data) return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409);
-    const row = { code: code("ING"), parking_id: assignedParkingId, license_plate: plate, entry_operator_id: current.actor.id, entry_operator_name: current.actor.name, entry_source: input.source === "POS" ? "POS" : "WEB" };
+    const row = { code: code("ING"), parking_id: assignedParkingId, license_plate: plate, entry_operator_id: current.actor.id, entry_operator_name: current.actor.name, entry_source: isPosRequest ? "POS" : "WEB", entry_shift_id: isPosRequest ? posShift.id : null };
     const { data, error } = await current.db.from("parking_stays").insert(row).select(publicStayFields).single();
     if (error?.code === "23505") return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409);
     if (error) return fail("No fue posible guardar el ingreso.", 503);
@@ -115,13 +127,14 @@ export async function POST(request) {
       const { data: redeemed, error: redeemError } = await current.db.from("coupons").update({ status: "REDEEMED", redeemed_at: exitAt, redeemed_by: current.actor.id, redeemed_stay_id: stay.id }).eq("id", quote.coupon.id).eq("status", "ACTIVE").is("redeemed_at", null).select("id").maybeSingle();
       if (redeemError || !redeemed) return fail("El cupón ya fue utilizado o dejó de estar disponible.", 409);
     }
-    const update = { status: "PAID", exit_at: exitAt, exit_operator_id: current.actor.id, exit_operator_name: current.actor.name, elapsed_minutes: quote.elapsedMinutes, rate_id: quote.rate.id, rate_name: quote.rate.name, billing_mode: quote.rate.billingMode, subtotal_amount: quote.subtotal, discount_amount: quote.discount, coupon_id: quote.coupon?.id || null, coupon_code: quote.coupon?.code || null, net_amount: quote.net, tax_amount: quote.tax, total_amount: quote.total, payment_method: input.paymentMethod, payment_code: paymentCode, updated_at: exitAt };
+    const update = { status: "PAID", exit_at: exitAt, exit_operator_id: current.actor.id, exit_operator_name: current.actor.name, payment_shift_id: isPosRequest ? posShift.id : null, elapsed_minutes: quote.elapsedMinutes, rate_id: quote.rate.id, rate_name: quote.rate.name, billing_mode: quote.rate.billingMode, subtotal_amount: quote.subtotal, discount_amount: quote.discount, coupon_id: quote.coupon?.id || null, coupon_code: quote.coupon?.code || null, net_amount: quote.net, tax_amount: quote.tax, total_amount: quote.total, payment_method: input.paymentMethod, payment_code: paymentCode, updated_at: exitAt };
     const { data, error } = await current.db.from("parking_stays").update(update).eq("id", stay.id).eq("status", "OPEN").select(publicStayFields).single();
     if (error) {
       if (quote.coupon) {
         await current.db.from("coupons").update({ status: "ACTIVE", redeemed_at: null, redeemed_by: null, redeemed_stay_id: null }).eq("id", quote.coupon.id).eq("status", "REDEEMED").eq("redeemed_stay_id", stay.id).eq("redeemed_at", exitAt);
       }
-      return fail("No fue posible cerrar y pagar la estadía.", 503);
+      const shiftConflict = String(error.message || "").includes("PAYMENT_SHIFT_NOT_OPEN");
+      return fail(shiftConflict ? "El turno dejó de estar abierto antes de confirmar el pago. Actualiza el POS." : "No fue posible cerrar y pagar la estadía.", shiftConflict ? 409 : 503);
     }
     return NextResponse.json({ data: { stay: data, parking, quote: { ...quote, paymentCode } } });
   }

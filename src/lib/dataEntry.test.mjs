@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatChileanPlate, joinChileanPlate, normalizePlate, resolveStayQuoteAvailability, sanitizeMovementInput, splitChileTaxFromTotal, splitChileanPlate, validateMovementInput } from "./dataEntry.mjs";
+import { formatChileanPlate, joinChileanPlate, normalizePlate, resolveStayQuoteAvailability, sanitizeMovementInput, splitChileTaxFromTotal, splitChileanPlate, toOperationalDateTimeParts, validateMovementInput } from "./dataEntry.mjs";
 
 test("normaliza patentes para captura táctil", () => assert.equal(normalizePlate("ab-cd 12"), "ABCD12"));
 test("valida campos operacionales obligatorios", () => {
@@ -18,6 +18,10 @@ test("compone patente chilena en dos campos", () => {
 test("formatea una patente chilena capturada como texto único", () => {
   assert.equal(formatChileanPlate("cxpy-93"), "CXPY-93");
   assert.equal(formatChileanPlate("abc"), "");
+});
+test("convierte entry_at UTC a hora operacional America/Santiago", () => {
+  const result = toOperationalDateTimeParts("2026-01-15T03:30:00.000Z");
+  assert.deepEqual(result, { entryDate: "15-01-2026", entryTime: "00:30" });
 });
 test("desglosa neto e IVA desde el precio final informado", () => assert.deepEqual(splitChileTaxFromTotal(1000), { net: 840, tax: 160, total: 1000, taxRate: 0.19 }));
 

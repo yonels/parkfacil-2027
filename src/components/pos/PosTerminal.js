@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { LoaderCircle, LogOut, Menu, RefreshCw, X } from "lucide-react";
 
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
-import { toOperationalDateTimeParts } from "@/lib/dataEntry.mjs";
+import { splitChileTaxFromTotal, toOperationalDateTimeParts } from "@/lib/dataEntry.mjs";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
 
 const POS_VIEWS = {
@@ -96,6 +96,13 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse) {
   const exitDateTime = formatBridgeEntryDateTime(stay.exit_at);
   if (!entryDateTime || !exitDateTime) return null;
 
+  // El monto del comprobante es siempre el TOTAL ya confirmado por el
+  // backend (EXIT); el desglose Neto/IVA solo se deriva de ese mismo valor,
+  // nunca lo reemplaza. Contenido preparado para impresión, que se
+  // implementará en una tarea aparte — no se toca aquí el mecanismo real.
+  const amount = Number(quote?.total ?? stay?.total_amount ?? 0);
+  const breakdown = getTaxBreakdown(amount);
+
   const payload = {
     type: "PAYMENT_RECEIPT",
     companyName: String(parkingResponse?.company?.business_name || parkingResponse?.company_name || "").trim(),
@@ -108,12 +115,100 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse) {
     exitTime: exitDateTime.entryTime,
     minutes: Number.isFinite(Number(quote?.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
     rateDescription: String(quote?.rate?.name || stay?.rate_name || "").trim(),
-    amount: Number(quote?.total ?? stay?.total_amount ?? 0),
+    netAmount: breakdown.netAmount,
+    vatAmount: breakdown.vatAmount,
+    amount: breakdown.totalAmount,
     paymentMethod: "CASH",
     paymentId: String(stay?.payment_code || "").trim(),
   };
 
   if (!payload.companyName || !payload.parkingName || !payload.ticketNumber || !payload.paymentId) {
+    return null;
+  }
+
+  return payload;
+}
+
+// Payload del comprobante de cierre de caja (type SHIFT_CLOSURE). Todos los
+// montos/conteos vienen del cierre YA persistido por el backend
+// (close_pos_shift) — nunca de un cálculo hecho en el frontend. operatorName
+// y operatorEmail vienen de la sesión autenticada (context), no del actor
+// de la API de turno (que solo trae id/rol).
+function buildShiftClosureReceiptPayload(closure, parking, operatorName, operatorEmail) {
+  if (!closure || !parking) return null;
+  const shiftStarted = formatBridgeEntryDateTime(closure.shiftOpenedAt);
+  const shiftClosed = formatBridgeEntryDateTime(closure.shiftClosedAt);
+  if (!shiftStarted || !shiftClosed) return null;
+
+  const payload = {
+    type: "SHIFT_CLOSURE",
+    companyName: String(parking?.company?.business_name || parking?.company_name || "").trim(),
+    parkingName: String(parking?.name || "").trim(),
+    parkingCode: String(parking?.code || "").trim(),
+    operatorName: String(operatorName || "").trim(),
+    operatorEmail: String(operatorEmail || "").trim(),
+    shiftId: String(closure.shiftId || "").trim(),
+    shiftStartedAt: closure.shiftOpenedAt,
+    shiftClosedAt: closure.shiftClosedAt,
+    shiftStartedDate: shiftStarted.entryDate,
+    shiftStartedTime: shiftStarted.entryTime,
+    shiftClosedDate: shiftClosed.entryDate,
+    shiftClosedTime: shiftClosed.entryTime,
+    confirmedPaymentsCount: closure.confirmedPaymentsCount,
+    cancelledPaymentsCount: closure.cancelledPaymentsCount,
+    cashAmount: closure.cashAmount,
+    debitAmount: closure.debitAmount,
+    creditAmount: closure.creditAmount,
+    grossAmount: closure.grossAmount,
+    cancelledAmount: closure.cancelledAmount,
+    netAmount: closure.netAmount,
+    declaredCashAmount: closure.declaredCashAmount,
+    cashDifference: closure.cashDifference,
+    differenceObservation: closure.differenceObservation,
+    pendingVehiclesCount: closure.pendingVehiclesCount,
+    pendingVehicles: Array.isArray(closure.pendingVehiclesSnapshot) ? closure.pendingVehiclesSnapshot : [],
+    closureId: String(closure.id || "").trim(),
+  };
+
+  if (!payload.companyName || !payload.parkingName || !payload.shiftId || !payload.closureId) {
+    return null;
+  }
+
+  return payload;
+}
+
+// Payload del listado de vehículos en el parking (type
+// PARKING_VEHICLES_LIST). Reutiliza exactamente las mismas estadías OPEN
+// que "VEHÍCULOS EN EL PARKING" (activeStays) — no arma una consulta
+// paralela — y los minutos ya calculados server-side en stay.quote (nunca
+// el reloj del navegador).
+function buildParkingVehiclesListPayload(stays, parkingResponse, now) {
+  if (!Array.isArray(stays) || !parkingResponse) return null;
+  const generated = formatBridgeEntryDateTime(now);
+  if (!generated) return null;
+
+  const vehicles = stays.map((stay) => {
+    const entry = formatEntryDate(stay?.entry_at);
+    return {
+      plate: formatTicketPlate(stay?.license_plate),
+      ticketNumber: String(stay?.code || "").trim(),
+      entryTime: entry.time,
+      elapsedMinutes: Number.isFinite(Number(stay?.quote?.elapsedMinutes)) ? Number(stay.quote.elapsedMinutes) : null,
+    };
+  });
+
+  const payload = {
+    type: "PARKING_VEHICLES_LIST",
+    companyName: String(parkingResponse?.company?.business_name || parkingResponse?.company_name || "").trim(),
+    parkingName: String(parkingResponse?.name || "").trim(),
+    parkingCode: String(parkingResponse?.code || "").trim(),
+    generatedDate: generated.entryDate,
+    generatedTime: generated.entryTime,
+    totalVehicles: vehicles.length,
+    vehicles,
+  };
+
+  if (!payload.companyName || !payload.parkingName) {
     return null;
   }
 
@@ -200,6 +295,40 @@ async function getPosPaymentsToday() {
   return { ok: response.ok, status: response.status, payload };
 }
 
+async function getPosShift() {
+  const response = await fetch("/api/pos/shift", {
+    headers: { "x-parkfacil-portal": "terminal" },
+    cache: "no-store",
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, payload };
+}
+
+async function postCloseShift(body) {
+  const response = await fetch("/api/pos/shift/operator-close", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-parkfacil-portal": "terminal",
+    },
+    cache: "no-store",
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, payload };
+}
+
+async function postStartShift(shiftId) {
+  const response = await fetch("/api/pos/shift/start", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-parkfacil-portal": "terminal" },
+    cache: "no-store",
+    body: JSON.stringify({ shiftId }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, payload };
+}
+
 function formatCurrency(value) {
   if (!Number.isFinite(Number(value))) return "—";
   return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(Number(value));
@@ -208,6 +337,17 @@ function formatCurrency(value) {
 function formatQuoteAmount(quote) {
   if (!quote || quote.blocked) return "—";
   return formatCurrency(quote.total);
+}
+
+// Desglose tributario (Neto/IVA) a partir del TOTAL que ya calculó el
+// backend — nunca lo recalcula ni lo reconstruye (neto * 1.19 !== total por
+// redondeo). Delega la fórmula en splitChileTaxFromTotal (ya usada y
+// probada en dataEntry.mjs) y solo expone los nombres que necesitan las
+// pantallas de cobro/recibo; así el cálculo queda en un único lugar en vez
+// de repetirse en cada bloque JSX.
+function getTaxBreakdown(total) {
+  const { net, tax, total: totalAmount } = splitChileTaxFromTotal(total);
+  return { netAmount: net, vatAmount: tax, totalAmount };
 }
 
 function formatMinuteCount(quote) {
@@ -256,6 +396,36 @@ export default function PosTerminal() {
   const [paymentsTodayTotals, setPaymentsTodayTotals] = useState(null);
   const [paymentsTodayLoading, setPaymentsTodayLoading] = useState(false);
   const [paymentsTodayError, setPaymentsTodayError] = useState("");
+  // Recuerda si el listado de vehículos (compartido por VEHÍCULOS EN EL
+  // PARKING y SALIDA) se abrió con intención de consulta o de salida/pago,
+  // para que VOLVER desde el detalle regrese a la pantalla de origen.
+  const [vehicleListOrigin, setVehicleListOrigin] = useState(POS_VIEWS.VEHICULOS);
+
+  // CIERRE DE CAJA
+  const [shiftLoading, setShiftLoading] = useState(false);
+  const [shiftState, setShiftState] = useState("UNASSIGNED");
+  const [shiftStartBusy, setShiftStartBusy] = useState(false);
+  const [shiftError, setShiftError] = useState("");
+  const [shift, setShift] = useState(null);
+  const [shiftClosed, setShiftClosed] = useState(false);
+  const [shiftClosure, setShiftClosure] = useState(null);
+  const [shiftPreview, setShiftPreview] = useState(null);
+  const [shiftServerNow, setShiftServerNow] = useState(null);
+  const [declaredCashInput, setDeclaredCashInput] = useState("");
+  const [differenceObservationInput, setDifferenceObservationInput] = useState("");
+  const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
+  const [closeSubmitting, setCloseSubmitting] = useState(false);
+  const [closeError, setCloseError] = useState("");
+  const [closurePrintPrompt, setClosurePrintPrompt] = useState(false);
+  const [closureReceiptPayload, setClosureReceiptPayload] = useState(null);
+  const [closureReceiptBusy, setClosureReceiptBusy] = useState(false);
+  const [closureReceiptStatus, setClosureReceiptStatus] = useState("");
+
+  // IMPRIMIR VEHÍCULOS EN EL PARKING
+  const [listadoPrintPrompt, setListadoPrintPrompt] = useState(false);
+  const [listadoPrintPayload, setListadoPrintPayload] = useState(null);
+  const [listadoPrintBusy, setListadoPrintBusy] = useState(false);
+  const [listadoPrintStatus, setListadoPrintStatus] = useState("");
 
   const loadTerminalState = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -324,6 +494,58 @@ export default function PosTerminal() {
     }
   }, [router]);
 
+  // Abre (si no existe) o recupera el turno POS del operador y trae, según
+  // corresponda, la vista previa server-side (turno abierto) o el cierre ya
+  // persistido e inmutable (turno cerrado — TURNO CERRADO).
+  const loadShiftState = useCallback(async () => {
+    setShiftLoading(true);
+    setShiftError("");
+
+    try {
+      const result = await getPosShift();
+      if (!result.ok) {
+        if (result.status === 401) {
+          router.replace("/pos/login?next=/pos");
+          return;
+        }
+        setShiftError(result.payload?.error || "No fue posible cargar el turno del operador.");
+        return;
+      }
+
+      const data = result.payload?.data || {};
+      setShiftState(data.state || "UNASSIGNED");
+      setShift(data.shift || null);
+      setShiftClosed(Boolean(data.closed));
+      setShiftClosure(data.closure || null);
+      setShiftPreview(data.preview || null);
+      setShiftServerNow(data.serverNow || null);
+    } catch {
+      setShiftError("Error de red al cargar el turno del operador.");
+    } finally {
+      setShiftLoading(false);
+    }
+  }, [router]);
+
+  async function startProgrammedShift() {
+    if (!shift?.id || shiftStartBusy) return;
+    setShiftStartBusy(true);
+    setShiftError("");
+    try {
+      const result = await postStartShift(shift.id);
+      if (!result.ok) {
+        if (result.status === 401) router.replace("/pos/login?next=/pos");
+        else setShiftError(result.payload?.error || "No fue posible iniciar el turno.");
+        return;
+      }
+      await loadShiftState();
+      await loadTerminalState(true);
+    } catch {
+      setShiftError("Error de red al iniciar el turno.");
+    } finally {
+      setShiftStartBusy(false);
+    }
+  }
+
   async function logout() {
     const supabase = getSupabaseBrowserClient();
     await supabase.auth.signOut();
@@ -363,6 +585,26 @@ export default function PosTerminal() {
 
     if (section === POS_VIEWS.PAGOS_DEL_DIA) {
       void loadPaymentsToday();
+    }
+
+    if (section === POS_VIEWS.VEHICULOS || section === POS_VIEWS.SALIDA) {
+      setVehicleListOrigin(section);
+    }
+
+    if (section === POS_VIEWS.CIERRE_CAJA) {
+      void loadShiftState();
+    } else {
+      setCloseConfirmOpen(false);
+      setCloseError("");
+      setClosurePrintPrompt(false);
+      setClosureReceiptPayload(null);
+      setClosureReceiptStatus("");
+    }
+
+    if (section !== POS_VIEWS.IMPRIMIR_LISTADO) {
+      setListadoPrintPrompt(false);
+      setListadoPrintPayload(null);
+      setListadoPrintStatus("");
     }
   }
 
@@ -465,10 +707,10 @@ export default function PosTerminal() {
       }
 
       // A partir de aquí el pago YA quedó registrado y la permanencia YA
-      // quedó cerrada en el backend (respuesta 2xx de /api/data-entry). Lo
-      // que sigue —armar el recibo e intentar imprimirlo— es un efecto
-      // secundario: si la impresión falla, el pago no se revierte ni se
-      // vuelve a cobrar.
+      // quedó cerrada en el backend (respuesta 2xx de /api/data-entry). No
+      // se imprime automáticamente: se muestra el comprobante y se pregunta
+      // al operador si desea imprimir el recibo (paymentStep PRINT_PROMPT).
+      // La decisión SÍ/NO nunca vuelve a tocar el pago ni la permanencia.
       const stay = payload?.data?.stay || null;
       const quote = payload?.data?.quote || null;
       const parkingResponse = payload?.data?.parking || parking;
@@ -478,28 +720,38 @@ export default function PosTerminal() {
         total: amount,
         paymentMethod: payload?.data?.stay?.payment_method || "CASH",
       });
-      await loadTerminalState(true);
-
-      const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse);
-      setReceiptPrintPayload(receiptPayload);
+      setReceiptPrintPayload(buildPaymentReceiptPayload(stay, quote, parkingResponse));
       setReceiptPrintStatus("");
-
-      const printResult = receiptPayload ? await printLastReceipt(receiptPayload) : null;
-      // Igual que en INGRESO: solo se bloquea el retorno a HOME cuando existe
-      // bridge nativo y la impresión se intentó pero falló (regla 6). Sin
-      // bridge (PC/navegador) o con impresión exitosa, el pago ya es un
-      // flujo de negocio completo.
-      const printFailedOnDevice = Boolean(printResult?.attempted && !printResult.ok);
-
-      if (!printFailedOnDevice) {
-        closePaymentModal();
-        setSelectedVehicle(null);
-        setCurrentView(POS_VIEWS.HOME);
-      }
+      setPaymentStep("PRINT_PROMPT");
+      await loadTerminalState(true);
     } catch {
       setPaymentMessage("Error de red al registrar el pago en efectivo.");
     } finally {
       setPaymentSubmitting(false);
+    }
+  }
+
+  // Cierra el flujo de pago ya confirmado: no cobra ni cierra permanencia
+  // (eso ya ocurrió en confirmCashPayment), solo limpia el estado temporal
+  // del modal, refresca Pagos del día y vuelve a HOME.
+  function finishPaidFlow() {
+    closePaymentModal();
+    setSelectedVehicle(null);
+    setCurrentView(POS_VIEWS.HOME);
+    void loadPaymentsToday();
+  }
+
+  function declineReceiptPrint() {
+    finishPaidFlow();
+  }
+
+  // Invoca el bridge de impresión una sola vez por clic (SÍ / REINTENTAR
+  // IMPRESIÓN). Nunca vuelve a llamar a /api/data-entry: reutiliza el
+  // recibo ya armado con los datos que confirmó el backend.
+  async function confirmReceiptPrint() {
+    const result = await printLastReceipt(receiptPrintPayload);
+    if (result?.ok) {
+      finishPaidFlow();
     }
   }
 
@@ -591,6 +843,180 @@ export default function PosTerminal() {
       return result;
     } finally {
       setReceiptPrintBusy(false);
+    }
+  }
+
+  function openCloseConfirm() {
+    setCloseError("");
+    setCloseConfirmOpen(true);
+  }
+
+  function cancelCloseConfirm() {
+    setCloseConfirmOpen(false);
+  }
+
+  // Confirma el cierre de caja. El backend recalcula todo server-side
+  // (close_pos_shift) — este handler solo envía lo que el operador declaró
+  // (efectivo contado, observación) y muestra el resultado ya persistido.
+  // No imprime automáticamente (regla 14): tras confirmar, se pasa al paso
+  // de la pregunta ¿DESEA IMPRIMIR EL CIERRE?
+  async function confirmShiftClosure() {
+    if (!shift?.id || closeSubmitting) return;
+
+    setCloseSubmitting(true);
+    setCloseError("");
+
+    try {
+      const result = await postCloseShift({
+        declaredCashAmount: declaredCashInput === "" ? null : Number(declaredCashInput),
+        differenceObservation: differenceObservationInput,
+        confirm: true,
+      });
+
+      if (!result.ok) {
+        if (result.status === 401) {
+          router.replace("/pos/login?next=/pos");
+          return;
+        }
+        setCloseError(result.payload?.error || "No fue posible cerrar el turno.");
+        return;
+      }
+
+      const closure = result.payload?.data?.closure || null;
+      setShiftClosure(closure);
+      setShiftClosed(true);
+      setShift((current) => (current ? { ...current, status: "CLOSED", closedAt: closure?.shiftClosedAt || current.closedAt } : current));
+      setCloseConfirmOpen(false);
+      setClosureReceiptPayload(buildShiftClosureReceiptPayload(
+        closure,
+        parking,
+        context?.membership?.fullName || context?.email,
+        context?.email
+      ));
+      setClosureReceiptStatus("");
+      setClosurePrintPrompt(true);
+      void loadTerminalState(true);
+    } catch {
+      setCloseError("Error de red al cerrar el turno.");
+    } finally {
+      setCloseSubmitting(false);
+    }
+  }
+
+  // Impresión del comprobante de cierre. Efecto secundario del cierre YA
+  // confirmado e inmutable: si falla, el cierre permanece registrado (regla
+  // 10/14) — nunca se vuelve a calcular ni a cerrar el turno.
+  async function printClosureReceipt(payload) {
+    const printPayload = payload || closureReceiptPayload;
+    if (!printPayload) {
+      setClosureReceiptStatus("No hay un cierre disponible para imprimir.");
+      return { attempted: false, ok: false, code: "NO_CLOSURE", message: "No hay cierre disponible." };
+    }
+
+    const bridge = getNativePrinterBridge();
+    if (!bridge) {
+      setClosureReceiptStatus("Impresión disponible solo desde el dispositivo POS.");
+      return { attempted: false, ok: false, code: "BRIDGE_UNAVAILABLE", message: "Bridge no disponible." };
+    }
+
+    setClosureReceiptBusy(true);
+    setClosureReceiptStatus("Imprimiendo...");
+
+    try {
+      const result = await executeNativePrint(printPayload);
+
+      if (result.ok) {
+        setClosureReceiptStatus("Cierre impreso.");
+      } else {
+        const details = [];
+        if (result.code) details.push(`Código: ${result.code}`);
+        if (result.message) details.push(`Detalle: ${result.message}`);
+        setClosureReceiptStatus([
+          "Cierre registrado. No fue posible imprimir el comprobante.",
+          ...details,
+        ].join("\n"));
+      }
+
+      return result;
+    } finally {
+      setClosureReceiptBusy(false);
+    }
+  }
+
+  async function confirmClosurePrint() {
+    const result = await printClosureReceipt(closureReceiptPayload);
+    if (result?.ok) {
+      setClosurePrintPrompt(false);
+    }
+  }
+
+  function declineClosurePrint() {
+    setClosurePrintPrompt(false);
+    setClosureReceiptStatus("");
+  }
+
+  // REIMPRIMIR CIERRE (turno ya cerrado, fuera del flujo de confirmación):
+  // reconstruye el mismo payload desde el cierre persistido — nunca vuelve
+  // a cobrar ni a cerrar el turno (regla 5 original / "no crear nueva
+  // operación").
+  function reprintShiftClosure() {
+    const payload = buildShiftClosureReceiptPayload(
+      shiftClosure,
+      parking,
+      context?.membership?.fullName || context?.email,
+      context?.email
+    );
+    setClosureReceiptPayload(payload);
+    setClosureReceiptStatus("");
+    void printClosureReceipt(payload);
+  }
+
+  // IMPRIMIR VEHÍCULOS EN EL PARKING: nunca imprime automáticamente. Al
+  // pulsar el botón se arma el payload y se pregunta SÍ/NO; solo con SÍ se
+  // intenta imprimir (una sola vez por clic).
+  function openListadoPrintPrompt() {
+    setListadoPrintPayload(buildParkingVehiclesListPayload(activeStays, parking, new Date()));
+    setListadoPrintStatus("");
+    setListadoPrintPrompt(true);
+  }
+
+  function declineListadoPrint() {
+    setListadoPrintPrompt(false);
+    setListadoPrintPayload(null);
+    setListadoPrintStatus("");
+  }
+
+  async function confirmListadoPrint() {
+    const printPayload = listadoPrintPayload;
+    if (!printPayload) {
+      setListadoPrintStatus("No hay un listado disponible para imprimir.");
+      return;
+    }
+
+    const bridge = getNativePrinterBridge();
+    if (!bridge) {
+      setListadoPrintStatus("Impresión disponible solo desde el dispositivo POS.");
+      return;
+    }
+
+    setListadoPrintBusy(true);
+    setListadoPrintStatus("Imprimiendo...");
+
+    try {
+      const result = await executeNativePrint(printPayload);
+      if (result.ok) {
+        setListadoPrintStatus("Listado impreso.");
+      } else {
+        const details = [];
+        if (result.code) details.push(`Código: ${result.code}`);
+        if (result.message) details.push(`Detalle: ${result.message}`);
+        setListadoPrintStatus([
+          "No fue posible imprimir el listado.",
+          ...details,
+        ].join("\n"));
+      }
+    } finally {
+      setListadoPrintBusy(false);
     }
   }
 
@@ -1088,6 +1514,592 @@ export default function PosTerminal() {
     );
   }
 
+  // Totales compartidos por la vista previa (turno abierto) y el cierre ya
+  // persistido (turno cerrado) — mismo componente visual, una sola vez.
+  function renderClosureTotals(totals) {
+    const differenceKnown = Number.isFinite(Number(totals.cashDifference));
+    const differenceLabel = differenceKnown
+      ? `${totals.cashDifference > 0 ? "+" : ""}${formatCurrency(totals.cashDifference)}`
+      : "—";
+
+    return (
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-500">Operaciones</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Pagos confirmados</p>
+              <p className="mt-1 text-lg font-black text-slate-900">{totals.confirmedPaymentsCount ?? 0}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Pagos anulados</p>
+              <p className="mt-1 text-lg font-black text-slate-900">{totals.cancelledPaymentsCount ?? 0}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Total operaciones</p>
+              <p className="mt-1 text-lg font-black text-slate-900">{(totals.confirmedPaymentsCount ?? 0) + (totals.cancelledPaymentsCount ?? 0)}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-500">Recaudación por medio de pago</p>
+          <div className="mt-3 grid gap-2 text-sm font-semibold text-slate-700 sm:grid-cols-3">
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 sm:flex-col sm:items-start">
+              <span>Efectivo</span><span className="font-black text-slate-900">{formatCurrency(totals.cashAmount)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 sm:flex-col sm:items-start">
+              <span>Débito</span><span className="font-black text-slate-900">{formatCurrency(totals.debitAmount)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 p-3 sm:flex-col sm:items-start">
+              <span>Crédito</span><span className="font-black text-slate-900">{formatCurrency(totals.creditAmount)}</span>
+            </div>
+          </div>
+          <div className="mt-3 space-y-1 border-t border-slate-200 pt-3 text-sm font-semibold text-slate-700">
+            <div className="flex items-center justify-between gap-3">
+              <span>Recaudación bruta</span><span className="font-black text-slate-900">{formatCurrency(totals.grossAmount)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span>Pagos anulados</span><span className="font-black text-rose-700">-{formatCurrency(totals.cancelledAmount)}</span>
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 border-t border-slate-300 pt-2">
+              <span className="text-sm font-black uppercase tracking-[0.06em] text-slate-900">Total neto del turno</span>
+              <span className="text-2xl font-black text-slate-900">{formatCurrency(totals.netAmount)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-500">Cuadre de efectivo</p>
+          <div className="mt-3 space-y-1 text-sm font-semibold text-slate-700">
+            <div className="flex items-center justify-between gap-3">
+              <span>Efectivo según sistema</span><span className="font-black text-slate-900">{formatCurrency(totals.cashAmount)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span>Efectivo declarado por operador</span><span className="font-black text-slate-900">{formatCurrency(totals.declaredCashAmount)}</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span>Diferencia</span>
+              <span className={`font-black ${totals.cashDifference ? "text-rose-700" : "text-slate-900"}`}>{differenceLabel}</span>
+            </div>
+          </div>
+          {totals.differenceObservation ? (
+            <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-900">Observación: {totals.differenceObservation}</p>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  // Lista de vehículos pendientes — mismo formato para la vista previa
+  // (preview.pendingVehicles) y el snapshot ya congelado del cierre
+  // (closure.pendingVehiclesSnapshot). Estos vehículos siguen OPEN: esta
+  // lista es solo constancia, no cierra ni cobra nada.
+  function renderPendingVehiclesList(vehicles) {
+    const list = Array.isArray(vehicles) ? vehicles : [];
+    return (
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-500">Vehículos pendientes ({list.length})</p>
+        {!list.length ? (
+          <p className="mt-2 text-sm font-semibold text-slate-600">No hay vehículos pendientes al momento del cierre.</p>
+        ) : (
+          <>
+            <div className="mt-3 hidden md:block">
+              <table className="w-full border-separate border-spacing-0 text-sm">
+                <thead className="bg-slate-100">
+                  <tr>
+                    <th className="rounded-tl-xl px-3 py-2 text-left text-xs font-black uppercase tracking-[0.06em] text-slate-600">Patente</th>
+                    <th className="px-3 py-2 text-left text-xs font-black uppercase tracking-[0.06em] text-slate-600">Ticket</th>
+                    <th className="px-3 py-2 text-left text-xs font-black uppercase tracking-[0.06em] text-slate-600">Hora ingreso</th>
+                    <th className="rounded-tr-xl px-3 py-2 text-left text-xs font-black uppercase tracking-[0.06em] text-slate-600">Minutos</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {list.map((vehicle, index) => {
+                    const entryParts = formatBridgeEntryDateTime(vehicle.entryAt);
+                    return (
+                      <tr key={String(vehicle.stayId || `pending-${index}`)}>
+                        <td className="px-3 py-2 font-black text-slate-900">{vehicle.plate || "-"}</td>
+                        <td className="px-3 py-2 font-semibold text-slate-700">{vehicle.ticket || "-"}</td>
+                        <td className="px-3 py-2 font-semibold text-slate-700">{entryParts?.entryTime || "-"}</td>
+                        <td className="px-3 py-2 font-semibold text-slate-700">{Number.isFinite(vehicle.elapsedMinutes) ? vehicle.elapsedMinutes : "-"}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 grid gap-2 md:hidden">
+              {list.map((vehicle, index) => {
+                const entryParts = formatBridgeEntryDateTime(vehicle.entryAt);
+                return (
+                  <div key={String(vehicle.stayId || `pending-card-${index}`)} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-base font-black text-slate-900">{vehicle.plate || "-"}</span>
+                      <span className="text-xs font-bold text-slate-600">{entryParts?.entryTime || "-"}</span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-xs font-semibold text-slate-600">
+                      <span>Ticket: {vehicle.ticket || "-"}</span>
+                      <span>{Number.isFinite(vehicle.elapsedMinutes) ? `${vehicle.elapsedMinutes} min` : "-"}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  function renderShiftPrintPrompt() {
+    if (!closureReceiptStatus) {
+      return (
+        <div className="rounded-2xl border border-slate-300 bg-white p-4">
+          <p className="text-base font-black text-slate-900">¿DESEA IMPRIMIR EL CIERRE?</p>
+          <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={() => void confirmClosurePrint()}
+              disabled={closureReceiptBusy}
+              className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {closureReceiptBusy ? "Imprimiendo..." : "SÍ"}
+            </button>
+            <button
+              type="button"
+              onClick={declineClosurePrint}
+              disabled={closureReceiptBusy}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              NO
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
+        <p className="whitespace-pre-line text-sm font-semibold text-amber-900">{closureReceiptStatus}</p>
+        <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+          <button
+            type="button"
+            onClick={() => void confirmClosurePrint()}
+            disabled={closureReceiptBusy}
+            className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {closureReceiptBusy ? "Imprimiendo..." : "REINTENTAR IMPRESIÓN"}
+          </button>
+          <button
+            type="button"
+            onClick={declineClosurePrint}
+            disabled={closureReceiptBusy}
+            className="rounded-xl border border-amber-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-amber-900 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            FINALIZAR
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function renderClosedShiftSummary() {
+    const closure = shiftClosure;
+    if (!closure) return null;
+
+    return (
+      <div className="mt-4 space-y-4">
+        <div className="rounded-2xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-950">
+          <p className="text-sm font-black uppercase tracking-[0.1em] text-emerald-700">
+            {closurePrintPrompt ? "Cierre de caja registrado" : "Turno cerrado"}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-emerald-800">Folio: {closure.folio || "-"}</p>
+        </div>
+
+        {renderClosureTotals(closure)}
+        {renderPendingVehiclesList(closure.pendingVehiclesSnapshot)}
+
+        {closurePrintPrompt ? (
+          renderShiftPrintPrompt()
+        ) : (
+          <div className="rounded-2xl border border-slate-200 bg-white p-4">
+            <button
+              type="button"
+              onClick={reprintShiftClosure}
+              disabled={closureReceiptBusy}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {closureReceiptBusy ? "Imprimiendo..." : "REIMPRIMIR CIERRE"}
+            </button>
+            {closureReceiptStatus ? (
+              <p className="mt-2 whitespace-pre-line text-sm font-semibold text-amber-800">{closureReceiptStatus}</p>
+            ) : null}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderOpenShiftClosureForm() {
+    const preview = shiftPreview;
+    if (!preview) return null;
+
+    const hasDeclaredInput = declaredCashInput !== "";
+    const declaredValue = hasDeclaredInput ? Number(declaredCashInput) : null;
+    const liveDifference = hasDeclaredInput && Number.isFinite(declaredValue) ? Math.round(declaredValue) - Math.round(preview.cashAmount) : null;
+    const requiresObservation = liveDifference !== null && liveDifference !== 0;
+    const canConfirm = hasDeclaredInput && Number.isFinite(declaredValue) && declaredValue >= 0 && (!requiresObservation || differenceObservationInput.trim());
+
+    const displayTotals = {
+      ...preview,
+      declaredCashAmount: hasDeclaredInput ? declaredValue : 0,
+      cashDifference: liveDifference ?? 0,
+      differenceObservation: differenceObservationInput,
+    };
+
+    return (
+      <div className="mt-4 space-y-4">
+        {renderClosureTotals(displayTotals)}
+        {renderPendingVehiclesList(preview.pendingVehicles)}
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <label className="block text-sm font-bold text-slate-700">
+            Efectivo declarado por operador
+            <input
+              type="number"
+              inputMode="numeric"
+              min="0"
+              step="1"
+              value={declaredCashInput}
+              onChange={(event) => setDeclaredCashInput(event.target.value)}
+              placeholder="0"
+              className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-lg font-black text-slate-900 outline-none focus:border-emerald-500"
+            />
+          </label>
+
+          {requiresObservation ? (
+            <label className="mt-4 block text-sm font-bold text-slate-700">
+              Observación de diferencia <span className="text-rose-600">*</span>
+              <textarea
+                value={differenceObservationInput}
+                onChange={(event) => setDifferenceObservationInput(event.target.value)}
+                rows={3}
+                placeholder="Explica la diferencia de caja..."
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-500"
+              />
+            </label>
+          ) : null}
+        </div>
+
+        {closeError ? (
+          <div className="rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{closeError}</div>
+        ) : null}
+
+        {!closeConfirmOpen ? (
+          <button
+            type="button"
+            onClick={openCloseConfirm}
+            disabled={!canConfirm}
+            className="w-full rounded-2xl bg-rose-900 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+          >
+            CONFIRMAR CIERRE
+          </button>
+        ) : (
+          <div className="rounded-2xl border border-rose-300 bg-rose-50 p-4">
+            <p className="text-base font-black text-rose-950">¿CONFIRMA EL CIERRE DE CAJA?</p>
+            <p className="mt-1 text-xs font-semibold text-rose-800">Esta acción no se puede deshacer.</p>
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => void confirmShiftClosure()}
+                disabled={closeSubmitting || !canConfirm}
+                className="rounded-xl bg-rose-900 px-4 py-3 text-sm font-black uppercase tracking-[0.06em] text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+              >
+                {closeSubmitting ? "Cerrando..." : "SÍ, CERRAR TURNO"}
+              </button>
+              <button
+                type="button"
+                onClick={cancelCloseConfirm}
+                disabled={closeSubmitting}
+                className="rounded-xl border border-rose-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.06em] text-rose-900 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                CANCELAR
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function renderCierreCajaPanel() {
+    if (shiftLoading && !shift) {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          <div className="flex items-center gap-3">
+            <LoaderCircle className="h-5 w-5 animate-spin text-slate-600" />
+            <p className="text-sm font-semibold">Cargando turno del operador...</p>
+          </div>
+        </section>
+      );
+    }
+
+    if (shiftError) {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Cierre de caja</h2>
+          <div className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{shiftError}</div>
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => goToSection(POS_VIEWS.HOME)}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+            >
+              Volver
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (shiftState === "UNASSIGNED" || !shift) {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Cierre de caja</h2>
+          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+            No tienes un turno asignado para hoy en este estacionamiento.
+          </div>
+          <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-4 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
+        </section>
+      );
+    }
+
+    if (shiftState === "PROGRAMMED") {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Cierre de caja</h2>
+          <div className="mt-4 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sky-950">
+            <p className="font-black">Turno programado disponible</p>
+            <p className="mt-1 text-sm font-semibold">Fecha: {shift.date || "-"} · Horario: {shift.scheduledStart || "-"}–{shift.scheduledEnd || "-"}</p>
+          </div>
+          <button type="button" onClick={() => void startProgrammedShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:opacity-60">
+            {shiftStartBusy ? "Iniciando..." : "Iniciar turno"}
+          </button>
+          <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-3 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
+        </section>
+      );
+    }
+
+    const operatorFullName = context?.membership?.fullName || context?.email || "-";
+    const companyName = context?.membership?.company?.business_name || context?.membership?.company?.trade_name || "-";
+    const openedParts = formatBridgeEntryDateTime(shift.openedAt);
+    const nowParts = formatBridgeEntryDateTime(shiftServerNow || new Date().toISOString());
+    const shiftLabel = shift.id ? shift.id.slice(0, 8).toUpperCase() : "-";
+
+    return (
+      <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+        <h2 className="text-xl font-black uppercase tracking-[0.08em]">Cierre de caja</h2>
+        <p className="mt-1 text-sm font-semibold text-slate-600">Resumen del turno del operador</p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Nombre completo</p>
+            <p className="mt-1 break-words text-sm font-bold text-slate-800">{operatorFullName}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Usuario / correo</p>
+            <p className="mt-1 break-all text-sm font-bold text-slate-800">{context?.email || "-"}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Empresa</p>
+            <p className="mt-1 break-words text-sm font-bold text-slate-800">{companyName}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Estacionamiento</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{parking?.name || "-"}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Código</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{parking?.code || "-"}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Turno</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{shiftLabel}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Fecha del turno</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{openedParts?.entryDate || "-"}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Hora inicio</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{openedParts?.entryTime || "-"}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Hora actual de cierre</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{nowParts?.entryTime || "-"}</p>
+          </div>
+        </div>
+
+        {shiftClosed ? renderClosedShiftSummary() : renderOpenShiftClosureForm()}
+
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={() => goToSection(POS_VIEWS.HOME)}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+          >
+            Volver
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  // Reutiliza activeStays (misma fuente que "VEHÍCULOS EN EL PARKING",
+  // cargada en loadTerminalState desde /api/pos/stays) — no arma otra
+  // consulta. Solo cambian las columnas mostradas (patente/hora/minutos/
+  // ticket, sin monto) para calzar con el listado imprimible.
+  function renderImprimirListadoList() {
+    if (!activeStays.length) {
+      return (
+        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-4 text-sm font-semibold text-slate-600">
+          No hay vehículos para mostrar en este momento.
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-3">
+        <div className="hidden rounded-2xl border border-slate-200 bg-white md:block">
+          <table className="w-full border-separate border-spacing-0 text-sm">
+            <thead className="bg-slate-100">
+              <tr>
+                <th className="rounded-tl-2xl px-3 py-3 text-left text-xs font-black uppercase tracking-[0.08em] text-slate-600">Patente</th>
+                <th className="px-3 py-3 text-left text-xs font-black uppercase tracking-[0.08em] text-slate-600">Hora de ingreso</th>
+                <th className="px-3 py-3 text-left text-xs font-black uppercase tracking-[0.08em] text-slate-600">Minutos transcurridos</th>
+                <th className="rounded-tr-2xl px-3 py-3 text-left text-xs font-black uppercase tracking-[0.08em] text-slate-600">Ticket</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {activeStays.map((stay, index) => {
+                const entry = formatEntryDate(stay?.entry_at);
+                return (
+                  <tr key={String(stay?.id || stay?.code || `listado-${index}`)} className="bg-white">
+                    <td className="px-3 py-3 font-black text-slate-900">{stay?.license_plate || "-"}</td>
+                    <td className="px-3 py-3 font-semibold text-slate-700">{entry.time}</td>
+                    <td className="px-3 py-3 font-semibold text-slate-700">{formatMinuteCount(stay?.quote)}</td>
+                    <td className="px-3 py-3 font-semibold text-slate-700">{stay?.code || "-"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="grid gap-3 md:hidden">
+          {activeStays.map((stay, index) => {
+            const entry = formatEntryDate(stay?.entry_at);
+            return (
+              <div key={String(stay?.id || stay?.code || `listado-card-${index}`)} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-500">Patente</p>
+                    <p className="mt-1 text-xl font-black text-slate-900">{stay?.license_plate || "-"}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-500">Ticket</p>
+                    <p className="mt-1 text-sm font-bold text-slate-700">{stay?.code || "-"}</p>
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Ingreso</p>
+                    <p className="mt-1 font-semibold text-slate-700">{entry.time}</p>
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Minutos</p>
+                    <p className="mt-1 font-semibold text-slate-700">{formatMinuteCount(stay?.quote)}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  function renderImprimirListadoPanel() {
+    return (
+      <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+        <h2 className="text-xl font-black uppercase tracking-[0.08em]">Vehículos en el parking</h2>
+        <p className="mt-2 text-sm font-bold">Total vehículos dentro: {vehiclesInside}</p>
+
+        <div className="mt-4">{renderImprimirListadoList()}</div>
+
+        {listadoPrintPrompt ? (
+          <div className="mt-4 rounded-2xl border border-slate-300 bg-white p-4">
+            {!listadoPrintStatus ? (
+              <>
+                <p className="text-base font-black text-slate-900">¿DESEA IMPRIMIR EL LISTADO?</p>
+                <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => void confirmListadoPrint()}
+                    disabled={listadoPrintBusy}
+                    className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {listadoPrintBusy ? "Imprimiendo..." : "SÍ"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={declineListadoPrint}
+                    disabled={listadoPrintBusy}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    NO
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="whitespace-pre-line text-sm font-semibold text-amber-900">{listadoPrintStatus}</p>
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={declineListadoPrint}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-slate-800 transition hover:bg-slate-100"
+                  >
+                    VOLVER
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <button
+              type="button"
+              onClick={openListadoPrintPrompt}
+              disabled={!activeStays.length}
+              className="rounded-xl bg-slate-800 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+            >
+              Imprimir listado
+            </button>
+            <button
+              type="button"
+              onClick={() => goToSection(POS_VIEWS.HOME)}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+            >
+              Volver
+            </button>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function renderVehicleDetailPanel() {
     if (selectedVehicleLoading && !selectedVehicle) {
       return (
@@ -1099,7 +2111,7 @@ export default function PosTerminal() {
           <div className="mt-4">
             <button
               type="button"
-              onClick={() => goToSection(POS_VIEWS.VEHICULOS)}
+              onClick={() => goToSection(vehicleListOrigin)}
               className="rounded-xl border border-rose-300 bg-white px-4 py-2 text-sm font-bold text-rose-800 hover:bg-rose-100"
             >
               VOLVER
@@ -1164,7 +2176,7 @@ export default function PosTerminal() {
           </div>
           <button
             type="button"
-            onClick={() => goToSection(POS_VIEWS.VEHICULOS)}
+            onClick={() => goToSection(vehicleListOrigin)}
             className="rounded-xl border border-rose-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-rose-800 hover:bg-rose-100"
           >
             VOLVER
@@ -1179,6 +2191,12 @@ export default function PosTerminal() {
 
     const stay = selectedVehicle.stay;
     const quote = selectedVehicle.quote;
+    // Desglose Neto/IVA a partir del TOTAL que ya cotizó el backend
+    // (quote.total) — ver getTaxBreakdown. El pago confirmado más abajo
+    // (paymentBreakdown) usa el total que confirmó el backend en la
+    // respuesta del EXIT, no este valor pre-pago.
+    const quoteBreakdown = quote && !quote.blocked ? getTaxBreakdown(quote.total) : null;
+    const paymentBreakdown = paymentResult ? getTaxBreakdown(paymentResult.total) : null;
 
     return (
       <div className="fixed inset-0 z-50 grid place-items-center bg-rose-950/55 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) closePaymentModal(); }}>
@@ -1197,7 +2215,24 @@ export default function PosTerminal() {
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-500">Patente</p>
               <p className="mt-1 text-2xl font-black text-slate-900">{stay?.license_plate || "-"}</p>
-              <p className="mt-2 text-sm font-semibold text-slate-700">Total a pagar: <span className="font-black text-slate-900">{formatQuoteAmount(quote)}</span></p>
+              {quoteBreakdown ? (
+                <div className="mt-3 space-y-1">
+                  <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700">
+                    <span>Neto</span>
+                    <span className="font-bold text-slate-900">{formatCurrency(quoteBreakdown.netAmount)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700">
+                    <span>IVA (19%)</span>
+                    <span className="font-bold text-slate-900">{formatCurrency(quoteBreakdown.vatAmount)}</span>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3 border-t border-slate-300 pt-2">
+                    <span className="text-sm font-black uppercase tracking-[0.06em] text-slate-900">Total a pagar</span>
+                    <span className="text-2xl font-black text-slate-900">{formatCurrency(quoteBreakdown.totalAmount)}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm font-semibold text-slate-700">Total a pagar: <span className="font-black text-slate-900">{formatQuoteAmount(quote)}</span></p>
+              )}
             </div>
 
             {paymentStep === "MENU" ? (
@@ -1222,31 +2257,11 @@ export default function PosTerminal() {
                   <div><span className="block text-xs font-black uppercase tracking-[0.08em] text-emerald-700">Total</span>{formatQuoteAmount(quote)}</div>
                 </div>
                 {paymentMessage ? <p className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-rose-700">{paymentMessage}</p> : null}
-                {paymentResult ? (
-                  <div className="rounded-xl border border-emerald-300 bg-white px-3 py-3 text-sm font-black text-emerald-900">
-                    PAGO REGISTRADO ({formatPaymentMethodLabel(paymentResult.paymentMethod)})<br />SALIDA COMPLETADA
-                  </div>
-                ) : null}
-                {paymentResult && receiptPrintStatus ? (
-                  <div className="whitespace-pre-line rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-sm font-semibold text-amber-900">
-                    {receiptPrintStatus}
-                  </div>
-                ) : null}
-                {paymentResult && receiptPrintPayload ? (
-                  <button
-                    type="button"
-                    onClick={() => void printLastReceipt(receiptPrintPayload)}
-                    disabled={receiptPrintBusy}
-                    className="rounded-xl border border-amber-400 bg-amber-100 px-4 py-3 text-sm font-black text-amber-900 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {receiptPrintBusy ? "Reimprimiendo..." : "REIMPRIMIR RECIBO"}
-                  </button>
-                ) : null}
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <button
                     type="button"
                     onClick={() => void confirmCashPayment()}
-                    disabled={paymentSubmitting || Boolean(paymentResult)}
+                    disabled={paymentSubmitting}
                     className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
                   >
                     {paymentSubmitting ? "Procesando..." : "CONFIRMAR PAGO"}
@@ -1255,6 +2270,86 @@ export default function PosTerminal() {
                     CANCELAR
                   </button>
                 </div>
+              </div>
+            ) : null}
+
+            {/*
+              El pago YA está confirmado y la permanencia YA está cerrada
+              antes de llegar a este paso (confirmCashPayment ya resolvió
+              /api/data-entry). SÍ/NO solo deciden si se intenta imprimir el
+              recibo — nunca vuelven a cobrar, cerrar la permanencia ni
+              generan una nueva operación.
+            */}
+            {paymentStep === "PRINT_PROMPT" ? (
+              <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="rounded-xl border border-emerald-300 bg-white px-3 py-3 text-sm font-black text-emerald-900">
+                  PAGO REGISTRADO ({formatPaymentMethodLabel(paymentResult?.paymentMethod)})<br />SALIDA COMPLETADA
+                  <div className="mt-2 text-xs font-semibold text-emerald-800">Patente: {paymentResult?.plate || "-"}</div>
+                  {paymentBreakdown ? (
+                    <div className="mt-3 space-y-1 border-t border-emerald-200 pt-2">
+                      <div className="flex items-center justify-between gap-3 text-xs font-semibold text-emerald-800">
+                        <span>Neto</span>
+                        <span className="font-bold text-emerald-900">{formatCurrency(paymentBreakdown.netAmount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3 text-xs font-semibold text-emerald-800">
+                        <span>IVA (19%)</span>
+                        <span className="font-bold text-emerald-900">{formatCurrency(paymentBreakdown.vatAmount)}</span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-3">
+                        <span className="text-xs font-black uppercase tracking-[0.06em] text-emerald-900">Total pagado</span>
+                        <span className="text-xl font-black text-emerald-950">{formatCurrency(paymentBreakdown.totalAmount)}</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+
+                {!receiptPrintStatus ? (
+                  <>
+                    <p className="text-lg font-black text-emerald-950">¿DESEA IMPRIMIR EL RECIBO?</p>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => void confirmReceiptPrint()}
+                        disabled={receiptPrintBusy}
+                        className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {receiptPrintBusy ? "Imprimiendo..." : "SÍ"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={declineReceiptPrint}
+                        disabled={receiptPrintBusy}
+                        className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        NO
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="whitespace-pre-line rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-sm font-semibold text-amber-900">
+                      {receiptPrintStatus}
+                    </div>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={() => void confirmReceiptPrint()}
+                        disabled={receiptPrintBusy}
+                        className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {receiptPrintBusy ? "Imprimiendo..." : "REINTENTAR IMPRESIÓN"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={declineReceiptPrint}
+                        disabled={receiptPrintBusy}
+                        className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        FINALIZAR
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ) : null}
 
@@ -1288,29 +2383,23 @@ export default function PosTerminal() {
       return renderVehicleDetailPanel();
     }
 
-    if (currentView === POS_VIEWS.SALIDA) {
-      return (
-        <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-900 shadow-sm">
-          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Salida de vehículo</h2>
-          <p className="mt-2 text-sm font-semibold">Módulo preparado. El flujo de cobro se implementará en una fase posterior.</p>
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-rose-300 bg-white px-4 py-2 text-sm font-bold text-rose-800 hover:bg-rose-100"
-            >
-              Volver
-            </button>
-          </div>
-        </section>
-      );
-    }
-
-    if (currentView === POS_VIEWS.VEHICULOS) {
+    // SALIDA y VEHÍCULOS EN EL PARKING comparten exactamente el mismo listado
+    // de permanencias OPEN, la misma selección (openVehicleDetail) y el mismo
+    // detalle/cotización/pago (renderVehicleDetailPanel + el modal de pago):
+    // no hay una segunda implementación — solo cambia el título/descripción
+    // según la intención con la que se entró (consulta vs. salida/pago).
+    if (currentView === POS_VIEWS.SALIDA || currentView === POS_VIEWS.VEHICULOS) {
+      const isSalida = currentView === POS_VIEWS.SALIDA;
       return (
         <section className="rounded-3xl border border-rose-300 bg-rose-50 p-5 text-rose-950 shadow-sm">
-          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Vehículos en el parking</h2>
-          <p className="mt-2 text-sm font-semibold">Permanencias OPEN reales del estacionamiento asignado al operador.</p>
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">
+            {isSalida ? "Salida de vehículo" : "Vehículos en el parking"}
+          </h2>
+          <p className="mt-2 text-sm font-semibold">
+            {isSalida
+              ? "Selecciona el vehículo que va a salir para cotizar y cobrar su permanencia."
+              : "Permanencias OPEN reales del estacionamiento asignado al operador."}
+          </p>
           <p className="mt-3 text-sm font-bold">Vehículos actualmente dentro: {vehiclesInside}</p>
           <div className="mt-4 space-y-4">
             {renderVehiclesPreparedList()}
@@ -1365,21 +2454,7 @@ export default function PosTerminal() {
     }
 
     if (currentView === POS_VIEWS.IMPRIMIR_LISTADO) {
-      return (
-        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
-          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Imprimir vehículos en parking</h2>
-          <p className="mt-2 text-sm font-semibold">Acción preparada para impresión de listado operacional en una fase posterior.</p>
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
-            >
-              Volver
-            </button>
-          </div>
-        </section>
-      );
+      return renderImprimirListadoPanel();
     }
 
     if (currentView === POS_VIEWS.PAGOS_DEL_DIA) {
@@ -1387,21 +2462,7 @@ export default function PosTerminal() {
     }
 
     if (currentView === POS_VIEWS.CIERRE_CAJA) {
-      return (
-        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
-          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Cierre de caja</h2>
-          <p className="mt-2 text-sm font-semibold">Pantalla preparada. El cierre de caja operativo se integrará en su etapa correspondiente.</p>
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
-            >
-              Volver
-            </button>
-          </div>
-        </section>
-      );
+      return renderCierreCajaPanel();
     }
 
     if (currentView === POS_VIEWS.ESTADO_DISPOSITIVO) {

@@ -3,6 +3,7 @@ import { calculateScheduledParkingCharge } from "./parkingRates.mjs";
 const PLATE_PATTERN = /^[A-Z0-9]{4,8}$/;
 export const MOVEMENT_TYPES = ["ENTRY", "EXIT"];
 export const ENTRY_SOURCES = ["MOBILE", "POS", "TABLET", "DESKTOP", "OTHER"];
+export const OPERATIONAL_TIME_ZONE = "America/Santiago";
 
 export function normalizePlate(value) {
   return String(value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
@@ -22,6 +23,39 @@ export function formatChileanPlate(value) {
 export function splitChileanPlate(value) {
   const normalized = normalizePlate(value);
   return { prefix: normalized.slice(0, 4), suffix: normalized.slice(4, 6) };
+}
+
+export function toOperationalDateTimeParts(value, timeZone = OPERATIONAL_TIME_ZONE) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const formatter = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(date).reduce((accumulator, part) => {
+    accumulator[part.type] = part.value;
+    return accumulator;
+  }, {});
+
+  const day = parts.day;
+  const month = parts.month;
+  const year = parts.year;
+  const hour = parts.hour;
+  const minute = parts.minute;
+
+  if (!day || !month || !year || !hour || !minute) return null;
+
+  return {
+    entryDate: `${day}-${month}-${year}`,
+    entryTime: `${hour}:${minute}`,
+  };
 }
 
 export function splitChileTaxFromTotal(totalAmount, taxRate = 0.19) {
