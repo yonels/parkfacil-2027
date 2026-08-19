@@ -129,6 +129,12 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse) {
   return payload;
 }
 
+function isQuoteSnapshotExpired(snapshot) {
+  if (!snapshot?.expiresAt) return true;
+  const expiresAt = new Date(snapshot.expiresAt);
+  return Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date();
+}
+
 // Payload del comprobante de cierre de caja (type SHIFT_CLOSURE). Todos los
 // montos/conteos vienen del cierre YA persistido por el backend
 // (close_pos_shift) — nunca de un cálculo hecho en el frontend. operatorName
@@ -679,17 +685,22 @@ export default function PosTerminal() {
 
   async function confirmCashPayment() {
     if (!selectedVehicle?.stay?.id || paymentSubmitting) return;
+    const quoteSnapshot = selectedVehicle?.quote?.snapshot || null;
+
+    if (!quoteSnapshot?.signature) {
+      setPaymentMessage("La cotización del vehículo expiró o no es válida. Actualiza el detalle antes de cobrar.");
+      return;
+    }
+
+    if (isQuoteSnapshotExpired(quoteSnapshot)) {
+      setPaymentMessage("La cotización del vehículo expiró. Vuelve a cargar el detalle antes de cobrar.");
+      return;
+    }
 
     setPaymentSubmitting(true);
     setPaymentMessage("");
 
     try {
-      const refreshedQuote = await getPosVehicleQuote(selectedVehicle.stay.id);
-      if (!refreshedQuote.ok) {
-        setPaymentMessage(refreshedQuote.payload?.error || "No fue posible recalcular la cotización del vehículo.");
-        return;
-      }
-
       const response = await fetch("/api/data-entry", {
         method: "POST",
         headers: {
@@ -697,11 +708,25 @@ export default function PosTerminal() {
           "x-parkfacil-portal": "terminal",
         },
         cache: "no-store",
-        body: JSON.stringify({ action: "EXIT", stayId: selectedVehicle.stay.id, paymentMethod: "CASH" }),
+        body: JSON.stringify({ action: "EXIT", stayId: selectedVehicle.stay.id, paymentMethod: "CASH", quoteSnapshot }),
       });
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        const errorCode = payload?.details?.code || payload?.code || "";
+        if (errorCode === "QUOTE_SNAPSHOT_EXPIRED") {
+          const refreshedQuote = await getPosVehicleQuote(selectedVehicle.stay.id);
+          if (refreshedQuote.ok && refreshedQuote.payload?.data) {
+            const detail = refreshedQuote.payload.data;
+            setSelectedVehicle(detail);
+            const refreshedAmount = Number(detail?.quote?.total || detail?.quote?.amount || 0);
+            setPaymentStep("CASH_CONFIRM");
+            setPaymentMessage(`La cotización venció. Nuevo total: ${formatCurrency(refreshedAmount)}. Confirma nuevamente para cobrar.`);
+          } else {
+            setPaymentMessage("La cotización venció y no se pudo actualizar automáticamente. Vuelve a abrir el detalle del vehículo.");
+          }
+          return;
+        }
         setPaymentMessage(payload?.error || "No fue posible registrar el pago en efectivo.");
         return;
       }

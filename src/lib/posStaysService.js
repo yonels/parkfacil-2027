@@ -1,4 +1,4 @@
-import { quoteParkingStay } from "./parkingStayQuoteService.js";
+import { quoteParkingStay, quoteParkingStayById } from "./parkingStayQuoteService.js";
 import { filterPaidStaysForOperationalDay, summarizeDailyPayments, toDailyPaymentRow } from "./pos/paymentsDayCore.mjs";
 
 const parkingFields = "id,code,name,company_name,address,city,status,company:companies(business_name,address,district,city,rut_number,rut_dv,phone)";
@@ -77,7 +77,6 @@ export async function listDailyPosPayments(db, parkingId, options = {}) {
 
 export async function quoteOpenPosStay(db, parkingId, stayId, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
-  const quoteFn = options.quoteFn || quoteParkingStay;
   const parking = await loadParking(db, parkingId);
   if (!parking) return { parking: null, serverNow: toIsoTimestamp(now), stay: null, quote: null };
 
@@ -92,7 +91,8 @@ export async function quoteOpenPosStay(db, parkingId, stayId, options = {}) {
   if (error) throw error;
   if (!stay) return { parking, serverNow: toIsoTimestamp(now), stay: null, quote: null };
 
-  const quote = await quoteFn(db, stay, { now });
+  const quoted = await (options.quoteFn ? options.quoteFn(db, stay, { now }) : quoteParkingStayById(db, stayId, { now, includePosSnapshot: true }));
+  const quote = quoted?.quote || quoted || null;
   return {
     parking,
     serverNow: toIsoTimestamp(now),

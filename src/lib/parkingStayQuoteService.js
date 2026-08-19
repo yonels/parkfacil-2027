@@ -1,7 +1,98 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 import { resolveStayQuoteAvailability, splitChileTaxFromTotal } from "./dataEntry.mjs";
 import { calculateScheduledParkingCharge, selectActiveRate } from "./parkingRates.mjs";
 import { listParkingRates } from "./parkingRatesRepository.js";
 import { signWebpayQuoteEvidence } from "./webpayQuoteEvidence.mjs";
+
+const POS_QUOTE_TTL_SECONDS = 30;
+const POS_QUOTE_TTL_MS = POS_QUOTE_TTL_SECONDS * 1000;
+
+function canonicalTimestamp(value) {
+  const text = value instanceof Date ? value.toISOString() : String(value || "");
+  const match = text.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(?:\.(\d{1,6}))?(?:Z|\+00:00)$/i);
+  if (!match) throw new Error("INVALID_POS_QUOTE_TIMESTAMP");
+  return `${match[1]}T${match[2]}.${String(match[3] || "").padEnd(6, "0")}Z`;
+}
+
+function textHex(value) {
+  return Buffer.from(String(value || ""), "utf8").toString("hex");
+}
+
+function canonicalizePosQuoteSnapshot(snapshot) {
+  return [
+    "POS_STAY_QUOTE_V1",
+    String(snapshot.stayId).toLowerCase(),
+    String(snapshot.parkingId).toLowerCase(),
+    canonicalTimestamp(snapshot.stayUpdatedAt),
+    canonicalTimestamp(snapshot.calculatedAt),
+    canonicalTimestamp(snapshot.expiresAt),
+    String(snapshot.rateId).toLowerCase(),
+    canonicalTimestamp(snapshot.rateUpdatedAt),
+    Number(snapshot.elapsedMinutes),
+    Number(snapshot.subtotalAmount),
+    Number(snapshot.discountAmount),
+    Number(snapshot.netAmount),
+    Number(snapshot.taxAmount),
+    Number(snapshot.totalAmount),
+    textHex(snapshot.rateName),
+    textHex(snapshot.billingMode),
+    textHex(snapshot.currency),
+    textHex(snapshot.couponId),
+    textHex(snapshot.couponCode),
+    textHex(snapshot.couponBenefitType),
+    Number(snapshot.couponBenefitValue),
+  ].join("|");
+}
+
+export function signPosQuoteSnapshot(snapshot, secret) {
+  if (Buffer.byteLength(String(secret || ""), "utf8") < 32) {
+    throw new Error("POS_QUOTE_HMAC_SECRET_NOT_CONFIGURED");
+  }
+  return createHmac("sha256", secret)
+    .update(canonicalizePosQuoteSnapshot(snapshot), "utf8")
+    .digest("hex");
+}
+
+export function verifyPosQuoteSnapshot(snapshot, signature, secret) {
+  if (!/^[0-9a-f]{64}$/i.test(String(signature || ""))) return false;
+  const expected = signPosQuoteSnapshot(snapshot, secret);
+  return timingSafeEqual(Buffer.from(expected, "hex"), Buffer.from(signature, "hex"));
+}
+
+export function buildPosQuoteSnapshot({ stay, quote, calculatedAt = new Date() }) {
+  const signedAt = calculatedAt instanceof Date ? calculatedAt : new Date(calculatedAt);
+  const expiresAt = new Date(signedAt.getTime() + POS_QUOTE_TTL_MS);
+  const snapshot = {
+    version: "POS_STAY_QUOTE_V1",
+    stayId: stay.id,
+    stayCode: stay.code,
+    parkingId: stay.parking_id,
+    stayUpdatedAt: stay.updated_at,
+    calculatedAt: signedAt.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+    rateId: quote?.rate?.id || stay.rate_id || null,
+    rateUpdatedAt: quote?.rate?.updatedAt || null,
+    elapsedMinutes: Number.isFinite(Number(quote?.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
+    subtotalAmount: Number(quote?.subtotal || 0),
+    discountAmount: Number(quote?.discount || 0),
+    netAmount: Number(quote?.net || 0),
+    taxAmount: Number(quote?.tax || 0),
+    totalAmount: Number(quote?.total || 0),
+    rateName: quote?.rate?.name || stay.rate_name || null,
+    billingMode: quote?.rate?.billingMode || stay.billing_mode || null,
+    currency: quote?.rate?.currency || "CLP",
+    couponId: quote?.coupon?.id || null,
+    couponCode: quote?.coupon?.code || null,
+    couponBenefitType: quote?.coupon?.benefitType || null,
+    couponBenefitValue: Number.isFinite(Number(quote?.coupon?.value)) ? Number(quote.coupon.value) : null,
+  };
+
+  return {
+    ...snapshot,
+    signature: signPosQuoteSnapshot(snapshot, process.env.POS_QUOTE_HMAC_SECRET),
+  };
+}
 
 function mapBlockedReason(reason) {
   if (reason === "ACTIVE_RATE_NOT_FOUND") {
@@ -160,7 +251,11 @@ export async function quoteParkingStayById(db, stayId, options = {}) {
     calculatedAt,
   });
 
-  if (publicQuote.payable) {
+  if (publicQuote.payable && options.includePosSnapshot === true) {
+    publicQuote.snapshot = buildPosQuoteSnapshot({ stay, quote, calculatedAt });
+  }
+
+  if (publicQuote.payable && process.env.WEBPAY_QUOTE_HMAC_SECRET) {
     const evidence = signWebpayQuoteEvidence({
       stayId: stay.id,
       stayUpdatedAt: stay.updated_at,
