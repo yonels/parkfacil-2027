@@ -13,7 +13,8 @@
     "test:lot-d": "node --test --experimental-test-isolation=none src/lib/auth/*.test.mjs src/lib/parkingOperations.test.mjs src/lib/shiftClosure.test.mjs src/lib/dataEntry.test.mjs",
     "test:lot-e": "node --test --experimental-test-isolation=none src/lib/auth/*.test.mjs src/lib/notifications/*.test.mjs src/lib/modulePricing.test.mjs",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "bootstrap:root": "node scripts/bootstrap-root-local.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
