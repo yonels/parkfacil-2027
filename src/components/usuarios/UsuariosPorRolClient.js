@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
-import UsuariosGrid from "@/components/usuarios/UsuariosGrid";
+import SpreadsheetTable from "@/components/ui/SpreadsheetTable";
+import EstadoUsuarioBadge from "@/components/usuarios/EstadoUsuarioBadge";
 import { normalizeUserSearch, getPerfilLabel } from "@/data/usuarios.mjs";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 
@@ -59,6 +60,23 @@ export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeho
       .sort((left, right) => String(left.nombreCompleto || "").localeCompare(String(right.nombreCompleto || ""), "es"));
   }, [busqueda, rol, usuarios]);
 
+  const filas = useMemo(
+    () => resultados.map((usuario) => ({
+      ...usuario,
+      empresaNombre: empresas.find((item) => item.id === usuario.empresaId)?.nombreFantasia || "Sin empresa",
+    })),
+    [empresas, resultados],
+  );
+
+  const columnas = useMemo(() => [
+    { key: "correo", label: "Correo", className: "font-semibold text-[#3150D8]" },
+    { key: "nombreCompleto", label: "Nombre" },
+    { key: "telefono", label: "Teléfono" },
+    { key: "empresaNombre", label: "Empresa" },
+    { key: "estado", label: "Estado", render: (row) => <EstadoUsuarioBadge estado={row.estado} /> },
+    { key: "ultimoAcceso", label: "Último acceso" },
+  ], []);
+
   return (
     <AppShell title={titulo} description={descripcion}>
       <div className="space-y-6">
@@ -87,7 +105,13 @@ export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeho
                 Cargando…
               </div>
             ) : resultados.length > 0 ? (
-              <UsuariosGrid usuarios={resultados} empresas={empresas} />
+              <SpreadsheetTable
+                columns={columnas}
+                rows={filas}
+                rowHref={(row) => `/usuarios/${row.id}`}
+                minWidth={900}
+                storageKey={`usuarios-${rol}`}
+              />
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">
                 {busqueda ? "No hay resultados para tu búsqueda." : "No hay usuarios en esta categoría todavía."}

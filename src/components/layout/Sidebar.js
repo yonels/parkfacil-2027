@@ -40,8 +40,20 @@ function isItemActive(pathname, href) {
   return pathname === baseHref && !expectedQuery;
 }
 
+// Fuerza "activo"/expandido para un padre en cualquier ruta bajo
+// item.activePrefix (p. ej. fichas de detalle /usuarios/[id], que no
+// coinciden ni con el href del padre ni con el de ningún hijo).
+function matchesActivePrefix(pathname, prefix) {
+  if (!prefix) return false;
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
 function isTreeActive(pathname, item) {
-  return isItemActive(pathname, item.href) || item.children?.some((child) => isItemActive(pathname, child.href));
+  return (
+    matchesActivePrefix(pathname, item.activePrefix) ||
+    isItemActive(pathname, item.href) ||
+    item.children?.some((child) => isItemActive(pathname, child.href))
+  );
 }
 
 const FOLDER_PALETTES = {
@@ -103,7 +115,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
     const active = isTreeActive(pathname, item);
 
     if (item.children?.length) {
-      const expanded = openTrees.includes(item.label);
+      const expanded = openTrees.includes(item.label) || matchesActivePrefix(pathname, item.activePrefix);
       return (
         <div key={item.label} className="relative">
           <div className={linkClasses(active)}>

@@ -15,7 +15,12 @@ export default function MobileNavigation({ onNavigate, clientContext, userContex
     <nav className="flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm lg:hidden" aria-label="Navegación móvil">
       {navigationItems.filter((item) => navigationVisibleForRole(item, userContext) && (!clientContext || !item.requiresModule || clientContext.modules?.includes(item.requiresModule))).map((item) => {
         const Icon = item.icon;
-        const isActive = pathname === item.href;
+        // Igual que en Sidebar.js: activePrefix resalta el padre (p. ej.
+        // "Usuarios") también en sub-rutas como fichas de detalle, que no
+        // coinciden exactamente con su href. Mobile no muestra el árbol de
+        // hijos (comportamiento ya existente para Facturación/Tarifas/
+        // Dispositivos, sin cambios), solo mantiene el resaltado equivalente.
+        const isActive = pathname === item.href || (item.activePrefix && (pathname === item.activePrefix || pathname.startsWith(`${item.activePrefix}/`)));
 
         if (!item.href) {
           return (

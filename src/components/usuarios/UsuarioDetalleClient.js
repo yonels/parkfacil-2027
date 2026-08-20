@@ -12,8 +12,11 @@ import {
   EyeOff,
   KeyRound,
   LoaderCircle,
+  Pencil,
+  Save,
   Send,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
@@ -88,6 +91,14 @@ export default function UsuarioDetalleClient({ userId }) {
   const [claveDirectaVisible, setClaveDirectaVisible] = useState(false);
   const [claveDirectaError, setClaveDirectaError] = useState("");
   const [claveDirectaEnviando, setClaveDirectaEnviando] = useState(false);
+
+  // Edición de datos básicos (nombre, teléfono, estado). No incluye
+  // empresa/estacionamientos (aislamiento por tenant) ni contraseña
+  // (ver sección "Acceso y contraseña").
+  const [editando, setEditando] = useState(false);
+  const [editDraft, setEditDraft] = useState({ nombreCompleto: "", correo: "", telefono: "", estado: "active" });
+  const [editError, setEditError] = useState("");
+  const [editEnviando, setEditEnviando] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -254,6 +265,56 @@ export default function UsuarioDetalleClient({ userId }) {
     }
   }
 
+  function abrirEdicion() {
+    setEditDraft({
+      nombreCompleto: usuario.nombreCompleto || "",
+      correo: usuario.correo || "",
+      telefono: usuario.telefono && usuario.telefono !== "Sin teléfono informado" ? usuario.telefono : "",
+      estado: usuario.estado === "pending" || usuario.estado === "inactive" ? usuario.estado : "active",
+    });
+    setEditError("");
+    setEditando(true);
+  }
+
+  async function guardarEdicion(event) {
+    event.preventDefault();
+    if (!editDraft.nombreCompleto.trim()) {
+      setEditError("El nombre completo no puede estar vacío.");
+      return;
+    }
+    if (!editDraft.correo.trim()) {
+      setEditError("El correo electrónico no puede estar vacío.");
+      return;
+    }
+    const correoNuevo = editDraft.correo.trim().toLowerCase();
+    const cambiaCorreo = correoNuevo !== (usuario.correo || "").toLowerCase();
+    if (cambiaCorreo && !window.confirm(`Se cambiará el correo de acceso de ${usuario.correo} a ${correoNuevo}. El usuario deberá iniciar sesión con el nuevo correo. ¿Continuar?`)) {
+      return;
+    }
+    setEditError("");
+    setEditEnviando(true);
+    try {
+      const response = await authenticatedFetch(`/api/usuarios/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nombreCompleto: editDraft.nombreCompleto.trim(),
+          correo: correoNuevo,
+          telefono: editDraft.telefono.trim(),
+          estado: editDraft.estado,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No fue posible guardar los cambios.");
+      setData(body.data);
+      setEditando(false);
+    } catch (cause) {
+      setEditError(cause.message);
+    } finally {
+      setEditEnviando(false);
+    }
+  }
+
   return (
     <AppShell title={usuario.nombreCompleto} description="Administración del usuario">
       <div className="space-y-6">
@@ -274,19 +335,83 @@ export default function UsuarioDetalleClient({ userId }) {
 
         <section className="grid gap-4 lg:grid-cols-[1.4fr_0.9fr]">
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex flex-wrap items-center gap-3">
-              <EstadoUsuarioBadge estado={usuario.estado} />
-              <PerfilUsuarioBadge perfil={usuario.perfilPrincipal} />
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <EstadoUsuarioBadge estado={usuario.estado} />
+                <PerfilUsuarioBadge perfil={usuario.perfilPrincipal} />
+              </div>
+              {!editando ? (
+                <button type="button" onClick={abrirEdicion} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
+                  <Pencil className="h-4 w-4" /> Editar
+                </button>
+              ) : null}
             </div>
             <h3 className="mt-5 text-2xl font-semibold text-[#041E42]">Datos del usuario</h3>
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <DetailItem label="Nombre completo" value={usuario.nombreCompleto} />
-              <DetailItem label="Correo" value={usuario.correo} />
-              <DetailItem label="Teléfono" value={usuario.telefono} />
-              <DetailItem label="Fecha de creación" value={usuario.fechaCreacion || "Sin fecha informada"} />
-              <DetailItem label="Último acceso" value={usuario.ultimoAcceso} />
-              <DetailItem label="Estado" value={<EstadoUsuarioBadge estado={usuario.estado} />} />
-            </div>
+
+            {editando ? (
+              <form onSubmit={guardarEdicion} className="mt-6 space-y-4">
+                {editError ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{editError}</p> : null}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block space-y-1.5 text-sm text-slate-700">
+                    <span className="font-medium text-slate-500">Nombre completo</span>
+                    <input
+                      value={editDraft.nombreCompleto}
+                      onChange={(event) => setEditDraft((current) => ({ ...current, nombreCompleto: event.target.value }))}
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]"
+                      required
+                    />
+                  </label>
+                  <label className="block space-y-1.5 text-sm text-slate-700">
+                    <span className="font-medium text-slate-500">Correo</span>
+                    <input
+                      type="email"
+                      value={editDraft.correo}
+                      onChange={(event) => setEditDraft((current) => ({ ...current, correo: event.target.value }))}
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]"
+                      required
+                    />
+                  </label>
+                  <label className="block space-y-1.5 text-sm text-slate-700">
+                    <span className="font-medium text-slate-500">Teléfono</span>
+                    <input
+                      value={editDraft.telefono}
+                      onChange={(event) => setEditDraft((current) => ({ ...current, telefono: event.target.value }))}
+                      placeholder="+56 9 0000 0000"
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]"
+                    />
+                  </label>
+                  <label className="block space-y-1.5 text-sm text-slate-700">
+                    <span className="font-medium text-slate-500">Estado</span>
+                    <select
+                      value={editDraft.estado}
+                      onChange={(event) => setEditDraft((current) => ({ ...current, estado: event.target.value }))}
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]"
+                    >
+                      <option value="active">Activo</option>
+                      <option value="inactive">Inactivo</option>
+                      <option value="pending">Pendiente</option>
+                    </select>
+                  </label>
+                </div>
+                <p className="text-xs text-slate-500">Empresa y estacionamientos asignados no se editan desde aquí. La contraseña se administra en &quot;Acceso y contraseña&quot;.</p>
+                <div className="flex justify-end gap-3">
+                  <button type="button" onClick={() => setEditando(false)} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"><X className="h-4 w-4" /> Cancelar</button>
+                  <button type="submit" disabled={editEnviando} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                    {editEnviando ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    {editEnviando ? "Guardando..." : "Guardar cambios"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                <DetailItem label="Nombre completo" value={usuario.nombreCompleto} />
+                <DetailItem label="Correo" value={usuario.correo} />
+                <DetailItem label="Teléfono" value={usuario.telefono} />
+                <DetailItem label="Fecha de creación" value={usuario.fechaCreacion || "Sin fecha informada"} />
+                <DetailItem label="Último acceso" value={usuario.ultimoAcceso} />
+                <DetailItem label="Estado" value={<EstadoUsuarioBadge estado={usuario.estado} />} />
+              </div>
+            )}
           </div>
           <div className="rounded-3xl border border-slate-200 bg-[#F5F9FF] p-6 shadow-sm">
             <div className="flex items-center gap-2 text-[#3150D8]"><Building2 className="h-5 w-5" /><h3 className="text-lg font-semibold">Empresa</h3></div>

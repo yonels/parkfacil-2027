@@ -33,7 +33,20 @@ export const navigationItems = [
   },
   { href: "/recaudacion#medios-de-pago", label: "Medios de Pago", icon: WalletCards },
   { href: "/empresas", label: "Empresas", icon: Users },
-  { href: "/usuarios", label: "Usuarios", icon: Users },
+  {
+    href: "/usuarios",
+    label: "Usuarios",
+    icon: Users,
+    // Fuerza el árbol expandido y el resaltado del padre en cualquier
+    // ruta bajo /usuarios (listado, administradores, operadores y fichas
+    // individuales /usuarios/[id]), sin depender de que el usuario haya
+    // hecho clic para expandirlo. Ver Sidebar.js / MobileNavigation.js.
+    activePrefix: "/usuarios",
+    children: [
+      { href: "/usuarios/administradores", label: "Administradores" },
+      { href: "/usuarios/operadores", label: "Operadores" },
+    ],
+  },
   { href: "/modelo-gestion-modulos", label: "Gestión de módulos", icon: SlidersHorizontal },
   { href: "/contratos", label: "Contratos", icon: Handshake },
   { href: "/abonados", label: "Abonados y Credenciales", icon: KeyRound },

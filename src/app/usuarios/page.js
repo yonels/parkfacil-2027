@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, ArrowUpDown, Check, Copy, Eye, GripVertical, KeyRound, Pencil, Plus, Save, Search, ShieldCheck, Trash2, UserRound, X } from "lucide-react";
+import { ArrowUpDown, Check, Copy, Eye, GripVertical, KeyRound, Pencil, Plus, Save, Search, Trash2, X } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -296,29 +296,6 @@ export default function UsuariosPage() {
             </button>,
           ]}
         />
-
-        <section className="grid gap-4 sm:grid-cols-2">
-          <Link href="/usuarios/administradores" className="group flex items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md">
-            <div className="flex items-center gap-3">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#EEF4FF] text-[#3150D8]"><ShieldCheck className="h-5 w-5" /></span>
-              <div>
-                <h3 className="text-lg font-semibold text-[#041E42]">Administradores</h3>
-                <p className="text-sm text-slate-600">Buscar y administrar acceso de administradores de empresa.</p>
-              </div>
-            </div>
-            <ArrowRight className="h-5 w-5 shrink-0 text-[#3150D8] transition group-hover:translate-x-0.5" />
-          </Link>
-          <Link href="/usuarios/operadores" className="group flex items-center justify-between gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md">
-            <div className="flex items-center gap-3">
-              <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-[#EEF4FF] text-[#3150D8]"><UserRound className="h-5 w-5" /></span>
-              <div>
-                <h3 className="text-lg font-semibold text-[#041E42]">Operadores</h3>
-                <p className="text-sm text-slate-600">Buscar y administrar acceso de operadores.</p>
-              </div>
-            </div>
-            <ArrowRight className="h-5 w-5 shrink-0 text-[#3150D8] transition group-hover:translate-x-0.5" />
-          </Link>
-        </section>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <UsuarioResumen title="Total de usuarios" value={resumen.total} description="Datos de referencia" tone="info" />
