@@ -7,6 +7,7 @@ import { getRequestPortal } from "@/lib/auth/portal.mjs";
 const PUBLIC_PATHS = new Set([
   "/login",
   "/pos/login",
+  "/acceso-operador",
   "/recuperar-contrasena",
   "/nueva-contrasena",
   "/manifest.webmanifest",

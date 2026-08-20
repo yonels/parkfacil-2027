@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, BookOpen, CircleUserRound, Mail, PanelLeftClose, PanelLeftOpen, ShieldCheck, UserRound } from "lucide-react";
 import { navigationItems } from "@/config/navigation";
 import { navigationVisibleForRole } from "@/lib/auth/permissions.mjs";
+import { useOperatorAccessUrl } from "@/lib/auth/useOperatorAccessUrl";
 import { useMemo, useState } from "react";
 
 function formatDate(value) {
@@ -69,6 +70,8 @@ function FolderItemIcon({ tone = "default" }) {
 
 export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientContext, userContext }) {
   const pathname = usePathname();
+  const operatorAccessUrl = useOperatorAccessUrl();
+  const isPlatformAdmin = userContext?.role === "platform_admin";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openSections, setOpenSections] = useState(["plataforma", "administracion"]);
   const [openTrees, setOpenTrees] = useState(["Tarifas", "Dispositivos", "Facturación"]);
@@ -120,6 +123,18 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
             </div>
           ) : null}
         </div>
+      );
+    }
+
+    if (item.platformAdminGateway && isPlatformAdmin) {
+      // Root nunca abre esta ruta con su propia sesión: se le lleva al login
+      // real de operador en el origen del Portal Cliente (navegación
+      // completa, misma pestaña — la sesión Root en este origen no se toca).
+      return (
+        <a key={item.label} href={operatorAccessUrl} onClick={onNavigate} className={linkClasses(active)}>
+          <FolderItemIcon tone={tone} />
+          <span>{item.label}</span>
+        </a>
       );
     }
 
@@ -190,6 +205,13 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
               {visibleItems.map((item) => {
                 const active = isTreeActive(pathname, item);
                 const tone = getSectionColorKey(item.label);
+                if (item.platformAdminGateway && isPlatformAdmin) {
+                  return (
+                    <a key={item.label} href={operatorAccessUrl} className={linkClasses(active)}>
+                      <FolderItemIcon tone={tone} />
+                    </a>
+                  );
+                }
                 if (item.href) {
                   return (
                     <Link key={item.label} href={item.href} className={linkClasses(active)}>

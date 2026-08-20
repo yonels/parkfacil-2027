@@ -3,7 +3,12 @@ import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, Wa
 export const navigationItems = [
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
   { href: "/modelo-dashboard", label: "Dashboard", icon: BarChart3 },
-  { href: "/data-entry", label: "Data Entry", icon: ScanLine },
+  // Para platform_admin (Root), este ítem nunca abre /data-entry con la
+  // sesión Root: Sidebar/MobileNavigation lo interceptan y llevan al login
+  // real de operador en el origen del Portal Cliente. Root nunca opera el
+  // terminal directamente (PORTAL_FORBIDDEN se mantiene intacto). Ver
+  // src/lib/auth/operatorAccessUrl.mjs y src/app/acceso-operador/page.js.
+  { href: "/data-entry", label: "Data Entry", icon: ScanLine, platformAdminGateway: true },
   { href: "/operacion", label: "Operación", icon: ParkingSquare },
   { href: "/turnos", label: "Turnos", icon: Clock3 },
   { href: "/estacionamientos", label: "Estacionamientos", icon: ShieldCheck },
