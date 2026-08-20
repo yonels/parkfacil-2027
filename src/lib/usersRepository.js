@@ -40,7 +40,12 @@ export async function listAuthorizedUsers(db, context) {
   const access = accessResult.data || [];
   return {
     data: mapAuthorizedUsers({ members, authUsers, companies, parkings, access }),
-    companies: companies.map((company) => ({ id: company.id, nombreFantasia: company.trade_name, razonSocial: company.business_name })),
+    companies: companies.map((company) => ({
+      id: company.id,
+      nombreFantasia: company.trade_name,
+      razonSocial: company.business_name,
+      rut: company.rut_number ? `${company.rut_number}-${company.rut_dv}` : null,
+    })),
     parkings: parkings.map((parking) => ({ id: parking.id, codigo: parking.code, nombre: parking.name, empresaId: parking.company_id })),
   };
 }

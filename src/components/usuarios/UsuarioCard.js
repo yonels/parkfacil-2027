@@ -5,8 +5,10 @@ import PerfilUsuarioBadge from "@/components/usuarios/PerfilUsuarioBadge";
 import { getEmpresaAsociada } from "@/data/usuarios.mjs";
 import { getPerfilLabel } from "@/data/usuarios.mjs";
 
-export default function UsuarioCard({ usuario }) {
-  const empresa = getEmpresaAsociada(usuario);
+export default function UsuarioCard({ usuario, empresa: empresaProp }) {
+  // empresaProp permite pasar la empresa ya resuelta desde datos reales
+  // (API); sin ella, se mantiene el comportamiento demostrativo original.
+  const empresa = empresaProp !== undefined ? empresaProp : getEmpresaAsociada(usuario);
 
   return (
     <Link href={`/usuarios/${usuario.id}`} className="group flex min-w-0 flex-col rounded-3xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md">

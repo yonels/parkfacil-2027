@@ -18,6 +18,7 @@ export function mapAuthorizedUsers({ members, authUsers, companies, parkings, ac
       debeCambiarClave: Boolean(member.must_change_password),
       estacionamientos: parkingIds,
       ultimoAcceso: authUser?.last_sign_in_at ? new Date(authUser.last_sign_in_at).toLocaleString("es-CL") : "Sin acceso registrado",
+      fechaCreacion: authUser?.created_at ? new Date(authUser.created_at).toLocaleString("es-CL") : "Sin fecha informada",
       searchValues: [company?.trade_name, company?.business_name, company ? `${company.rut_number}-${company.rut_dv}` : "", ...userParkings.flatMap((parking) => [parking.code, parking.name])].filter(Boolean),
     };
   });

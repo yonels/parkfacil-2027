@@ -1,23 +1,9 @@
 import { NextResponse } from "next/server";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { requirePermission } from "@/lib/auth/apiAuthorizationCore.mjs";
-import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { listAuthorizedUsers } from "@/lib/usersRepository";
-
-function normalizeUserDetail(user) {
-  if (!user) return null;
-  return {
-    ...user,
-    organizationId: user.organizationId || null,
-    fechaIncorporacion: user.fechaIncorporacion || "Sin fecha informada",
-    observaciones: user.observaciones || "Sin observaciones registradas.",
-    permisos: Array.isArray(user.permisos) && user.permisos.length ? user.permisos : ["Permisos administrados por rol y empresa"],
-    historial: Array.isArray(user.historial) && user.historial.length ? user.historial : ["Sin historial registrado"],
-    actividad: Array.isArray(user.actividad) && user.actividad.length ? user.actividad : ["Sin actividad registrada"],
-    perfilesSecundarios: Array.isArray(user.perfilesSecundarios) ? user.perfilesSecundarios : [],
-  };
-}
 
 export async function GET(request, { params }) {
   const authorization = await authorizeApiRequest(request);
@@ -39,5 +25,14 @@ export async function GET(request, { params }) {
 
   const company = result.companies.find((item) => item.id === user.empresaId) || null;
   const parkings = result.parkings.filter((item) => (user.estacionamientos || []).includes(item.id));
-  return NextResponse.json({ data: { user: normalizeUserDetail(user), company, parkings } }, { headers: { "Cache-Control": "no-store" } });
+
+  return NextResponse.json({
+    data: {
+      user,
+      company,
+      parkings,
+      canManageCredentials: [ROLES.PLATFORM_ADMIN, ROLES.COMPANY_ADMIN].includes(authorization.context.role),
+      canSetDirectPassword: authorization.context.role === ROLES.PLATFORM_ADMIN && authorization.context.portal === "root",
+    },
+  }, { headers: { "Cache-Control": "no-store" } });
 }
