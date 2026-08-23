@@ -22,6 +22,7 @@
 
 import {
   construirRedirectTo,
+  esEmailValido,
   escaparHtml,
   generarHtmlCorreo,
 } from "./passwordRecoveryCore.mjs";
@@ -38,14 +39,16 @@ export class AdminRecoverySendError extends Error {
  * @param {Object} params
  * @param {Object} params.supabase - Cliente admin de Supabase.
  * @param {(datos: Object) => Promise<Object>} params.enviarCorreo - enviarCorreoMicrosoft (inyectado).
- * @param {string} params.email - Correo real y vigente del usuario destino.
+ * @param {string} params.loginEmail - Identidad autenticable en auth.users.email.
+ * @param {string} params.recoveryEmail - Destinatario asociado server-side al user_id.
  * @param {"root"|"cliente"} [params.portalDestino] - Portal al que debe apuntar el enlace.
  * @param {(etiqueta: string, valor?: unknown) => void} [params.diagnosticar] - Logging seguro opcional.
  */
 export async function enviarRecuperacionAdministrativa({
   supabase,
   enviarCorreo,
-  email,
+  loginEmail,
+  recoveryEmail,
   portalDestino = "cliente",
   diagnosticar = () => {},
 }) {
@@ -55,13 +58,21 @@ export async function enviarRecuperacionAdministrativa({
     throw new AdminRecoverySendError("Portal de destino inválido.", "INVALID_PORTAL");
   }
 
+
+  if (!esEmailValido(loginEmail) || !esEmailValido(recoveryEmail)) {
+    throw new AdminRecoverySendError(
+      "El usuario no tiene un correo de recuperación configurado.",
+      "RECOVERY_EMAIL_MISSING"
+    );
+  }
+
   let data;
   let errorGeneracion;
 
   try {
     ({ data, error: errorGeneracion } = await supabase.auth.admin.generateLink({
       type: "recovery",
-      email,
+      email: loginEmail,
       options: { redirectTo },
     }));
   } catch (excepcionGeneracion) {
@@ -95,7 +106,7 @@ export async function enviarRecuperacionAdministrativa({
 
   try {
     await enviarCorreo({
-      para: email,
+      para: recoveryEmail,
       asunto: "Recuperación de contraseña | ParkFacil",
       html: generarHtmlCorreo(enlaceSeguro),
       texto: `Recupere su contraseña utilizando este enlace: ${enlaceRecuperacion}`,

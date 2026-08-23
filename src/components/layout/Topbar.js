@@ -1,5 +1,6 @@
 import { useState } from "react";
 import NextImage from "next/image";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Bell, LoaderCircle, LogOut, UserCircle2 } from "lucide-react";
 import Breadcrumbs from "@/components/layout/Breadcrumbs";
@@ -67,6 +68,9 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
                   {userContext.email !== userContext.name ? <span className="block truncate text-[10px] opacity-75">{userContext.email}</span> : null}
                 </span>
                 <span className="rounded-full bg-white px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider">{roleLabel}</span>
+                {userContext.role === "platform_admin" && userContext.portal === "root" ? (
+                  <Link href="/mi-cuenta" className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#3150D8] transition hover:bg-blue-50">Mi cuenta</Link>
+                ) : null}
                 <button type="button" onClick={signOut} disabled={signingOut} title="Cerrar sesión" aria-label="Cerrar sesión" className="rounded-full p-1.5 transition hover:bg-white disabled:opacity-60">
                   {signingOut ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
                 </button>

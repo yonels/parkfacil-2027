@@ -22,6 +22,7 @@ function normalizeCreatePayload(input) {
   return {
     fullName: String(input?.fullName || "").trim(),
     email: normalizeEmail(input?.email),
+    recoveryEmail: normalizeEmail(input?.recoveryEmail),
     phone: String(input?.phone || "").trim(),
     role: String(input?.role || "").trim(),
     companyId: String(input?.companyId || "").trim(),
@@ -67,6 +68,8 @@ export async function POST(request) {
   if (!payload.fullName) errors.fullName = "El nombre es obligatorio.";
   if (!payload.email) errors.email = "El correo es obligatorio.";
   if (!payload.email.includes("@")) errors.email = "Correo invalido.";
+  if (!payload.recoveryEmail) errors.recoveryEmail = "El correo de recuperación es obligatorio.";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.recoveryEmail)) errors.recoveryEmail = "El correo de recuperación no es válido.";
   if (!CREATE_ALLOWED_ROLES.has(payload.role)) errors.role = "Selecciona un perfil valido para crear el usuario.";
   if (Object.keys(errors).length) return NextResponse.json({ error: "Datos incompletos para crear el usuario.", details: errors, code: "VALIDATION_ERROR" }, { status: 400 });
 
@@ -128,6 +131,7 @@ export async function POST(request) {
       status: "active",
       pos_only: payload.role === ROLES.OPERATOR,
       must_change_password: true,
+      recovery_email: payload.recoveryEmail,
     });
     if (member.error) throw member.error;
 

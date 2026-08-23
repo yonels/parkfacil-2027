@@ -25,6 +25,7 @@ export function buildUserProfileUpdate(payload) {
   const memberUpdate = {};
   let phone;
   let email;
+  let recoveryEmail;
 
   if (Object.prototype.hasOwnProperty.call(source, "nombreCompleto")) {
     const nombre = String(source.nombreCompleto || "").trim();
@@ -48,8 +49,8 @@ export function buildUserProfileUpdate(payload) {
     phone = String(source.telefono || "").trim();
   }
 
-  if (Object.prototype.hasOwnProperty.call(source, "correo")) {
-    const correo = String(source.correo || "").trim().toLowerCase();
+  if (Object.prototype.hasOwnProperty.call(source, "usuarioAcceso") || Object.prototype.hasOwnProperty.call(source, "correo")) {
+    const correo = String(source.usuarioAcceso ?? source.correo ?? "").trim().toLowerCase();
     if (!EMAIL_PATTERN.test(correo)) {
       errors.push("El correo electrónico no es válido.");
     } else {
@@ -57,5 +58,16 @@ export function buildUserProfileUpdate(payload) {
     }
   }
 
-  return { errors, memberUpdate, phone, email };
+
+  if (Object.prototype.hasOwnProperty.call(source, "recoveryEmail")) {
+    const correoRecuperacion = String(source.recoveryEmail || "").trim().toLowerCase();
+    if (correoRecuperacion && !EMAIL_PATTERN.test(correoRecuperacion)) {
+      errors.push("El correo de recuperación no es válido.");
+    } else {
+      recoveryEmail = correoRecuperacion || null;
+      memberUpdate.recovery_email = recoveryEmail;
+    }
+  }
+
+  return { errors, memberUpdate, phone, email, recoveryEmail };
 }

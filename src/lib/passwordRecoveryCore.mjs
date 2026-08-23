@@ -22,17 +22,23 @@
  ******************************************************************/
 
 export const RESPUESTA_GENERICA =
-  "Si la cuenta está habilitada para recuperar su contraseña, recibirá un enlace en su correo.";
+  "Si la cuenta existe y tiene un correo de recuperación configurado, recibirás un mensaje con las instrucciones.";
 
 export const RESPUESTA_ERROR =
   "No fue posible procesar tu solicitud en este momento. Inténtalo nuevamente más tarde.";
 
 const ROLES_CLIENTE_PERMITIDOS = new Set(["company_admin", "operator"]);
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function normalizarEmail(valor) {
   return String(valor || "")
     .trim()
     .toLowerCase();
+}
+
+export function esEmailValido(valor) {
+  const email = normalizarEmail(valor);
+  return email.length <= 254 && EMAIL_PATTERN.test(email);
 }
 
 export function escaparHtml(valor) {
@@ -78,6 +84,14 @@ export function detectarPortal({ host, portalPrueba }) {
   }
 
   if (hostNormalizado === "cliente.parkfacilapp.cl") {
+    return "cliente";
+  }
+
+  if (hostNormalizado === "root.localhost") {
+    return "root";
+  }
+
+  if (hostNormalizado === "cliente.localhost") {
     return "cliente";
   }
 
@@ -165,14 +179,14 @@ export function validarRoot(usuario) {
   return rol === "platform_admin";
 }
 
-export async function validarCliente(supabase, usuario) {
+export async function obtenerMembresiaClienteElegible(supabase, usuario) {
   if (!usuarioAuthHabilitado(usuario)) {
     return false;
   }
 
   const { data: membresia, error: errorMembresia } = await supabase
     .from("company_members")
-    .select("company_id, role, status, pos_only")
+    .select("company_id, role, status, pos_only, recovery_email")
     .eq("user_id", usuario.id)
     .eq("status", "active")
     .maybeSingle();
@@ -212,7 +226,22 @@ export async function validarCliente(supabase, usuario) {
     return false;
   }
 
-  return Array.isArray(contratos) && contratos.length > 0;
+  return Array.isArray(contratos) && contratos.length > 0 ? membresia : null;
+}
+
+export async function validarCliente(supabase, usuario) {
+  return Boolean(await obtenerMembresiaClienteElegible(supabase, usuario));
+}
+
+export async function obtenerRecoveryEmailRoot(supabase, usuario) {
+  if (!validarRoot(usuario)) return null;
+  const { data, error } = await supabase
+    .from("platform_admin_profiles")
+    .select("recovery_email")
+    .eq("user_id", usuario.id)
+    .maybeSingle();
+  if (error) throw error;
+  return normalizarEmail(data?.recovery_email);
 }
 
 export function generarHtmlCorreo(enlaceSeguro) {
@@ -269,6 +298,7 @@ export function respuestaError() {
 export async function procesarRecuperacionContrasena({
   portal,
   redirectTo,
+  loginIdentifier,
   email,
   supabase,
   enviarCorreo,
@@ -281,11 +311,11 @@ export async function procesarRecuperacionContrasena({
     return respuestaGenerica();
   }
 
-  const emailNormalizado = normalizarEmail(email);
+  const emailNormalizado = normalizarEmail(loginIdentifier ?? email);
 
   diagnosticar("Correo solicitado", anonimizarEmail(emailNormalizado));
 
-  if (!emailNormalizado || emailNormalizado.length > 254) {
+  if (!esEmailValido(emailNormalizado)) {
     diagnosticar("Solicitud descartada", "correo inválido");
     return respuestaGenerica();
   }
@@ -304,13 +334,36 @@ export async function procesarRecuperacionContrasena({
     return respuestaError();
   }
 
-  const elegible =
-    portal === "root" ? validarRoot(usuario) : await validarCliente(supabase, usuario);
+  const membresia = portal === "cliente"
+    ? await obtenerMembresiaClienteElegible(supabase, usuario)
+    : null;
+  const elegible = portal === "root" ? validarRoot(usuario) : Boolean(membresia);
 
   diagnosticar("Resultado de elegibilidad", elegible);
 
   if (!elegible) {
     diagnosticar("Correo no enviado", "cuenta no elegible");
+    return respuestaGenerica();
+  }
+
+  // El destinatario siempre se resuelve server-side desde el perfil asociado
+  // al mismo user_id: platform_admin_profiles para Root y company_members
+  // para administradores de empresa/operadores.
+  let destinatario;
+  try {
+    destinatario = portal === "root"
+      ? await obtenerRecoveryEmailRoot(supabase, usuario)
+      : normalizarEmail(membresia?.recovery_email);
+  } catch (errorPerfil) {
+    diagnosticar("Error crítico en perfil de recuperación", {
+      type: errorPerfil?.name || "Error",
+      code: errorPerfil?.code || "RECOVERY_PROFILE_LOOKUP_FAILED",
+    });
+    return respuestaError();
+  }
+
+  if (!esEmailValido(destinatario)) {
+    diagnosticar("Correo no enviado", "recovery_email ausente o inválido");
     return respuestaGenerica();
   }
 
@@ -348,7 +401,7 @@ export async function procesarRecuperacionContrasena({
 
   try {
     await enviarCorreo({
-      para: emailNormalizado,
+      para: destinatario,
       asunto: "Recuperación de contraseña | ParkFacil",
       html: generarHtmlCorreo(enlaceSeguro),
       texto: `Recupere su contraseña utilizando este enlace: ${enlaceRecuperacion}`,

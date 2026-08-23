@@ -32,6 +32,7 @@ const USUARIO_NO_ELEGIBLE = {
 
 function crearSupabaseMock({
   usuarios = [],
+  rootRecoveryEmail = "root@parkfacilapp.cl",
   throwOnListUsers = null,
   errorGenerateLink = null,
   throwOnGenerateLink = null,
@@ -39,6 +40,7 @@ function crearSupabaseMock({
 } = {}) {
   let listUsersCalls = 0;
   let generateLinkCalls = 0;
+  let lastGenerateLinkArgs = null;
 
   return {
     calls: {
@@ -47,6 +49,9 @@ function crearSupabaseMock({
       },
       get generateLink() {
         return generateLinkCalls;
+      },
+      get lastGenerateLinkArgs() {
+        return lastGenerateLinkArgs;
       },
     },
     auth: {
@@ -60,8 +65,9 @@ function crearSupabaseMock({
 
           return { data: { users: usuarios }, error: null };
         },
-        async generateLink() {
+        async generateLink(args) {
           generateLinkCalls += 1;
+          lastGenerateLinkArgs = args;
 
           if (throwOnGenerateLink) {
             throw throwOnGenerateLink;
@@ -77,6 +83,17 @@ function crearSupabaseMock({
           };
         },
       },
+    },
+    from(table) {
+      assert.equal(table, "platform_admin_profiles");
+      const chain = {
+        select() { return chain; },
+        eq() { return chain; },
+        async maybeSingle() {
+          return { data: rootRecoveryEmail === undefined ? null : { recovery_email: rootRecoveryEmail }, error: null };
+        },
+      };
+      return chain;
     },
   };
 }
@@ -152,6 +169,37 @@ test("usuario inexistente responde genérico sin enviar correo (antienumeración
   assert.deepEqual(resultado, respuestaGenerica());
   assert.equal(enviarCorreo.llamadas.length, 0);
   assert.equal(supabase.calls.generateLink, 0);
+});
+
+test("Root sin recovery_email o con recovery inválido responde genérico sin generar token", async () => {
+  for (const rootRecoveryEmail of [null, "correo-invalido"]) {
+    const supabase = crearSupabaseMock({ usuarios: [USUARIO_ROOT_ELEGIBLE], rootRecoveryEmail });
+    const enviarCorreo = crearEnviarCorreoMock();
+    const resultado = await procesarRecuperacionContrasena({
+      portal: "root",
+      redirectTo: REDIRECT_ROOT,
+      loginIdentifier: USUARIO_ROOT_ELEGIBLE.email,
+      supabase,
+      enviarCorreo,
+    });
+    assert.deepEqual(resultado, respuestaGenerica());
+    assert.equal(supabase.calls.generateLink, 0);
+    assert.equal(enviarCorreo.llamadas.length, 0);
+  }
+});
+
+test("Root genera token para el login y envía al recovery_email distinto", async () => {
+  const supabase = crearSupabaseMock({ usuarios: [USUARIO_ROOT_ELEGIBLE], rootRecoveryEmail: "info@parkfacil.cl" });
+  const enviarCorreo = crearEnviarCorreoMock();
+  await procesarRecuperacionContrasena({
+    portal: "root",
+    redirectTo: REDIRECT_ROOT,
+    loginIdentifier: USUARIO_ROOT_ELEGIBLE.email,
+    supabase,
+    enviarCorreo,
+  });
+  assert.equal(supabase.calls.lastGenerateLinkArgs.email, USUARIO_ROOT_ELEGIBLE.email);
+  assert.equal(enviarCorreo.llamadas[0].para, "info@parkfacil.cl");
 });
 
 // 4. Error al generar el enlace de recuperación (Supabase generateLink falla).
@@ -338,6 +386,8 @@ test("detectarPortal solo admite el header de prueba en localhost/127.0.0.1", ()
   assert.equal(detectarPortal({ host: "cliente.parkfacilapp.cl", portalPrueba: "root" }), "cliente");
   assert.equal(detectarPortal({ host: "localhost", portalPrueba: "root" }), "root");
   assert.equal(detectarPortal({ host: "127.0.0.1", portalPrueba: "root" }), "root");
+  assert.equal(detectarPortal({ host: "root.localhost:3000", portalPrueba: "cliente" }), "root");
+  assert.equal(detectarPortal({ host: "cliente.localhost:3000", portalPrueba: "root" }), "cliente");
   assert.equal(detectarPortal({ host: "localhost", portalPrueba: "" }), "cliente");
   assert.equal(detectarPortal({ host: "dominio-desconocido.cl", portalPrueba: "root" }), null);
 });

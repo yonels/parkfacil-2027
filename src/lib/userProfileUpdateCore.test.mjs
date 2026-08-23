@@ -54,3 +54,22 @@ test("rechaza un correo con formato inválido", () => {
   assert.equal(errors.length > 0, true);
   assert.equal(email, undefined);
 });
+
+test("recovery_email se normaliza sin modificar el usuario de acceso", () => {
+  const { errors, memberUpdate, email, recoveryEmail } = buildUserProfileUpdate({
+    recoveryEmail: "  Persona.Real@Gmail.COM  ",
+  });
+  assert.deepEqual(errors, []);
+  assert.equal(memberUpdate.recovery_email, "persona.real@gmail.com");
+  assert.equal(recoveryEmail, "persona.real@gmail.com");
+  assert.equal(email, undefined);
+});
+
+test("permite limpiar recovery_email y rechaza formatos inválidos", () => {
+  const limpio = buildUserProfileUpdate({ recoveryEmail: "" });
+  assert.equal(limpio.memberUpdate.recovery_email, null);
+
+  const invalido = buildUserProfileUpdate({ recoveryEmail: "correo-invalido" });
+  assert.equal(invalido.errors.length, 1);
+  assert.equal(invalido.memberUpdate.recovery_email, undefined);
+});

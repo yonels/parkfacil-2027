@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 
 export default function RecuperarContrasenaPage() {
-  const [email, setEmail] = useState("");
+  const [loginIdentifier, setLoginIdentifier] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState(false);
   const [error, setError] = useState("");
@@ -22,6 +22,7 @@ export default function RecuperarContrasenaPage() {
     setEnviando(true);
 
     try {
+      const portalLocal = window.location.hostname.startsWith("cliente.") ? "cliente" : "root";
       const respuesta = await fetch(
         "/api/auth/recuperar-contrasena",
         {
@@ -31,10 +32,10 @@ export default function RecuperarContrasenaPage() {
 
             // SOLO PARA PRUEBAS EN LOCALHOST
             // Simula una petición proveniente de root.parkfacilapp.cl
-            "x-parkfacil-portal": "root",
+            "x-parkfacil-portal": portalLocal,
           },
           body: JSON.stringify({
-            email: email.trim(),
+            loginIdentifier: loginIdentifier.trim(),
           }),
         }
       );
@@ -78,9 +79,9 @@ export default function RecuperarContrasenaPage() {
             </h1>
 
             <p className="mt-3 text-white/80">
-              Ingrese el correo electrónico asociado a su cuenta.
-              Si existe, recibirá un enlace para restablecer su
-              contraseña.
+              Ingresa tu Usuario de acceso. Si la cuenta existe y tiene
+              un correo de recuperación configurado, recibirás un mensaje
+              con las instrucciones.
             </p>
 
             <form
@@ -89,7 +90,7 @@ export default function RecuperarContrasenaPage() {
             >
               <div>
                 <label className="mb-2 block text-sm font-semibold">
-                  Correo electrónico
+                  Usuario de acceso
                 </label>
 
                 <div className="flex items-center rounded-2xl border border-white/30 bg-white/10 px-4">
@@ -98,11 +99,11 @@ export default function RecuperarContrasenaPage() {
                   <input
                     type="email"
                     required
-                    value={email}
+                    value={loginIdentifier}
                     onChange={(e) =>
-                      setEmail(e.target.value)
+                      setLoginIdentifier(e.target.value)
                     }
-                    placeholder="nombre@empresa.cl"
+                    placeholder="operador1.5q@usuarios.parkfacil.cl"
                     className="w-full bg-transparent py-4 outline-none placeholder:text-white/60"
                   />
                 </div>
@@ -140,8 +141,8 @@ export default function RecuperarContrasenaPage() {
             </h1>
 
             <p className="mt-4 text-white/80">
-              Si el correo existe en nuestros registros,
-              recibirás un enlace para recuperar tu contraseña.
+              Si la cuenta existe y tiene un correo de recuperación
+              configurado, recibirás un mensaje con las instrucciones.
             </p>
           </div>
         )}

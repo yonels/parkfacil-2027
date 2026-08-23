@@ -50,7 +50,8 @@ export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeho
         if (!normalized) return true;
         const valores = [
           usuario.nombreCompleto,
-          usuario.correo,
+          usuario.usuarioAcceso,
+          usuario.recoveryEmail,
           usuario.telefono,
           getPerfilLabel(usuario.perfilPrincipal),
           ...(usuario.searchValues || []),
@@ -69,7 +70,8 @@ export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeho
   );
 
   const columnas = useMemo(() => [
-    { key: "correo", label: "Correo", className: "font-semibold text-[#3150D8]" },
+    { key: "usuarioAcceso", label: "Usuario de acceso", className: "font-semibold text-[#3150D8]" },
+    { key: "recoveryEmail", label: "Correo de recuperación", render: (row) => row.recoveryEmail || "Sin configurar" },
     { key: "nombreCompleto", label: "Nombre" },
     { key: "telefono", label: "Teléfono" },
     { key: "empresaNombre", label: "Empresa" },

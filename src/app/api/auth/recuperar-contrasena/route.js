@@ -49,7 +49,7 @@ export async function POST(request) {
     const resultado = await procesarRecuperacionContrasena({
       portal,
       redirectTo,
-      email: body?.email,
+      loginIdentifier: body?.loginIdentifier ?? body?.email,
       supabase,
       enviarCorreo: enviarCorreoMicrosoft,
       diagnosticar: diagnostico,

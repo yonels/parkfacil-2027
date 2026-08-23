@@ -36,7 +36,7 @@ export async function POST(request, { params }) {
 
   const { data: member, error: memberError } = await db
     .from("company_members")
-    .select("user_id,company_id,role,status")
+    .select("user_id,company_id,role,status,recovery_email")
     .eq("user_id", id)
     .maybeSingle();
 
@@ -66,7 +66,8 @@ export async function POST(request, { params }) {
     await enviarRecuperacionAdministrativa({
       supabase: db,
       enviarCorreo: enviarCorreoMicrosoft,
-      email: authData.user.email,
+      loginEmail: authData.user.email,
+      recoveryEmail: member.recovery_email,
       portalDestino: "cliente",
       diagnosticar: diagnostico,
     });

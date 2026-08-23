@@ -96,7 +96,7 @@ export default function UsuarioDetalleClient({ userId }) {
   // empresa/estacionamientos (aislamiento por tenant) ni contraseña
   // (ver sección "Acceso y contraseña").
   const [editando, setEditando] = useState(false);
-  const [editDraft, setEditDraft] = useState({ nombreCompleto: "", correo: "", telefono: "", estado: "active" });
+  const [editDraft, setEditDraft] = useState({ nombreCompleto: "", usuarioAcceso: "", recoveryEmail: "", telefono: "", estado: "active" });
   const [editError, setEditError] = useState("");
   const [editEnviando, setEditEnviando] = useState(false);
 
@@ -181,14 +181,14 @@ export default function UsuarioDetalleClient({ userId }) {
 
   async function enviarRecuperacion() {
     await confirmarYEjecutar(
-      `Enviar correo de recuperación de contraseña a ${usuario.correo}`,
+      `Enviar correo de recuperación de contraseña a ${usuario.recoveryEmail || "el correo de recuperación configurado"}`,
       async () => {
         setRecuperacionEnviando(true);
         try {
           const response = await authenticatedFetch(`/api/usuarios/${userId}/recuperacion`, { method: "POST" });
           const body = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(body.error || "No fue posible enviar el correo de recuperación.");
-          setAccionMensaje(`Correo de recuperación enviado a ${usuario.correo}.`);
+          setAccionMensaje("Correo de recuperación enviado correctamente.");
         } catch (cause) {
           setAccionError(cause.message);
         } finally {
@@ -243,7 +243,7 @@ export default function UsuarioDetalleClient({ userId }) {
       setClaveDirectaError("Las claves no coinciden.");
       return;
     }
-    const confirmado = window.confirm(`Se establecerá una nueva clave directamente para ${usuario.correo}. ¿Continuar?`);
+    const confirmado = window.confirm(`Se establecerá una nueva clave directamente para ${usuario.usuarioAcceso}. ¿Continuar?`);
     if (!confirmado) return;
     setClaveDirectaError("");
     setClaveDirectaEnviando(true);
@@ -268,7 +268,8 @@ export default function UsuarioDetalleClient({ userId }) {
   function abrirEdicion() {
     setEditDraft({
       nombreCompleto: usuario.nombreCompleto || "",
-      correo: usuario.correo || "",
+      usuarioAcceso: usuario.usuarioAcceso || usuario.correo || "",
+      recoveryEmail: usuario.recoveryEmail || "",
       telefono: usuario.telefono && usuario.telefono !== "Sin teléfono informado" ? usuario.telefono : "",
       estado: usuario.estado === "pending" || usuario.estado === "inactive" ? usuario.estado : "active",
     });
@@ -282,13 +283,13 @@ export default function UsuarioDetalleClient({ userId }) {
       setEditError("El nombre completo no puede estar vacío.");
       return;
     }
-    if (!editDraft.correo.trim()) {
-      setEditError("El correo electrónico no puede estar vacío.");
+    if (!editDraft.usuarioAcceso.trim()) {
+      setEditError("El usuario de acceso no puede estar vacío.");
       return;
     }
-    const correoNuevo = editDraft.correo.trim().toLowerCase();
-    const cambiaCorreo = correoNuevo !== (usuario.correo || "").toLowerCase();
-    if (cambiaCorreo && !window.confirm(`Se cambiará el correo de acceso de ${usuario.correo} a ${correoNuevo}. El usuario deberá iniciar sesión con el nuevo correo. ¿Continuar?`)) {
+    const usuarioAccesoNuevo = editDraft.usuarioAcceso.trim().toLowerCase();
+    const cambiaUsuarioAcceso = usuarioAccesoNuevo !== (usuario.usuarioAcceso || usuario.correo || "").toLowerCase();
+    if (cambiaUsuarioAcceso && !window.confirm(`Se cambiará el Usuario de acceso de ${usuario.usuarioAcceso || usuario.correo} a ${usuarioAccesoNuevo}. El correo de recuperación no cambiará. ¿Continuar?`)) {
       return;
     }
     setEditError("");
@@ -299,7 +300,8 @@ export default function UsuarioDetalleClient({ userId }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           nombreCompleto: editDraft.nombreCompleto.trim(),
-          correo: correoNuevo,
+          usuarioAcceso: usuarioAccesoNuevo,
+          recoveryEmail: editDraft.recoveryEmail.trim().toLowerCase(),
           telefono: editDraft.telefono.trim(),
           estado: editDraft.estado,
         }),
@@ -328,7 +330,7 @@ export default function UsuarioDetalleClient({ userId }) {
 
         <PageHeader
           title={usuario.nombreCompleto}
-          description={`${usuario.correo} · ${getPerfilLabel(usuario.perfilPrincipal)}`}
+          description={`${usuario.usuarioAcceso || usuario.correo} · ${getPerfilLabel(usuario.perfilPrincipal)}`}
           backHref={listado.href}
           backLabel={`Volver a ${listado.label}`}
         />
@@ -362,14 +364,25 @@ export default function UsuarioDetalleClient({ userId }) {
                     />
                   </label>
                   <label className="block space-y-1.5 text-sm text-slate-700">
-                    <span className="font-medium text-slate-500">Correo</span>
+                    <span className="font-medium text-slate-500">Usuario de acceso</span>
                     <input
                       type="email"
-                      value={editDraft.correo}
-                      onChange={(event) => setEditDraft((current) => ({ ...current, correo: event.target.value }))}
+                      value={editDraft.usuarioAcceso}
+                      onChange={(event) => setEditDraft((current) => ({ ...current, usuarioAcceso: event.target.value }))}
                       className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]"
                       required
                     />
+                  </label>
+                  <label className="block space-y-1.5 text-sm text-slate-700 sm:col-span-2">
+                    <span className="font-medium text-slate-500">Correo de recuperación</span>
+                    <input
+                      type="email"
+                      value={editDraft.recoveryEmail}
+                      onChange={(event) => setEditDraft((current) => ({ ...current, recoveryEmail: event.target.value }))}
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]"
+                      placeholder="Sin configurar"
+                    />
+                    <span className="block text-xs leading-5 text-slate-500">Se utilizará exclusivamente para recuperación de contraseña y comunicaciones de seguridad. Debe ser una dirección de correo válida a la que el usuario tenga acceso.</span>
                   </label>
                   <label className="block space-y-1.5 text-sm text-slate-700">
                     <span className="font-medium text-slate-500">Teléfono</span>
@@ -392,6 +405,10 @@ export default function UsuarioDetalleClient({ userId }) {
                       <option value="pending">Pendiente</option>
                     </select>
                   </label>
+                  <label className="block space-y-1.5 text-sm text-slate-700">
+                    <span className="font-medium text-slate-500">Rol</span>
+                    <input value={getPerfilLabel(usuario.perfilPrincipal)} className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-slate-600" disabled />
+                  </label>
                 </div>
                 <p className="text-xs text-slate-500">Empresa y estacionamientos asignados no se editan desde aquí. La contraseña se administra en &quot;Acceso y contraseña&quot;.</p>
                 <div className="flex justify-end gap-3">
@@ -405,8 +422,10 @@ export default function UsuarioDetalleClient({ userId }) {
             ) : (
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
                 <DetailItem label="Nombre completo" value={usuario.nombreCompleto} />
-                <DetailItem label="Correo" value={usuario.correo} />
+                <DetailItem label="Usuario de acceso" value={usuario.usuarioAcceso || usuario.correo} />
+                <DetailItem label="Correo de recuperación" value={usuario.recoveryEmail || "Sin configurar"} />
                 <DetailItem label="Teléfono" value={usuario.telefono} />
+                <DetailItem label="Rol" value={getPerfilLabel(usuario.perfilPrincipal)} />
                 <DetailItem label="Fecha de creación" value={usuario.fechaCreacion || "Sin fecha informada"} />
                 <DetailItem label="Último acceso" value={usuario.ultimoAcceso} />
                 <DetailItem label="Estado" value={<EstadoUsuarioBadge estado={usuario.estado} />} />

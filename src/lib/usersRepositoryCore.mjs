@@ -9,7 +9,11 @@ export function mapAuthorizedUsers({ members, authUsers, companies, parkings, ac
       id: member.user_id,
       nombreCompleto: member.full_name,
       cargo: member.role === "company_admin" ? "Administrador de empresa" : "Operador POS",
+      usuarioAcceso: authUser?.email || "",
+      // Alias temporal para consumidores no migrados; representa login, no
+      // correo de recuperación.
       correo: authUser?.email || "",
+      recoveryEmail: member.recovery_email || null,
       telefono: authUser?.user_metadata?.phone || "Sin teléfono informado",
       empresaId: member.company_id,
       perfilPrincipal: member.role,
