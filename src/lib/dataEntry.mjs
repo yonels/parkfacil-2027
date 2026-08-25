@@ -5,8 +5,9 @@ export const MOVEMENT_TYPES = ["ENTRY", "EXIT"];
 export const ENTRY_SOURCES = ["MOBILE", "POS", "TABLET", "DESKTOP", "OTHER"];
 export const OPERATIONAL_TIME_ZONE = "America/Santiago";
 
-export function normalizePlate(value) {
-  return String(value ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+export function normalizePlate(value, { truncate = true } = {}) {
+  const normalized = String(value ?? "").trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return truncate ? normalized.slice(0, 8) : normalized;
 }
 
 export function joinChileanPlate(prefix, suffix) {
