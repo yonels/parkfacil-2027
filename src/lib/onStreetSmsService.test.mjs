@@ -171,6 +171,17 @@ test("un proveedor que lanza una excepción de configuración se registra como F
   assert.equal(first.error_code, "SENTRALAND_TIPO_SERVICIO_NOT_CONFIGURED");
 });
 
+test("una sesion no elegible se cancela sin contactar al proveedor y el cron repetido no la duplica", async () => {
+  const db = makeFakeDb([baseRow()]);
+  let sendCalls = 0;
+  const provider = { name: "SIMULATED", send: async () => { sendCalls += 1; return { ok: true }; } };
+  const first = await processDueOnStreetSms({ origin: "https://cliente.parkfacilapp.cl", provider, db, now: NOW, eligibilityCheck: async () => false });
+  const second = await processDueOnStreetSms({ origin: "https://cliente.parkfacilapp.cl", provider, db, now: NOW, eligibilityCheck: async () => true });
+  assert.equal(first[0].status, "CANCELLED");
+  assert.equal(second.length, 0);
+  assert.equal(sendCalls, 0);
+});
+
 // --- Consulta DLR ---
 
 test("consulta de DLR marca delivered_at solo cuando el proveedor confirma DELIVERED", async () => {

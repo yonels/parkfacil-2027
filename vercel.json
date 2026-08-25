@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/internal/on-street-sms/process",
+      "schedule": "* * * * *"
+    }
+  ]
+}

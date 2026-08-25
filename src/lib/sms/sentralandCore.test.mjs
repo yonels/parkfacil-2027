@@ -234,3 +234,28 @@ test("el punto de entrada real (sentralandClient.mjs) lleva la marca server-only
   assert.match(source, /import "server-only"/);
   assert.match(source, /export \* from ".\/sentralandCore\.mjs"/);
 });
+
+test("HTTP 500 al obtener token se reintenta una vez y luego puede recuperarse", async () => {
+  await withEnv(FULL_CONFIG_ENV, async () => {
+    let calls = 0;
+    const fetchImpl = async () => { calls += 1; return calls === 1 ? { ok: false, status: 500 } : { ok: true, status: 200, json: async () => ({ codigo: 0, descripcion: "token" }) }; };
+    assert.equal(await sentralandGetToken({ fetchImpl }), "token");
+    assert.equal(calls, 2);
+  });
+});
+
+test("timeout se clasifica y el token reintenta solo el maximo seguro", async () => {
+  await withEnv(FULL_CONFIG_ENV, async () => {
+    let calls = 0;
+    const fetchImpl = (_url, { signal }) => new Promise((_resolve, reject) => { calls += 1; signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }))); });
+    await assert.rejects(() => sentralandGetToken({ fetchImpl, timeoutMs: 5 }), { code: "SENTRALAND_TIMEOUT" });
+    assert.equal(calls, 2);
+  });
+});
+
+test("respuesta JSON invalida falla cerrada", async () => {
+  await withEnv(FULL_CONFIG_ENV, async () => {
+    const fetchImpl = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("bad json"); } });
+    await assert.rejects(() => sentralandSendSms({ fono: "+56912345678", mensaje: "hola", token: "t", fetchImpl }), { code: "SENTRALAND_RESPONSE_INVALID" });
+  });
+});

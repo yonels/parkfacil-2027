@@ -1,6 +1,8 @@
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { resolveSmsProvider } from "./onStreetSmsProvider";
 import { processDueOnStreetSms as processDueOnStreetSmsCore, processOnStreetSmsDeliveryStatus as processOnStreetSmsDeliveryStatusCore } from "./onStreetSmsCore.mjs";
+import { resolveSmsPublicOrigin } from "./onStreetSms.mjs";
+import { isEligibleOnStreetSmsNotification } from "./onStreetSmsEligibility.mjs";
 
 // Envoltorio real para el resto de la aplicación: provee los valores por
 // defecto (Supabase real, proveedor resuelto por SMS_PROVIDER) sobre la
@@ -8,7 +10,8 @@ import { processDueOnStreetSms as processDueOnStreetSmsCore, processOnStreetSmsD
 // sobreescribirse (usado hoy por los tests que ya llaman a estas mismas
 // firmas contra la lógica del núcleo).
 export async function processDueOnStreetSms({ origin, provider = resolveSmsProvider(), db = getSupabaseAdminClient(), now } = {}) {
-  return processDueOnStreetSmsCore({ origin, provider, db, now });
+  const publicOrigin = resolveSmsPublicOrigin({ configuredOrigin: process.env.PARKFACIL_PUBLIC_BASE_URL, requestOrigin: origin });
+  return processDueOnStreetSmsCore({ origin: publicOrigin, provider, db, now, eligibilityCheck: (notification, at) => isEligibleOnStreetSmsNotification(db, notification, at) });
 }
 
 export async function processOnStreetSmsDeliveryStatus({ provider = resolveSmsProvider(), db = getSupabaseAdminClient(), limit } = {}) {

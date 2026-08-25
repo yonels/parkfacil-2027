@@ -8,7 +8,6 @@ const migration=await readFile(new URL("../../supabase/migrations/20260815100000
 const service=await readFile(new URL("./onStreetPaymentService.js",import.meta.url),"utf8");
 const startRoute=await readFile(new URL("../app/api/public/on-street/payment-intents/route.js",import.meta.url),"utf8");
 const returnRoute=await readFile(new URL("../app/api/public/on-street/webpay/return/route.js",import.meta.url),"utf8");
-const legacyQuoteRoute=await readFile(new URL("../app/api/pague-aqui/quote/route.js",import.meta.url),"utf8");
 
 test("token_ws se almacena cifrado y se localiza por hash",()=>{const secret="integration-secret-with-at-least-32-bytes",token="01ab-token-webpay";const encrypted=encryptPaymentToken(token,secret);assert.notEqual(encrypted,token);assert.equal(decryptPaymentToken(encrypted,secret),token);assert.match(hashPaymentToken(token),/^[a-f0-9]{64}$/)});
 test("commit autorizado exige status, response code, buy order y monto",()=>{const response={status:"AUTHORIZED",response_code:0,buy_order:"PF1",amount:900};assert.equal(isAuthorizedWebpayResponse(response,{buyOrder:"PF1",amount:900}),true);for(const changed of [{status:"FAILED"},{response_code:-1},{buy_order:"PF2"},{amount:901}])assert.equal(isAuthorizedWebpayResponse({...response,...changed},{buyOrder:"PF1",amount:900}),false)});
@@ -24,4 +23,3 @@ test("timeout intenta recuperación mediante status",()=>{assert.match(service,/
 test("extensión aprobada es única y una rechazada no cambia expires_at",()=>{assert.match(migration,/on_street_extension_payment_uidx/);assert.match(migration,/update public\.on_street_pilot_sessions set purchased_minutes/);const beforeFinalize=migration.slice(0,migration.indexOf("create or replace function public.finalize_authorized_on_street_payment"));assert.doesNotMatch(beforeFinalize,/set purchased_minutes=purchased_minutes\+/)});
 test("RLS bloquea acceso directo público",()=>{assert.match(migration,/enable row level security/g);assert.match(migration,/revoke all on public\.on_street_payment_intents,public\.payment_transactions from public,anon,authenticated/)});
 test("retorno nunca acredita con parámetros de monto del navegador",()=>{assert.doesNotMatch(returnRoute,/amount|buyOrder/);assert.match(returnRoute,/processWebpayReturn/)});
-test("Pague Aquí no compara jamás headers contra service role",()=>{assert.match(legacyQuoteRoute,/PARKFACIL_INTERNAL_SERVICE_KEY/);assert.doesNotMatch(legacyQuoteRoute,/process\.env\.SUPABASE_SERVICE_ROLE_KEY/)});

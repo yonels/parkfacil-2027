@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { resolveSmsProvider, simulatedSmsProvider, sentralandSmsProvider } from "./onStreetSmsProviderCore.mjs";
+import { createSentralandSmsProvider, resolveSmsProvider, simulatedSmsProvider, sentralandSmsProvider } from "./onStreetSmsProviderCore.mjs";
 
 test("por defecto (sin SMS_PROVIDER) resuelve al proveedor simulado", () => {
   const previous = process.env.SMS_PROVIDER;
@@ -60,4 +60,25 @@ test("el punto de entrada real (onStreetSmsProvider.js) lleva la marca server-on
   const source = await readFile(new URL("./onStreetSmsProvider.js", import.meta.url), "utf8");
   assert.match(source, /import "server-only"/);
   assert.match(source, /export \* from ".\/onStreetSmsProviderCore\.mjs"/);
+});
+
+test("token expirado por HTTP 401 obtiene uno nuevo y reintenta una sola vez", async () => {
+  let tokenCalls = 0, sendCalls = 0;
+  const provider = createSentralandSmsProvider({
+    getToken: async () => `token-${++tokenCalls}`,
+    sendSms: async ({ token }) => { sendCalls += 1; if (sendCalls === 1) throw Object.assign(new Error("401"), { code: "SENTRALAND_HTTP_ERROR", status: 401 }); return { ok: true, code: 0, idmensaje: "m1", description: token }; },
+  });
+  const result = await provider.send({ to: "+56912345678", message: "hola" });
+  assert.equal(result.ok, true);
+  assert.equal(tokenCalls, 2);
+  assert.equal(sendCalls, 2);
+});
+
+test("un 500 o timeout del envio no se reintenta por riesgo de duplicado", async () => {
+  for (const failure of [Object.assign(new Error("500"), { code: "SENTRALAND_HTTP_ERROR", status: 500 }), Object.assign(new Error("timeout"), { code: "SENTRALAND_TIMEOUT" })]) {
+    let sendCalls = 0;
+    const provider = createSentralandSmsProvider({ getToken: async () => "token", sendSms: async () => { sendCalls += 1; throw failure; } });
+    await assert.rejects(() => provider.send({ to: "+56912345678", message: "hola" }));
+    assert.equal(sendCalls, 1);
+  }
 });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { notificationDeliveryState } from "./onStreetSms.mjs";
+import { notificationDeliveryState, resolveSmsPublicOrigin } from "./onStreetSms.mjs";
 
 // Separado de onStreetSms.test.mjs a propósito: ese archivo lee además la
 // migración T-15 y la ruta pública de sesión (ambas fuera del alcance de
@@ -20,4 +20,10 @@ test("un aviso real con delivered_at es DELIVERED", () => {
 });
 test("un aviso FAILED se reporta como FAILED sin importar el proveedor", () => {
   assert.equal(notificationDeliveryState({ status: "FAILED", provider: "SENTRALAND" }), "FAILED");
+});
+
+test("produccion rechaza localhost y exige HTTPS para el link SMS", () => {
+  assert.throws(() => resolveSmsPublicOrigin({ configuredOrigin: "http://localhost:3000", nodeEnv: "production" }), { code: "SMS_PUBLIC_ORIGIN_UNSAFE" });
+  assert.throws(() => resolveSmsPublicOrigin({ configuredOrigin: "http://cliente.parkfacilapp.cl", nodeEnv: "production" }), { code: "SMS_PUBLIC_ORIGIN_UNSAFE" });
+  assert.equal(resolveSmsPublicOrigin({ configuredOrigin: "https://cliente.parkfacilapp.cl/", nodeEnv: "production" }), "https://cliente.parkfacilapp.cl");
 });

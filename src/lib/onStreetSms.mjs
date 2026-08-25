@@ -10,6 +10,18 @@ export function publicSmsMessage(origin, storedMessage) {
   return url ? storedMessage.replace(/\/estacionar\/sesion\/[0-9a-f-]{36}$/i, url) : null;
 }
 
+export function resolveSmsPublicOrigin({ configuredOrigin, requestOrigin, nodeEnv = process.env.NODE_ENV } = {}) {
+  const candidate = String(configuredOrigin || requestOrigin || "").trim().replace(/\/$/, "");
+  let url;
+  try { url = new URL(candidate); }
+  catch { throw Object.assign(new Error("SMS_PUBLIC_ORIGIN_INVALID"), { code: "SMS_PUBLIC_ORIGIN_INVALID" }); }
+  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname.endsWith(".localhost");
+  if (nodeEnv === "production" && (url.protocol !== "https:" || local)) {
+    throw Object.assign(new Error("SMS_PUBLIC_ORIGIN_UNSAFE"), { code: "SMS_PUBLIC_ORIGIN_UNSAFE" });
+  }
+  return url.origin;
+}
+
 // Estado de entrega para mostrar en administración — distingue
 // explícitamente un envío simulado (nunca contactó un proveedor real) de
 // uno real aceptado, entregado o fallido. No confundir con `status`

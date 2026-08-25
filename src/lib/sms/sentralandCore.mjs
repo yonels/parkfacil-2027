@@ -53,16 +53,35 @@ function credentialFields(config) {
   return { institucion: config.institucion, tipo_servicio: config.tipoServicio, usuario: config.usuario, password: config.password };
 }
 
-async function postForm(url, fields, fetchImpl) {
-  const response = await fetchImpl(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams(fields).toString(),
-  });
-  if (!response.ok) throw Object.assign(new Error("SENTRALAND_HTTP_ERROR"), { code: "SENTRALAND_HTTP_ERROR", status: response.status });
-  const json = await response.json();
-  if (!json || typeof json !== "object") throw Object.assign(new Error("SENTRALAND_RESPONSE_INVALID"), { code: "SENTRALAND_RESPONSE_INVALID" });
-  return json;
+async function postForm(url, fields, fetchImpl, { timeoutMs = 10_000, retries = 0 } = {}) {
+  for (let attempt = 0; ; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetchImpl(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(fields).toString(),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const error = Object.assign(new Error("SENTRALAND_HTTP_ERROR"), { code: "SENTRALAND_HTTP_ERROR", status: response.status, retryable: response.status === 429 || response.status >= 500 });
+        if (attempt < retries && error.retryable) continue;
+        throw error;
+      }
+      let json;
+      try { json = await response.json(); }
+      catch { throw Object.assign(new Error("SENTRALAND_RESPONSE_INVALID"), { code: "SENTRALAND_RESPONSE_INVALID" }); }
+      if (!json || typeof json !== "object") throw Object.assign(new Error("SENTRALAND_RESPONSE_INVALID"), { code: "SENTRALAND_RESPONSE_INVALID" });
+      return json;
+    } catch (cause) {
+      const timeoutError = cause?.name === "AbortError"
+        ? Object.assign(new Error("SENTRALAND_TIMEOUT"), { code: "SENTRALAND_TIMEOUT", retryable: true })
+        : cause;
+      if (attempt < retries && timeoutError?.retryable) continue;
+      throw timeoutError;
+    } finally { clearTimeout(timeout); }
+  }
 }
 
 // PROVISIONAL: el manual de Token solo documenta el ejemplo literal
@@ -86,9 +105,9 @@ export function parseSentralandTokenResponse(json) {
   return token;
 }
 
-export async function sentralandGetToken({ fetchImpl = fetch } = {}) {
+export async function sentralandGetToken({ fetchImpl = fetch, timeoutMs } = {}) {
   const config = requireSentralandConfig();
-  const json = await postForm(config.tokenUrl, credentialFields(config), fetchImpl);
+  const json = await postForm(config.tokenUrl, credentialFields(config), fetchImpl, { timeoutMs, retries: 1 });
   return parseSentralandTokenResponse(json);
 }
 
@@ -125,14 +144,14 @@ export function parseSentralandSendResponse(json) {
   };
 }
 
-export async function sentralandSendSms({ fono, mensaje, token, fetchImpl = fetch }) {
+export async function sentralandSendSms({ fono, mensaje, token, fetchImpl = fetch, timeoutMs }) {
   const config = requireSentralandConfig();
   if (!CHILEAN_MOBILE_PATTERN.test(String(fono || ""))) throw Object.assign(new Error("SENTRALAND_PHONE_INVALID"), { code: "SENTRALAND_PHONE_INVALID" });
   const text = String(mensaje || "");
   if (!text) throw Object.assign(new Error("SENTRALAND_MESSAGE_EMPTY"), { code: "SENTRALAND_MESSAGE_EMPTY" });
   if (text.length > SENTRALAND_SMS_MAX_LENGTH) throw Object.assign(new Error("SENTRALAND_MESSAGE_TOO_LONG"), { code: "SENTRALAND_MESSAGE_TOO_LONG", length: text.length, max: SENTRALAND_SMS_MAX_LENGTH });
   if (!token) throw Object.assign(new Error("SENTRALAND_TOKEN_REQUIRED"), { code: "SENTRALAND_TOKEN_REQUIRED" });
-  const json = await postForm(config.sendUrl, { ...credentialFields(config), fono: String(fono), mensaje: text, token }, fetchImpl);
+  const json = await postForm(config.sendUrl, { ...credentialFields(config), fono: String(fono), mensaje: text, token }, fetchImpl, { timeoutMs });
   return parseSentralandSendResponse(json);
 }
 
@@ -166,10 +185,10 @@ export function parseSentralandStatusResponse(json) {
   };
 }
 
-export async function sentralandQueryStatus({ idmensaje, fetchImpl = fetch }) {
+export async function sentralandQueryStatus({ idmensaje, fetchImpl = fetch, timeoutMs }) {
   const config = requireSentralandConfig();
   if (!idmensaje) throw Object.assign(new Error("SENTRALAND_IDMENSAJE_REQUIRED"), { code: "SENTRALAND_IDMENSAJE_REQUIRED" });
-  const json = await postForm(config.statusUrl, { ...credentialFields(config), idmensaje: String(idmensaje) }, fetchImpl);
+  const json = await postForm(config.statusUrl, { ...credentialFields(config), idmensaje: String(idmensaje) }, fetchImpl, { timeoutMs, retries: 1 });
   return parseSentralandStatusResponse(json);
 }
 
@@ -200,8 +219,8 @@ export function parseSentralandBalanceResponse(json) {
   };
 }
 
-export async function sentralandQueryBalance({ fetchImpl = fetch } = {}) {
+export async function sentralandQueryBalance({ fetchImpl = fetch, timeoutMs } = {}) {
   const config = requireSentralandConfig();
-  const json = await postForm(config.balanceUrl, credentialFields(config), fetchImpl);
+  const json = await postForm(config.balanceUrl, credentialFields(config), fetchImpl, { timeoutMs, retries: 1 });
   return parseSentralandBalanceResponse(json);
 }

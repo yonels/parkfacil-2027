@@ -17,18 +17,23 @@ async function claimNotification(db, id) {
     .update({ status: "PROCESSING", updated_at: new Date().toISOString() })
     .eq("id", id)
     .eq("status", "PENDING")
-    .select("id,phone_normalized,message")
+    .select("id,session_id,type,phone_normalized,message,scheduled_at,target_expires_at,attempts")
     .maybeSingle();
   if (claim.error) throw claim.error;
   return claim.data;
 }
 
-export async function processDueOnStreetSms({ origin, provider, db, now = new Date().toISOString() }) {
-  const { data, error } = await db
+export async function processDueOnStreetSms({ origin, provider, db, now = new Date().toISOString(), eligibilityCheck = async () => true, onlyNotificationIds } = {}) {
+  let dueQuery = db
     .from("on_street_pilot_notifications")
     .select("id")
     .eq("status", "PENDING")
-    .lte("scheduled_at", now)
+    .lte("scheduled_at", now);
+  if (Array.isArray(onlyNotificationIds)) {
+    if (!onlyNotificationIds.length) return [];
+    dueQuery = dueQuery.in("id", onlyNotificationIds);
+  }
+  const { data, error } = await dueQuery
     .order("scheduled_at")
     .limit(100);
   if (error) throw error;
@@ -38,10 +43,21 @@ export async function processDueOnStreetSms({ origin, provider, db, now = new Da
     const claimed = await claimNotification(db, row.id);
     if (!claimed) continue; // otra ejecución ya la reclamó primero
 
+    const eligible = await eligibilityCheck(claimed, now);
+    if (!eligible) {
+      const cancelled = await db.from("on_street_pilot_notifications")
+        .update({ status: "CANCELLED", error_code: "NOT_ELIGIBLE", updated_at: new Date().toISOString() })
+        .eq("id", claimed.id).eq("status", "PROCESSING").select("id,status").maybeSingle();
+      if (cancelled.error) throw cancelled.error;
+      if (cancelled.data) results.push(cancelled.data);
+      continue;
+    }
+
     const message = publicSmsMessage(origin, claimed.message);
     const sentAt = new Date().toISOString();
     let result;
     try {
+      if (!message) throw Object.assign(new Error("SMS_MESSAGE_INVALID"), { code: "SMS_MESSAGE_INVALID" });
       result = await provider.send({ to: claimed.phone_normalized, message });
     } catch (cause) {
       result = { ok: false, errorCode: cause.code || "PROVIDER_ERROR" };
@@ -68,7 +84,7 @@ export async function processDueOnStreetSms({ origin, provider, db, now = new Da
 
     const update = await db
       .from("on_street_pilot_notifications")
-      .update({ ...values, attempts: 1, updated_at: new Date().toISOString() })
+      .update({ ...values, attempts: Number(claimed.attempts || 0) + 1, updated_at: new Date().toISOString() })
       .eq("id", claimed.id)
       .eq("status", "PROCESSING")
       .select("id,status")
