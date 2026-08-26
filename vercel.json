@@ -3,6 +3,10 @@
     {
       "path": "/api/internal/on-street-sms/process",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/internal/on-street-payments/reconcile",
+      "schedule": "*/2 * * * *"
     }
   ]
 }

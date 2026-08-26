@@ -1,0 +1,30 @@
+import { NextResponse } from "next/server";
+import { reconcileDueOnStreetPayments } from "@/lib/onStreetPaymentReconcileService";
+import { authorizeCronRequest } from "@/lib/onStreetCronAuth.mjs";
+
+// Endpoint interno permanente: nunca público, nunca acepta un transactionId
+// desde el navegador. Selecciona automáticamente sus propios candidatos
+// (payment_transactions On-Street en COMMITTING más allá del umbral seguro)
+// y delega la recuperación en recoverWebpayTransaction -- el mismo mecanismo
+// idempotente ya usado por /api/internal/on-street-payments/[id]/recover.
+// Autenticación con CRON_SECRET (mismo patrón que
+// /api/internal/on-street-sms/process): no se introduce un secreto nuevo ni
+// se reutiliza PARKFACIL_INTERNAL_SERVICE_KEY, que protege una acción manual
+// de un operador humano, no una tarea programada server-to-server.
+async function handle(request) {
+  const authorization = authorizeCronRequest(request.headers.get("authorization"), process.env.CRON_SECRET);
+  if (!authorization.ok) return NextResponse.json({ error: authorization.status === 503 ? "Reconciliador no configurado." : "No autorizado." }, { status: authorization.status });
+  try {
+    const { summary } = await reconcileDueOnStreetPayments();
+    return NextResponse.json({ data: summary });
+  } catch {
+    return NextResponse.json({ error: "No fue posible reconciliar pagos." }, { status: 503 });
+  }
+}
+
+// Vercel Cron invoca rutas mediante GET. POST se conserva para operación
+// interna controlada (misma convención que el procesador de SMS); ambos
+// métodos aplican exactamente la misma autenticación y ejecutan el mismo
+// reconciliador.
+export async function GET(request) { return handle(request); }
+export async function POST(request) { return handle(request); }
