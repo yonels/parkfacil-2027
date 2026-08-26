@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatChileDateTime, formatDuration, isPublicCode, isPublicToken, localChileanMobile, maskPhone, normalizeChileanMobile,normalizePurchasedMinutes,remainingSeconds,simulatedAmount,MIN_PURCHASED_MINUTES,MAX_PURCHASED_MINUTES } from "./onStreetPilot.mjs";
+import { formatChileDateTime, formatCountdownClock, formatDuration, isPublicCode, isPublicToken, localChileanMobile, maskPhone, normalizeChileanMobile,normalizePurchasedMinutes,remainingSeconds,simulatedAmount,MIN_PURCHASED_MINUTES,MAX_PURCHASED_MINUTES } from "./onStreetPilot.mjs";
 import { normalizePlate } from "./dataEntry.mjs";
 import { publicSmsMessage, secureSessionUrl } from "./onStreetSms.mjs";
 test("normaliza móviles chilenos sin aceptar otros formatos",()=>{assert.equal(normalizeChileanMobile("+56 9 1234 5678"),"+56912345678");assert.equal(normalizeChileanMobile("912345678"),"+56912345678");assert.equal(normalizeChileanMobile("221234567"),null);assert.equal(normalizeChileanMobile("91234"),null);});
@@ -24,4 +24,18 @@ test("formatea duración sin dinero ni tarifas",()=>{assert.equal(formatDuration
 test("valida identificadores públicos opacos",()=>{assert.equal(isPublicCode("12345678901234567890"),true);assert.equal(isPublicCode("corto"),false);assert.equal(isPublicToken("123e4567-e89b-42d3-a456-426614174000"),true);assert.equal(isPublicToken("1"),false);});
 test("valida el ingreso libre de minutos en el rango 1-1440",()=>{assert.equal(MIN_PURCHASED_MINUTES,1);assert.equal(MAX_PURCHASED_MINUTES,1440);assert.equal(normalizePurchasedMinutes(75),75);assert.equal(normalizePurchasedMinutes(1),1);assert.equal(normalizePurchasedMinutes(1440),1440);assert.equal(normalizePurchasedMinutes(0),null);assert.equal(normalizePurchasedMinutes(1441),null);assert.equal(normalizePurchasedMinutes(721),721);assert.equal(normalizePurchasedMinutes(1.5),null);});
 test("calcula monto simulado y tiempo restante",()=>{assert.equal(simulatedAmount(30,30),900);assert.equal(simulatedAmount(120,30),3600);assert.equal(remainingSeconds("2026-08-14T12:01:00Z",Date.parse("2026-08-14T12:00:00Z")),60);assert.equal(remainingSeconds("2026-08-14T11:59:00Z",Date.parse("2026-08-14T12:00:00Z")),0);});
+test("formatea el contador en vivo del comprobante en MM:SS bajo una hora y H:MM:SS desde una hora",()=>{
+  assert.equal(formatCountdownClock(0),"00:00");
+  assert.equal(formatCountdownClock(59),"00:59");
+  assert.equal(formatCountdownClock(17*60),"17:00");
+  assert.equal(formatCountdownClock(3720),"1:02:00");
+  assert.equal(formatCountdownClock(-5),"00:00","nunca debe mostrar tiempo negativo tras vencer");
+});
+test("el contador en vivo del comprobante usa expiresAt real, igual que remainingSeconds de la sesión activa",()=>{
+  const now=Date.parse("2026-08-26T12:00:00Z");
+  // 7 minutos restantes + 10 minutos agregados en el mismo pago de extensión
+  // -> el vencimiento real ya quedó en +17 min, nunca "10:00" (solo lo agregado).
+  const expiresAt=new Date(now+7*60000+10*60000).toISOString();
+  assert.equal(formatCountdownClock(remainingSeconds(expiresAt,now)),"17:00");
+});
 test("construye un enlace seguro sin teléfono ni IDs administrativos",()=>{const stored="ParkFacil: vence pronto /estacionar/sesion/123e4567-e89b-42d3-a456-426614174000";const url=secureSessionUrl("https://parkfacil.test/",stored);assert.equal(url,"https://parkfacil.test/estacionar/sesion/123e4567-e89b-42d3-a456-426614174000");assert.equal(url.includes("+569"),false);assert.match(publicSmsMessage("https://parkfacil.test",stored),/^ParkFacil:/);assert.equal(secureSessionUrl("https://parkfacil.test","mensaje sin token"),null);});

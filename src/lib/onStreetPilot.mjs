@@ -61,3 +61,19 @@ export const MAX_PURCHASED_MINUTES = 1440;
 export function normalizePurchasedMinutes(value){const n=Number(value);return Number.isInteger(n)&&n>=MIN_PURCHASED_MINUTES&&n<=MAX_PURCHASED_MINUTES?n:null;}
 export function simulatedAmount(minutes,rate){const m=normalizePurchasedMinutes(minutes),r=Number(rate);return m&&Number.isFinite(r)&&r>0?Math.round(m*r):null;}
 export function remainingSeconds(expiresAt,now=Date.now()){return Math.max(0,Math.floor((new Date(expiresAt).getTime()-now)/1000));}
+
+// Formato de reloj para un contador en vivo (comprobante de pago): MM:SS
+// bajo una hora, H:MM:SS desde una hora en adelante. Distinto de
+// formatDuration() (que usa "X h Y min") a propósito -- este formato es
+// para un número que va cambiando cada segundo frente al usuario, donde ver
+// los segundos moverse es la señal de que el contador está vivo y viene de
+// expires_at real, no de un valor estático.
+export function formatCountdownClock(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds) || 0));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(secs).padStart(2, "0");
+  return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
+}
