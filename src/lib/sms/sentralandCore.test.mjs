@@ -127,12 +127,34 @@ test("teléfono inválido se rechaza antes de llamar al proveedor", async () => 
 });
 
 test("solo acepta el formato canónico +569XXXXXXXX", async () => {
-  await withEnv(FULL_CONFIG_ENV, async () => {
-    for (const fono of ["56912345678", "912345678", "+5656912345678"]) {
+  for (const fono of ["56912345678", "912345678", "+5656912345678"]) {
+    await withEnv(FULL_CONFIG_ENV, async () => {
       const fetchImpl = fakeFetch({});
       await assert.rejects(() => sentralandSendSms({ fono, mensaje: "hola", token: "t", fetchImpl }), { code: "SENTRALAND_PHONE_INVALID" });
       assert.equal(fetchImpl.calls.length, 0);
-    }
+    });
+  }
+});
+
+// --- Orden de validación: el teléfono es un error de quien llama (input) y
+// debe identificarse como tal incluso si, además, falta configuración del
+// proveedor. Antes de la corrección, requireSentralandConfig() corría
+// primero y un teléfono inválido con config ausente devolvía
+// SENTRALAND_INSTITUCION_NOT_CONFIGURED en vez de SENTRALAND_PHONE_INVALID.
+test("teléfono inválido se rechaza aunque también falte configuración del proveedor", async () => {
+  await withEnv({ SENTRALAND_INSTITUCION: "", SENTRALAND_TIPO_SERVICIO: "", SENTRALAND_USUARIO: "", SENTRALAND_PASSWORD: "" }, async () => {
+    const fetchImpl = fakeFetch({});
+    await assert.rejects(() => sentralandSendSms({ fono: "no-es-un-fono", mensaje: "hola", token: "t", fetchImpl }), { code: "SENTRALAND_PHONE_INVALID" });
+    assert.equal(fetchImpl.calls.length, 0);
+  });
+});
+
+// --- Teléfono válido: solo entonces corresponde evaluar la configuración ---
+test("teléfono válido pero configuración ausente falla por configuración, no por teléfono", async () => {
+  await withEnv({ SENTRALAND_INSTITUCION: "", SENTRALAND_TIPO_SERVICIO: "", SENTRALAND_USUARIO: "", SENTRALAND_PASSWORD: "" }, async () => {
+    const fetchImpl = fakeFetch({});
+    await assert.rejects(() => sentralandSendSms({ fono: "+56912345678", mensaje: "hola", token: "t", fetchImpl }), { code: "SENTRALAND_INSTITUCION_NOT_CONFIGURED" });
+    assert.equal(fetchImpl.calls.length, 0);
   });
 });
 

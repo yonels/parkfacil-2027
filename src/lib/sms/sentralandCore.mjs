@@ -145,8 +145,14 @@ export function parseSentralandSendResponse(json) {
 }
 
 export async function sentralandSendSms({ fono, mensaje, token, fetchImpl = fetch, timeoutMs }) {
-  const config = requireSentralandConfig();
+  // El formato del teléfono se valida antes que la configuración del
+  // proveedor: es un error de quien llama (input), no del entorno, y debe
+  // identificarse como tal (SENTRALAND_PHONE_INVALID) incluso si además
+  // faltan variables de Sentraland. Antes, requireSentralandConfig() corría
+  // primero y podía enmascarar un teléfono inválido con un código de
+  // configuración faltante.
   if (!CHILEAN_MOBILE_PATTERN.test(String(fono || ""))) throw Object.assign(new Error("SENTRALAND_PHONE_INVALID"), { code: "SENTRALAND_PHONE_INVALID" });
+  const config = requireSentralandConfig();
   const text = String(mensaje || "");
   if (!text) throw Object.assign(new Error("SENTRALAND_MESSAGE_EMPTY"), { code: "SENTRALAND_MESSAGE_EMPTY" });
   if (text.length > SENTRALAND_SMS_MAX_LENGTH) throw Object.assign(new Error("SENTRALAND_MESSAGE_TOO_LONG"), { code: "SENTRALAND_MESSAGE_TOO_LONG", length: text.length, max: SENTRALAND_SMS_MAX_LENGTH });
