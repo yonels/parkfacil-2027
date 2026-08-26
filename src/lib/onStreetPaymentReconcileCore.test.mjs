@@ -51,7 +51,7 @@ test("COMMITTING antiguo con proveedor autorizado se marca RECOVERED", async () 
   const db = memoryDb([baseRow()]);
   const recover = async (_db, { transactionId }) => { assert.equal(transactionId, "tx-1"); return { status: "COMMITTED", sessionId: "s-1", sessionToken: "tok-1" }; };
   const { summary, results } = await reconcileDueOnStreetPayments({ db, recover, now: NOW });
-  assert.deepEqual(summary, { processed: 1, recovered: 1, pending: 0, skipped: 0, failed: 0 });
+  assert.deepEqual(summary, { processed: 1, recovered: 1, pending: 0, skipped: 0, failed: 0, sessionsExpired: 0 });
   assert.deepEqual(results, [{ transactionId: "tx-1", outcome: "RECOVERED" }]);
 });
 
@@ -60,7 +60,7 @@ test("COMMITTING reciente (dentro del umbral) no es candidato: nunca se llama a 
   const db = memoryDb([baseRow({ id: "tx-recent", updated_at: TOO_RECENT })]);
   const recover = async () => assert.fail("no debe intentarse recuperar una transacción todavía dentro de su ventana normal");
   const { summary, results } = await reconcileDueOnStreetPayments({ db, recover, now: NOW });
-  assert.deepEqual(summary, { processed: 0, recovered: 0, pending: 0, skipped: 0, failed: 0 });
+  assert.deepEqual(summary, { processed: 0, recovered: 0, pending: 0, skipped: 0, failed: 0, sessionsExpired: 0 });
   assert.deepEqual(results, []);
 });
 
@@ -69,7 +69,7 @@ test("proveedor todavía no confirma autorización: PENDING, no crea sesión, no
   const db = memoryDb([baseRow({ id: "tx-pending" })]);
   const recover = async () => ({ status: "PENDING", providerStatus: "INITIALIZED" });
   const { summary, results } = await reconcileDueOnStreetPayments({ db, recover, now: NOW });
-  assert.deepEqual(summary, { processed: 1, recovered: 0, pending: 1, skipped: 0, failed: 0 });
+  assert.deepEqual(summary, { processed: 1, recovered: 0, pending: 1, skipped: 0, failed: 0, sessionsExpired: 0 });
   assert.deepEqual(results, [{ transactionId: "tx-pending", outcome: "PENDING" }]);
 });
 
@@ -78,7 +78,7 @@ test("error de red o RPC (incluye un 23505 real de la regla de sesión activa) n
   const db = memoryDb([baseRow({ id: "tx-network" })]);
   const recover = async () => { throw Object.assign(new Error("fetch failed"), { code: "ETIMEDOUT" }); };
   const { summary, results } = await reconcileDueOnStreetPayments({ db, recover, now: NOW });
-  assert.deepEqual(summary, { processed: 1, recovered: 0, pending: 0, skipped: 0, failed: 1 });
+  assert.deepEqual(summary, { processed: 1, recovered: 0, pending: 0, skipped: 0, failed: 1, sessionsExpired: 0 });
   assert.deepEqual(results, [{ transactionId: "tx-network", outcome: "FAILED" }]);
 });
 
@@ -103,6 +103,58 @@ test("una transacción ya FAILED no es candidata (el filtro solo selecciona COMM
   const recover = async () => assert.fail("FAILED no es responsabilidad del reconciliador de COMMITTING atascados");
   const { results } = await reconcileDueOnStreetPayments({ db, recover, now: NOW });
   assert.deepEqual(results, []);
+});
+
+// --- Caso C: sesión anterior ACTIVE vencida bloqueaba la reconciliación;
+// tras expirarla, el pago se recupera correctamente ---
+test("Caso C: la sesión bloqueante se expira ANTES del intento de recuperación, y eso desbloquea el pago", async () => {
+  const db = memoryDb([baseRow({ id: "tx-blocked" })]);
+  let sessionExpired = false;
+  const expireSessions = async () => { sessionExpired = true; return 1; };
+  const recover = async () => {
+    if (!sessionExpired) throw Object.assign(new Error("duplicate key value violates unique constraint"), { code: "23505" });
+    return { status: "COMMITTED", sessionId: "s-new", sessionToken: "tok-new" };
+  };
+  const { summary, results } = await reconcileDueOnStreetPayments({ db, recover, expireSessions, now: NOW });
+  assert.equal(sessionExpired, true, "la expiración debe haberse intentado");
+  assert.deepEqual(results, [{ transactionId: "tx-blocked", outcome: "RECOVERED" }]);
+  assert.equal(summary.recovered, 1);
+  assert.equal(summary.sessionsExpired, 1);
+});
+
+test("sin la expiración previa, el mismo escenario habría fallado con 23505 (confirma que el orden importa)", async () => {
+  const db = memoryDb([baseRow({ id: "tx-blocked-2" })]);
+  const recover = async () => { throw Object.assign(new Error("duplicate key"), { code: "23505" }); }; // expireSessions no provisto
+  const { results } = await reconcileDueOnStreetPayments({ db, recover, now: NOW });
+  assert.deepEqual(results, [{ transactionId: "tx-blocked-2", outcome: "FAILED" }]);
+});
+
+// --- Caso D: dos ejecuciones del ciclo completo (expirar + reconciliar) no
+// duplican sesión, no generan cobro adicional, no alteran estados de forma
+// incorrecta ---
+test("Caso D: ejecutar el ciclo completo dos veces no duplica nada -- la idempotencia real vive en la RPC de finalización (ALREADY_COMMITTED), no en el reconciliador", async () => {
+  const db = memoryDb([baseRow({ id: "tx-d" })]);
+  let expireCalls = 0, recoverCalls = 0;
+  const expireSessions = async () => { expireCalls += 1; return expireCalls === 1 ? 1 : 0; };
+  const recover = async () => { recoverCalls += 1; return { status: "COMMITTED", sessionId: "s-d" }; };
+  const first = await reconcileDueOnStreetPayments({ db, recover, expireSessions, now: NOW });
+  const second = await reconcileDueOnStreetPayments({ db, recover, expireSessions, now: NOW });
+  assert.equal(expireCalls, 2);
+  assert.equal(recoverCalls, 2, "el reconciliador vuelve a llamar recover(); su idempotencia (RPC con ALREADY_COMMITTED, ver finalize_authorized_on_street_payment) es lo que impide una segunda sesión/cobro, no un chequeo aquí");
+  assert.deepEqual(first.results, [{ transactionId: "tx-d", outcome: "RECOVERED" }]);
+  assert.deepEqual(second.results, [{ transactionId: "tx-d", outcome: "RECOVERED" }]);
+});
+
+// --- Resiliencia: si el barrido de expiración falla, la reconciliación de
+// los candidatos ya elegibles debe seguir intentándose (no debe quedar todo
+// bloqueado por un problema transitorio ajeno) ---
+test("un fallo en el barrido de expiración no detiene la reconciliación de las transacciones ya candidatas", async () => {
+  const db = memoryDb([baseRow({ id: "tx-resiliente" })]);
+  const expireSessions = async () => { throw Object.assign(new Error("timeout"), { code: "ETIMEDOUT" }); };
+  const recover = async () => ({ status: "COMMITTED", sessionId: "s-resiliente" });
+  const { summary, results } = await reconcileDueOnStreetPayments({ db, recover, expireSessions, now: NOW });
+  assert.deepEqual(results, [{ transactionId: "tx-resiliente", outcome: "RECOVERED" }]);
+  assert.equal(summary.sessionsExpired, 0, "no se asume ningún conteo si el barrido falló");
 });
 
 // --- G. dos ejecuciones no duplican pago/sesión ---

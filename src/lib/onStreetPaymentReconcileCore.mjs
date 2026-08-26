@@ -71,12 +71,28 @@ function classifyRecoverOutcome(result) {
 export async function reconcileDueOnStreetPayments({
   db,
   recover,
+  expireSessions,
   now = new Date().toISOString(),
   thresholdMs = RECONCILE_STALE_THRESHOLD_MS,
   batchSize = RECONCILE_BATCH_SIZE,
 } = {}) {
+  // Defensa obligatoria: antes de intentar recuperar cualquier pago, se
+  // garantiza que ninguna sesión ACTIVE vencida siga bloqueando
+  // on_street_one_active_phone_location_idx. expireSessions() es un
+  // barrido global (no depende de que este ciclo conozca de antemano qué
+  // ubicación/teléfono es "relevante" para cada candidato) -- por eso se
+  // ejecuta una sola vez por invocación, no una vez por candidato. No se
+  // depende únicamente de esta corrida periódica para la corrección: la
+  // operación en sí (un UPDATE con status='ACTIVE' AND expires_at<=now())
+  // es válida y segura sin importar cuándo ni cuántas veces se ejecute.
+  let sessionsExpired = 0;
+  if (expireSessions) {
+    try { sessionsExpired = Number(await expireSessions(db)) || 0; }
+    catch (cause) { safeLog({ outcome: "EXPIRY_SWEEP_FAILED", error: cause?.code || cause?.message || "EXPIRE_ERROR" }); }
+  }
+
   const candidates = await selectStaleCommittingTransactions(db, { now, thresholdMs, batchSize });
-  const summary = { processed: 0, recovered: 0, pending: 0, skipped: 0, failed: 0 };
+  const summary = { processed: 0, recovered: 0, pending: 0, skipped: 0, failed: 0, sessionsExpired };
   const results = [];
 
   for (const row of candidates) {

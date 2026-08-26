@@ -3,10 +3,15 @@ import { reconcileDueOnStreetPayments } from "@/lib/onStreetPaymentReconcileServ
 import { authorizeCronRequest } from "@/lib/onStreetCronAuth.mjs";
 
 // Endpoint interno permanente: nunca público, nunca acepta un transactionId
-// desde el navegador. Selecciona automáticamente sus propios candidatos
-// (payment_transactions On-Street en COMMITTING más allá del umbral seguro)
-// y delega la recuperación en recoverWebpayTransaction -- el mismo mecanismo
-// idempotente ya usado por /api/internal/on-street-payments/[id]/recover.
+// desde el navegador. En cada corrida, primero expira realmente (persiste
+// EXPIRED) cualquier sesión ACTIVE vencida en cualquier ubicación --
+// defensa contra el escenario 2026-08-26 donde una sesión vieja podía
+// quedar ACTIVE para siempre y bloquear on_street_one_active_phone_
+// location_idx indefinidamente -- y luego selecciona automáticamente sus
+// candidatos (payment_transactions On-Street en COMMITTING más allá del
+// umbral seguro) y delega la recuperación en recoverWebpayTransaction -- el
+// mismo mecanismo idempotente ya usado por
+// /api/internal/on-street-payments/[id]/recover.
 // Autenticación con CRON_SECRET (mismo patrón que
 // /api/internal/on-street-sms/process): no se introduce un secreto nuevo ni
 // se reutiliza PARKFACIL_INTERNAL_SERVICE_KEY, que protege una acción manual

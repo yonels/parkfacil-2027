@@ -57,6 +57,21 @@ export async function closePilotSession(token, db = getSupabaseAdminClient()) {
   return data;
 }
 
+// Barrido global: expira TODAS las sesiones ACTIVE vencidas de cualquier
+// estacionamiento/ubicación, no solo las de un parking_id puntual. A
+// diferencia de listParkingPilotSessions (que expira de paso, solo cuando
+// un admin abre el panel de un estacionamiento específico), esta función es
+// el mecanismo real, automático y server-side que garantiza que ninguna
+// sesión vencida quede indefinidamente 'ACTIVE' bloqueando
+// on_street_one_active_phone_location_idx. La invoca el cron de
+// reconciliación de pagos (ver onStreetPaymentReconcileCore.mjs) antes de
+// cada intento de recuperación.
+export async function expireDueOnStreetPilotSessions(db = getSupabaseAdminClient()) {
+  const { data, error } = await db.rpc("expire_on_street_pilot_sessions", { p_parking_id: null });
+  if (error) throw error;
+  return Number(data) || 0;
+}
+
 export async function listParkingPilotSessions(db, parkingId) {
   const expired=await db.rpc("expire_on_street_pilot_sessions",{p_parking_id:parkingId});if(expired.error)throw expired.error;
   const { data: sessions, error } = await db.from("on_street_pilot_sessions").select("id,qr_location_id,phone_normalized,status,started_at,ended_at,duration_seconds,purchased_minutes,rate_per_minute,simulated_amount,expires_at").eq("parking_id", parkingId).order("started_at", { ascending: false }).limit(250);
