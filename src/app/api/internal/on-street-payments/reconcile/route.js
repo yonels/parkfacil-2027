@@ -7,11 +7,17 @@ import { authorizeCronRequest } from "@/lib/onStreetCronAuth.mjs";
 // EXPIRED) cualquier sesión ACTIVE vencida en cualquier ubicación --
 // defensa contra el escenario 2026-08-26 donde una sesión vieja podía
 // quedar ACTIVE para siempre y bloquear on_street_one_active_phone_
-// location_idx indefinidamente -- y luego selecciona automáticamente sus
-// candidatos (payment_transactions On-Street en COMMITTING más allá del
-// umbral seguro) y delega la recuperación en recoverWebpayTransaction -- el
-// mismo mecanismo idempotente ya usado por
-// /api/internal/on-street-payments/[id]/recover.
+// location_idx indefinidamente -- y luego selecciona automáticamente dos
+// colas de candidatos: payment_transactions On-Street en COMMITTING más
+// allá del umbral seguro (autorizadas pero con finalización local fallida),
+// y en REDIRECTED más allá de su propio umbral (el callback de retorno de
+// Webpay nunca llegó -- incidente 2026-08-26, transacción 05909e7a-...).
+// Ambas colas delegan en recoverWebpayTransaction -- el mismo mecanismo
+// idempotente ya usado por /api/internal/on-street-payments/[id]/recover,
+// sin lógica de commit/finalización distinta por cola. Una REDIRECTED que
+// Transbank sigue sin autorizar mucho después de enviarse a Webpay se
+// cierra como ABORTED (markTransactionFailed, ya existente) -- nunca se
+// asume pago exitoso ni se reintenta un cobro.
 // Autenticación con CRON_SECRET (mismo patrón que
 // /api/internal/on-street-sms/process): no se introduce un secreto nuevo ni
 // se reutiliza PARKFACIL_INTERNAL_SERVICE_KEY, que protege una acción manual
