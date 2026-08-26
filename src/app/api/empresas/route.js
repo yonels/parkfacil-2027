@@ -4,7 +4,7 @@ import { listCompanies } from "@/lib/companiesRepository";
 import { randomUUID } from "node:crypto";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { companyScope, requirePermission, requirePlatformAdmin } from "@/lib/auth/apiAuthorizationCore.mjs";
-import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { PERMISSIONS, PRODUCTS } from "@/lib/auth/permissions.mjs";
 
 export async function GET(request) {
   const authorization = await authorizeApiRequest(request);
@@ -50,6 +50,21 @@ function validateCreation(input) {
   return { errors, accounts };
 }
 
+// Productos habilitados al crear la empresa: si el formulario los indica
+// explícitamente se usan esos (saneados contra la lista válida); si no, se
+// infieren del tipo del estacionamiento inicial que se está creando junto
+// con la empresa, para no dejarla sin acceso a lo que se le acaba de crear.
+// Nunca queda implícito "ambos" -- Root debe declarar el producto igual que
+// para cualquier empresa nueva (ver §5 de la auditoría de acceso por producto).
+function resolveNewCompanyProducts(input, defaultParkingType) {
+  const requested = Array.isArray(input?.products) ? input.products : null;
+  if (requested) {
+    const sanitized = requested.filter((product) => product === PRODUCTS.OFF_STREET || product === PRODUCTS.ON_STREET);
+    if (sanitized.length) return [...new Set(sanitized)];
+  }
+  return [defaultParkingType];
+}
+
 export async function POST(request) {
   const authorization = await authorizeApiRequest(request);
   if (authorization.response) return authorization.response;
@@ -68,8 +83,10 @@ export async function POST(request) {
   let levelId = null;
   let zoneId = null;
   try {
+    const defaultParkingType = text(input.defaultParking?.type).toUpperCase() === "ON_STREET" ? "ON_STREET" : "OFF_STREET";
     const company = {
       id: companyId,
+      enabled_products: resolveNewCompanyProducts(input, defaultParkingType),
       rut_number: text(input.rutNumber),
       rut_dv: text(input.rutDv).toUpperCase(),
       business_name: text(input.businessName),
@@ -104,7 +121,7 @@ export async function POST(request) {
       name: text(input.defaultParking?.name) || `Estacionamiento ${company.trade_name}`,
       company_id: companyId,
       company_name: company.trade_name,
-      type: text(input.defaultParking?.type).toUpperCase() === "ON_STREET" ? "ON_STREET" : "OFF_STREET",
+      type: defaultParkingType,
       status: "DRAFT",
       address: text(input.defaultParking?.address) || company.address,
       district: text(input.defaultParking?.district) || company.district,

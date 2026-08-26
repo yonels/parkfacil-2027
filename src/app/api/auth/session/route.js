@@ -18,6 +18,7 @@ function publicContext(context) {
     portal: context.portal,
     role: context.role,
     companyId: context.companyId,
+    enabledProducts: context.enabledProducts,
     membership: context.membership,
   };
 }

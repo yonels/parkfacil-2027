@@ -2,12 +2,13 @@
 // encabezado y comparación de capacidad vs. plazas contratadas), separada de la capa
 // visual para poder probarla sin depender de React/Next.
 
-export const PARKING_DETAIL_TAB_KEYS = Object.freeze(["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "infraestructura"]);
+export const PARKING_DETAIL_TAB_KEYS = Object.freeze(["resumen", "plazas-contratadas", "estructura", "sesiones-qr", "tarifas", "operadores", "infraestructura"]);
 
 const BASE_TABS = Object.freeze([
   { key: "resumen", label: "Resumen" },
   { key: "plazas-contratadas", label: "Plazas Contratadas" },
   { key: "estructura", label: null },
+  { key: "sesiones-qr", label: "Sesiones QR", onStreetOnly: true },
   { key: "tarifas", label: "Tarifas" },
   { key: "operadores", label: "Operadores" },
   { key: "infraestructura", label: "Infraestructura" },
@@ -15,7 +16,7 @@ const BASE_TABS = Object.freeze([
 
 export function parkingDetailTabs(parking) {
   const onStreet = parking?.type === "ON_STREET";
-  return BASE_TABS.map((tab) => (tab.key === "estructura" ? { ...tab, label: onStreet ? "Sectores y Calles" : "Niveles y Zonas" } : tab));
+  return BASE_TABS.filter((tab) => !tab.onStreetOnly || onStreet).map((tab) => (tab.key === "estructura" ? { ...tab, label: onStreet ? "Sectores y Calles" : "Niveles y Zonas" } : tab));
 }
 
 export function structureCreateHref(parking) {

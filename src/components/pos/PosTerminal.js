@@ -6,6 +6,7 @@ import { LoaderCircle, LogOut, Menu, RefreshCw, X } from "lucide-react";
 
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { splitChileTaxFromTotal, toOperationalDateTimeParts } from "@/lib/dataEntry.mjs";
+import { ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
 
 const POS_VIEWS = {
@@ -67,10 +68,20 @@ function buildEntryPrintPayload(stay, parkingResponse) {
   const normalizedDateTime = formatBridgeEntryDateTime(stay.entry_at);
   if (!normalizedDateTime) return null;
 
+  // Razón social/RUT/dirección/teléfono: mismo helper que ya usaba el
+  // ticket histórico (dataEntryPresentation.mjs), con sus mismos fallbacks
+  // ("No informado") — no se inventa formato nuevo para el encabezado.
+  const header = ticketHeaderData(parkingResponse, stay, true);
+
   const payload = {
     type: "ENTRY",
     companyName: String(parkingResponse?.company?.business_name || parkingResponse?.company_name || "").trim(),
+    razonSocial: header.businessName,
+    rut: header.rut,
+    direccion: header.address,
+    telefono: header.phone,
     parkingName: String(parkingResponse?.name || "").trim(),
+    parkingCode: String(parkingResponse?.code || "").trim(),
     operator: String(stay?.entry_operator_name || "").trim(),
     plate: formatTicketPlate(stay?.license_plate),
     entryDate: normalizedDateTime.entryDate,
@@ -102,11 +113,18 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse) {
   // implementará en una tarea aparte — no se toca aquí el mecanismo real.
   const amount = Number(quote?.total ?? stay?.total_amount ?? 0);
   const breakdown = getTaxBreakdown(amount);
+  const header = ticketHeaderData(parkingResponse, stay, false);
 
   const payload = {
     type: "PAYMENT_RECEIPT",
     companyName: String(parkingResponse?.company?.business_name || parkingResponse?.company_name || "").trim(),
+    razonSocial: header.businessName,
+    rut: header.rut,
+    direccion: header.address,
+    telefono: header.phone,
     parkingName: String(parkingResponse?.name || "").trim(),
+    parkingCode: String(parkingResponse?.code || "").trim(),
+    operator: String(stay?.exit_operator_name || "").trim(),
     plate: formatTicketPlate(stay?.license_plate),
     ticketNumber: String(stay?.code || "").trim(),
     entryDate: entryDateTime.entryDate,
@@ -264,6 +282,107 @@ async function executeNativePrint(payload) {
   }
 }
 
+// Agente local de impresión (piloto Windows/PC): mismo rol que el bridge
+// Android nativo, pero para dispositivos sin ese bridge. Es un proceso
+// aparte que escucha solo en 127.0.0.1, en la misma máquina — el detalle
+// de impresora/puerto es responsabilidad exclusiva del agente, no de este
+// componente (ver C:\proyectos\parkfacil-print-agent).
+const PRINT_AGENT_URL = "http://127.0.0.1:19100/print";
+// Token de emparejamiento del agente local (piloto, no es un secreto de
+// producción: el agente solo escucha en localhost de esta misma máquina).
+// Antes de un despliegue Android/TUU real esto debe reforzarse (rotación,
+// no hardcodeo), según quedó documentado en el diseño del agente.
+const PRINT_AGENT_TOKEN = "p9tMJvWWvuN70lKB4JLiGK98wS9o-buE";
+
+async function tryLocalAgentPrint(agentPayload) {
+  if (!agentPayload) return { attempted: false, ok: false };
+
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 15000) : null;
+
+  try {
+    const response = await fetch(PRINT_AGENT_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-parkfacil-agent-token": PRINT_AGENT_TOKEN },
+      body: JSON.stringify(agentPayload),
+      signal: controller?.signal,
+    });
+    const result = await response.json().catch(() => ({}));
+    return {
+      attempted: true,
+      ok: response.ok && Boolean(result.ok),
+      code: result.code ? String(result.code) : "",
+      message: result.message ? String(result.message) : "",
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      ok: false,
+      code: "AGENT_UNREACHABLE",
+      message: error instanceof Error ? error.message : "El agente local de impresión no respondió.",
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// Traduce el payload histórico de impresión (pensado para el bridge
+// Android) al esquema que espera el agente local — sin cambiar el payload
+// original, que sigue siendo lo que recibe el bridge nativo tal cual.
+function toAgentEntryPayload(payload) {
+  if (!payload) return null;
+  return {
+    type: "ENTRY",
+    razonSocial: payload.razonSocial,
+    rut: payload.rut,
+    direccion: payload.direccion,
+    telefono: payload.telefono,
+    parkingName: payload.parkingName,
+    parkingCode: payload.parkingCode || undefined,
+    patente: payload.plate,
+    ticketNumber: payload.ticketNumber,
+    fechaIngreso: payload.entryDate,
+    horaIngreso: payload.entryTime,
+    operador: payload.operator || undefined,
+    qrValue: payload.qrValue,
+  };
+}
+
+function toAgentExitPayload(payload) {
+  if (!payload) return null;
+  return {
+    type: "EXIT",
+    razonSocial: payload.razonSocial,
+    rut: payload.rut,
+    direccion: payload.direccion,
+    telefono: payload.telefono,
+    parkingName: payload.parkingName,
+    parkingCode: payload.parkingCode || undefined,
+    patente: payload.plate,
+    ticketNumber: payload.paymentId,
+    fechaHoraIngreso: `${payload.entryDate} ${payload.entryTime}`,
+    fechaHoraSalida: `${payload.exitDate} ${payload.exitTime}`,
+    tiempoTotal: Number.isFinite(payload.minutes) ? `${payload.minutes} minutos` : undefined,
+    tarifa: payload.rateDescription || undefined,
+    neto: formatCurrency(payload.netAmount),
+    iva: formatCurrency(payload.vatAmount),
+    monto: formatCurrency(payload.amount),
+    medioPago: formatPaymentMethodLabel(payload.paymentMethod),
+    operador: payload.operator || undefined,
+    qrValue: payload.paymentId || undefined,
+  };
+}
+
+// Resuelve el medio de impresión disponible en este dispositivo: primero
+// el bridge Android nativo (POS real); si no existe, el agente local
+// (Windows/PC). "toAgentPayload" traduce el payload histórico al esquema
+// del agente solo cuando corresponde usarlo.
+async function executeAutoPrint(payload, toAgentPayload) {
+  const bridge = getNativePrinterBridge();
+  if (bridge) return executeNativePrint(payload);
+  return tryLocalAgentPrint(toAgentPayload(payload));
+}
+
 async function getSessionContext() {
   const response = await fetch("/api/auth/session", {
     headers: { "x-parkfacil-portal": "terminal" },
@@ -340,9 +459,36 @@ function formatCurrency(value) {
   return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(Number(value));
 }
 
+// El estado del vehículo mezcla dos formas de cotización distintas según su
+// origen: la del listado (quoteParkingStay: blocked/total/rate.name) y la
+// del detalle recién refrescado (toPagueAquiQuote: payable/amount/rateName,
+// además del snapshot firmado). Sin este adaptador, leer directamente
+// .blocked/.total/.rate.name contra una cotización en la forma pública
+// siempre da "no pagable"/"sin tarifa", aunque el backend sí tenga un total
+// válido — por eso se centraliza aquí en vez de repetir el chequeo de forma
+// en cada lugar que lee la cotización.
+function normalizeQuoteView(quote) {
+  if (!quote) return null;
+  if ("payable" in quote || "amount" in quote) {
+    return {
+      payable: Boolean(quote.payable),
+      total: Number.isFinite(Number(quote.amount)) ? Number(quote.amount) : null,
+      rateName: quote.rateName || null,
+      elapsedMinutes: Number.isFinite(Number(quote.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
+    };
+  }
+  return {
+    payable: !quote.blocked,
+    total: Number.isFinite(Number(quote.total)) ? Number(quote.total) : null,
+    rateName: quote.rate?.name || null,
+    elapsedMinutes: Number.isFinite(Number(quote.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
+  };
+}
+
 function formatQuoteAmount(quote) {
-  if (!quote || quote.blocked) return "—";
-  return formatCurrency(quote.total);
+  const view = normalizeQuoteView(quote);
+  if (!view || !view.payable || view.total === null) return "—";
+  return formatCurrency(view.total);
 }
 
 // Desglose tributario (Neto/IVA) a partir del TOTAL que ya calculó el
@@ -406,6 +552,13 @@ export default function PosTerminal() {
   // PARKING y SALIDA) se abrió con intención de consulta o de salida/pago,
   // para que VOLVER desde el detalle regrese a la pantalla de origen.
   const [vehicleListOrigin, setVehicleListOrigin] = useState(POS_VIEWS.VEHICULOS);
+
+  // SALIDA: búsqueda por patente (no lista automáticamente todas las
+  // permanencias abiertas — eso sigue siendo exclusivo de "Vehículos en el
+  // parking"). salidaSearchStatus.type: "not-found" | "conflict" | "invalid".
+  const [salidaPlate, setSalidaPlate] = useState("");
+  const [salidaSearchStatus, setSalidaSearchStatus] = useState(null);
+  const [salidaSuggestionsOpen, setSalidaSuggestionsOpen] = useState(false);
 
   // CIERRE DE CAJA
   const [shiftLoading, setShiftLoading] = useState(false);
@@ -597,6 +750,17 @@ export default function PosTerminal() {
       setVehicleListOrigin(section);
     }
 
+    if (section === POS_VIEWS.SALIDA) {
+      // Refresca activeStays al entrar para que la búsqueda por patente
+      // corra contra datos frescos (mismo alcance ya limitado al
+      // estacionamiento asignado — ver loadTerminalState).
+      void loadTerminalState(true);
+    } else {
+      setSalidaPlate("");
+      setSalidaSearchStatus(null);
+      setSalidaSuggestionsOpen(false);
+    }
+
     if (section === POS_VIEWS.CIERRE_CAJA) {
       void loadShiftState();
     } else {
@@ -631,6 +795,64 @@ export default function PosTerminal() {
     setEntrySuccess(null);
     setEntryPrintStatus("");
     setCurrentView(POS_VIEWS.HOME);
+  }
+
+  // Búsqueda por patente exclusiva de SALIDA. Nunca llama a una API nueva:
+  // filtra activeStays, que ya viene acotado al estacionamiento asignado al
+  // operador (mismo alcance/aislamiento que ya usa "Vehículos en el
+  // parking" — ver loadTerminalState/getPosVehicleSummary). La
+  // normalización reutiliza toBackendPlate/formatPosPlateInput/
+  // POS_PLATE_REGEX, las mismas que ya usa el formulario de INGRESO — sin
+  // segunda lógica paralela.
+  function searchSalidaPlate() {
+    const formatted = formatPosPlateInput(salidaPlate);
+    if (!POS_PLATE_REGEX.test(formatted)) {
+      setSalidaSearchStatus({ type: "invalid", message: "Ingresa una patente válida. Ejemplo: CXPY-93." });
+      return;
+    }
+
+    const query = toBackendPlate(formatted);
+    const matches = activeStays.filter((stay) => toBackendPlate(stay?.license_plate) === query);
+
+    if (matches.length === 0) {
+      setSalidaSearchStatus({
+        type: "not-found",
+        message: "No se encontró un vehículo activo con esa patente en este estacionamiento.",
+      });
+      return;
+    }
+
+    if (matches.length > 1) {
+      // Anomalía real (más de una permanencia OPEN con la misma patente):
+      // nunca se elige una silenciosamente ni se continúa hacia el cobro.
+      setSalidaSearchStatus({
+        type: "conflict",
+        message: `Se encontraron ${matches.length} permanencias abiertas con esta patente. No se puede continuar automáticamente — contacta a soporte antes de cobrar.`,
+      });
+      return;
+    }
+
+    setSalidaSearchStatus(null);
+    void openVehicleDetail(matches[0]);
+  }
+
+  // Sugerencias en vivo para el desplegable de SALIDA: mismo filtro de
+  // activeStays que searchSalidaPlate (sin fetch nuevo), pero con
+  // startsWith en vez de igualdad exacta, para que se vayan acotando a
+  // medida que se escribe cada letra. Vacío mientras no haya texto.
+  const salidaSuggestions = (() => {
+    const query = toBackendPlate(salidaPlate);
+    if (!query) return [];
+    return activeStays
+      .filter((stay) => toBackendPlate(stay?.license_plate).startsWith(query))
+      .slice(0, 8);
+  })();
+
+  function selectSalidaSuggestion(stay) {
+    setSalidaPlate(formatPosPlateInput(stay?.license_plate));
+    setSalidaSearchStatus(null);
+    setSalidaSuggestionsOpen(false);
+    void openVehicleDetail(stay);
   }
 
   async function openVehicleDetail(stay) {
@@ -683,17 +905,36 @@ export default function PosTerminal() {
     setReceiptPrintStatus("");
   }
 
+  // Obtiene una cotización nueva (misma llamada que ya usa el rechazo
+  // server-side QUOTE_SNAPSHOT_EXPIRED), actualiza el vehículo seleccionado
+  // y exige una nueva confirmación explícita del operador — nunca cobra ni
+  // sustituye el importe en silencio. Se usa tanto si la cotización llegó
+  // vencida al cliente como si el servidor la rechaza por vencida.
+  async function refreshExpiredQuote(reasonPrefix) {
+    const refreshedQuote = await getPosVehicleQuote(selectedVehicle.stay.id);
+    if (refreshedQuote.ok && refreshedQuote.payload?.data) {
+      const detail = refreshedQuote.payload.data;
+      setSelectedVehicle(detail);
+      const refreshedAmount = normalizeQuoteView(detail?.quote)?.total ?? 0;
+      setPaymentStep("CASH_CONFIRM");
+      setPaymentMessage(`${reasonPrefix} Nuevo total: ${formatCurrency(refreshedAmount)}. Confirma nuevamente para cobrar.`);
+    } else {
+      setPaymentMessage("La cotización venció y no se pudo actualizar automáticamente. Vuelve a abrir el detalle del vehículo.");
+    }
+  }
+
   async function confirmCashPayment() {
     if (!selectedVehicle?.stay?.id || paymentSubmitting) return;
     const quoteSnapshot = selectedVehicle?.quote?.snapshot || null;
 
-    if (!quoteSnapshot?.signature) {
-      setPaymentMessage("La cotización del vehículo expiró o no es válida. Actualiza el detalle antes de cobrar.");
-      return;
-    }
-
-    if (isQuoteSnapshotExpired(quoteSnapshot)) {
-      setPaymentMessage("La cotización del vehículo expiró. Vuelve a cargar el detalle antes de cobrar.");
+    if (!quoteSnapshot?.signature || isQuoteSnapshotExpired(quoteSnapshot)) {
+      setPaymentSubmitting(true);
+      setPaymentMessage("");
+      try {
+        await refreshExpiredQuote("La cotización del vehículo expiró.");
+      } finally {
+        setPaymentSubmitting(false);
+      }
       return;
     }
 
@@ -715,16 +956,7 @@ export default function PosTerminal() {
       if (!response.ok) {
         const errorCode = payload?.details?.code || payload?.code || "";
         if (errorCode === "QUOTE_SNAPSHOT_EXPIRED") {
-          const refreshedQuote = await getPosVehicleQuote(selectedVehicle.stay.id);
-          if (refreshedQuote.ok && refreshedQuote.payload?.data) {
-            const detail = refreshedQuote.payload.data;
-            setSelectedVehicle(detail);
-            const refreshedAmount = Number(detail?.quote?.total || detail?.quote?.amount || 0);
-            setPaymentStep("CASH_CONFIRM");
-            setPaymentMessage(`La cotización venció. Nuevo total: ${formatCurrency(refreshedAmount)}. Confirma nuevamente para cobrar.`);
-          } else {
-            setPaymentMessage("La cotización venció y no se pudo actualizar automáticamente. Vuelve a abrir el detalle del vehículo.");
-          }
+          await refreshExpiredQuote("La cotización venció.");
           return;
         }
         setPaymentMessage(payload?.error || "No fue posible registrar el pago en efectivo.");
@@ -732,10 +964,11 @@ export default function PosTerminal() {
       }
 
       // A partir de aquí el pago YA quedó registrado y la permanencia YA
-      // quedó cerrada en el backend (respuesta 2xx de /api/data-entry). No
-      // se imprime automáticamente: se muestra el comprobante y se pregunta
-      // al operador si desea imprimir el recibo (paymentStep PRINT_PROMPT).
-      // La decisión SÍ/NO nunca vuelve a tocar el pago ni la permanencia.
+      // quedó cerrada en el backend (respuesta 2xx de /api/data-entry). La
+      // impresión ocurre automáticamente DESPUÉS de esta confirmación, nunca
+      // antes, y una falla de impresión nunca vuelve a tocar el pago ni la
+      // permanencia — solo se reutiliza el mismo receiptPrintPayload ya
+      // armado con lo que confirmó el backend (ver printLastReceipt).
       const stay = payload?.data?.stay || null;
       const quote = payload?.data?.quote || null;
       const parkingResponse = payload?.data?.parking || parking;
@@ -745,10 +978,19 @@ export default function PosTerminal() {
         total: amount,
         paymentMethod: payload?.data?.stay?.payment_method || "CASH",
       });
-      setReceiptPrintPayload(buildPaymentReceiptPayload(stay, quote, parkingResponse));
+      const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse);
+      setReceiptPrintPayload(receiptPayload);
       setReceiptPrintStatus("");
-      setPaymentStep("PRINT_PROMPT");
       await loadTerminalState(true);
+
+      const printResult = receiptPayload ? await printLastReceipt(receiptPayload) : null;
+      const printFailedOnDevice = Boolean(printResult?.attempted && !printResult.ok);
+
+      if (printFailedOnDevice) {
+        setPaymentStep("PRINT_PROMPT");
+      } else {
+        finishPaidFlow();
+      }
     } catch {
       setPaymentMessage("Error de red al registrar el pago en efectivo.");
     } finally {
@@ -800,17 +1042,11 @@ export default function PosTerminal() {
       return { attempted: false, ok: false, code: "NO_TICKET", message: "No hay ticket disponible." };
     }
 
-    const bridge = getNativePrinterBridge();
-    if (!bridge) {
-      setEntryPrintStatus("Impresión disponible solo desde el dispositivo POS.");
-      return { attempted: false, ok: false, code: "BRIDGE_UNAVAILABLE", message: "Bridge no disponible." };
-    }
-
     setEntryPrintBusy(true);
     setEntryPrintStatus("Imprimiendo...");
 
     try {
-      const result = await executeNativePrint(printPayload);
+      const result = await executeAutoPrint(printPayload, toAgentEntryPayload);
 
       if (result.ok) {
         setEntryPrintStatus("Ticket impreso.");
@@ -841,17 +1077,11 @@ export default function PosTerminal() {
       return { attempted: false, ok: false, code: "NO_RECEIPT", message: "No hay recibo disponible." };
     }
 
-    const bridge = getNativePrinterBridge();
-    if (!bridge) {
-      setReceiptPrintStatus("Impresión disponible solo desde el dispositivo POS.");
-      return { attempted: false, ok: false, code: "BRIDGE_UNAVAILABLE", message: "Bridge no disponible." };
-    }
-
     setReceiptPrintBusy(true);
     setReceiptPrintStatus("Imprimiendo...");
 
     try {
-      const result = await executeNativePrint(printPayload);
+      const result = await executeAutoPrint(printPayload, toAgentExitPayload);
 
       if (result.ok) {
         setReceiptPrintStatus("Recibo impreso.");
@@ -1140,14 +1370,124 @@ export default function PosTerminal() {
     },
   ];
 
+  // Indica si INGRESO/SALIDA pueden habilitarse: solo con turno realmente
+  // OPEN (no CLOSING). Es una mejora de UX preventiva — la autoridad real
+  // sigue siendo requireOpenPosShift() en /api/data-entry, que exige
+  // status='OPEN' exacto y rechaza igual aunque este chequeo se omita.
+  const shiftReadyForOperations = shiftState === "OPEN" && shift?.status !== "CLOSING";
+
+  // Gate reutilizable de turno para INGRESO y SALIDA (Home ya resuelve su
+  // propio bloqueo con shiftReadyForOperations sobre los botones). Devuelve
+  // null cuando el turno está OPEN y no en CLOSING — en ese caso el panel
+  // real se renderiza normalmente. No duplica la lógica de
+  // renderCierreCajaPanel: cubre el mismo conjunto de estados
+  // (loading/error/PROGRAMMED/CLOSING/sin turno) para los paneles nuevos.
+  function renderShiftGate(title, { hideVolver = false } = {}) {
+    if (shiftReadyForOperations) return null;
+
+    const volverButton = hideVolver ? null : (
+      <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-4 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
+    );
+
+    if (shiftLoading && !shift) {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          <div className="flex items-center gap-3">
+            <LoaderCircle className="h-5 w-5 animate-spin text-slate-600" />
+            <p className="text-sm font-semibold">Cargando turno del operador...</p>
+          </div>
+        </section>
+      );
+    }
+
+    if (shiftError) {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{shiftError}</div>
+          {volverButton}
+        </section>
+      );
+    }
+
+    if (shiftState === "PROGRAMMED") {
+      return (
+        <section className="rounded-3xl border border-sky-300 bg-white p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sky-950">
+            <p className="text-xs font-black uppercase tracking-[0.1em] text-sky-700">Turno programado</p>
+            <p className="mt-1 font-black">Tienes un turno programado pendiente de inicio.</p>
+            <p className="mt-1 text-sm font-semibold">Fecha: {shift?.date || "-"} · Horario: {shift?.scheduledStart || "-"}–{shift?.scheduledEnd || "-"}</p>
+          </div>
+          <button type="button" onClick={() => void startProgrammedShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+            {shiftStartBusy ? "Iniciando..." : "INICIAR TURNO"}
+          </button>
+          {volverButton}
+        </section>
+      );
+    }
+
+    if (shiftState === "OPEN" && shift?.status === "CLOSING") {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+            El turno está en proceso de cierre. Espera a que se confirme el cierre de caja antes de continuar.
+          </div>
+          {volverButton}
+        </section>
+      );
+    }
+
+    if (shiftState === "CLOSED") {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+            Tu turno de hoy en este estacionamiento ya fue cerrado.
+          </div>
+          {volverButton}
+        </section>
+      );
+    }
+
+    // UNASSIGNED (sin turno programado hoy para este estacionamiento) o
+    // cualquier otro estado no contemplado explícitamente: bloquear.
+    return (
+      <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+        {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+        <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+          No tienes un turno programado para este estacionamiento.
+        </div>
+        {volverButton}
+      </section>
+    );
+  }
+
   function renderHomePanel() {
+    // A diferencia del gate de INGRESO/SALIDA (que reemplaza el panel
+    // completo), en HOME el aviso de turno se muestra junto a los botones:
+    // VEHÍCULOS EN EL PARKING y CÓDIGO QR siguen disponibles porque son
+    // consulta, y por eso no hay "Volver" (ya estamos en HOME).
+    const homeShiftGate = renderShiftGate("Inicio de turno", { hideVolver: true });
+
     return (
       <section className="mx-auto w-full max-w-4xl">
+        {shiftReadyForOperations ? (
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-emerald-800">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Turno activo
+          </div>
+        ) : null}
+
+        {homeShiftGate ? <div className="mb-4">{homeShiftGate}</div> : null}
+
         <div className="grid grid-cols-2 gap-3 sm:gap-4">
           <button
             type="button"
             onClick={openEntryForm}
-            className="flex min-h-[clamp(6.6rem,18vh,10rem)] w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-4 text-center text-lg font-black uppercase tracking-[0.05em] text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500"
+            disabled={!shiftReadyForOperations}
+            aria-disabled={!shiftReadyForOperations}
+            className="flex min-h-[clamp(6.6rem,18vh,10rem)] w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-4 text-center text-lg font-black uppercase tracking-[0.05em] text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
           >
             INGRESO
           </button>
@@ -1155,7 +1495,9 @@ export default function PosTerminal() {
           <button
             type="button"
             onClick={() => goToSection(POS_VIEWS.SALIDA)}
-            className="flex min-h-[clamp(6.6rem,18vh,10rem)] w-full items-center justify-center rounded-2xl bg-rose-600 px-4 py-4 text-center text-lg font-black uppercase tracking-[0.05em] text-white shadow-lg shadow-rose-200 transition hover:bg-rose-500"
+            disabled={!shiftReadyForOperations}
+            aria-disabled={!shiftReadyForOperations}
+            className="flex min-h-[clamp(6.6rem,18vh,10rem)] w-full items-center justify-center rounded-2xl bg-rose-600 px-4 py-4 text-center text-lg font-black uppercase tracking-[0.05em] text-white shadow-lg shadow-rose-200 transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
           >
             SALIDA
           </button>
@@ -1181,6 +1523,13 @@ export default function PosTerminal() {
   }
 
   function renderIngresoPanel() {
+    // El gate no debe ocultar la confirmación de un ingreso ya registrado
+    // (p. ej. si el turno cambió de estado justo después de confirmar).
+    if (!entrySuccess) {
+      const gate = renderShiftGate("Ingreso de vehículo");
+      if (gate) return gate;
+    }
+
     if (entrySuccess) {
       return (
         <article className="rounded-3xl border border-emerald-300 bg-emerald-50 p-5 text-emerald-950 shadow-sm">
@@ -2148,9 +2497,17 @@ export default function PosTerminal() {
 
     const stay = selectedVehicle?.stay;
     const quote = selectedVehicle?.quote;
+    const quoteView = normalizeQuoteView(quote);
     const entry = formatEntryDate(stay?.entry_at);
-    const tariffName = quote?.rate?.name || stay?.rate_name || "Sin tarifa vigente";
+    const tariffName = quoteView?.rateName || stay?.rate_name || "Sin tarifa vigente";
     const amount = formatQuoteAmount(quote);
+    // PAGAR solo puede habilitarse con un total numérico real — nunca solo
+    // porque el campo de "bloqueado" no vino marcado explícitamente. Evita
+    // que un total vacío/"—" quede acompañado de un botón habilitado.
+    const hasPayableQuote = Boolean(quoteView) && quoteView.payable && quoteView.total !== null;
+    // Mismo desglose Neto/IVA que ya usa el modal de pago (getTaxBreakdown
+    // sobre el TOTAL que ya calculó el backend, nunca recalculado aparte).
+    const detailBreakdown = hasPayableQuote ? getTaxBreakdown(quoteView.total) : null;
 
     return (
       <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-950 shadow-sm">
@@ -2178,7 +2535,24 @@ export default function PosTerminal() {
           </div>
           <div>
             <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">TOTAL A PAGAR</p>
-            <p className="mt-1 text-3xl font-black text-rose-950">{amount}</p>
+            {detailBreakdown ? (
+              <div className="mt-1 space-y-1">
+                <div className="flex items-center justify-between gap-3 text-sm font-semibold text-rose-800">
+                  <span>Neto</span>
+                  <span className="font-bold text-rose-950">{formatCurrency(detailBreakdown.netAmount)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm font-semibold text-rose-800">
+                  <span>IVA (19%)</span>
+                  <span className="font-bold text-rose-950">{formatCurrency(detailBreakdown.vatAmount)}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-3 border-t border-rose-200 pt-1">
+                  <span className="text-xs font-black uppercase tracking-[0.06em] text-rose-900">Total</span>
+                  <span className="text-2xl font-black text-rose-950">{formatCurrency(detailBreakdown.totalAmount)}</span>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-1 text-3xl font-black text-rose-950">{amount}</p>
+            )}
           </div>
           {selectedVehicleError ? (
             <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
@@ -2191,13 +2565,13 @@ export default function PosTerminal() {
           <button
             type="button"
             onClick={openPaymentModal}
-            disabled={selectedVehicleLoading || !quote || quote.blocked}
+            disabled={selectedVehicleLoading || !hasPayableQuote}
             className="rounded-xl bg-rose-900 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
           >
             PAGAR
           </button>
           <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
-            {quote?.blocked ? "No existe una tarifa activa para esta estadía." : "Preparado para seleccionar medio de pago."}
+            {hasPayableQuote ? "Preparado para seleccionar medio de pago." : "No existe una tarifa activa para esta estadía."}
           </div>
           <button
             type="button"
@@ -2216,11 +2590,12 @@ export default function PosTerminal() {
 
     const stay = selectedVehicle.stay;
     const quote = selectedVehicle.quote;
-    // Desglose Neto/IVA a partir del TOTAL que ya cotizó el backend
-    // (quote.total) — ver getTaxBreakdown. El pago confirmado más abajo
-    // (paymentBreakdown) usa el total que confirmó el backend en la
-    // respuesta del EXIT, no este valor pre-pago.
-    const quoteBreakdown = quote && !quote.blocked ? getTaxBreakdown(quote.total) : null;
+    const quoteView = normalizeQuoteView(quote);
+    // Desglose Neto/IVA a partir del TOTAL que ya cotizó el backend — ver
+    // getTaxBreakdown. El pago confirmado más abajo (paymentBreakdown) usa
+    // el total que confirmó el backend en la respuesta del EXIT, no este
+    // valor pre-pago.
+    const quoteBreakdown = quoteView?.payable && quoteView.total !== null ? getTaxBreakdown(quoteView.total) : null;
     const paymentBreakdown = paymentResult ? getTaxBreakdown(paymentResult.total) : null;
 
     return (
@@ -2301,9 +2676,10 @@ export default function PosTerminal() {
             {/*
               El pago YA está confirmado y la permanencia YA está cerrada
               antes de llegar a este paso (confirmCashPayment ya resolvió
-              /api/data-entry). SÍ/NO solo deciden si se intenta imprimir el
-              recibo — nunca vuelven a cobrar, cerrar la permanencia ni
-              generan una nueva operación.
+              /api/data-entry e intentó imprimir automáticamente). Solo se
+              llega aquí cuando esa impresión automática falló — este panel
+              es exclusivamente recuperación de la impresión, nunca vuelve a
+              cobrar, cerrar la permanencia ni genera una nueva operación.
             */}
             {paymentStep === "PRINT_PROMPT" ? (
               <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
@@ -2328,53 +2704,27 @@ export default function PosTerminal() {
                   ) : null}
                 </div>
 
-                {!receiptPrintStatus ? (
-                  <>
-                    <p className="text-lg font-black text-emerald-950">¿DESEA IMPRIMIR EL RECIBO?</p>
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <button
-                        type="button"
-                        onClick={() => void confirmReceiptPrint()}
-                        disabled={receiptPrintBusy}
-                        className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {receiptPrintBusy ? "Imprimiendo..." : "SÍ"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={declineReceiptPrint}
-                        disabled={receiptPrintBusy}
-                        className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        NO
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="whitespace-pre-line rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-sm font-semibold text-amber-900">
-                      {receiptPrintStatus}
-                    </div>
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <button
-                        type="button"
-                        onClick={() => void confirmReceiptPrint()}
-                        disabled={receiptPrintBusy}
-                        className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {receiptPrintBusy ? "Imprimiendo..." : "REINTENTAR IMPRESIÓN"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={declineReceiptPrint}
-                        disabled={receiptPrintBusy}
-                        className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        FINALIZAR
-                      </button>
-                    </div>
-                  </>
-                )}
+                <div className="whitespace-pre-line rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-sm font-semibold text-amber-900">
+                  {receiptPrintStatus || "No fue posible imprimir el ticket."}
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => void confirmReceiptPrint()}
+                    disabled={receiptPrintBusy}
+                    className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {receiptPrintBusy ? "Imprimiendo..." : "REINTENTAR IMPRESIÓN"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={declineReceiptPrint}
+                    disabled={receiptPrintBusy}
+                    className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    FINALIZAR
+                  </button>
+                </div>
               </div>
             ) : null}
 
@@ -2408,23 +2758,113 @@ export default function PosTerminal() {
       return renderVehicleDetailPanel();
     }
 
-    // SALIDA y VEHÍCULOS EN EL PARKING comparten exactamente el mismo listado
-    // de permanencias OPEN, la misma selección (openVehicleDetail) y el mismo
-    // detalle/cotización/pago (renderVehicleDetailPanel + el modal de pago):
-    // no hay una segunda implementación — solo cambia el título/descripción
-    // según la intención con la que se entró (consulta vs. salida/pago).
-    if (currentView === POS_VIEWS.SALIDA || currentView === POS_VIEWS.VEHICULOS) {
-      const isSalida = currentView === POS_VIEWS.SALIDA;
+    // SALIDA: búsqueda por patente, exclusiva de la salida/cobro. Nunca
+    // lista automáticamente todas las permanencias abiertas — eso es
+    // exclusivo de "Vehículos en el parking" (rama separada más abajo).
+    if (currentView === POS_VIEWS.SALIDA) {
+      // El gate de turno aplica: requiere turno OPEN para cobrar.
+      const gate = renderShiftGate("Salida de vehículo");
+      if (gate) return gate;
+
       return (
         <section className="rounded-3xl border border-rose-300 bg-rose-50 p-5 text-rose-950 shadow-sm">
-          <h2 className="text-xl font-black uppercase tracking-[0.08em]">
-            {isSalida ? "Salida de vehículo" : "Vehículos en el parking"}
-          </h2>
-          <p className="mt-2 text-sm font-semibold">
-            {isSalida
-              ? "Selecciona el vehículo que va a salir para cotizar y cobrar su permanencia."
-              : "Permanencias OPEN reales del estacionamiento asignado al operador."}
-          </p>
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Salida de vehículo</h2>
+          <p className="mt-2 text-sm font-semibold">Ingresa la patente del vehículo que va a salir y pulsa Buscar.</p>
+
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <div className="relative min-w-0 flex-1">
+              <input
+                type="text"
+                inputMode="text"
+                autoCapitalize="characters"
+                autoComplete="off"
+                value={salidaPlate}
+                onChange={(event) => {
+                  const formatted = formatPosPlateInput(event.target.value);
+                  setSalidaPlate(formatted);
+                  setSalidaSearchStatus(null);
+                  setSalidaSuggestionsOpen(Boolean(formatted));
+                }}
+                onFocus={() => {
+                  if (salidaPlate) setSalidaSuggestionsOpen(true);
+                }}
+                onBlur={() => {
+                  // Retraso breve: el blur del input dispara antes que el
+                  // click de una sugerencia, así que se cierra el
+                  // desplegable después de dar tiempo a que el click se
+                  // registre (si no, la lista desaparece antes del onClick).
+                  window.setTimeout(() => setSalidaSuggestionsOpen(false), 150);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    setSalidaSuggestionsOpen(false);
+                    searchSalidaPlate();
+                  }
+                  if (event.key === "Escape") {
+                    setSalidaSuggestionsOpen(false);
+                  }
+                }}
+                placeholder="CXPY-93"
+                className="w-full rounded-xl border border-rose-300 bg-white px-4 py-3 text-lg font-black uppercase tracking-widest text-rose-950 focus:border-rose-500 focus:outline-none"
+              />
+              {salidaSuggestionsOpen && salidaSuggestions.length > 0 ? (
+                <ul className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded-xl border border-rose-300 bg-white text-left shadow-lg">
+                  {salidaSuggestions.map((stay, index) => (
+                    <li key={stay?.id || `${stay?.license_plate}-${index}`}>
+                      <button
+                        type="button"
+                        onClick={() => selectSalidaSuggestion(stay)}
+                        className="block w-full px-4 py-2 text-left text-base font-black uppercase tracking-widest text-rose-950 hover:bg-rose-100"
+                      >
+                        {formatPosPlateInput(stay?.license_plate)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={searchSalidaPlate}
+              className="rounded-xl bg-rose-900 px-6 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-rose-800"
+            >
+              BUSCAR
+            </button>
+          </div>
+
+          {salidaSearchStatus ? (
+            <div
+              className={`mt-4 rounded-2xl border p-4 text-sm font-semibold ${
+                salidaSearchStatus.type === "conflict"
+                  ? "border-red-400 bg-red-50 text-red-900"
+                  : "border-amber-300 bg-amber-50 text-amber-900"
+              }`}
+            >
+              {salidaSearchStatus.message}
+            </div>
+          ) : null}
+
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => goToSection(POS_VIEWS.HOME)}
+              className="rounded-xl border border-rose-300 bg-white px-4 py-2 text-sm font-bold text-rose-800 hover:bg-rose-100"
+            >
+              Volver
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    // VEHÍCULOS EN EL PARKING: vista de consulta, lista completa de
+    // permanencias OPEN. No requiere turno (solo lectura).
+    if (currentView === POS_VIEWS.VEHICULOS) {
+      return (
+        <section className="rounded-3xl border border-rose-300 bg-rose-50 p-5 text-rose-950 shadow-sm">
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Vehículos en el parking</h2>
+          <p className="mt-2 text-sm font-semibold">Permanencias OPEN reales del estacionamiento asignado al operador.</p>
           <p className="mt-3 text-sm font-bold">Vehículos actualmente dentro: {vehiclesInside}</p>
           <div className="mt-4 space-y-4">
             {renderVehiclesPreparedList()}
@@ -2530,6 +2970,14 @@ export default function PosTerminal() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadTerminalState(false);
   }, [loadTerminalState]);
+
+  // El estado del turno se necesita desde HOME (para habilitar/bloquear
+  // INGRESO y SALIDA) y no solo al entrar a CIERRE DE CAJA como antes:
+  // se carga también al montar el terminal.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadShiftState();
+  }, [loadShiftState]);
 
   useEffect(() => {
     // Se detecta después del montaje: leer window.ParkFacilDevice durante el

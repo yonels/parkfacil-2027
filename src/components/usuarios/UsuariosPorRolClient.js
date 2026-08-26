@@ -1,127 +1,69 @@
 "use client";
-
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import Link from "next/link";
+import { Building2, KeyRound, LoaderCircle, Pencil, Plus, Search, Send, UserRound, X } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
-import SpreadsheetTable from "@/components/ui/SpreadsheetTable";
 import EstadoUsuarioBadge from "@/components/usuarios/EstadoUsuarioBadge";
+import PerfilUsuarioBadge from "@/components/usuarios/PerfilUsuarioBadge";
 import { normalizeUserSearch, getPerfilLabel } from "@/data/usuarios.mjs";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 
-// Vista compartida por /usuarios/administradores y /usuarios/operadores:
-// mismo catálogo real (GET /api/usuarios, ya autorizado y acotado por
-// empresa en el servidor) filtrado por rol, con buscador independiente.
-// Cada resultado es clickeable y abre directamente /usuarios/[id].
-export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeholderBusqueda, backHref, backLabel }) {
-  const [usuarios, setUsuarios] = useState([]);
-  const [empresas, setEmpresas] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [busqueda, setBusqueda] = useState("");
+const HELP = "Se utilizará exclusivamente para recuperación de contraseña y comunicaciones de seguridad. Debe ser una dirección de correo válida a la que el usuario tenga acceso.";
+const empty = { fullName: "", email: "", recoveryEmail: "", phone: "", companyId: "", status: "active", parkingIds: [] };
 
-  const cargar = useCallback(async () => {
-    setLoading(true);
-    setError("");
+function summary(user, parkings) {
+  const assigned = parkings.filter((p) => user.estacionamientos?.includes(p.id));
+  const total = parkings.filter((p) => p.empresaId === user.empresaId).length;
+  if (!assigned.length) return "Sin asignar";
+  if (total && assigned.length === total) return "Todos";
+  return assigned.length === 1 ? assigned[0].nombre : `${assigned.length} estacionamientos`;
+}
+
+function Field({ label, children, wide = false }) { return <label className={`space-y-1.5 text-sm ${wide ? "sm:col-span-2" : ""}`}><span>{label}</span>{children}</label>; }
+function ReadOnlyData({ label, value }) { return <div className="space-y-1.5 text-sm"><span>{label}</span><div className="rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-slate-700"><strong className="font-semibold">{value}</strong><span className="ml-2 text-xs text-slate-500">Solo lectura</span></div></div>; }
+const inputClass = "w-full rounded-xl border border-slate-300 px-3 py-2.5 outline-none focus:border-[#3150D8]";
+
+function UserModal({ mode, role, user, companies, parkings, onClose, onSaved }) {
+  const editing = mode === "edit";
+  const [draft, setDraft] = useState(() => editing ? { fullName: user.nombreCompleto || "", email: user.usuarioAcceso || user.correo || "", recoveryEmail: user.recoveryEmail || "", phone: user.telefono === "Sin teléfono informado" ? "" : user.telefono || "", companyId: user.empresaId, status: user.estado, parkingIds: [...(user.estacionamientos || [])] } : { ...empty, companyId: companies[0]?.id || "", parkingIds: [] });
+  const [saving, setSaving] = useState(false); const [sending, setSending] = useState(false); const [error, setError] = useState(""); const [message, setMessage] = useState("");
+  const available = parkings.filter((p) => p.empresaId === draft.companyId);
+  const set = (key, value) => setDraft((current) => ({ ...current, [key]: value }));
+  const toggle = (id) => set("parkingIds", draft.parkingIds.includes(id) ? draft.parkingIds.filter((p) => p !== id) : [...draft.parkingIds, id]);
+  async function submit(event) {
+    event.preventDefault(); setSaving(true); setError("");
     try {
-      const response = await authenticatedFetch("/api/usuarios", { cache: "no-store" });
-      const body = await response.json().catch(() => ({}));
-      if (response.status === 401) throw new Error("SESSION_EXPIRED");
-      if (!response.ok) throw new Error(body.error || "No fue posible cargar los usuarios.");
-      setUsuarios(body.data || []);
-      setEmpresas(body.companies || []);
-    } catch (cause) {
-      setError(cause.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      const payload = editing ? { nombreCompleto: draft.fullName.trim(), usuarioAcceso: draft.email.trim(), recoveryEmail: draft.recoveryEmail.trim(), telefono: draft.phone.trim(), estado: draft.status, parkingIds: draft.parkingIds } : { ...draft, role };
+      const response = await authenticatedFetch(editing ? `/api/usuarios/${user.id}` : "/api/usuarios", { method: editing ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "No fue posible guardar el usuario.");
+      await onSaved(); onClose();
+    } catch (cause) { setError(cause.message); } finally { setSaving(false); }
+  }
+  async function recover() {
+    if (!draft.recoveryEmail || !window.confirm("Se enviará un enlace de recuperación al correo configurado para este usuario.")) return;
+    setSending(true); setError(""); setMessage("");
+    try { const response = await authenticatedFetch(`/api/usuarios/${user.id}/recuperacion`, { method: "POST" }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "No fue posible enviar el correo de recuperación."); setMessage("Correo de recuperación enviado"); } catch (cause) { setError(cause.message); } finally { setSending(false); }
+  }
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#041E42]/55 p-3 sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}><section role="dialog" aria-modal="true" className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+    <header className="flex shrink-0 justify-between gap-4 border-b border-slate-200 px-5 py-4 sm:px-7"><div><p className="text-xs font-bold uppercase tracking-widest text-[#3150D8]">Ficha del usuario</p><h2 className="mt-1 text-2xl font-semibold text-[#041E42]">{editing ? user.nombreCompleto : `Crear ${role === "company_admin" ? "administrador" : "operador"}`}</h2></div><button type="button" onClick={onClose} aria-label="Cerrar" className="rounded-full border border-slate-200 p-2"><X className="h-5 w-5" /></button></header>
+    <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col"><div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5 sm:px-7">
+      {error ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}{message ? <p role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</p> : null}
+      <fieldset className="rounded-2xl border border-slate-200 p-4 sm:p-5"><legend className="flex items-center gap-2 px-2 font-semibold text-[#041E42]"><UserRound className="h-4 w-4 text-[#3150D8]" /> Datos personales</legend><div className="grid gap-4 sm:grid-cols-2"><Field label="Nombre completo"><input required value={draft.fullName} onChange={(e) => set("fullName", e.target.value)} className={inputClass} /></Field><Field label="Teléfono"><input value={draft.phone} onChange={(e) => set("phone", e.target.value)} className={inputClass} /></Field><Field label="Correo de recuperación" wide><input required={!editing} type="email" value={draft.recoveryEmail} onChange={(e) => set("recoveryEmail", e.target.value)} placeholder="Sin configurar" className={inputClass} /><small className="block leading-5 text-slate-500">{HELP}</small></Field></div></fieldset>
+      <fieldset className="rounded-2xl border border-slate-200 p-4 sm:p-5"><legend className="flex items-center gap-2 px-2 font-semibold text-[#041E42]"><Building2 className="h-4 w-4 text-[#3150D8]" /> Acceso a ParkFacil</legend><div className="grid gap-4 sm:grid-cols-2"><Field label="Usuario de acceso"><input required type="email" value={draft.email} onChange={(e) => set("email", e.target.value)} className={inputClass} /></Field>{editing ? <ReadOnlyData label="Perfil" value={getPerfilLabel(role)} /> : <Field label="Perfil"><input disabled value={getPerfilLabel(role)} className={`${inputClass} bg-slate-100`} /></Field>}<Field label="Estado"><select value={draft.status} onChange={(e) => set("status", e.target.value)} className={inputClass}><option value="active">Activo</option><option value="pending">Pendiente</option><option value="inactive">Inactivo</option></select></Field>{editing ? <ReadOnlyData label="Empresa" value={companies.find((c) => c.id === draft.companyId)?.nombreFantasia || "Sin empresa"} /> : <Field label="Empresa"><select required disabled={companies.length <= 1} value={draft.companyId} onChange={(e) => { setDraft((d) => ({ ...d, companyId: e.target.value, parkingIds: [] })); }} className={`${inputClass} disabled:bg-slate-100`}>{companies.map((c) => <option key={c.id} value={c.id}>{c.nombreFantasia}</option>)}</select></Field>}<Field label="Estacionamiento(s) asignado(s)" wide><div className="grid max-h-44 gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">{available.length ? available.map((p) => <label key={p.id} className="flex items-center gap-2 rounded-lg bg-white px-3 py-2"><input type="checkbox" checked={draft.parkingIds.includes(p.id)} onChange={() => toggle(p.id)} />{p.nombre}</label>) : <span className="text-slate-500">No hay estacionamientos disponibles.</span>}</div></Field>{editing ? <><div className="rounded-xl bg-slate-50 p-3 text-sm"><span className="text-slate-500">Último acceso</span><strong className="mt-1 block">{user.ultimoAcceso}</strong></div><div className="rounded-xl bg-slate-50 p-3 text-sm"><span className="text-slate-500">Fecha creación</span><strong className="mt-1 block">{user.fechaCreacion}</strong></div></> : null}</div></fieldset>
+      {editing ? <fieldset className="rounded-2xl border border-[#3150D8]/30 bg-[#F5F9FF] p-4 sm:p-5"><legend className="flex items-center gap-2 px-2 font-semibold text-[#041E42]"><KeyRound className="h-4 w-4 text-[#3150D8]" /> Seguridad</legend><p className="text-sm text-slate-600">Correo de recuperación: <strong>{draft.recoveryEmail || "Sin configurar"}</strong></p><button type="button" onClick={recover} disabled={!draft.recoveryEmail || sending} className="mt-4 inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">{sending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}{sending ? "Enviando..." : "Enviar recuperación de contraseña"}</button>{!draft.recoveryEmail ? <p className="mt-2 text-sm text-amber-700">Debes configurar un correo de recuperación antes de enviar el enlace.</p> : null}</fieldset> : null}
+    </div><footer className="flex shrink-0 justify-end gap-3 border-t border-slate-200 px-5 py-4 sm:px-7"><button type="button" onClick={onClose} className="rounded-full border border-slate-300 px-5 py-2.5 text-sm font-semibold">Cancelar</button><button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}{saving ? "Guardando..." : editing ? "Guardar cambios" : "Crear usuario"}</button></footer></form>
+  </section></div>;
+}
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => cargar(), 0);
-    return () => window.clearTimeout(timer);
-  }, [cargar]);
+export { UserModal as UsuarioFichaModal };
 
-  const resultados = useMemo(() => {
-    const normalized = normalizeUserSearch(busqueda);
-    return usuarios
-      .filter((usuario) => usuario.perfilPrincipal === rol)
-      .filter((usuario) => {
-        if (!normalized) return true;
-        const valores = [
-          usuario.nombreCompleto,
-          usuario.usuarioAcceso,
-          usuario.recoveryEmail,
-          usuario.telefono,
-          getPerfilLabel(usuario.perfilPrincipal),
-          ...(usuario.searchValues || []),
-        ];
-        return valores.some((value) => normalizeUserSearch(value).includes(normalized));
-      })
-      .sort((left, right) => String(left.nombreCompleto || "").localeCompare(String(right.nombreCompleto || ""), "es"));
-  }, [busqueda, rol, usuarios]);
-
-  const filas = useMemo(
-    () => resultados.map((usuario) => ({
-      ...usuario,
-      empresaNombre: empresas.find((item) => item.id === usuario.empresaId)?.nombreFantasia || "Sin empresa",
-    })),
-    [empresas, resultados],
-  );
-
-  const columnas = useMemo(() => [
-    { key: "usuarioAcceso", label: "Usuario de acceso", className: "font-semibold text-[#3150D8]" },
-    { key: "recoveryEmail", label: "Correo de recuperación", render: (row) => row.recoveryEmail || "Sin configurar" },
-    { key: "nombreCompleto", label: "Nombre" },
-    { key: "telefono", label: "Teléfono" },
-    { key: "empresaNombre", label: "Empresa" },
-    { key: "estado", label: "Estado", render: (row) => <EstadoUsuarioBadge estado={row.estado} /> },
-    { key: "ultimoAcceso", label: "Último acceso" },
-  ], []);
-
-  return (
-    <AppShell title={titulo} description={descripcion}>
-      <div className="space-y-6">
-        <PageHeader title={titulo} description={descripcion} backHref={backHref} backLabel={backLabel} />
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-            <Search className="h-4 w-4 text-[#3150D8]" />
-            <input
-              value={busqueda}
-              onChange={(event) => setBusqueda(event.target.value)}
-              placeholder={placeholderBusqueda}
-              className="w-full bg-transparent outline-none"
-            />
-          </label>
-
-          {error ? (
-            <p role="alert" className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
-              {error === "SESSION_EXPIRED" ? "Tu sesión expiró. Vuelve a iniciar sesión." : error}
-            </p>
-          ) : null}
-
-          <div className="mt-6">
-            {loading ? (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">
-                Cargando…
-              </div>
-            ) : resultados.length > 0 ? (
-              <SpreadsheetTable
-                columns={columnas}
-                rows={filas}
-                rowHref={(row) => `/usuarios/${row.id}`}
-                minWidth={900}
-                storageKey={`usuarios-${rol}`}
-              />
-            ) : (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">
-                {busqueda ? "No hay resultados para tu búsqueda." : "No hay usuarios en esta categoría todavía."}
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
-    </AppShell>
-  );
+export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeholderBusqueda, backHref, backLabel, crear = true, empresasEndpoint = null, roleLabel }) {
+  const [usuarios, setUsuarios] = useState([]), [empresas, setEmpresas] = useState([]), [parkings, setParkings] = useState([]), [allowed, setAllowed] = useState(null), [loading, setLoading] = useState(true), [error, setError] = useState(""), [search, setSearch] = useState(""), [modal, setModal] = useState(null);
+  const load = useCallback(async () => { setLoading(true); setError(""); try { const [ur, fr] = await Promise.all([authenticatedFetch("/api/usuarios", { cache: "no-store" }), empresasEndpoint ? authenticatedFetch(empresasEndpoint, { cache: "no-store" }) : Promise.resolve(null)]); const body = await ur.json().catch(() => ({})); if (!ur.ok) throw new Error(body.error || "No fue posible cargar los usuarios."); setUsuarios(body.data || []); setEmpresas(body.companies || []); setParkings(body.parkings || []); if (fr) { const fb = await fr.json().catch(() => ({})); if (!fr.ok) throw new Error(fb.error || "No fue posible cargar las empresas."); setAllowed((fb.data || []).map((c) => c.id)); } } catch (cause) { setError(cause.message); } finally { setLoading(false); } }, [empresasEndpoint]);
+  useEffect(() => { const timer = window.setTimeout(load, 0); return () => window.clearTimeout(timer); }, [load]);
+  const companies = useMemo(() => allowed ? empresas.filter((c) => allowed.includes(c.id)) : empresas, [allowed, empresas]);
+  const results = useMemo(() => { const term = normalizeUserSearch(search); return usuarios.filter((u) => u.perfilPrincipal === rol && (!allowed || allowed.includes(u.empresaId))).filter((u) => !term || [u.nombreCompleto, u.usuarioAcceso, u.recoveryEmail, u.telefono, ...(u.searchValues || [])].some((v) => normalizeUserSearch(v).includes(term))).sort((a, b) => a.nombreCompleto.localeCompare(b.nombreCompleto, "es")); }, [allowed, rol, search, usuarios]);
+  const labels = ["Nombre", "Usuario de acceso", "Correo de recuperación", "Empresa", "Perfil", "Estado", "Estacionamiento(s)", "Acción"];
+  return <AppShell title={titulo} description={descripcion}><div className="space-y-6"><PageHeader title={titulo} description={descripcion} backHref={backHref} backLabel={backLabel} actions={crear ? [<button key="create" type="button" onClick={() => setModal({ mode: "create" })} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white"><Plus className="h-4 w-4" /> Crear {roleLabel || (rol === "company_admin" ? "administrador" : "operador")}</button>] : undefined} /><section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6"><label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm"><Search className="h-4 w-4 text-[#3150D8]" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={placeholderBusqueda} className="w-full bg-transparent outline-none" /></label>{error ? <p role="alert" className="mt-4 text-sm text-rose-700">{error}</p> : null}<div className="mt-5 overflow-x-auto rounded-2xl border border-slate-200"><table className="w-full min-w-[1120px] text-left text-sm"><thead className="bg-[#E2F0D9] text-[#041E42]"><tr>{labels.map((l) => <th key={l} className="border-b border-slate-300 px-3 py-3">{l}</th>)}</tr></thead><tbody>{results.map((u) => <tr key={u.id} className="border-b border-slate-100 even:bg-slate-50 hover:bg-[#FFF2CC]"><td className="px-3 py-3 font-medium text-[#041E42]"><Link href={`/usuarios/${u.id}`} className="hover:text-[#3150D8] hover:underline">{u.nombreCompleto}</Link></td><td className="w-[240px] max-w-[260px] break-words px-3 py-3 [overflow-wrap:anywhere]">{u.usuarioAcceso || u.correo}</td><td className="max-w-[220px] break-words px-3 py-3 [overflow-wrap:anywhere]">{u.recoveryEmail || <span className="text-amber-700">Sin configurar</span>}</td><td className="px-3 py-3">{empresas.find((c) => c.id === u.empresaId)?.nombreFantasia || "Sin empresa"}</td><td className="px-3 py-3"><PerfilUsuarioBadge perfil={u.perfilPrincipal} /></td><td className="px-3 py-3"><EstadoUsuarioBadge estado={u.estado} /></td><td className="px-3 py-3">{summary(u, parkings)}</td><td className="px-3 py-3"><button type="button" onClick={() => setModal({ mode: "edit", user: u })} className="inline-flex items-center gap-2 rounded-full border border-[#3150D8] px-3 py-2 font-semibold text-[#3150D8]"><Pencil className="h-4 w-4" /> Editar</button></td></tr>)}{loading || !results.length ? <tr><td colSpan="8" className="px-4 py-10 text-center text-slate-500">{loading ? "Cargando usuarios…" : "No hay usuarios para mostrar."}</td></tr> : null}</tbody></table></div></section>{modal ? <UserModal mode={modal.mode} role={rol} user={modal.user} companies={companies} parkings={parkings} onClose={() => setModal(null)} onSaved={load} /> : null}</div></AppShell>;
 }

@@ -18,6 +18,21 @@
   --pf-color-brand-900: var(--pf-color-brand-deep);
   --pf-color-brand-border: #4867e8;
   --pf-color-brand-shadow: rgba(30, 53, 153, 0.35);
+
+  /* Identidad On Street: cobrizo, distinto del azul corporativo general
+     (Off Street/plataforma). Solo se usa como color identificador del
+     producto -- encabezado, botones principales, estado activo de
+     navegación, acentos -- nunca como fondo general de pantalla (ver §12/§13
+     de la auditoría de acceso por producto). Texto/iconografía sobre estos
+     fondos siempre en blanco: contraste verificado >= 5:1 (#A65A2E) y
+     >= 8:1 (#7C3F22) contra blanco, cumple WCAG AA. */
+  --pf-color-onstreet-primary: #a65a2e;
+  --pf-color-onstreet-primary-600: #954f28;
+  --pf-color-onstreet-primary-700: #7c3f22;
+  --pf-color-onstreet-primary-800: #5f2f19;
+  --pf-color-onstreet-border: #c17a4f;
+  --pf-color-onstreet-shadow: rgba(124, 63, 34, 0.35);
+  --pf-color-onstreet-tint: #fbf1ea;
 }
 
 .input {
@@ -44,6 +59,10 @@
   --color-brand-700: var(--pf-color-brand-700);
   --color-brand-800: var(--pf-color-brand-800);
   --color-brand-900: var(--pf-color-brand-900);
+  --color-onstreet-primary: var(--pf-color-onstreet-primary);
+  --color-onstreet-600: var(--pf-color-onstreet-primary-600);
+  --color-onstreet-700: var(--pf-color-onstreet-primary-700);
+  --color-onstreet-800: var(--pf-color-onstreet-primary-800);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }

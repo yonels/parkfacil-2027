@@ -11,6 +11,7 @@ import EstadoEstacionamientoBadge from "./EstadoEstacionamientoBadge";
 import TipoEstacionamientoBadge from "./TipoEstacionamientoBadge";
 import ParkingStructureAdmin, { ParkingOperatorsPanel, structureCreateHref, structureCreateLabel } from "./ParkingStructureAdmin";
 import ParkingRatesManager from "./ParkingRatesManager";
+import ParkingQrSessionsPanel from "./ParkingQrSessionsPanel";
 import { evaluateContractedCapacity, headerActionForTab, parkingDetailTabs } from "@/lib/parkingDetailView.mjs";
 import { selectActiveRate } from "@/lib/parkingRates.mjs";
 
@@ -155,6 +156,8 @@ export default function EstacionamientoDetalleAdmin({ parking, structure, compan
     </section> : null}
 
     {activeTab === "estructura" ? <ParkingStructureAdmin parking={parking} structure={structure} /> : null}
+
+    {activeTab === "sesiones-qr" ? <ParkingQrSessionsPanel parking={parking} /> : null}
 
     {activeTab === "tarifas" ? <ParkingRatesManager parking={parking} showCreateButton={false} openSignal={tarifaSignal} /> : null}
 

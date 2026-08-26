@@ -1,4 +1,4 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText } from "lucide-react";
+import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, MapPinned } from "lucide-react";
 
 export const navigationItems = [
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
@@ -11,7 +11,55 @@ export const navigationItems = [
   { href: "/data-entry", label: "Data Entry", icon: ScanLine, platformAdminGateway: true },
   { href: "/operacion", label: "Operación", icon: ParkingSquare },
   { href: "/turnos", label: "Turnos", icon: Clock3 },
-  { href: "/estacionamientos", label: "Estacionamientos", icon: ShieldCheck },
+  {
+    href: "/estacionamientos",
+    label: "Estacionamientos",
+    icon: ShieldCheck,
+    // Nodo padre único para ambos modelos de estacionamiento. "Off Street"
+    // reutiliza la app tradicional (/estacionamientos, ya soportaba
+    // ?tipo=OFF_STREET|ON_STREET|ALL — no se inventó una ruta nueva).
+    // "On Street" es el módulo QR con Webpay, antes expuesto como nodo
+    // separado "QR Parking" — se consolidó aquí para no tener dos árboles
+    // paralelos representando lo mismo. Ver onStreetAdminRepository.js /
+    // onStreetAdminAuthorization.js / onStreetPaymentService.js. El piloto
+    // sin cobro (/on-street/*, ON_STREET_READ/MANAGE) ya no existe — no
+    // queda ninguna vía de estacionamiento On Street sin Webpay.
+    activePrefix: ["/estacionamientos", "/on-street-qr"],
+    // icon en "Off Street"/"On Street": MobileNavigation.js los renderiza
+    // directamente cuando projectSingleProductParkingNode los promueve a
+    // nivel superior para un Cliente con un único producto (ver §17/§18 de
+    // la auditoría de acceso por producto) -- sin icon propio, ese render
+    // fallaría.
+    children: [
+      { href: "/estacionamientos?tipo=OFF_STREET", label: "Off Street", icon: ParkingSquare, activePrefix: "/estacionamientos" },
+      {
+        href: "/on-street-qr",
+        label: "On Street",
+        icon: MapPinned,
+        activePrefix: "/on-street-qr",
+        // Sub-funciones existentes del módulo On Street — se preservan tal
+        // cual estaban en el antiguo nodo "QR Parking" (mismas rutas), más
+        // "Pagos", que ya existía como página real pero no estaba enlazada
+        // en ningún menú.
+        children: [
+          { href: "/on-street-qr", label: "Dashboard" },
+          { href: "/on-street-qr/ubicaciones", label: "Ubicaciones QR" },
+          { href: "/on-street-qr/crear", label: "Crear QR" },
+          { href: "/on-street-qr/sesiones", label: "Sesiones" },
+          { href: "/on-street-qr/tarifas", label: "Configuración / Tarifas" },
+          { href: "/on-street-qr/pagos", label: "Pagos" },
+          { href: "/on-street-qr/administradores", label: "Administradores" },
+          { href: "/on-street-qr/operadores", label: "Operadores" },
+          { href: "/on-street-qr/reportes", label: "Reportes" },
+          // Accesos directos de creación — solo Root (ver ROOT_ONLY_PREFIXES
+          // en permissions.mjs). No aparecen en Portal Cliente.
+          { href: "/on-street-qr/areas/nueva", label: "Crear área" },
+          { href: "/on-street-qr/calles/nueva", label: "Crear calle" },
+          { href: "/on-street-qr/tramos/nuevo", label: "Crear tramo" },
+        ],
+      },
+    ],
+  },
   { href: "/seguridad", label: "Seguridad", icon: KeyRound, requiresModule: "seguridad" },
   { href: "/recaudacion", label: "Recaudación", icon: Wallet },
   {

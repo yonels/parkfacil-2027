@@ -81,7 +81,7 @@ test("el motor selecciona la tarifa vigente en el timestamp cotizado, nunca en l
   assert.doesNotMatch(source, /selectActiveRate\(rates\);/);
 });
 
-test("la snapshot POS se firma, expira a 30 segundos y rechaza manipulación", () => {
+test("la snapshot POS se firma, expira a 120 segundos y rechaza manipulación", () => {
   const calculatedAt = new Date("2026-08-11T16:44:58.638Z");
   const snapshot = buildPosQuoteSnapshot({
     stay: {
@@ -111,7 +111,7 @@ test("la snapshot POS se firma, expira a 30 segundos y rechaza manipulación", (
     calculatedAt,
   });
 
-  assert.equal(snapshot.expiresAt, "2026-08-11T16:45:28.638Z");
+  assert.equal(snapshot.expiresAt, "2026-08-11T16:46:58.638Z");
   assert.equal(snapshot.signature.length, 64);
   assert.equal(verifyPosQuoteSnapshot({ ...snapshot, signature: undefined }, snapshot.signature, TEST_POS_QUOTE_HMAC_SECRET), true);
   assert.equal(verifyPosQuoteSnapshot({ ...snapshot, totalAmount: 6400, signature: undefined }, snapshot.signature, TEST_POS_QUOTE_HMAC_SECRET), false);

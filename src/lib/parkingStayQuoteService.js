@@ -5,7 +5,7 @@ import { calculateScheduledParkingCharge, selectActiveRate } from "./parkingRate
 import { listParkingRates } from "./parkingRatesRepository.js";
 import { signWebpayQuoteEvidence } from "./webpayQuoteEvidence.mjs";
 
-const POS_QUOTE_TTL_SECONDS = 30;
+const POS_QUOTE_TTL_SECONDS = 120;
 const POS_QUOTE_TTL_MS = POS_QUOTE_TTL_SECONDS * 1000;
 
 function canonicalTimestamp(value) {

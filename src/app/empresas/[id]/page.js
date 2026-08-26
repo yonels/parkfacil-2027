@@ -144,6 +144,7 @@ export default async function EmpresaDetallePage({ params }) {
               <DetailItem label="Nombre de fantasía" value={empresa.nombreFantasia} />
               <DetailItem label="RUT" value={formatearRut(`${empresa.rutNumero}-${empresa.rutDv}`)} />
               <DetailItem label="Giro" value={empresa.giro} />
+              <DetailItem label="Productos habilitados" value={(empresa.productosHabilitados || []).length ? empresa.productosHabilitados.map((product) => product === "ON_STREET" ? "On Street" : "Off Street").join(" · ") : "Ninguno — sin acceso operativo"} />
             </div>
           </div>
           <div className="rounded-3xl border border-slate-200 bg-[#F5F9FF] p-6 shadow-sm">

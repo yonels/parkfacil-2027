@@ -2,9 +2,9 @@ import "server-only";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
-import { requirePermission } from "@/lib/auth/apiAuthorizationCore.mjs";
+import { requirePermission, requireProduct } from "@/lib/auth/apiAuthorizationCore.mjs";
 import { parkingQueryScope, requireAssignedOperator, requireParkingChildRow } from "@/lib/auth/parkingAuthorizationCore.mjs";
-import { ROLES } from "@/lib/auth/permissions.mjs";
+import { PRODUCTS, ROLES } from "@/lib/auth/permissions.mjs";
 import { getParking } from "@/lib/estacionamientosRepository";
 
 export async function assignedParkingIds(db, context) {
@@ -24,6 +24,12 @@ export async function authorizeParkingRequest(request, identifier, permission) {
     const scope = parkingQueryScope(authorization.context, assigned || []);
     const parking = await getParking(db, identifier, scope);
     if (!parking) throw new AuthorizationError("RESOURCE_NOT_FOUND", 404, "No se encontró el estacionamiento solicitado.", authorization.context);
+    // Se autoriza por el producto real del recurso, no por la ruta que lo
+    // sirve: /api/estacionamientos/* también respalda la estructura On
+    // Street (áreas/calles/tramos), así que una empresa sin ese producto no
+    // debe poder leer/editar un estacionamiento ON_STREET aunque conozca su
+    // ID (ver §7/§28 de la auditoría de acceso por producto).
+    requireProduct(authorization.context, parking.type === "ON_STREET" ? PRODUCTS.ON_STREET : PRODUCTS.OFF_STREET);
     return { context: authorization.context, db, parking, response: null };
   } catch (error) {
     if (error instanceof AuthorizationError) return { context: authorization.context, response: authorizationErrorResponse(request, error, authorization.context) };

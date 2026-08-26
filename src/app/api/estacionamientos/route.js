@@ -6,7 +6,7 @@ import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiA
 import { assignedParkingIds } from "@/lib/auth/parkingAuthorization";
 import { parkingQueryScope } from "@/lib/auth/parkingAuthorizationCore.mjs";
 import { requirePermission } from "@/lib/auth/apiAuthorizationCore.mjs";
-import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
+import { hasEnabledProduct, PERMISSIONS, PRODUCTS, ROLES } from "@/lib/auth/permissions.mjs";
 
 function fail(error, fallback = "No fue posible procesar los estacionamientos.") {
   console.error("[parking:collection]", error);
@@ -20,7 +20,16 @@ export async function GET(request) {
     requirePermission(auth.context, PERMISSIONS.PARKINGS_READ);
     const db = getSupabaseAdminClient();
     const ids = await assignedParkingIds(db, auth.context);
-    return NextResponse.json({ data: await listParkings(db, parkingQueryScope(auth.context, ids || [])) });
+    const parkings = await listParkings(db, parkingQueryScope(auth.context, ids || []));
+    // Defensa en profundidad: además de que el árbol de navegación ya no
+    // ofrece esta pantalla a una empresa sin Off Street/On Street, el propio
+    // listado nunca debe entregar estacionamientos de un producto que la
+    // empresa no tiene habilitado, aunque se invoque la API directamente
+    // (Root queda exento -- ver §7/§28 de la auditoría de acceso por producto).
+    const data = auth.context.role === ROLES.PLATFORM_ADMIN
+      ? parkings
+      : parkings.filter((parking) => hasEnabledProduct(auth.context.enabledProducts, parking.type === "ON_STREET" ? PRODUCTS.ON_STREET : PRODUCTS.OFF_STREET));
+    return NextResponse.json({ data });
   } catch (error) { if (error?.status) return authorizationErrorResponse(request, error, auth.context); return fail(error, "No fue posible obtener los estacionamientos."); }
 }
 

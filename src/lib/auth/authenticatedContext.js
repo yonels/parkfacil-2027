@@ -33,7 +33,7 @@ export async function getAuthenticatedContext(request) {
     loadMembership: async (userId) => {
       const result = await db
         .from("company_members")
-        .select("user_id,company_id,full_name,role,status,pos_only,company:companies(id,business_name,trade_name,status,relationship_type)")
+        .select("user_id,company_id,full_name,role,status,pos_only,company:companies(id,business_name,trade_name,status,relationship_type,enabled_products)")
         .eq("user_id", userId)
         .maybeSingle();
       if (result.error) throw new AuthorizationError("MEMBERSHIP_LOOKUP_FAILED", 403, "No fue posible validar la membresía.");

@@ -24,6 +24,13 @@ export const PERMISSIONS = Object.freeze({
   BILLING_REVIEW: "billing:review",
   BILLING_APPROVE: "billing:approve",
   BILLING_ISSUE: "billing:issue",
+  // ON_STREET_READ/MANAGE (piloto sin cobro, /on-street/*) se eliminaron junto
+  // con el módulo piloto gratuito: era una vía de estacionamiento sin Webpay
+  // que nada del producto vigente necesita. Ver §23 de la auditoría de
+  // producción — remediación de bloqueante.
+  // Módulo On-Street QR (producto definitivo, con Webpay): /on-street-qr/*.
+  ON_STREET_QR_READ: "on_street_qr:read",
+  ON_STREET_QR_MANAGE: "on_street_qr:manage",
 });
 
 const ROLE_PERMISSIONS = Object.freeze({
@@ -42,6 +49,8 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.COUPONS_MANAGE,
     PERMISSIONS.OPERATIONS_USE,
     PERMISSIONS.REPORTS_READ,
+    PERMISSIONS.ON_STREET_QR_READ,
+    PERMISSIONS.ON_STREET_QR_MANAGE,
   ]),
   [ROLES.OPERATOR]: new Set([
     PERMISSIONS.COMPANY_READ,
@@ -61,14 +70,67 @@ export function permissionsForRole(role) {
   return [...(ROLE_PERMISSIONS[role] || [])];
 }
 
-const ROOT_ONLY_PREFIXES = ["/empresas", "/contratos", "/facturacion", "/modelo-gestion-modulos"];
-const COMPANY_ADMIN_PREFIXES = ["/usuarios"];
+// Productos ParkFacil que una empresa puede tener contratados. Fuente de
+// verdad: companies.enabled_products (ver migración
+// 20260822090000_company_enabled_products.sql). Root no está sujeto a esta
+// restricción -- administra ambos productos siempre (ver §6 de la auditoría
+// "ACCESO DIFERENCIADO OFF-STREET / ON-STREET").
+export const PRODUCTS = Object.freeze({
+  OFF_STREET: "OFF_STREET",
+  ON_STREET: "ON_STREET",
+});
+const ALL_PRODUCTS = Object.freeze([PRODUCTS.OFF_STREET, PRODUCTS.ON_STREET]);
+
+// Única función que resuelve "qué productos puede usar esta sesión" -- no
+// duplicar este cálculo en componentes ni rutas (ver §33/§34 de la
+// auditoría): platform_admin siempre tiene ambos; company_admin/operator
+// quedan limitados a lo que companies.enabled_products declare para su
+// empresa (saneado contra la lista válida, nunca se confía en valores
+// arbitrarios que pudieran llegar de la fila).
+export function resolveEnabledProducts(role, company) {
+  if (role === ROLES.PLATFORM_ADMIN) return [...ALL_PRODUCTS];
+  const raw = Array.isArray(company?.enabled_products) ? company.enabled_products : [];
+  return ALL_PRODUCTS.filter((product) => raw.includes(product));
+}
+
+export function hasEnabledProduct(enabledProducts, product) {
+  return Array.isArray(enabledProducts) && enabledProducts.includes(product);
+}
+
+const ROOT_ONLY_PREFIXES = [
+  "/empresas",
+  "/contratos",
+  "/facturacion",
+  "/modelo-gestion-modulos",
+  // Accesos directos de creación de Área/Calle/Tramo On Street: crean
+  // estructura compartida entre empresas (parking_sectors/parking_streets/
+  // parking_street_segments), por lo que quedan reservados a Root, aunque
+  // el resto de /on-street-qr sí sea alcanzable por company_admin.
+  "/on-street-qr/areas",
+  "/on-street-qr/calles",
+  "/on-street-qr/tramos",
+];
+const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr"];
+
+// Prefijos de ruta que exigen un producto habilitado (Portal Cliente/
+// Terminal no aplica -- Root nunca pasa por aquí, ver canAccessPath). El
+// resto de /on-street-qr/* (Dashboard, Ubicaciones, Sesiones, Reportes...)
+// hereda el mismo requisito que su raíz por matchesPrefix.
+const PRODUCT_PREFIXES = [
+  { prefix: "/estacionamientos", product: PRODUCTS.OFF_STREET },
+  { prefix: "/on-street-qr", product: PRODUCTS.ON_STREET },
+];
 
 function matchesPrefix(pathname, prefixes) {
   return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
 }
 
-export function canAccessPath({ portal, role }, pathname) {
+function requiredProductForPath(pathname) {
+  const entry = PRODUCT_PREFIXES.find(({ prefix }) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return entry?.product || null;
+}
+
+export function canAccessPath({ portal, role, enabledProducts }, pathname) {
   if (portal === "terminal") {
     const terminalPath = pathname === "/pos" || pathname.startsWith("/pos/");
     return terminalPath && hasPermission(role, PERMISSIONS.OPERATIONS_USE);
@@ -80,10 +142,18 @@ export function canAccessPath({ portal, role }, pathname) {
     return false;
   }
   if (matchesPrefix(pathname, ROOT_ONLY_PREFIXES)) return false;
-  if (matchesPrefix(pathname, COMPANY_ADMIN_PREFIXES)) return role === ROLES.COMPANY_ADMIN;
+  if (matchesPrefix(pathname, COMPANY_ADMIN_PREFIXES) && role !== ROLES.COMPANY_ADMIN) return false;
+  const requiredProduct = requiredProductForPath(pathname);
+  if (requiredProduct && !hasEnabledProduct(enabledProducts, requiredProduct)) return false;
   return true;
 }
 
 export function navigationVisibleForRole(item, context) {
-  return Boolean(item?.href && context) && canAccessPath(context, item.href.split("#")[0]);
+  // canAccessPath espera una pathname pura (igual que request.nextUrl.pathname
+  // en proxy.js) -- algunos hrefs de navigationItems incluyen query string
+  // (p. ej. "/estacionamientos?tipo=OFF_STREET"). Sin quitarla, requiredProductForPath
+  // nunca reconoce el prefijo ("/estacionamientos?tipo=OFF_STREET" no empieza
+  // con "/estacionamientos/") y el ítem queda visible sin filtrar por
+  // producto -- bug detectado en la validación QA de acceso por producto.
+  return Boolean(item?.href && context) && canAccessPath(context, item.href.split("#")[0].split("?")[0]);
 }

@@ -81,6 +81,7 @@ function mapCompany(row, parkings, contracts = [], members = [], contractedSpace
     representanteLegal: row.legal_representative,
     estado: row.status,
     tipoRelacion: row.relationship_type,
+    productosHabilitados: Array.isArray(row.enabled_products) ? row.enabled_products : [],
     fechaIncorporacion: row.incorporated_on,
     observaciones: row.notes,
     plan: ({

@@ -1,0 +1,10 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { maskAdminPhone, normalizeOnStreetFilters, paymentTypeFromTransaction, visibleOnStreetStatus } from "./onStreetAdminCore.mjs";
+import { canAccessPath, hasPermission, PERMISSIONS } from "./auth/permissions.mjs";
+import { webpayPaymentType } from "./payments/webpayCore.mjs";
+test("On Street QR admin is available to company admin but not POS operator", () => { assert.equal(hasPermission("company_admin", PERMISSIONS.ON_STREET_QR_READ), true); assert.equal(hasPermission("operator", PERMISSIONS.ON_STREET_QR_READ), false); assert.equal(canAccessPath({ role:"operator", portal:"client" }, "/on-street-qr"), false); });
+test("Transbank payment type is derived only from provider code", () => { assert.equal(webpayPaymentType("VD"), "DEBIT"); for (const code of ["VN","VC","SI","S2","NC"]) assert.equal(webpayPaymentType(code), "CREDIT"); assert.equal(webpayPaymentType("XX"), null); assert.equal(paymentTypeFromTransaction({payment_type:"DEBIT"}), "Débito"); });
+test("administrative phone is masked", () => assert.equal(maskAdminPhone("56966514044"), "***4044"));
+test("filters reject untrusted identifiers", () => assert.deepEqual(normalizeOnStreetFilters({date:"2026-08-15",parkingId:"not-a-uuid"}),{date:"2026-08-15",parkingId:null,areaId:null,streetId:null,segmentId:null}));
+test("active expired session has an operational expired presentation", () => assert.equal(visibleOnStreetStatus({status:"ACTIVE",expires_at:"2026-08-14T00:00:00Z"},new Date("2026-08-15T00:00:00Z")),"EXPIRED"));

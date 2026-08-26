@@ -31,6 +31,7 @@ function getUserContext(context) {
     role: context.role,
     portal: context.portal,
     companyId: context.companyId,
+    enabledProducts: context.enabledProducts || [],
   };
 }
 
@@ -153,30 +154,34 @@ export default function AppShell({
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <div className="flex min-h-screen flex-col lg:flex-row">
-        <Sidebar
-          collapsed={collapsed}
-          onToggle={() =>
-            setCollapsed(
-              (value) => !value
-            )
-          }
-          onHomeNavigate={() =>
-            setCollapsed(true)
-          }
-          clientContext={clientContext}
-          userContext={userContext}
-        />
-
-        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
-          <Topbar
-            title={title}
-            description={description}
-            onMenuClick={() => {}}
+        <div className="print:hidden">
+          <Sidebar
+            collapsed={collapsed}
+            onToggle={() =>
+              setCollapsed(
+                (value) => !value
+              )
+            }
+            onHomeNavigate={() =>
+              setCollapsed(true)
+            }
             clientContext={clientContext}
             userContext={userContext}
-            sessionResolved={sessionResolved}
-            onBack={onBack}
           />
+        </div>
+
+        <div className="flex min-h-screen min-w-0 flex-1 flex-col">
+          <div className="print:hidden">
+            <Topbar
+              title={title}
+              description={description}
+              onMenuClick={() => {}}
+              clientContext={clientContext}
+              userContext={userContext}
+              sessionResolved={sessionResolved}
+              onBack={onBack}
+            />
+          </div>
 
           {clientContext &&
           showClientContextBanner ? (

@@ -45,13 +45,23 @@ export default function LoginForm({
         },
         body: JSON.stringify({ accessToken: data.session?.access_token, scope: loginScope }),
       });
+      const sessionPayload = await sessionResponse.json().catch(() => ({}));
       if (!sessionResponse.ok) {
-        const payload = await sessionResponse.json().catch(() => ({}));
         await supabase.auth.signOut();
         const nombrePortal = tipoAcceso === "cliente" ? "Portal Cliente" : tipoAcceso === "terminal" ? "ParkFacil Terminal" : "Portal Root";
-        throw new Error(payload.error || `Esta cuenta no puede acceder a ${nombrePortal}.`);
+        throw new Error(sessionPayload.error || `Esta cuenta no puede acceder a ${nombrePortal}.`);
       }
-      router.replace(destination);
+      // Portal Cliente con destino por defecto ("/"): en vez de la pantalla
+      // genérica, llevar directo al único producto habilitado -- una empresa
+      // con un solo producto no debe pasar por una pantalla intermedia (ver
+      // §5/§8/§29 de la auditoría de acceso por producto). Con ambos
+      // productos, o sin ninguno, se conserva "/" (selector/estado sin
+      // productos, ver Home).
+      const enabledProducts = Array.isArray(sessionPayload.data?.enabledProducts) ? sessionPayload.data.enabledProducts : [];
+      const singleProductDestination = tipoAcceso === "cliente" && destination === "/" && enabledProducts.length === 1
+        ? (enabledProducts[0] === "ON_STREET" ? "/on-street-qr" : "/estacionamientos")
+        : destination;
+      router.replace(singleProductDestination);
     } catch (authError) {
       setError(
         authError?.message === "Invalid login credentials"

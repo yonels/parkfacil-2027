@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ParkFacil POS">
+  <rect width="512" height="512" rx="112" fill="#455A64"/>
+  <path fill="#fff" d="M142 104h132c74 0 120 39 120 104 0 68-48 109-125 109h-51v91h-76V104zm76 64v87h48c32 0 51-15 51-44 0-28-19-43-51-43h-48z"/>
+  <circle cx="376" cy="376" r="42" fill="#34D399"/>
+</svg>

@@ -1,4 +1,4 @@
-import { hasPermission, PERMISSIONS, ROLES } from "./permissions.mjs";
+import { hasPermission, PERMISSIONS, resolveEnabledProducts, ROLES } from "./permissions.mjs";
 
 export class AuthorizationError extends Error {
   constructor(code, status, message, auditContext = null) {
@@ -16,7 +16,7 @@ export async function resolveAuthenticatedContext({ user, portal, loadMembership
   const metadataRole = user.app_metadata?.role;
   if (metadataRole === ROLES.PLATFORM_ADMIN) {
     if (portal !== "root") throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al Portal Root.", { userId: user.id, companyId: null, portal, role: ROLES.PLATFORM_ADMIN });
-    return { userId: user.id, email: user.email || "", portal, role: ROLES.PLATFORM_ADMIN, companyId: null, membership: null };
+    return { userId: user.id, email: user.email || "", portal, role: ROLES.PLATFORM_ADMIN, companyId: null, enabledProducts: resolveEnabledProducts(ROLES.PLATFORM_ADMIN, null), membership: null };
   }
 
   const membership = await loadMembership(user.id);
@@ -40,6 +40,7 @@ export async function resolveAuthenticatedContext({ user, portal, loadMembership
     portal,
     role: membership.role,
     companyId: membership.company_id,
+    enabledProducts: resolveEnabledProducts(membership.role, membership.company),
     membership: {
       userId: membership.user_id,
       companyId: membership.company_id,

@@ -7,6 +7,7 @@ import { PERMISSIONS } from "./permissions.mjs";
 const root = { userId: "root", companyId: null, portal: "root", role: "platform_admin" };
 const adminA = { userId: "admin-a", companyId: "company-a", portal: "client", role: "company_admin" };
 const operatorA = { userId: "operator-a", companyId: "company-a", portal: "client", role: "operator" };
+const terminalOperatorA = { ...operatorA, portal: "terminal" };
 
 test("Root conserva alcance global", () => {
   assert.deepEqual(parkingQueryScope(root), { companyId: null, parkingIds: null });
@@ -21,6 +22,11 @@ test("company_admin queda filtrado por su empresa", () => {
 test("operator queda limitado a IDs expresamente asignados", () => {
   assert.deepEqual(parkingQueryScope(operatorA, ["parking-a", "parking-a"]), { companyId: "company-a", parkingIds: ["parking-a"] });
   assert.deepEqual(parkingQueryScope(operatorA, []), { companyId: "company-a", parkingIds: [] });
+});
+
+test("operator Terminal conserva empresa y únicamente parkings asignados", () => {
+  assert.deepEqual(parkingQueryScope(terminalOperatorA, ["parking-a", "parking-a"]), { companyId: "company-a", parkingIds: ["parking-a"] });
+  assert.deepEqual(parkingQueryScope(terminalOperatorA, []), { companyId: "company-a", parkingIds: [] });
 });
 
 test("operator recibe 403 ante escritura aunque tenga parking asignado", () => {

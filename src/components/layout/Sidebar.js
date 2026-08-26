@@ -6,7 +6,21 @@ import { ChevronDown, ChevronLeft, ChevronRight, BookOpen, CircleUserRound, Mail
 import { navigationItems } from "@/config/navigation";
 import { navigationVisibleForRole } from "@/lib/auth/permissions.mjs";
 import { useOperatorAccessUrl } from "@/lib/auth/useOperatorAccessUrl";
+import { isItemActive, matchesActivePrefix, isTreeActive, activeTreeKeys, initialExpandedNodes, toggleExpandedNode, filterVisibleTree, projectSingleProductParkingNode } from "@/lib/navigationTreeCore.mjs";
 import { useMemo, useState } from "react";
+
+const SIDEBAR_TREES_STORAGE_KEY = "parkfacil.sidebar.expanded.v2";
+
+function readInitialExpandedNodes(pathname) {
+  const activeKeys = [...new Set(activeTreeKeys(navigationItems, pathname).flatMap((key) => [key, key.split("/").at(-1)]))];
+  if (typeof window === "undefined") return activeKeys;
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(SIDEBAR_TREES_STORAGE_KEY) || "null");
+    return initialExpandedNodes({ storedOpenKeys: stored, items: navigationItems, pathname });
+  } catch {
+    return activeKeys;
+  }
+}
 
 function formatDate(value) {
   if (!value) return "No disponible";
@@ -19,7 +33,11 @@ const sectionDefinitions = [
   {
     id: "plataforma",
     title: "Plataforma",
-    labels: ["Inicio", "Dashboard", "Data Entry", "Operación", "Turnos", "Estacionamientos", "Seguridad", "Recaudación", "Medios de Pago", "Monitoreo"],
+    // "Off Street"/"On Street" solo aparecen aquí sueltos (fuera del árbol
+    // de "Estacionamientos") cuando projectSingleProductParkingNode los
+    // promovió a nivel superior para un Cliente con un único producto
+    // habilitado -- ver §17/§18 de la auditoría de acceso por producto.
+    labels: ["Inicio", "Dashboard", "Data Entry", "Operación", "Turnos", "Estacionamientos", "Off Street", "On Street", "Seguridad", "Recaudación", "Medios de Pago", "Monitoreo"],
   },
   {
     id: "administracion",
@@ -33,33 +51,14 @@ const sectionDefinitions = [
   },
 ];
 
-function isItemActive(pathname, href) {
-  if (!href) return false;
-  const [withoutHash] = href.split("#");
-  const [baseHref, expectedQuery = ""] = withoutHash.split("?");
-  return pathname === baseHref && !expectedQuery;
-}
-
-// Fuerza "activo"/expandido para un padre en cualquier ruta bajo
-// item.activePrefix (p. ej. fichas de detalle /usuarios/[id], que no
-// coinciden ni con el href del padre ni con el de ningún hijo).
-function matchesActivePrefix(pathname, prefix) {
-  if (!prefix) return false;
-  return pathname === prefix || pathname.startsWith(`${prefix}/`);
-}
-
-function isTreeActive(pathname, item) {
-  return (
-    matchesActivePrefix(pathname, item.activePrefix) ||
-    isItemActive(pathname, item.href) ||
-    item.children?.some((child) => isItemActive(pathname, child.href))
-  );
-}
-
 const FOLDER_PALETTES = {
   plataforma: { top: "#6D8CFF", body: "#AFC3FF", line: "#4B67D2" },
   administracion: { top: "#F5B249", body: "#FFD27C", line: "#D49331" },
   soporte: { top: "#5FBF95", body: "#9EE0C1", line: "#3E9873" },
+  // Identidad On Street (cobrizo) -- ver §12/§16 de la auditoría de acceso
+  // por producto. Solo se usa para el ítem "On Street" mientras esa rama
+  // está activa, nunca para el resto de la sección "Plataforma".
+  onstreet: { top: "#C17A4F", body: "#E3B08D", line: "#7C3F22" },
   default: { top: "#F5B249", body: "#FFD27C", line: "#D49331" },
 };
 
@@ -86,7 +85,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
   const isPlatformAdmin = userContext?.role === "platform_admin";
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openSections, setOpenSections] = useState(["plataforma", "administracion"]);
-  const [openTrees, setOpenTrees] = useState(["Tarifas", "Dispositivos", "Facturación"]);
+  const [openTrees, setOpenTrees] = useState(() => readInitialExpandedNodes(pathname));
   const [showAccountDetails, setShowAccountDetails] = useState(false);
   const [showMobileAccountDetails, setShowMobileAccountDetails] = useState(false);
   const normalizedOpenSections = Array.isArray(openSections)
@@ -96,10 +95,22 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
   const linkClasses = (active) =>
     `flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition ${active ? "bg-[#EEF4FF] text-[#3150D8] shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-[#041E42]"}`;
 
-  const visibleItems = useMemo(
-    () => navigationItems.filter((item) => navigationVisibleForRole(item, userContext) && (!clientContext || !item.requiresModule || clientContext.modules?.includes(item.requiresModule))),
-    [clientContext, userContext],
-  );
+  const visibleItems = useMemo(() => {
+    // Mismo criterio de visibilidad que ya se aplicaba solo a los ítems de
+    // primer nivel (navigationVisibleForRole + requiresModule), ahora
+    // reutilizado también para los hijos. La navegación no concede
+    // permisos — un hijo cuya propia ruta el rol actual no puede abrir
+    // (p. ej. "On Street" para un operator, ver COMPANY_ADMIN_PREFIXES en
+    // permissions.mjs) no debe listarse, aunque el padre
+    // ("Estacionamientos") sí sea visible por su propio href.
+    const isVisibleForContext = (item) =>
+      navigationVisibleForRole(item, userContext) && (!clientContext || !item.requiresModule || clientContext.modules?.includes(item.requiresModule));
+    const projected = filterVisibleTree(navigationItems, isVisibleForContext);
+    // Root conserva siempre el árbol completo "Estacionamientos > Off
+    // Street/On Street" (ver §6): la promoción a nivel superior solo aplica
+    // al Portal Cliente, cuya empresa puede tener un único producto.
+    return isPlatformAdmin ? projected : projectSingleProductParkingNode(projected);
+  }, [clientContext, userContext, isPlatformAdmin]);
 
   const sections = useMemo(
     () => sectionDefinitions.map((section) => ({
@@ -111,27 +122,86 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
     [visibleItems],
   );
 
+  const toggleTree = (key) => setOpenTrees((current) => {
+    const next = toggleExpandedNode(current, key);
+    try {
+      window.localStorage.setItem(SIDEBAR_TREES_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // El estado local sigue funcionando aunque el navegador bloquee storage.
+    }
+    return next;
+  });
+
+  // Nodo hijo dentro de un árbol ya expandido. Si el propio hijo tiene
+  // children (p. ej. "On Street" bajo "Estacionamientos"), se renderiza como
+  // su propio sub-árbol expandible (mismo patrón: ChevronDown que rota,
+  // línea/indentación estilo Windows, highlight de la opción activa),
+  // anidado un nivel más. Si no, es un enlace simple como antes — pero el
+  // highlight ahora también respeta activePrefix, no solo igualdad exacta de
+  // pathname (rutas de detalle bajo ese hijo también lo mantienen resaltado).
+  // Identidad On Street: cobrizo (ver §12/§16 de la auditoría de acceso por
+  // producto). Se aplica únicamente al nodo "On Street" (nested bajo
+  // Estacionamientos, o promovido a nivel superior para un Cliente
+  // exclusivamente On Street) y solo mientras esa rama está activa -- el
+  // resto del Sidebar conserva el azul corporativo siempre.
+  const isOnStreetLabel = (label) => label === "On Street";
+
+  const renderChild = (child, onNavigate, onStreetBranch = false, parentKey = "") => {
+    const childActive = matchesActivePrefix(pathname, child.activePrefix) || isItemActive(pathname, child.href);
+    const branch = onStreetBranch || isOnStreetLabel(child.label);
+    const activeClasses = branch
+      ? "bg-[var(--pf-color-onstreet-tint)] text-[var(--pf-color-onstreet-primary-700)]"
+      : "bg-[#EEF4FF] text-[#3150D8]";
+    const hoverClasses = branch
+      ? "text-slate-600 hover:bg-[var(--pf-color-onstreet-tint)] hover:text-[var(--pf-color-onstreet-primary-700)]"
+      : "text-slate-600 hover:bg-[#EEF4FF] hover:text-[#3150D8]";
+
+    if (child.children?.length) {
+      const childKey = parentKey ? `${parentKey}/${child.label}` : child.label;
+      const childExpanded = openTrees.includes(childKey);
+      return (
+        <div key={child.label} className="relative">
+          <button type="button" aria-label={`${childExpanded ? "Contraer" : "Expandir"} ${child.label}`} aria-expanded={childExpanded} onClick={() => toggleTree(childKey)} className={`relative flex w-full items-center gap-1 rounded-lg px-3 py-2 text-left text-xs font-medium transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${childActive ? activeClasses : hoverClasses}`}>
+            <span className="min-w-0 flex-1">{child.label}</span>
+              <ChevronDown className={`h-3.5 w-3.5 transition ${childExpanded ? "rotate-180" : ""}`} />
+          </button>
+          {childExpanded ? (
+            <div className="relative ml-4 mt-0.5 space-y-0.5 border-l border-slate-300 pl-3">
+              {child.children.map((grandchild) => renderChild(grandchild, onNavigate, branch, childKey))}
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+
+    return (
+      <Link key={child.href} href={child.href} onClick={onNavigate} className={`relative block rounded-lg px-3 py-2 text-xs font-medium transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${childActive ? activeClasses : hoverClasses}`}>
+        {child.label}
+      </Link>
+    );
+  };
+
   const renderNavItem = (item, onNavigate, tone) => {
     const active = isTreeActive(pathname, item);
+    const onStreetItem = isOnStreetLabel(item.label);
+    const onStreetActive = onStreetItem && active;
+    const itemClasses = onStreetActive
+      ? `flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition bg-[var(--pf-color-onstreet-tint)] text-[var(--pf-color-onstreet-primary-700)] shadow-sm`
+      : linkClasses(active);
 
     if (item.children?.length) {
-      const expanded = openTrees.includes(item.label) || matchesActivePrefix(pathname, item.activePrefix);
+      const treeKey = item.label;
+      const expanded = openTrees.includes(treeKey);
       return (
         <div key={item.label} className="relative">
-          <div className={linkClasses(active)}>
-            <FolderItemIcon tone={tone} />
-            <Link href={item.href} onClick={onNavigate} className="min-w-0 flex-1"><span>{item.label}</span></Link>
-            <button type="button" aria-label={`${expanded ? "Contraer" : "Expandir"} ${item.label}`} aria-expanded={expanded} onClick={() => setOpenTrees((current) => current.includes(item.label) ? current.filter((label) => label !== item.label) : [...current, item.label])} className="rounded-md p-1 hover:bg-white/70">
-              <ChevronDown className={`h-4 w-4 transition ${expanded ? "rotate-180" : ""}`} />
-            </button>
-          </div>
+          <button type="button" aria-label={`${expanded ? "Contraer" : "Expandir"} ${item.label}`} aria-expanded={expanded} onClick={() => toggleTree(treeKey)} className={`${itemClasses} w-full text-left`}>
+            <FolderItemIcon tone={onStreetItem ? "onstreet" : tone} />
+            <span className="min-w-0 flex-1">{item.label}</span>
+            <ChevronDown className={`h-4 w-4 transition ${expanded ? "rotate-180" : ""}`} />
+          </button>
           {expanded ? (
             <div className="relative ml-6 mt-1 space-y-0.5 border-l border-slate-300 pl-3">
-              {item.children.map((child) => (
-                <Link key={child.href} href={child.href} onClick={onNavigate} className={`relative block rounded-lg px-3 py-2 text-xs font-medium transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${isItemActive(pathname, child.href) ? "bg-[#EEF4FF] text-[#3150D8]" : "text-slate-600 hover:bg-[#EEF4FF] hover:text-[#3150D8]"}`}>
-                  {child.label}
-                </Link>
-              ))}
+              {item.children.map((child) => renderChild(child, onNavigate, onStreetItem, treeKey))}
             </div>
           ) : null}
         </div>
@@ -198,6 +268,24 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
     </div>
   );
 
+  // Solo un Cliente con AMBOS productos habilitados necesita distinguir cuál
+  // está usando (ver §19 de la auditoría de acceso por producto) -- con un
+  // único producto no hay ambigüedad (Root nunca ve este indicador; ambos
+  // ítems ya conviven en su árbol igual que hoy). Se deriva de la ruta
+  // activa, no de un selector con estado propio: no hay dos formas de saber
+  // "qué operación estoy usando" en la misma pantalla.
+  const isMixedProductClient = !isPlatformAdmin && Array.isArray(userContext?.enabledProducts) && userContext.enabledProducts.length === 2;
+  const currentOperation = matchesActivePrefix(pathname, "/on-street-qr") ? "On Street" : matchesActivePrefix(pathname, "/estacionamientos") ? "Off Street" : null;
+
+  const showOperationIndicator = isMixedProductClient && Boolean(currentOperation) && !collapsed;
+  const operationIndicatorOnStreet = currentOperation === "On Street";
+  const operationIndicator = showOperationIndicator ? (
+    <div className={`mt-4 flex items-center justify-between rounded-2xl border px-3 py-2.5 text-xs font-semibold ${operationIndicatorOnStreet ? "border-[var(--pf-color-onstreet-border)] bg-[var(--pf-color-onstreet-tint)] text-[var(--pf-color-onstreet-primary-700)]" : "border-[#BFD2FF] bg-[#EEF4FF] text-[#3150D8]"}`}>
+      <span className="uppercase tracking-[0.08em] opacity-80">Operación actual</span>
+      <span className="rounded-full bg-white/70 px-2.5 py-1">{currentOperation}</span>
+    </div>
+  ) : null;
+
   return (
     <>
       <aside className={`relative sticky top-0 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white px-4 py-5 shadow-sm lg:flex ${collapsed ? "w-24" : "w-72"}`}>
@@ -210,23 +298,28 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
         </div>
+        {operationIndicator}
 
         <nav className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">
           {collapsed ? (
             <div className="space-y-1.5">
               {visibleItems.map((item) => {
                 const active = isTreeActive(pathname, item);
-                const tone = getSectionColorKey(item.label);
+                const onStreetItem = isOnStreetLabel(item.label);
+                const tone = onStreetItem ? "onstreet" : getSectionColorKey(item.label);
+                const itemClasses = onStreetItem && active
+                  ? "flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition bg-[var(--pf-color-onstreet-tint)] text-[var(--pf-color-onstreet-primary-700)] shadow-sm"
+                  : linkClasses(active);
                 if (item.platformAdminGateway && isPlatformAdmin) {
                   return (
-                    <a key={item.label} href={operatorAccessUrl} className={linkClasses(active)}>
+                    <a key={item.label} href={operatorAccessUrl} className={itemClasses}>
                       <FolderItemIcon tone={tone} />
                     </a>
                   );
                 }
                 if (item.href) {
                   return (
-                    <Link key={item.label} href={item.href} className={linkClasses(active)}>
+                    <Link key={item.label} href={item.href} className={itemClasses}>
                       <FolderItemIcon tone={tone} />
                     </Link>
                   );
@@ -312,6 +405,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
                 <PanelLeftClose className="h-5 w-5" />
               </button>
             </div>
+            {operationIndicator}
             <nav className="mt-6 overflow-y-auto">{renderAccordion(() => setMobileOpen(false))}</nav>
 
             <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">

@@ -7,8 +7,9 @@ const onStreetParking = { code: "AAA", type: "ON_STREET" };
 const offStreetParking = { code: "PC-001", type: "OFF_STREET" };
 
 test("orden exacto de las secciones del detalle", () => {
-  assert.deepEqual(PARKING_DETAIL_TAB_KEYS, ["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "infraestructura"]);
-  assert.deepEqual(parkingDetailTabs(onStreetParking).map((tab) => tab.key), ["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "infraestructura"]);
+  assert.deepEqual(PARKING_DETAIL_TAB_KEYS, ["resumen", "plazas-contratadas", "estructura", "sesiones-qr", "tarifas", "operadores", "infraestructura"]);
+  assert.deepEqual(parkingDetailTabs(onStreetParking).map((tab) => tab.key), ["resumen", "plazas-contratadas", "estructura", "sesiones-qr", "tarifas", "operadores", "infraestructura"]);
+  assert.equal(parkingDetailTabs(offStreetParking).some((tab) => tab.key === "sesiones-qr"), false);
 });
 
 test("Plazas Contratadas es accesible como pestaña de primer nivel", () => {
@@ -28,7 +29,7 @@ test("Tarifas es accesible como pestaña de primer nivel en ambas modalidades", 
 
 test("Crear sector/área/nivel aparece únicamente cuando la pestaña activa es Estructura", () => {
   assert.equal(headerActionForTab("estructura"), "estructura");
-  for (const tab of ["resumen", "plazas-contratadas", "tarifas", "operadores", "infraestructura"]) assert.notEqual(headerActionForTab(tab), "estructura");
+  for (const tab of ["resumen", "plazas-contratadas", "sesiones-qr", "tarifas", "operadores", "infraestructura"]) assert.notEqual(headerActionForTab(tab), "estructura");
 });
 
 test("Nueva tarifa aparece únicamente cuando la pestaña activa es Tarifas", () => {

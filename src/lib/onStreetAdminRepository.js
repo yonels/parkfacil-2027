@@ -1,8 +1,15 @@
 import "server-only";
 import { ROLES } from "./auth/permissions.mjs";
 import { maskAdminPhone, normalizeOnStreetFilters, paymentTypeFromTransaction, visibleOnStreetStatus } from "./onStreetAdminCore.mjs";
+import { computeKpis, extensionsBreakdown, locationRanking, minutesDistribution, operationalAlerts, resolveParkingCompanyFilter, resolvePeriodBounds, revenueByDay, sessionsByDay, sortLocationRanking, statusDistribution } from "./onStreetDashboardCore.mjs";
 function fail(result){if(result.error)throw result.error;return result.data||[];}
-async function scopedParkings(db,context){let query=db.from("parkings").select("id,code,name,company_id,company_name").eq("type","ON_STREET").order("name");if(context.role!==ROLES.PLATFORM_ADMIN)query=query.eq("company_id",context.companyId);return fail(await query);}
+// companyId: solo platform_admin puede pasarlo, para sub-filtrar el
+// dashboard a una empresa específica (selector "Empresa" en Root). Para
+// company_admin/operator se ignora — su alcance ya queda fijado por
+// context.companyId, nunca por un parámetro que llegue del cliente. La
+// decisión de qué companyId aplicar vive en resolveParkingCompanyFilter
+// (onStreetDashboardCore.mjs, sin "server-only", testeada ahí).
+export async function scopedParkings(db,context,companyId=null){let query=db.from("parkings").select("id,code,name,company_id,company_name").eq("type","ON_STREET").order("name");const resolvedCompanyId=resolveParkingCompanyFilter(context,companyId);if(resolvedCompanyId)query=query.eq("company_id",resolvedCompanyId);return fail(await query);}
 async function locationData(db,ids){if(!ids.length)return{locations:[],areas:[],streets:[],segments:[]};const results=await Promise.all([db.from("on_street_qr_locations").select("id,public_code,label,parking_id,sector_id,street_id,segment_id,status,created_at").in("parking_id",ids),db.from("parking_sectors").select("id,parking_id,code,name").in("parking_id",ids),db.from("parking_streets").select("id,parking_id,sector_id,name").in("parking_id",ids),db.from("parking_street_segments").select("id,parking_id,area_id,street_id,code,name,street_side").in("parking_id",ids)]);return{locations:fail(results[0]),areas:fail(results[1]),streets:fail(results[2]),segments:fail(results[3])};}
 const SIDE_LABELS={BOTH:"Ambos",EVEN:"Pares",ODD:"Impares"};
 // La tarifa On Street no se guarda en on_street_qr_locations: se resuelve en
@@ -137,3 +144,135 @@ export async function getOnStreetLocationDetail(db,context,id){
 }
 
 export async function getOnStreetSessionDetail(db,context,id){const listed=await listOnStreetSessions(db,context,{}),session=listed.rows.find(row=>row.id===id);if(!session)return null;const extensions=fail(await db.from("on_street_pilot_extensions").select("id,additional_minutes,simulated_amount,previous_expires_at,new_expires_at,payment_transaction_id,created_at").eq("session_id",id).order("created_at")),paymentIds=[session.payment_transaction_id,...extensions.map(x=>x.payment_transaction_id)].filter(Boolean),transactions=paymentIds.length?fail(await db.from("payment_transactions").select("id,source_id,provider,status,amount,currency,buy_order,payment_type,provider_payment_type_code,authorization_code,created_at,redirected_at,committed_at,failed_at").in("id",paymentIds)):[];return{session,extensions,transactions};}
+
+// Dashboard On Street: KPIs, series y rankings reales (no genera datos
+// ficticios). Reutiliza scopedParkings/locationData/maps/locate ya
+// existentes; delega todo el cálculo a onStreetDashboardCore.mjs (puro,
+// testeable sin Supabase). companyId solo aplica para platform_admin (ver
+// scopedParkings) — company_admin/operator siempre quedan acotados por
+// context.companyId, nunca por lo que envíe el cliente.
+// Núcleo de datos compartido entre el Dashboard y los Reportes On Street —
+// una sola consulta real por período/alcance, sin duplicar entre ambos.
+// company_admin/operator: scopedParkings ya acota parkingIds a su propia
+// empresa antes de que se ejecute cualquier otra consulta aquí, así que
+// ninguna de las tablas siguientes (sesiones, extensiones, pagos) puede
+// devolver datos de otra empresa.
+async function fetchOnStreetScopedData(db,context,input={}){
+  const bounds=resolvePeriodBounds(input.period||"today",{from:input.from,to:input.to});
+  const parkings=await scopedParkings(db,context,input.companyId||null);
+  const companies=context.role===ROLES.PLATFORM_ADMIN?await companiesByIds(db,[...new Set(parkings.map(p=>p.company_id))]):[];
+  const filterOptions={parkings,companies:companies.map(c=>({id:c.id,name:c.trade_name||c.business_name}))};
+  const filters={parkingId:input.parkingId||null,areaId:input.areaId||null,streetId:input.streetId||null,segmentId:input.segmentId||null};
+  if(!parkings.length||!bounds){
+    return{bounds,filters,filterOptions,parkingIds:[],map:maps([],{locations:[],areas:[],streets:[],segments:[]}),sessions:[],extensions:[],paymentAttempts:[],activeSessionsNow:0,areas:[],streets:[],segments:[]};
+  }
+  const scopedIds=parkings.map(p=>p.id);
+  const parkingIds=input.parkingId&&scopedIds.includes(input.parkingId)?[input.parkingId]:scopedIds;
+  const data=await locationData(db,parkingIds),map=maps(parkings,data);
+
+  const activeSessionsNowResult=await db.from("on_street_pilot_sessions").select("id",{count:"exact",head:true}).in("parking_id",parkingIds).eq("status","ACTIVE");
+  if(activeSessionsNowResult.error)throw activeSessionsNowResult.error;
+  const activeSessionsNow=activeSessionsNowResult.count||0;
+
+  const sessionsRaw=fail(await db.from("on_street_pilot_sessions").select("id,operational_number,qr_location_id,parking_id,phone_normalized,status,started_at,expires_at,ended_at,purchased_minutes,amount_paid,payment_transaction_id").in("parking_id",parkingIds).gte("started_at",bounds.from).lte("started_at",bounds.to).order("started_at",{ascending:false}).limit(2000));
+  const sessions=sessionsRaw.map(row=>({...row,location:locate(row,map)})).filter(row=>matches(row.location,filters));
+  const sessionIds=sessions.map(s=>s.id);
+  const sessionMap=new Map(sessions.map(s=>[s.id,s]));
+
+  const extensions=sessionIds.length?fail(await db.from("on_street_pilot_extensions").select("id,session_id,additional_minutes,payment_transaction_id,created_at").in("session_id",sessionIds)):[];
+
+  const intents=fail(await db.from("on_street_payment_intents").select("id,parking_id,qr_location_id,operation_type,resulting_session_id,target_session_id").in("parking_id",parkingIds).gte("created_at",bounds.from).lte("created_at",bounds.to));
+  const intentMap=new Map(intents.map(i=>[i.id,i]));
+  const intentIds=intents.map(i=>i.id);
+  const paymentAttempts=intentIds.length?fail(await db.from("payment_transactions").select("id,source_id,status,amount,currency,buy_order,authorization_code,created_at,committed_at").in("source_id",intentIds)):[];
+
+  return{bounds,filters,filterOptions,parkingIds,map,sessions,sessionMap,extensions,intents,intentMap,paymentAttempts,activeSessionsNow,areas:data.areas,streets:data.streets,segments:data.segments};
+}
+
+export async function getOnStreetDashboardOverview(db,context,input={}){
+  const scoped=await fetchOnStreetScopedData(db,context,input);
+  if(!scoped.parkingIds.length||!scoped.bounds){
+    return{
+      period:input.period||"today",bounds:scoped.bounds,
+      kpis:computeKpis({sessions:[],extensions:[],paymentAttempts:[],activeSessionsNow:0}),
+      sessionsByDay:[],revenueByDay:[],minutesDistribution:minutesDistribution([]),
+      extensions:extensionsBreakdown([],[]),statusDistribution:statusDistribution([]),
+      locationRanking:[],alerts:[],activeSessions:[],
+      options:{...scoped.filterOptions,areas:[],streets:[],segments:[]},
+    };
+  }
+  const{bounds,sessions,extensions,paymentAttempts,activeSessionsNow}=scoped;
+  const kpis=computeKpis({sessions,extensions,paymentAttempts,activeSessionsNow});
+  const activePreview=sessions.filter(s=>visibleOnStreetStatus(s)==="ACTIVE").slice(0,20).map(s=>({...s,phone:maskAdminPhone(s.phone_normalized)}));
+
+  return{
+    period:input.period||"today",bounds,
+    kpis,
+    sessionsByDay:sessionsByDay(sessions,bounds.from,bounds.to),
+    revenueByDay:revenueByDay(sessions,bounds.from,bounds.to),
+    minutesDistribution:minutesDistribution(sessions),
+    extensions:extensionsBreakdown(sessions,extensions),
+    statusDistribution:statusDistribution(sessions),
+    locationRanking:sortLocationRanking(locationRanking(sessions,extensions,(s)=>s.location),input.sortBy),
+    alerts:operationalAlerts({paymentAttempts,sessions}),
+    activeSessions:activePreview,
+    options:{...scoped.filterOptions,areas:scoped.areas,streets:scoped.streets,segments:scoped.segments},
+  };
+}
+
+// Reportes On Street: consulta histórica con detalle exportable (a
+// diferencia del Dashboard, que resume). Mismo aislamiento por empresa
+// (fetchOnStreetScopedData), mismo período/filtros. "type" determina qué
+// tabla de detalle se arma — todas a partir de los mismos datos ya
+// aislados, sin una segunda consulta insegura.
+export async function getOnStreetReport(db,context,input={}){
+  const scoped=await fetchOnStreetScopedData(db,context,input);
+  const base={bounds:scoped.bounds,options:{...scoped.filterOptions,areas:scoped.areas,streets:scoped.streets,segments:scoped.segments}};
+  if(!scoped.parkingIds.length||!scoped.bounds)return{...base,type:input.type||"sesiones",rows:[]};
+
+  const{sessions,extensions,paymentAttempts,intents,sessionMap,map}=scoped;
+  const type=input.type||"sesiones";
+
+  if(type==="sesiones"){
+    return{...base,type,rows:sessions.map(s=>({...s,phone:maskAdminPhone(s.phone_normalized),status:visibleOnStreetStatus(s),ubicacion:s.location?.label||"—",extensionCount:extensions.filter(e=>e.session_id===s.id).length}))};
+  }
+  if(type==="pagos"){
+    const rows=paymentAttempts.map(t=>{
+      const intent=intentMapFor(intents,t.source_id);
+      const location=locate({qr_location_id:intent?.qr_location_id,parking_id:intent?.parking_id},map);
+      const session=intent?.resulting_session_id?sessionMap.get(intent.resulting_session_id):intent?.target_session_id?sessionMap.get(intent.target_session_id):null;
+      return{...t,operationType:intent?.operation_type||"—",ubicacion:location.label,sessionNumber:session?.operational_number||"—"};
+    });
+    return{...base,type,rows};
+  }
+  if(type==="ubicaciones"){
+    return{...base,type,rows:sortLocationRanking(locationRanking(sessions,extensions,(s)=>s.location),input.sortBy)};
+  }
+  if(type==="extensiones"){
+    const rows=extensions.map(e=>{
+      const session=sessionMap.get(e.session_id);
+      const transaction=session?paymentAttempts.find(t=>t.id===e.payment_transaction_id):null;
+      return{...e,operational_number:session?.operational_number||"—",ubicacion:session?.location?.label||"—",amount:transaction?.status==="COMMITTED"?Number(transaction.amount):0};
+    });
+    return{...base,type,rows};
+  }
+  // "operadores" y "sms" no se implementan aquí: no existe hoy un campo de
+  // atribución real de operador por sesión, y las estadísticas SMS no
+  // deben simularse (ver onStreetPilotNotifications / instrucción del
+  // brief) — el frontend debe mostrar el estado "Disponible al activar…"
+  // en vez de pedir este "type".
+  return{...base,type,rows:[]};
+}
+function intentMapFor(intents,id){return intents.find(i=>i.id===id)||null;}
+
+// Empresas con operación On Street realmente asignadas al alcance del
+// usuario autenticado (reutiliza scopedParkings/companiesByIds ya
+// existentes). Usado para acotar los listados de Administradores/
+// Operadores del árbol On Street a las empresas que corresponden — no
+// crea un catálogo de empresas paralelo.
+export async function listOnStreetCompanies(db,context){
+  const parkings=await scopedParkings(db,context);
+  const companyIds=[...new Set(parkings.map(p=>p.company_id))];
+  const companies=await companiesByIds(db,companyIds);
+  return companies.map(c=>({id:c.id,name:c.trade_name||c.business_name}));
+}
