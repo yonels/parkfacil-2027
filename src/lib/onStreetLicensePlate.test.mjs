@@ -12,7 +12,9 @@ const migration=await readFile(new URL("../../supabase/migrations/20260824160000
 
 test("formulario exige y transporta patente antes de minutos",()=>{
   assert.match(start,/PATENTE DEL VEHÍCULO[\s\S]*required[\s\S]*¿Cuántos minutos/);
-  assert.match(start,/JSON\.stringify\(\{ qrCode, licensePlate, phone, accepted, minutes \}\)/);
+  assert.match(start,/JSON\.stringify\(\{ qrCode, licensePlate, phone: normalizedPhone, accepted, minutes \}\)/);
+  assert.match(start,/aria-hidden="true"[^>]*>[+]56<\/span>/);
+  assert.match(start,/pattern="9\[0-9\]\{8\}"/);
   assert.match(route,/licensePlate:body\.licensePlate/);
 });
 

@@ -1,7 +1,24 @@
 export function normalizeChileanMobile(value) {
-  const digits = String(value || "").replace(/\D/g, "");
-  const local = digits.startsWith("56") ? digits.slice(2) : digits;
+  const input = String(value || "").trim();
+  if (!input || !/^\+?[\d\s-]+$/.test(input) || (input.match(/\+/g) || []).length > 1) return null;
+  const digits = input.replace(/\D/g, "");
+  const local = digits.length === 11 && digits.startsWith("56") ? digits.slice(2) : digits;
   return /^9\d{8}$/.test(local) ? `+56${local}` : null;
+}
+
+export function localChileanMobile(value) {
+  const normalized = normalizeChileanMobile(value);
+  return normalized ? normalized.slice(3) : null;
+}
+
+export function formatChileDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("es-CL", {
+    dateStyle: "short",
+    timeStyle: "medium",
+    timeZone: "America/Santiago",
+  }).format(date);
 }
 
 export function maskPhone(phone) {

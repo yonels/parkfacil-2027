@@ -1,11 +1,47 @@
 import Link from "next/link";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { getPublicPaymentIntent } from "@/lib/onStreetPaymentService";
-import { isPublicToken } from "@/lib/onStreetPilot.mjs";
-export const dynamic="force-dynamic";export const metadata={title:"Comprobante | ParkFacil",robots:{index:false,follow:false}};
-const money=(n,c="CLP")=>new Intl.NumberFormat("es-CL",{style:"currency",currency:c,maximumFractionDigits:0}).format(n||0);
-export default async function Page({params,searchParams}){const{token}=await params,{estado}=await searchParams;if(token==="error"||!isPublicToken(token))return <Receipt title="Pago no completado" message={estado==="ABORTED"?"El pago fue cancelado antes de autorizarse.":"No fue posible confirmar el pago. No se activó ninguna permanencia."}/>;const db=getSupabaseAdminClient(),intent=await getPublicPaymentIntent(db,token).catch(()=>null);if(!intent)return <Receipt title="Comprobante no disponible" message="No se encontró la operación solicitada."/>;const paid=intent.status==="PAID",processing=estado==="PROCESSING",payment=paid?await paymentReference(db,intent.id):null;return <Receipt title={paid?"Pago confirmado":processing?"Pago en verificación":"Pago no completado"} message={paid?"Tu estacionamiento fue activado correctamente.":processing?"Estamos verificando la respuesta de Webpay. Aún no se activó la permanencia.":"No se activó ninguna permanencia."}>{paid?<><dl className="mt-5 grid gap-3 text-sm"><Row label="Número de operación" value={payment?.buy_order||intent.public_token}/><Row label="Ubicación" value={`${intent.location_snapshot.sectorName} · ${intent.location_snapshot.streetName} · ${intent.location_snapshot.segmentName}`}/><Row label="Patente" value={intent.license_plate_normalized||"No registrada"}/><Row label="Minutos" value={`${intent.purchased_minutes} min`}/><Row label="Monto" value={money(intent.amount,intent.currency)}/><Row label="Fecha/hora" value={new Date(intent.paid_at).toLocaleString("es-CL")}/><Row label="Medio de pago" value="Transbank Webpay Plus"/><Row label="Autorización" value={payment?.authorization_code||"Confirmada"}/><Row label="Estado" value={payment?.provider_status||"AUTHORIZED"}/></dl><Link href={`/estacionar/sesion/${await sessionToken(intent.resulting_session_id)}`} className="mt-6 block rounded-2xl bg-[#3150D8] p-4 text-center font-black text-white">VER ESTACIONAMIENTO ACTIVO</Link></>:processing?<Link href={`/estacionar/comprobante/${token}`} className="mt-6 block rounded-2xl bg-[#3150D8] p-4 text-center font-black text-white">ACTUALIZAR ESTADO</Link>:<Link href="/" className="mt-6 block text-center font-bold text-[#3150D8]">Volver</Link>}</Receipt>}
-async function sessionToken(id){const r=await getSupabaseAdminClient().from("on_street_pilot_sessions").select("public_token").eq("id",id).single();return r.data?.public_token||""}
-async function paymentReference(db,intentId){const r=await db.from("payment_transactions").select("buy_order,authorization_code,provider_status").eq("source_id",intentId).eq("status","COMMITTED").maybeSingle();return r.data||null}
-function Receipt({title,message,children}){return <main className="grid min-h-dvh place-items-center bg-[#EEF4FF] p-4 text-[#041E42]"><section className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl"><p className="font-black text-[#3150D8]">ParkFacil</p><h1 className="mt-2 text-3xl font-black">{title}</h1><p className="mt-3 text-slate-600">{message}</p>{children}</section></main>}
-function Row({label,value}){return <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs font-bold uppercase text-slate-500">{label}</dt><dd className="mt-1 break-all font-bold">{value}</dd></div>}
+import { formatChileDateTime, isPublicToken } from "@/lib/onStreetPilot.mjs";
+
+export const dynamic = "force-dynamic";
+export const metadata = { title: "Comprobante | ParkFacil", robots: { index: false, follow: false } };
+const money = (n, c = "CLP") => new Intl.NumberFormat("es-CL", { style: "currency", currency: c, maximumFractionDigits: 0 }).format(n || 0);
+
+export default async function Page({ params, searchParams }) {
+  const { token } = await params;
+  const { estado } = await searchParams;
+  if (token === "error" || !isPublicToken(token)) return <Receipt title="Pago no completado" message={estado === "ABORTED" ? "El pago fue cancelado antes de autorizarse." : "No fue posible confirmar el pago. No se activó ninguna permanencia."} />;
+  const db = getSupabaseAdminClient();
+  const intent = await getPublicPaymentIntent(db, token).catch(() => null);
+  if (!intent) return <Receipt title="Comprobante no disponible" message="No se encontró la operación solicitada." />;
+  const paid = intent.status === "PAID";
+  const processing = estado === "PROCESSING";
+  const payment = paid ? await paymentReference(db, intent.id) : null;
+  return <Receipt title={paid ? "Pago confirmado" : processing ? "Pago en verificación" : "Pago no completado"} message={paid ? "Tu estacionamiento fue activado correctamente." : processing ? "Estamos verificando la respuesta de Webpay. Aún no se activó la permanencia." : "No se activó ninguna permanencia."}>
+    {paid ? <>
+      <dl className="mt-5 grid gap-3 text-sm">
+        <Row label="Número de operación" value={payment?.buy_order || intent.public_token} />
+        <Row label="Ubicación" value={`${intent.location_snapshot.sectorName} · ${intent.location_snapshot.streetName} · ${intent.location_snapshot.segmentName}`} />
+        <Row label="Patente" value={intent.license_plate_normalized || "No registrada"} />
+        <Row label="Minutos" value={`${intent.purchased_minutes} min`} />
+        <Row label="Monto" value={money(intent.amount, intent.currency)} />
+        <Row label="Fecha/hora" value={formatChileDateTime(intent.paid_at)} />
+        <Row label="Medio de pago" value="Transbank Webpay Plus" />
+        <Row label="Autorización" value={payment?.authorization_code || "Confirmada"} />
+        <Row label="Estado" value={payment?.provider_status || "AUTHORIZED"} />
+      </dl>
+      <Link href={`/estacionar/sesion/${await sessionToken(intent.resulting_session_id)}`} className="mt-6 block rounded-2xl bg-[#3150D8] p-4 text-center font-black text-white">VER ESTACIONAMIENTO ACTIVO</Link>
+    </> : processing ? <Link href={`/estacionar/comprobante/${token}`} className="mt-6 block rounded-2xl bg-[#3150D8] p-4 text-center font-black text-white">ACTUALIZAR ESTADO</Link> : <Link href="/" className="mt-6 block text-center font-bold text-[#3150D8]">Volver</Link>}
+  </Receipt>;
+}
+
+async function sessionToken(id) {
+  const r = await getSupabaseAdminClient().from("on_street_pilot_sessions").select("public_token").eq("id", id).single();
+  return r.data?.public_token || "";
+}
+async function paymentReference(db, intentId) {
+  const r = await db.from("payment_transactions").select("buy_order,authorization_code,provider_status").eq("source_id", intentId).eq("status", "COMMITTED").maybeSingle();
+  return r.data || null;
+}
+function Receipt({ title, message, children }) { return <main className="grid min-h-dvh place-items-center bg-[#EEF4FF] p-4 text-[#041E42]"><section className="w-full max-w-md rounded-3xl bg-white p-6 shadow-xl"><p className="font-black text-[#3150D8]">ParkFacil</p><h1 className="mt-2 text-3xl font-black">{title}</h1><p className="mt-3 text-slate-600">{message}</p>{children}</section></main>; }
+function Row({ label, value }) { return <div className="rounded-xl bg-slate-50 p-3"><dt className="text-xs font-bold uppercase text-slate-500">{label}</dt><dd className="mt-1 break-all font-bold">{value}</dd></div>; }

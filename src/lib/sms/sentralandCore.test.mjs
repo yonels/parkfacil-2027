@@ -126,6 +126,16 @@ test("teléfono inválido se rechaza antes de llamar al proveedor", async () => 
   });
 });
 
+test("solo acepta el formato canónico +569XXXXXXXX", async () => {
+  await withEnv(FULL_CONFIG_ENV, async () => {
+    for (const fono of ["56912345678", "912345678", "+5656912345678"]) {
+      const fetchImpl = fakeFetch({});
+      await assert.rejects(() => sentralandSendSms({ fono, mensaje: "hola", token: "t", fetchImpl }), { code: "SENTRALAND_PHONE_INVALID" });
+      assert.equal(fetchImpl.calls.length, 0);
+    }
+  });
+});
+
 test("mensaje sobre 160 caracteres se rechaza antes de llamar al proveedor", async () => {
   await withEnv(FULL_CONFIG_ENV, async () => {
     const fetchImpl = fakeFetch({});

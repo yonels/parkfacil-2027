@@ -144,6 +144,18 @@ test("idempotencia: dos ejecuciones concurrentes sobre el mismo aviso PENDING so
   assert.equal(db._table[0].status, "SENT");
 });
 
+test("un SMS final sobre 160 falla trazablemente y no llama al proveedor", async () => {
+  const db = makeFakeDb([baseRow()]);
+  let sendCalls = 0;
+  const provider = { name: "SENTRALAND", send: async () => { sendCalls += 1; return { ok: true }; } };
+  const origin = `https://${"x".repeat(100)}.test`;
+  const results = await processDueOnStreetSms({ origin, provider, db, now: NOW });
+  assert.equal(sendCalls, 0);
+  assert.equal(results[0].status, "FAILED");
+  assert.equal(db._table[0].error_code, "SMS_MESSAGE_TOO_LONG");
+  assert.equal(db._table[0].attempts, 1);
+});
+
 test("un aviso ya en PROCESSING (reclamado por otra ejecución) no vuelve a seleccionarse", async () => {
   const db = makeFakeDb([baseRow({ status: "PROCESSING" })]);
   let called = false;

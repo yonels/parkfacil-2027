@@ -1,9 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatDuration, isPublicCode, isPublicToken, maskPhone, normalizeChileanMobile,normalizePurchasedMinutes,remainingSeconds,simulatedAmount,MIN_PURCHASED_MINUTES,MAX_PURCHASED_MINUTES } from "./onStreetPilot.mjs";
+import { formatChileDateTime, formatDuration, isPublicCode, isPublicToken, localChileanMobile, maskPhone, normalizeChileanMobile,normalizePurchasedMinutes,remainingSeconds,simulatedAmount,MIN_PURCHASED_MINUTES,MAX_PURCHASED_MINUTES } from "./onStreetPilot.mjs";
 import { normalizePlate } from "./dataEntry.mjs";
 import { publicSmsMessage, secureSessionUrl } from "./onStreetSms.mjs";
 test("normaliza móviles chilenos sin aceptar otros formatos",()=>{assert.equal(normalizeChileanMobile("+56 9 1234 5678"),"+56912345678");assert.equal(normalizeChileanMobile("912345678"),"+56912345678");assert.equal(normalizeChileanMobile("221234567"),null);assert.equal(normalizeChileanMobile("91234"),null);});
+test("normaliza todas las variantes inequívocas sin duplicar el código país", () => {
+  for (const value of ["966514044", "+56966514044", "56966514044", "+56 966514044", "+56-966514044", "56 966514044"]) {
+    assert.equal(normalizeChileanMobile(value), "+56966514044", value);
+    assert.equal(localChileanMobile(value), "966514044", value);
+  }
+});
+test("rechaza móviles chilenos ambiguos o inválidos", () => {
+  for (const value of ["866514044", "96651404", "9665140440", "9ABC14044", "", "5656966514044", "++56966514044", "56(9)66514044", "56/966514044"]) {
+    assert.equal(normalizeChileanMobile(value), null, value);
+  }
+});
+test("formatea comprobantes siempre en America/Santiago", () => {
+  assert.match(formatChileDateTime("2026-08-25T15:42:06.000Z"), /11:42:06/);
+});
 test("reutiliza la normalización común de patente",()=>{assert.equal(normalizePlate("abcd12",{truncate:false}),"ABCD12");assert.equal(normalizePlate("AB-CD-12",{truncate:false}),"ABCD12");assert.equal(normalizePlate(" ab cd 12 ",{truncate:false}),"ABCD12");assert.equal(normalizePlate("...---",{truncate:false}),"");assert.equal(normalizePlate("ABCDEFGHI",{truncate:false}),"ABCDEFGHI");});
 test("enmascara el teléfono administrativo",()=>assert.equal(maskPhone("+56912345678"),"+569 **** 5678"));
 test("formatea duración sin dinero ni tarifas",()=>{assert.equal(formatDuration(8),"8 s");assert.equal(formatDuration(125),"2 min 5 s");assert.equal(formatDuration(3720),"1 h 2 min");});

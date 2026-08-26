@@ -131,7 +131,7 @@ export const SENTRALAND_SEND_ERROR_DESCRIPTIONS = Object.freeze({
   20: "ENVIOS SOBRE PROMEDIOS CALCULADOS.",
 });
 
-const CHILEAN_MOBILE_PATTERN = /^\+?56?9[0-9]{8}$/;
+const CHILEAN_MOBILE_PATTERN = /^\+569[0-9]{8}$/;
 export const SENTRALAND_SMS_MAX_LENGTH = 160;
 
 export function parseSentralandSendResponse(json) {

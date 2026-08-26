@@ -53,10 +53,10 @@ export async function processDueOnStreetSms({ origin, provider, db, now = new Da
       continue;
     }
 
-    const message = publicSmsMessage(origin, claimed.message);
     const sentAt = new Date().toISOString();
     let result;
     try {
+      const message = publicSmsMessage(origin, claimed.message);
       if (!message) throw Object.assign(new Error("SMS_MESSAGE_INVALID"), { code: "SMS_MESSAGE_INVALID" });
       result = await provider.send({ to: claimed.phone_normalized, message });
     } catch (cause) {

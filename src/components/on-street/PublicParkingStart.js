@@ -1,7 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { Mail, MapPin } from "lucide-react";
-import { MIN_PURCHASED_MINUTES, MAX_PURCHASED_MINUTES, normalizePurchasedMinutes, simulatedAmount } from "@/lib/onStreetPilot.mjs";
+import { MIN_PURCHASED_MINUTES, MAX_PURCHASED_MINUTES, localChileanMobile, normalizeChileanMobile, normalizePurchasedMinutes, simulatedAmount } from "@/lib/onStreetPilot.mjs";
 
 const money = (n) => new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(n || 0);
 
@@ -34,19 +34,23 @@ export default function PublicParkingStart({ qrCode, location }) {
   const paymentKey = useRef(crypto.randomUUID());
 
   const minutes = normalizePurchasedMinutes(minutesInput);
+  const normalizedPhone = normalizeChileanMobile(phone);
   const total = simulatedAmount(minutes, location.ratePerMinute);
   const subject = encodeURIComponent(`Consulta estacionamiento - ${location.sectorName} - ${location.streetName} - ${location.segmentName}`);
 
   async function submit(event) {
     event.preventDefault();
-    if (busy || !minutes) return;
+    if (busy || !minutes || !normalizedPhone) {
+      if (!normalizedPhone) setError("Ingresa un teléfono móvil chileno válido de 9 dígitos.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
       const intentResponse = await fetch("/api/public/on-street/payment-intents", {
         method: "POST",
         headers: { "content-type": "application/json", "idempotency-key": intentKey.current },
-        body: JSON.stringify({ qrCode, licensePlate, phone, accepted, minutes }),
+        body: JSON.stringify({ qrCode, licensePlate, phone: normalizedPhone, accepted, minutes }),
       });
       const intentBody = await intentResponse.json();
       if (!intentResponse.ok) throw new Error(intentBody.error);
@@ -122,14 +126,33 @@ export default function PublicParkingStart({ qrCode, location }) {
 
           <label className="block text-sm font-bold">
             Número de teléfono móvil
-            <input
-              required
-              inputMode="tel"
-              value={phone}
-              onChange={(event) => setPhone(event.target.value)}
-              placeholder="+56 9 XXXX XXXX"
-              className="mt-2 min-h-14 w-full rounded-2xl border-2 px-4 text-lg"
-            />
+            <span className="mt-2 flex min-h-14 overflow-hidden rounded-2xl border-2 bg-white text-lg focus-within:border-[#3150D8]">
+              <span aria-hidden="true" className="flex items-center border-r bg-slate-100 px-4 font-bold text-slate-600">+56</span>
+              <input
+                required
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel-national"
+                pattern="9[0-9]{8}"
+                maxLength={9}
+                value={phone}
+                onChange={(event) => setPhone(event.target.value.replace(/\D/g, "").slice(0, 9))}
+                onPaste={(event) => {
+                  const local = localChileanMobile(event.clipboardData.getData("text"));
+                  event.preventDefault();
+                  if (!local) {
+                    setError("El teléfono pegado no corresponde a un móvil chileno válido.");
+                    return;
+                  }
+                  setPhone(local);
+                  setError("");
+                }}
+                placeholder="9XXXXXXXX"
+                aria-describedby="phone-help"
+                className="min-w-0 flex-1 px-4 outline-none"
+              />
+            </span>
+            <span id="phone-help" className="mt-1 block text-xs font-normal text-slate-500">Ingresa los 9 dígitos de tu móvil, comenzando con 9.</span>
           </label>
 
           <div className="rounded-2xl bg-[#041E42] p-5 text-white">
@@ -146,7 +169,7 @@ export default function PublicParkingStart({ qrCode, location }) {
 
           {error ? <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p> : null}
 
-          <button disabled={busy || !accepted || !minutes || !phone || !licensePlate.trim()} className="min-h-16 w-full rounded-2xl bg-[#3150D8] font-black text-white disabled:opacity-60">
+          <button disabled={busy || !accepted || !minutes || !normalizedPhone || !licensePlate.trim()} className="min-h-16 w-full rounded-2xl bg-[#3150D8] font-black text-white disabled:opacity-60">
             {busy ? "CONECTANDO CON WEBPAY…" : `CONTINUAR A WEBPAY · ${money(total || 0)}`}
           </button>
         </form>
