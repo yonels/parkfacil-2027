@@ -50,5 +50,20 @@ export async function proxy(request) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  // "_next/webpack-hmr" (el WebSocket de Hot Module Reload en desarrollo)
+  // NO estaba excluido: el patrón original solo excluía "_next/static" y
+  // "_next/image", así que esta ruta SÍ pasaba por el proxy. Sin sesión
+  // (cualquier visitante en /login, /recuperar-contrasena, etc.) eso
+  // producía un 307 hacia /login para la propia conexión de HMR -- un
+  // WebSocket no puede seguir una redirección HTTP, así que la conexión de
+  // HMR fallaba en bucle. Next.js reacciona a eso recargando la página
+  // completa una y otra vez, lo que impide que React llegue a hidratar:
+  // cualquier <form> quedaba con su envío nativo (GET a la misma URL) en
+  // vez del onSubmit/fetch de React -- causa raíz real de "el formulario
+  // de recuperación no envía el POST" (y, en general, de cualquier
+  // interacción poco fiable en localhost). Solo afecta a desarrollo: en
+  // Producción esta ruta nunca se solicita (HMR no existe fuera de "next
+  // dev"), así que excluirla aquí es un cambio seguro y sin efecto en
+  // Producción.
+  matcher: ["/((?!api|_next/static|_next/image|_next/webpack-hmr|favicon.ico).*)"],
 };

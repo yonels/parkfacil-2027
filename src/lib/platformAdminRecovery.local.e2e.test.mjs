@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { createClient } from "@supabase/supabase-js";
-import { procesarRecuperacionContrasena } from "./passwordRecoveryCore.mjs";
+import { CANAL_ENTREGA_MICROSOFT, procesarRecuperacionContrasena } from "./passwordRecoveryCore.mjs";
 
 function readLocalEnv(source) {
   return Object.fromEntries(source.split(/\r?\n/).filter((line) => /^[A-Za-z_][A-Za-z0-9_]*=/.test(line)).map((line) => {
@@ -56,6 +56,7 @@ test("Root local real resuelve recovery por user_id sin modificar root@parkfacil
       loginIdentifier: root.email,
       supabase: wrapped,
       enviarCorreo: async (message) => { deliveredTo = message.para; },
+      canalEntrega: CANAL_ENTREGA_MICROSOFT,
     });
     assert.equal(result.status, 200);
     assert.equal(generatedFor, "root@parkfacilapp.cl");
@@ -95,6 +96,7 @@ test("E2E Root local: recovery externo → nueva clave → mismo Usuario de acce
       loginIdentifier: login,
       supabase: admin,
       enviarCorreo: async (message) => { delivered = message; },
+      canalEntrega: CANAL_ENTREGA_MICROSOFT,
     });
     assert.equal(result.status, 200);
     assert.equal(delivered?.para, recoveryEmail);

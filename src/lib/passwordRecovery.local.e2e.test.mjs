@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import { createClient } from "@supabase/supabase-js";
-import { procesarRecuperacionContrasena } from "./passwordRecoveryCore.mjs";
+import { CANAL_ENTREGA_MICROSOFT, procesarRecuperacionContrasena } from "./passwordRecoveryCore.mjs";
 
 function readLocalEnv(source) {
   return Object.fromEntries(
@@ -65,6 +65,7 @@ test("E2E local: login interno → recovery externo → nueva clave → mismo lo
       loginIdentifier: login,
       supabase: admin,
       enviarCorreo: async (message) => { delivered = message; },
+      canalEntrega: CANAL_ENTREGA_MICROSOFT,
     });
     assert.equal(result.status, 200);
     assert.equal(delivered?.para, recoveryEmail);
