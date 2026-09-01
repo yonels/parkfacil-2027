@@ -16,8 +16,8 @@ export default function OnStreetOperadoresPage() {
       titulo="Operadores On Street"
       descripcion="Operadores de empresas con operación On Street. Haz clic en un operador para abrir directamente su administración."
       placeholderBusqueda="Buscar operadores"
-      backHref="/on-street-qr"
-      backLabel="Volver a On Street"
+      backToHistory
+      backLabel="Volver"
       crear
       roleLabel="operador"
       empresasEndpoint="/api/on-street-qr/companies"

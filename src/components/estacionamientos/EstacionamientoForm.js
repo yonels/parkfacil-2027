@@ -47,12 +47,31 @@ function buildScheduleValue(start, end, legacy = "") {
   return legacy;
 }
 
-export default function EstacionamientoForm({ parking = null, structure = null }) {
+// onSaved/lockedCompanyId/forcedType (§ "Proyectos On Street" 2026-08-28):
+// permiten reutilizar este mismo formulario -- misma validación, mismo
+// endpoint, mismo componente -- embebido dentro del constructor de
+// Proyecto On Street (creación de Estacionamiento inline, sin salir del
+// wizard). Sin estos props, el comportamiento es IDÉNTICO al de siempre
+// (creación/edición normal desde /estacionamientos) -- cero riesgo para los
+// llamadores existentes.
+// onCancel (cierre integral del flujo "Proyectos On Street" 2026-08-30):
+// causa REAL del bug "Cancelar cierra el wizard completo" -- este formulario
+// SIEMPRE renderizaba "Cancelar" como un <Link href={cancelHref}> (navegación
+// real de página), incluso embebido dentro de un modal HIJO del wizard. El
+// propio botón X del Modal (OnStreetProjectWizard.js) sí llamaba a
+// setModal(null) correctamente -- pero el "Cancelar" INTERNO del formulario
+// nunca pasaba por ahí, navegaba directo a /estacionamientos (Off Street) y
+// abandonaba el Proyecto completo. Con onCancel presente, el botón pasa a
+// ser un callback puro (cierra SOLO el modal hijo); sin onCancel, el
+// comportamiento es IDÉNTICO al de siempre (Link a cancelHref) -- cero
+// riesgo para /estacionamientos/nuevo, /estacionamientos/[id]/editar u otro
+// llamador existente.
+export default function EstacionamientoForm({ parking = null, structure = null, onSaved = null, onCancel = null, lockedCompanyId = null, forcedType = null }) {
   const editing = Boolean(parking);
   const router = useRouter();
   const formRef = useRef(null);
   const [values, setValues] = useState(() => {
-    const base = { ...empty, ...(parking || {}) };
+    const base = { ...empty, ...(lockedCompanyId ? { companyId: lockedCompanyId } : {}), ...(forcedType ? { type: forcedType } : {}), ...(parking || {}) };
     const parsed = parseScheduleRange(base.schedule);
     return {
       ...base,
@@ -62,6 +81,13 @@ export default function EstacionamientoForm({ parking = null, structure = null }
     };
   });
   const [companies, setCompanies] = useState([]);
+  // Código desde catálogo (corrección funcional 2026-08-29): ya no es texto
+  // libre -- se elige de los códigos AVAILABLE del catálogo global
+  // administrado por Root (parking_code_catalog). Solo se necesita al
+  // CREAR: al editar el código sigue siendo estable/solo lectura, como ya
+  // era.
+  const [availableCodes, setAvailableCodes] = useState([]);
+  const [loadingCodes, setLoadingCodes] = useState(!editing);
   const [errors, setErrors] = useState({});
   const [requestError, setRequestError] = useState("");
   const [typeWarning, setTypeWarning] = useState("");
@@ -79,6 +105,17 @@ export default function EstacionamientoForm({ parking = null, structure = null }
       .catch(() => {});
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (editing) return undefined;
+    let active = true;
+    authenticatedFetch("/api/estacionamientos/codigos-disponibles", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("No fue posible cargar los códigos disponibles.")))
+      .then((body) => { if (active) setAvailableCodes(Array.isArray(body?.data) ? body.data : []); })
+      .catch(() => { if (active) setRequestError((current) => current || "No fue posible cargar los códigos disponibles."); })
+      .finally(() => { if (active) setLoadingCodes(false); });
+    return () => { active = false; };
+  }, [editing]);
 
   function changeType(nextType) {
     if (typeLocked) {
@@ -124,8 +161,12 @@ export default function EstacionamientoForm({ parking = null, structure = null }
         if (body?.details) setErrors(body.details);
         throw new Error(body?.error || "No fue posible guardar el estacionamiento.");
       }
-      router.push(`/estacionamientos/${body.data.code}/configuracion`);
-      router.refresh();
+      if (onSaved) {
+        onSaved(body.data);
+      } else {
+        router.push(`/estacionamientos/${body.data.code}/configuracion`);
+        router.refresh();
+      }
     } catch (error) {
       setRequestError(error.message);
     } finally {
@@ -141,7 +182,26 @@ export default function EstacionamientoForm({ parking = null, structure = null }
     <section>
       <h2 className="mb-4 text-lg font-semibold text-[#041E42]">Datos generales</h2>
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Código" error={errors.code}><input data-field="code" value={values.code} readOnly={editing} onChange={(e) => setValue("code", e.target.value)} className={inputClass(editing)} />{editing && <small className="text-slate-500">El código permanece estable para conservar enlaces y relaciones.</small>}</Field>
+        <Field label="Código" error={errors.code}>
+          {editing ? (
+            <>
+              <input data-field="code" value={values.code} readOnly className={inputClass(true)} />
+              <small className="text-slate-500">El código permanece estable para conservar enlaces y relaciones.</small>
+            </>
+          ) : loadingCodes ? (
+            <input value="Cargando códigos disponibles…" readOnly className={inputClass(true)} />
+          ) : availableCodes.length === 0 ? (
+            <>
+              <input value="No hay códigos disponibles" readOnly className={inputClass(true)} />
+              <small className="text-rose-700">No quedan códigos disponibles en el catálogo. Solicita a Root que incorpore uno nuevo antes de continuar.</small>
+            </>
+          ) : (
+            <select data-field="code" value={values.code} onChange={(e) => setValue("code", e.target.value)} className={inputClass()}>
+              <option value="">Selecciona un código disponible…</option>
+              {availableCodes.map((item) => <option key={item.id} value={item.code}>{item.code}</option>)}
+            </select>
+          )}
+        </Field>
         <Field label="Nombre" error={errors.name}><input data-field="name" value={values.name} onChange={(e) => setValue("name", e.target.value)} className={inputClass()} /></Field>
         <Field label="Empresa" error={errors.companyId}><select data-field="companyId" value={values.companyId} onChange={(e) => changeCompany(e.target.value)} className={inputClass()}><option value="">{values.companyName ? `Seleccionar (${values.companyName})` : "Seleccionar empresa"}</option>{companies.map((company) => <option key={company.id} value={company.id}>{company.nombreFantasia || company.razonSocial}</option>)}</select></Field>
         <Field label="Modelo operacional" error={errors.type}><select data-field="type" value={values.type} disabled={typeLocked} onChange={(e) => changeType(e.target.value)} className={inputClass(typeLocked)}>{Object.entries(TYPE_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>{typeLocked && <small className="text-slate-500">El modelo queda bloqueado cuando existe información operacional.</small>}</Field>
@@ -162,7 +222,10 @@ export default function EstacionamientoForm({ parking = null, structure = null }
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5"><Summary label={onStreet ? "Áreas" : "Niveles"} value={structureCount} /><Summary label="Plazas" value={metrics.capacity} /><Summary label="Ocupadas" value={metrics.occupied} /><Summary label="Disponibles" value={metrics.available} /><Summary label="Ocupación" value={`${metrics.occupancyPercentage}%`} /></div>
       {parking && <div className="mt-4 flex flex-wrap gap-2"><Link href={`/estacionamientos/${parking.code}/${onStreet ? "sectores" : "niveles"}`} className="rounded-full border border-[#3150D8] px-4 py-2 text-sm font-semibold text-[#3150D8]">Administrar estructura</Link><Link href={`/estacionamientos/${parking.code}/${onStreet ? "sectores" : "niveles"}/nuevo`} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white">{onStreet ? "Crear área" : "Crear nivel"}</Link></div>}
     </section>
-    <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><Link href={cancelHref} className="rounded-full border border-slate-200 px-4 py-2 text-center text-sm font-semibold">Cancelar</Link><button disabled={submitting} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{submitting ? (editing ? "Modificando estacionamiento…" : "Creando estacionamiento…") : editing ? "Modificar estacionamiento" : "Crear estacionamiento"}</button></div>
+    <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+      {onCancel ? <button type="button" onClick={onCancel} className="rounded-full border border-slate-200 px-4 py-2 text-center text-sm font-semibold">Cancelar</button> : <Link href={cancelHref} className="rounded-full border border-slate-200 px-4 py-2 text-center text-sm font-semibold">Cancelar</Link>}
+      <button disabled={submitting || (!editing && (loadingCodes || availableCodes.length === 0))} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{submitting ? (editing ? "Modificando estacionamiento…" : "Creando estacionamiento…") : editing ? "Modificar estacionamiento" : "Crear estacionamiento"}</button>
+    </div>
   </form>;
 }
 

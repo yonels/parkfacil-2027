@@ -40,9 +40,17 @@ export default function AppShell({
   title,
   description,
   onBack,
+  // "backToHistory" (2026-08-30): igual que "onBack", pero como boolean --
+  // para callers Server Component (page.js con "export const metadata" o
+  // "async function Page", que no pueden ser "use client" y por lo tanto
+  // no pueden construir () => router.back() ellos mismos). AppShell ya es
+  // "use client", así que resuelve router.back() aquí adentro. Mismo
+  // patrón que PageHeader.js.
+  backToHistory,
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const effectiveOnBack = onBack || (backToHistory ? () => router.back() : undefined);
 
   const [collapsed, setCollapsed] =
     useState(false);
@@ -179,7 +187,7 @@ export default function AppShell({
               clientContext={clientContext}
               userContext={userContext}
               sessionResolved={sessionResolved}
-              onBack={onBack}
+              onBack={effectiveOnBack}
             />
           </div>
 

@@ -7,10 +7,15 @@ import { getRequestPortal } from "@/lib/auth/portal.mjs";
 const PUBLIC_PATHS = new Set([
   "/login",
   "/pos/login",
+  "/inspector/login",
   "/acceso-operador",
   "/recuperar-contrasena",
   "/nueva-contrasena",
   "/manifest.webmanifest",
+  // Manifest propio de Inspectores (Etapa 2): un instalador de PWA lo pide
+  // sin sesión, igual que el manifest global -- ver src/app/inspector/
+  // manifest.webmanifest/route.js.
+  "/inspector/manifest.webmanifest",
   "/sw.js",
 ]);
 
@@ -18,8 +23,12 @@ function isPosPath(pathname) {
   return pathname === "/pos" || pathname.startsWith("/pos/");
 }
 
+function isInspectorPath(pathname) {
+  return pathname === "/inspector" || pathname.startsWith("/inspector/");
+}
+
 function loginRedirect(request) {
-  const loginPath = isPosPath(request.nextUrl.pathname) ? "/pos/login" : "/login";
+  const loginPath = isPosPath(request.nextUrl.pathname) ? "/pos/login" : isInspectorPath(request.nextUrl.pathname) ? "/inspector/login" : "/login";
   const url = new URL(loginPath, request.url);
   url.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
   const response = NextResponse.redirect(url);
@@ -29,7 +38,7 @@ function loginRedirect(request) {
 
 function forbidden(context) {
   return new NextResponse(
-    `<!doctype html><html lang="es"><meta charset="utf-8"><title>Acceso denegado | ParkFacil</title><body style="font-family:system-ui;background:#f8fafc;color:#041e42;padding:3rem"><main style="max-width:42rem;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:1.5rem;padding:2rem"><h1>Acceso denegado</h1><p>Tu cuenta autenticada no tiene permiso para acceder a esta ruta desde el portal ${context?.portal === "client" ? "Cliente" : context?.portal === "terminal" ? "Terminal" : "Root"}.</p><a href="/pos">Volver al Terminal</a></main></body></html>`,
+    `<!doctype html><html lang="es"><meta charset="utf-8"><title>Acceso denegado | ParkFacil</title><body style="font-family:system-ui;background:#f8fafc;color:#041e42;padding:3rem"><main style="max-width:42rem;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:1.5rem;padding:2rem"><h1>Acceso denegado</h1><p>Tu cuenta autenticada no tiene permiso para acceder a esta ruta desde el portal ${context?.portal === "client" ? "Cliente" : context?.portal === "terminal" ? "Terminal" : context?.portal === "inspector" ? "Inspectores" : "Root"}.</p><a href="/pos">Volver al Terminal</a></main></body></html>`,
     { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
 }

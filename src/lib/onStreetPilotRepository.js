@@ -8,8 +8,31 @@ export function clientFingerprint(request) {
   return createHash("sha256").update(source).digest("hex");
 }
 
+// Resuelve la tarifa real de cobro para una Ubicación QR. Decisión funcional
+// "Proyectos On Street" (2026-08-29): cada QR nuevo tiene una tarifa
+// explícita asignada (qr.rate_id, ver migración 20260829100500) -- se
+// respeta ESA, sin ambigüedad. Solo si no hay rate_id (Ubicación QR
+// histórica, previa a esta funcionalidad) o la tarifa asignada dejó de estar
+// ACTIVE/vigente (reemplazada por una nueva versión sin actualizar el QR),
+// se usa el fallback dinámico histórico (tarifa ACTIVE más reciente del
+// estacionamiento) -- documentado, nunca silencioso: no se reasignan
+// tarifas históricas, este fallback solo cubre exactamente esos dos casos.
+async function resolveQrRate(db, qr, now) {
+  if (qr.rate_id) {
+    const pinned = await db.from("parking_rates").select("id,minute_amount,currency,status,valid_from,valid_until").eq("id", qr.rate_id).eq("billing_mode", "EFFECTIVE_MINUTE").maybeSingle();
+    if (pinned.error) throw pinned.error;
+    const r = pinned.data;
+    if (r && r.status === "ACTIVE" && r.valid_from <= now && (!r.valid_until || r.valid_until > now)) {
+      return { id: r.id, minute_amount: r.minute_amount, currency: r.currency };
+    }
+  }
+  const dynamic = await db.from("parking_rates").select("id,minute_amount,currency").eq("parking_id", qr.parking_id).eq("billing_mode", "EFFECTIVE_MINUTE").eq("status", "ACTIVE").lte("valid_from", now).or(`valid_until.is.null,valid_until.gt.${now}`).order("valid_from", { ascending: false }).limit(1).maybeSingle();
+  if (dynamic.error) throw dynamic.error;
+  return dynamic.data;
+}
+
 export async function getPublicQrLocation(publicCode, db = getSupabaseAdminClient()) {
-  const { data: qr, error } = await db.from("on_street_qr_locations").select("id,public_code,parking_id,sector_id,street_id,segment_id,status").eq("public_code", publicCode).eq("status", "ACTIVE").maybeSingle();
+  const { data: qr, error } = await db.from("on_street_qr_locations").select("id,public_code,parking_id,sector_id,street_id,segment_id,rate_id,status").eq("public_code", publicCode).eq("status", "ACTIVE").maybeSingle();
   if (error) throw error;
   if (!qr) return null;
   const [parkingResult, sectorResult, streetResult, segmentResult] = await Promise.all([
@@ -21,12 +44,12 @@ export async function getPublicQrLocation(publicCode, db = getSupabaseAdminClien
   for (const result of [parkingResult, sectorResult, streetResult, segmentResult]) if (result.error) throw result.error;
   if (!parkingResult.data || !sectorResult.data || !streetResult.data || !segmentResult.data) return null;
   const now=new Date().toISOString();
-  const [companyResult,rateResult]=await Promise.all([
+  const [companyResult,rate]=await Promise.all([
     db.from("companies").select("business_name,trade_name,rut_number,rut_dv,email,phone").eq("id",parkingResult.data.company_id).maybeSingle(),
-    db.from("parking_rates").select("id,minute_amount,currency").eq("parking_id",qr.parking_id).eq("billing_mode","EFFECTIVE_MINUTE").eq("status","ACTIVE").lte("valid_from",now).or(`valid_until.is.null,valid_until.gt.${now}`).order("valid_from",{ascending:false}).limit(1).maybeSingle(),
+    resolveQrRate(db, qr, now),
   ]);
-  if(companyResult.error)throw companyResult.error;if(rateResult.error)throw rateResult.error;
-  return { qr, parking: parkingResult.data, sector: sectorResult.data, street: streetResult.data, segment: segmentResult.data, company:companyResult.data, rate:rateResult.data };
+  if(companyResult.error)throw companyResult.error;
+  return { qr, parking: parkingResult.data, sector: sectorResult.data, street: streetResult.data, segment: segmentResult.data, company:companyResult.data, rate };
 }
 
 // createPilotSession (RPC de 4 argumentos) y createFreePilotSession (sesión

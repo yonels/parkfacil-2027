@@ -16,8 +16,8 @@ export default function OnStreetAdministradoresPage() {
       titulo="Administradores On Street"
       descripcion="Administradores de empresas con operación On Street. Haz clic en un administrador para abrir directamente su administración."
       placeholderBusqueda="Buscar administradores"
-      backHref="/on-street-qr"
-      backLabel="Volver a On Street"
+      backToHistory
+      backLabel="Volver"
       crear
       roleLabel="administrador"
       empresasEndpoint="/api/on-street-qr/companies"

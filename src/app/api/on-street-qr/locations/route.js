@@ -16,7 +16,7 @@ export async function POST(request){
     const location=await createOnStreetQrLocation(auth.db,auth.context,data);
     return NextResponse.json({data:location},{status:201});
   }catch(error){
-    const map={PARKING_NOT_FOUND:{status:404,error:"No se encontró el estacionamiento indicado."},SEGMENT_ALREADY_HAS_QR:{status:409,error:"Ese tramo ya tiene una ubicación QR asignada."},QR_LOCATION_HIERARCHY_INVALID:{status:400,error:"El área, la calle y el tramo no corresponden al estacionamiento seleccionado."}};
+    const map={PARKING_NOT_FOUND:{status:404,error:"No se encontró el estacionamiento indicado."},SEGMENT_ALREADY_HAS_QR:{status:409,error:"Ese tramo ya tiene una ubicación QR asignada."},QR_LOCATION_HIERARCHY_INVALID:{status:400,error:"El área, la calle y el tramo no corresponden al estacionamiento seleccionado."},RATE_NOT_FOUND_FOR_PARKING:{status:400,error:"La tarifa seleccionada no existe o no pertenece a este estacionamiento."}};
     const mapped=map[error.code];
     if(mapped)return NextResponse.json({error:mapped.error,code:error.code},{status:mapped.status});
     console.error("[ON_STREET_ADMIN_LOCATION_CREATE]",{code:error.code||error.message});

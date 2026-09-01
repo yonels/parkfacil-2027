@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import { ArrowLeft, ExternalLink, ListChecks, Printer, QrCode } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
@@ -31,6 +32,7 @@ function DetailItem({ label, value }) {
 // herramientas de prueba/vista previa (punto 9 del requerimiento), para
 // revisar el ciclo completo sin tener que buscar rutas manualmente.
 export default function OnStreetLocationDetailClient({ id }) {
+  const router = useRouter();
   const origin = useSyncExternalStore(subscribeOrigin, () => (typeof window !== "undefined" ? window.location.origin : ""), () => "");
 
   const [data, setData] = useState(null);
@@ -130,7 +132,13 @@ export default function OnStreetLocationDetailClient({ id }) {
       <AppShell title="Punto QR" description="No encontrado">
         <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
           <p className="text-lg font-semibold text-[#041E42]">{sessionExpired ? "Tu sesión expiró." : "No se encontró el punto QR solicitado."}</p>
-          <div className="mt-4"><Link href={sessionExpired ? "/login" : "/on-street-qr/ubicaciones"} className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--pf-color-onstreet-primary)]"><ArrowLeft className="h-4 w-4" /> Volver</Link></div>
+          <div className="mt-4">
+            {sessionExpired ? (
+              <Link href="/login" className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--pf-color-onstreet-primary)]"><ArrowLeft className="h-4 w-4" /> Volver</Link>
+            ) : (
+              <button type="button" onClick={() => router.back()} className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--pf-color-onstreet-primary)]"><ArrowLeft className="h-4 w-4" /> Volver</button>
+            )}
+          </div>
         </div>
       </AppShell>
     );
@@ -145,8 +153,8 @@ export default function OnStreetLocationDetailClient({ id }) {
         <PageHeader
           title={data.label || "Punto QR sin nombre"}
           description={`${data.parking.name} · ${data.segment?.name || "Tramo no disponible"}`}
-          backHref="/on-street-qr/ubicaciones"
-          backLabel="Volver a Ubicaciones QR"
+          onBack={() => router.back()}
+          backLabel="Volver"
         />
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">

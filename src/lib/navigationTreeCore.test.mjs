@@ -37,59 +37,144 @@ test("isItemActive exige igualdad exacta de pathname (sin query ni hash)", () =>
   assert.equal(isItemActive("/facturacion", "/facturacion#prefacturacion"), true);
 });
 
-test("navigationItems: Estacionamientos es el único nodo padre para Off Street / On Street", () => {
-  const estacionamientos = navigationItems.find((item) => item.label === "Estacionamientos");
-  assert.ok(estacionamientos, "debe existir el ítem Estacionamientos");
-  assert.equal(estacionamientos.href, "/estacionamientos");
-  assert.deepEqual(estacionamientos.activePrefix, ["/estacionamientos", "/on-street-qr"]);
-  assert.equal(estacionamientos.children.length, 2);
-  assert.deepEqual(estacionamientos.children.map((c) => c.label), ["Off Street", "On Street"]);
+// ============================================================
+// Reorganización 2026-08-28 ("4 pilares"): Off Street y On Street pasaron
+// de ser dos hijos de un mismo nodo "Estacionamientos" a ser dos árboles de
+// PRIMER NIVEL, hermanos entre sí -- ya no existe ningún nodo con label
+// "Estacionamientos" en navigationItems (sí sigue existiendo la ruta real
+// /estacionamientos, ahora como hoja dentro de Off Street > Estacionamientos).
+// ============================================================
 
+test("navigationItems: Off Street y On Street son árboles de primer nivel independientes (ya no hay un nodo 'Estacionamientos' que los contenga)", () => {
+  assert.equal(navigationItems.some((item) => item.label === "Estacionamientos"), false, "no debe quedar ningún nodo top-level 'Estacionamientos' combinando ambos productos");
+  const offStreet = navigationItems.find((item) => item.label === "Off Street");
+  const onStreet = navigationItems.find((item) => item.label === "On Street");
+  assert.ok(offStreet, "Off Street debe existir como ítem de primer nivel");
+  assert.ok(onStreet, "On Street debe existir como ítem de primer nivel");
+  assert.equal(navigationItems.includes(offStreet) && navigationItems.includes(onStreet), true, "ambos deben ser elementos directos del arreglo de primer nivel, no anidados entre sí");
   // No debe quedar ningún nodo top-level paralelo representando On Street
-  // (antiguo "QR Parking") — consolidado dentro de Estacionamientos.
+  // (antiguo "QR Parking") — consolidado en su propio árbol.
   assert.equal(navigationItems.some((item) => item.label === "QR Parking"), false);
 });
 
-test("Off Street reutiliza la app existente de estacionamientos (sin inventar ruta nueva)", () => {
-  const offStreet = findByLabel(navigationItems, "Off Street");
-  assert.ok(offStreet);
-  assert.equal(offStreet.href, "/estacionamientos?tipo=OFF_STREET");
-  assert.equal(offStreet.activePrefix, "/estacionamientos");
+test("Off Street reutiliza la app existente de estacionamientos (sin inventar ruta nueva), agrupada bajo Estacionamientos > Estacionamientos", () => {
+  const offStreet = navigationItems.find((item) => item.label === "Off Street");
+  // El grupo "Off Street" en sí es una carpeta (sin href propio) -- el href
+  // real de la app tradicional vive en su hoja "Estacionamientos", dentro
+  // del sub-grupo homónimo (ver §3/§4 de la reorganización).
+  assert.equal(offStreet.href, undefined);
+  assert.ok(Array.isArray(offStreet.activePrefix) && offStreet.activePrefix.includes("/estacionamientos"));
+  const estacionamientosGrupo = offStreet.children.find((c) => c.label === "Estacionamientos");
+  assert.ok(estacionamientosGrupo, "debe existir el sub-grupo Estacionamientos dentro de Off Street");
+  const estacionamientosHoja = estacionamientosGrupo.children.find((c) => c.label === "Estacionamientos");
+  assert.ok(estacionamientosHoja);
+  assert.equal(estacionamientosHoja.href, "/estacionamientos?tipo=OFF_STREET");
+  assert.equal(estacionamientosHoja.activePrefix, "/estacionamientos");
 });
 
-test("On Street apunta al módulo administrativo real (/on-street-qr) y conserva sus sub-funciones", () => {
-  const onStreet = findByLabel(navigationItems, "On Street");
+test("On Street apunta al módulo administrativo real (/on-street-qr), conserva sus sub-funciones y ya no incluye Administradores/Operadores", () => {
+  const onStreet = navigationItems.find((item) => item.label === "On Street");
   assert.ok(onStreet);
   assert.equal(onStreet.href, "/on-street-qr");
   assert.equal(onStreet.activePrefix, "/on-street-qr");
-  assert.deepEqual(
-    onStreet.children.map((c) => c.href),
-    [
-      "/on-street-qr",
-      "/on-street-qr/ubicaciones",
-      "/on-street-qr/crear",
-      "/on-street-qr/sesiones",
-      "/on-street-qr/tarifas",
-      "/on-street-qr/pagos",
-      "/on-street-qr/administradores",
-      "/on-street-qr/operadores",
-      "/on-street-qr/reportes",
-      "/on-street-qr/areas/nueva",
-      "/on-street-qr/calles/nueva",
-      "/on-street-qr/tramos/nuevo",
-    ],
-  );
+
+  const allLabels = (items) => items.flatMap((i) => [i.label, ...(i.children ? allLabels(i.children) : [])]);
+  const labels = allLabels(onStreet.children);
+
+  // §7/§29 de la reorganización: Administradores/Operadores SACADOS del
+  // árbol On Street (viven en Administración > Usuarios). Inspectores SÍ
+  // permanece (operación de terreno).
+  assert.equal(labels.includes("Administradores"), false);
+  assert.equal(labels.includes("Operadores"), false);
+  assert.ok(labels.includes("Inspectores"));
+
+  // "Proyectos On Street" (§ UX "Proyectos On Street" 2026-08-28) reemplazó
+  // al grupo "Ubicaciones" como experiencia PRINCIPAL: Ubicaciones QR/
+  // Generar QR/Áreas/Calles/Tramos ya no son accesos directos del menú
+  // (siguen existiendo como rutas reales, ver onStreetProjects.test.mjs) --
+  // ahora se administran desde "Proyectos actuales"/la ficha de Proyecto/el
+  // constructor "Nuevo proyecto".
+  assert.equal(onStreet.children.some((c) => c.label === "Ubicaciones"), false, "el grupo 'Ubicaciones' ya no debe existir -- reemplazado por Proyectos On Street");
+  const proyectos = onStreet.children.find((c) => c.label === "Proyectos On Street");
+  assert.ok(proyectos, "debe existir 'Proyectos On Street'");
+  assert.equal(proyectos.href, "/on-street-qr/proyectos");
+  assert.deepEqual(proyectos.children.map((c) => c.label), ["Proyectos actuales", "Nuevo proyecto"]);
+  assert.equal(labels.includes("Generar QR"), false, "'Generar QR' ya no es un ítem del menú principal -- se accede desde 'Guardar y generar QR' en el constructor de Proyecto");
+
   assert.equal(onStreet.children[0].label, "Dashboard");
+  assert.equal(onStreet.children[0].href, "/on-street-qr");
 });
 
-test("isTreeActive: Estacionamientos permanece activo/expandido en cualquier ruta hija de ambos módulos", () => {
-  const estacionamientos = navigationItems.find((item) => item.label === "Estacionamientos");
-  assert.equal(isTreeActive("/estacionamientos", estacionamientos), true);
-  assert.equal(isTreeActive("/estacionamientos/abc123/editar", estacionamientos), true);
-  assert.equal(isTreeActive("/on-street-qr", estacionamientos), true);
-  assert.equal(isTreeActive("/on-street-qr/sesiones/42", estacionamientos), true);
-  assert.equal(isTreeActive("/on-street-qr/ubicaciones/9/qr", estacionamientos), true);
-  assert.equal(isTreeActive("/recaudacion", estacionamientos), false);
+// Corrección UX/funcional 2026-08-29: al retirar el grupo "Ubicaciones" (ver
+// test anterior), Áreas/Calles/Tramos dejaron de tener acceso directo desde
+// el menú -- solo se llegaba a ellas creando un Proyecto nuevo. "Estructura"
+// restaura ese acceso sin resucitar "Ubicaciones" ni duplicar páginas: enlaza
+// las MISMAS rutas ya existentes (src/app/on-street-qr/{areas,calles,tramos}).
+test("On Street: 'Estructura' da acceso directo a Áreas/Calles/Tramos, reutilizando las rutas existentes sin duplicarlas", () => {
+  const onStreet = findByLabel(navigationItems, "On Street");
+  assert.ok(onStreet);
+  assert.equal(onStreet.children.some((c) => c.label === "Ubicaciones"), false, "no debe resucitar el grupo 'Ubicaciones'");
+
+  const estructura = onStreet.children.find((c) => c.label === "Estructura");
+  assert.ok(estructura, "debe existir el grupo 'Estructura' dentro de On Street");
+  assert.deepEqual(estructura.children.map((c) => c.label), ["Áreas", "Calles", "Tramos"]);
+  assert.equal(estructura.children.find((c) => c.label === "Áreas").href, "/on-street-qr/areas");
+  assert.equal(estructura.children.find((c) => c.label === "Calles").href, "/on-street-qr/calles");
+  assert.equal(estructura.children.find((c) => c.label === "Tramos").href, "/on-street-qr/tramos");
+
+  // Ninguna otra rama de On Street repite estos mismos labels/hrefs -- un
+  // solo punto de acceso por entidad, no una segunda pantalla inventada.
+  const allLabels = (items) => items.flatMap((i) => [i.label, ...(i.children ? allLabels(i.children) : [])]);
+  const labels = allLabels(onStreet.children);
+  assert.equal(labels.filter((label) => label === "Áreas").length, 1);
+  assert.equal(labels.filter((label) => label === "Calles").length, 1);
+  assert.equal(labels.filter((label) => label === "Tramos").length, 1);
+
+  // "Proyectos On Street" ya no reclama /areas, /calles, /tramos en su
+  // activePrefix -- esa responsabilidad pasó a "Estructura" (evita que dos
+  // ramas del árbol se resalten/expandan simultáneamente para la misma URL).
+  const proyectos = onStreet.children.find((c) => c.label === "Proyectos On Street");
+  for (const prefix of ["/on-street-qr/areas", "/on-street-qr/calles", "/on-street-qr/tramos"]) {
+    assert.equal(proyectos.activePrefix.includes(prefix), false, `"Proyectos On Street" ya no debe incluir ${prefix} en su activePrefix`);
+    assert.equal(estructura.activePrefix.includes(prefix), true, `"Estructura" debe incluir ${prefix} en su activePrefix`);
+  }
+
+  // Cada URL real activa la rama "Estructura" (y no "Proyectos On Street").
+  assert.equal(isTreeActive("/on-street-qr/areas", estructura), true);
+  assert.equal(isTreeActive("/on-street-qr/areas/abc123", estructura), true);
+  assert.equal(isTreeActive("/on-street-qr/calles", estructura), true);
+  assert.equal(isTreeActive("/on-street-qr/tramos", estructura), true);
+  assert.equal(isTreeActive("/on-street-qr/areas", proyectos), false);
+});
+
+test("isTreeActive: Off Street y On Street son ramas independientes -- ninguna activa a la otra", () => {
+  const offStreet = navigationItems.find((item) => item.label === "Off Street");
+  const onStreet = navigationItems.find((item) => item.label === "On Street");
+  assert.equal(isTreeActive("/estacionamientos", offStreet), true);
+  assert.equal(isTreeActive("/estacionamientos/abc123/editar", offStreet), true);
+  assert.equal(isTreeActive("/operacion", offStreet), true);
+  assert.equal(isTreeActive("/on-street-qr", offStreet), false, "On Street no debe activar la rama Off Street");
+  assert.equal(isTreeActive("/on-street-qr", onStreet), true);
+  assert.equal(isTreeActive("/on-street-qr/sesiones/42", onStreet), true);
+  assert.equal(isTreeActive("/estacionamientos", onStreet), false, "Off Street no debe activar la rama On Street");
+  assert.equal(isTreeActive("/recaudacion", offStreet), true);
+  assert.equal(isTreeActive("/recaudacion", onStreet), false);
+});
+
+test("Administración: Usuarios (Administradores/Operadores) vive en el árbol Administración, no duplicado en On Street", () => {
+  const administracion = navigationItems.find((item) => item.label === "Administración");
+  assert.ok(administracion);
+  const usuarios = administracion.children.find((c) => c.label === "Usuarios");
+  assert.ok(usuarios);
+  assert.deepEqual(usuarios.children.map((c) => c.label), ["Administradores", "Operadores"]);
+});
+
+test("Dashboard General (Plataforma) es una ruta distinta del Dashboard de On Street", () => {
+  const dashboardGeneral = navigationItems.find((item) => item.label === "Dashboard General");
+  const onStreet = navigationItems.find((item) => item.label === "On Street");
+  assert.ok(dashboardGeneral);
+  assert.equal(dashboardGeneral.href, "/modelo-dashboard");
+  assert.notEqual(dashboardGeneral.href, onStreet.href);
 });
 
 test("isTreeActive: On Street y sus 5 hijos activan la rama completa, incluidas rutas de detalle", () => {
@@ -230,11 +315,19 @@ test("filterVisibleTree + projectSingleProductParkingNode: extremo a extremo -- 
   assert.equal(projected.some((item) => item.label === "Estacionamientos"), false);
 });
 
-test("projectSingleProductParkingNode: con ambos hijos visibles (ambos productos, o Root) no cambia nada", () => {
-  const estacionamientos = navigationItems.find((item) => item.label === "Estacionamientos");
-  const items = [{ href: "/", label: "Inicio" }, estacionamientos, { href: "/usuarios", label: "Usuarios" }];
-  const projected = projectSingleProductParkingNode(items);
-  assert.deepEqual(projected, items);
+// Tras la reorganización 2026-08-28, navigationItems ya no tiene ningún
+// nodo con label "Estacionamientos" (Off Street y On Street son árboles de
+// primer nivel independientes) -- projectSingleProductParkingNode() no
+// encuentra ningún nodo que coincida y queda como una operación identidad
+// sobre el árbol real. Sigue siendo una función pura útil (y probada más
+// abajo con fixtures propios) para el caso hipotético de reintroducir un
+// nodo combinado, pero contra navigationItems real hoy es un no-op -- este
+// test documenta explícitamente ese hecho para que no se asuma "promoción"
+// donde ya no aplica.
+test("projectSingleProductParkingNode: contra navigationItems real (sin nodo 'Estacionamientos' combinado) es una operación identidad", () => {
+  const projected = projectSingleProductParkingNode(navigationItems);
+  assert.deepEqual(projected, navigationItems);
+  assert.equal(navigationItems.some((item) => item.label === "Estacionamientos"), false);
 });
 
 test("projectSingleProductParkingNode: Cliente solo On Street -- \"Estacionamientos\" se reemplaza por \"On Street\" promovido, con sus propios hijos", () => {

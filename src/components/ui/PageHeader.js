@@ -2,7 +2,7 @@
 
 import { Children, isValidElement } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getParentHref } from "@/lib/navigationParent.mjs";
 
@@ -29,13 +29,31 @@ export default function PageHeader({
   actions,
   backHref,
   backLabel = "Volver",
+  // "onBack" (2026-08-30, "todas las páginas de On Street deben tener un
+  // botón Volver que lleve a la sesión inmediatamente precedente"):
+  // función opcional -- cuando se pasa, reemplaza el <Link href=...> de
+  // siempre por un <button onClick={onBack}> (típicamente
+  // () => router.back(), navegación real de historial, no un destino
+  // fijo). 100% retrocompatible: ningún llamador existente pasa "onBack",
+  // así que todos siguen usando exactamente el mismo <Link href=...> de
+  // antes -- este cambio no modifica el comportamiento de PageHeader en
+  // ningún otro módulo de la plataforma.
+  onBack,
+  // "backToHistory" (2026-08-30): igual que "onBack", pero como boolean --
+  // para callers que son Server Component (p. ej. un page.js con "export
+  // const metadata", que no puede ser "use client" y por lo tanto no
+  // puede construir la función () => router.back() él mismo). PageHeader
+  // ya es "use client", así que resuelve router.back() aquí adentro.
+  backToHistory = false,
   showBack = true,
   eyebrow = "GESTIÓN PARKFACIL",
   tone = "brand",
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const effectiveOnBack = onBack || (backToHistory ? () => router.back() : undefined);
   const parentHref = backHref === undefined ? getParentHref(pathname) : backHref;
-  const renderBack = showBack && parentHref && !containsBackAction(actions);
+  const renderBack = showBack && (effectiveOnBack || parentHref) && !containsBackAction(actions);
   const palette = TONES[tone] || TONES.brand;
 
   return (
@@ -48,14 +66,26 @@ export default function PageHeader({
       {renderBack || actions ? (
         <div className={`flex shrink-0 flex-wrap gap-3 [&>a]:border-white/70 [&>a]:bg-white [&>a]:${palette.accent} [&>button]:border-white/70 [&>button]:bg-white [&>button]:${palette.accent}`}>
           {renderBack ? (
-            <Link
-              href={parentHref}
-              data-back-action
-              className={`inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] transition ${palette.hoverBorder} ${palette.hoverAccent}`}
-            >
-              <ArrowLeft className="h-4 w-4" />
-              {backLabel}
-            </Link>
+            effectiveOnBack ? (
+              <button
+                type="button"
+                onClick={effectiveOnBack}
+                data-back-action
+                className={`inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] transition ${palette.hoverBorder} ${palette.hoverAccent}`}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                {backLabel}
+              </button>
+            ) : (
+              <Link
+                href={parentHref}
+                data-back-action
+                className={`inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] transition ${palette.hoverBorder} ${palette.hoverAccent}`}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                {backLabel}
+              </Link>
+            )
           ) : null}
           {actions}
         </div>

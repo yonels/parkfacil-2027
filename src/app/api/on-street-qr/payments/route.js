@@ -1,4 +1,8 @@
 import { NextResponse } from "next/server";
 import { authorizeOnStreetAdminRequest } from "@/lib/onStreetAdminAuthorization";
-import { listOnStreetPayments } from "@/lib/onStreetAdminRepository";
-export async function GET(request){const auth=await authorizeOnStreetAdminRequest(request);if(auth.response)return auth.response;try{return NextResponse.json({data:await listOnStreetPayments(auth.db,auth.context,Object.fromEntries(new URL(request.url).searchParams))});}catch(error){console.error("[ON_STREET_ADMIN_PAYMENTS]",{code:error.code||error.message});return NextResponse.json({error:"No fue posible cargar los pagos."},{status:503});}}
+import { listOnStreetPaymentsPage } from "@/lib/onStreetAdminRepository";
+// Paginación real server-side (§ corrección "eliminar límite de 1000"
+// 2026-08-28): listOnStreetPaymentsPage pide a Postgres COUNT+.range() ya
+// filtrado (join embebido con on_street_payment_intents) -- nunca trae el
+// universo completo a Node. Ver onStreetAdminRepository.js para el detalle.
+export async function GET(request){const auth=await authorizeOnStreetAdminRequest(request);if(auth.response)return auth.response;try{return NextResponse.json({data:await listOnStreetPaymentsPage(auth.db,auth.context,Object.fromEntries(new URL(request.url).searchParams))});}catch(error){console.error("[ON_STREET_ADMIN_PAYMENTS]",{code:error.code||error.message});return NextResponse.json({error:"No fue posible cargar los pagos."},{status:503});}}

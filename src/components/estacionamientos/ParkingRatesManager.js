@@ -5,6 +5,28 @@ import { Plus, X } from "lucide-react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import { rateStatusBadge } from "@/lib/rateStatusBadge.mjs";
 
+// nowAsDateTimeLocalValue (corrección de bug real detectado en validación final
+// On-Street QR en LOCAL, 2026-09-01): "Vigencia desde" usaba antes
+// `new Date().toISOString().slice(0, 16)` -- .toISOString() siempre devuelve
+// HORA UTC, pero <input type="datetime-local"> interpreta ese string como hora
+// LOCAL del navegador, sin conversión. Para un usuario en un huso horario detrás
+// de UTC (p. ej. Chile, UTC-3/UTC-4) esto adelanta "Vigencia desde" varias horas
+// respecto al momento real, dejando la tarifa recién creada/activada SIN
+// vigencia todavía (no aparece como vigente hasta que el reloj alcance esa hora
+// UTC) -- reproducido: el flujo público (/estacionar/[qrCode]) mostraba
+// "Estacionamiento no disponible" para una tarifa recién activada. Mismo
+// patrón de corrección ya usado en EstacionamientoForm.js (toDateTimeLocalValue,
+// getters LOCALES en vez de toISOString).
+function nowAsDateTimeLocalValue() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 // Modelo legal: minuto efectivo (sin tramos) o tramo vencido con exactamente un tramo
 // inicial (mín. 30 min) y un tramo siguiente repetible (mín. 10 min). No existe un tercer
 // modo ni un valor nocturno fijo — ver docs/MOTOR-TARIFARIO-LEGAL.md.
@@ -12,7 +34,7 @@ const initial = {
   mode: "create", sourceId: null,
   name: "", billingMode: "EFFECTIVE_MINUTE", minuteAmount: "", freePeriodMinutes: 0,
   multiplyBySpaces: false, legalComplianceAccepted: false,
-  validFrom: new Date().toISOString().slice(0, 16), validUntil: "",
+  validFrom: nowAsDateTimeLocalValue(), validUntil: "",
   status: "DRAFT", notes: "",
   initialBlockMinutes: 30, initialBlockAmount: "",
   nextBlockMinutes: 10, nextBlockAmount: "",
@@ -26,13 +48,13 @@ const billingModeLabel = (mode) => mode === "EFFECTIVE_MINUTE" ? "Minuto efectiv
 // que siempre debe reconfirmarse antes de guardar.
 function formFromRate(rate, mode) {
   return {
-    mode, sourceId: rate.id,
+    mode, sourceId: rate.id, sourceName: rate.name,
     name: rate.name, billingMode: rate.billingMode,
     minuteAmount: rate.minuteAmount ?? "",
     freePeriodMinutes: Math.round((rate.freePeriodSeconds || 0) / 60),
     multiplyBySpaces: rate.multiplyBySpaces,
     legalComplianceAccepted: false,
-    validFrom: mode === "replace" ? new Date().toISOString().slice(0, 16) : String(rate.validFrom || "").slice(0, 16),
+    validFrom: mode === "replace" ? nowAsDateTimeLocalValue() : String(rate.validFrom || "").slice(0, 16),
     validUntil: String(rate.validUntil || "").slice(0, 16),
     status: rate.status === "ACTIVE" ? "ACTIVE" : "DRAFT",
     notes: rate.notes || "",
@@ -43,7 +65,13 @@ function formFromRate(rate, mode) {
   };
 }
 
-export default function ParkingRatesManager({ parking, showCreateButton = true, openSignal }) {
+// onRatesChange (cierre integral del flujo "Proyectos On Street" 2026-08-30):
+// permite que un padre (p. ej. la etapa Tarifas del constructor de Proyecto)
+// sepa en tiempo real si ya existe al menos una tarifa utilizable, sin
+// duplicar la lógica de carga/clasificación -- se reutiliza el mismo estado
+// `rates` que este componente ya mantiene. Opcional, no cambia nada para
+// los llamadores existentes que no lo pasan.
+export default function ParkingRatesManager({ parking, showCreateButton = true, openSignal, onRatesChange }) {
   const [rates, setRates] = useState([]);
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -52,6 +80,12 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
   const [requestError, setRequestError] = useState("");
   const endpoint = `/api/estacionamientos/${parking.code}/tarifas`;
   const lastOpenSignal = useRef(openSignal);
+
+  useEffect(() => {
+    if (!onRatesChange) return undefined;
+    const timer = window.setTimeout(() => onRatesChange(rates), 0);
+    return () => window.clearTimeout(timer);
+  }, [rates, onRatesChange]);
 
   // Permite que una acción externa (el encabezado contextual de la pestaña Tarifas)
   // abra este mismo formulario sin duplicar un segundo botón "Nueva tarifa".
@@ -115,7 +149,12 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
     {loading ? <p className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-slate-500">Cargando tarifas...</p> : <div className="grid gap-4 lg:grid-cols-2">{rates.map((rate) => <RateCard key={rate.id} rate={rate} onEdit={() => openEdit(rate)} onReplace={() => openReplace(rate)} />)}{!rates.length ? <p className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">No hay tarifas operacionales configuradas.</p> : null}</div>}
     {form ? <form onSubmit={submit} className="rounded-3xl border border-[#BFD2FF] bg-[#F5F9FF] p-5 sm:p-6">
       <div className="flex items-center justify-between"><h2 className="text-xl font-semibold text-[#041E42]">{formTitle}</h2><button type="button" onClick={() => setForm(null)}><X className="h-5 w-5" /></button></div>
-      {form.mode === "replace" ? <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-900">Esta tarifa ya estuvo activa o participó en cobros: no puede modificarse retroactivamente. Al guardar, la tarifa actual se cerrará hoy (queda &ldquo;Finalizada&rdquo;, íntegra) y esta será una tarifa nueva e independiente.</p> : null}
+      {form.mode === "replace" ? (
+        <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+          Estás creando una <strong>nueva versión de &ldquo;{form.sourceName}&rdquo;</strong>. Al guardar, &ldquo;{form.sourceName}&rdquo; quedará &ldquo;Finalizada&rdquo; (íntegra, sin borrarse) y esta versión la reemplazará.
+          <br />¿Buscabas otra tarifa totalmente distinta que coexista junto a las demás (p. ej. una tarifa Comercial o Nocturna aparte)? Cierra esto y usa el botón &ldquo;+ Nueva tarifa&rdquo; de arriba — esa acción no finaliza ninguna otra.
+        </p>
+      ) : null}
       {requestError ? <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{requestError}</p> : null}
 
       <fieldset className="mt-5">

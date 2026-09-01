@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ParkFacil Inspectores">
+  <rect width="512" height="512" fill="#041E42"/>
+  <path fill="#fff" d="M154 120h120c68 0 110 36 110 96 0 62-44 100-115 100h-45v76h-70V120zm70 59v79h43c29 0 47-14 47-40 0-25-18-39-47-39h-43z"/>
+  <circle cx="366" cy="366" r="38" fill="#3150D8"/>
+</svg>

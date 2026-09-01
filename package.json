@@ -17,6 +17,9 @@
     "bootstrap:root": "node scripts/bootstrap-root-local.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/camera": "^8.2.3",
+    "@capacitor/core": "^8.5.0",
     "@supabase/supabase-js": "^2.110.8",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.26.0",
@@ -29,6 +32,7 @@
     "transbank-sdk": "^6.1.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@tailwindcss/postcss": "^4",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",

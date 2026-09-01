@@ -5,12 +5,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSyncExternalStore } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { ArrowLeft, Download, Printer, Car, Clock, CreditCard, ShieldCheck, Mail, MapPin, Building2, Phone, Smartphone } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
-import { publicOriginFor } from "@/lib/onStreetPilot.mjs";
+import { publicOriginFor, formatChileanPhoneForDisplay } from "@/lib/onStreetPilot.mjs";
 
 function subscribeOrigin() {
   return () => {};
@@ -44,6 +45,7 @@ function Step({ Icon, title, detail }) {
 // para el flujo definitivo con Webpay: no menciona piloto, pago simulado ni
 // "sin transacción real".
 export default function OnStreetSignageClient({ id }) {
+  const router = useRouter();
   const origin = useSyncExternalStore(subscribeOrigin, () => (typeof window !== "undefined" ? window.location.origin : ""), () => "");
 
   const [data, setData] = useState(null);
@@ -103,20 +105,32 @@ export default function OnStreetSignageClient({ id }) {
       <AppShell title="Letrero" description="No encontrado">
         <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
           <p className="text-lg font-semibold text-[#041E42]">{sessionExpired ? "Tu sesión expiró." : "No se encontró el punto QR solicitado."}</p>
-          <div className="mt-4"><Link href={sessionExpired ? "/login" : "/on-street-qr/ubicaciones"} className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--pf-color-onstreet-primary)]"><ArrowLeft className="h-4 w-4" /> Volver</Link></div>
+          <div className="mt-4">
+            {sessionExpired ? (
+              <Link href="/login" className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--pf-color-onstreet-primary)]"><ArrowLeft className="h-4 w-4" /> Volver</Link>
+            ) : (
+              <button type="button" onClick={() => router.back()} className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--pf-color-onstreet-primary)]"><ArrowLeft className="h-4 w-4" /> Volver</button>
+            )}
+          </div>
         </div>
       </AppShell>
     );
   }
 
-  const location = [data.area?.name, data.street?.name, data.segment?.name].filter(Boolean).join(" · ");
+  // Modificación letrero QR On Street (2026-08-30): teléfono/correo de
+  // ayuda -- reutiliza el contacto YA existente en el modelo
+  // (companies.email/phone, ver operator más abajo), no hardcodeado. El
+  // teléfono se normaliza SOLO si es un móvil chileno reconocible (nunca
+  // duplica +56); otros formatos (fijo, otro país, sin informar) se
+  // muestran tal cual, sin inventar un formato que no corresponde.
   const contactPhone = data.operator.phone || null;
   const contactEmail = data.operator.email || null;
+  const contactPhoneDisplay = contactPhone ? formatChileanPhoneForDisplay(contactPhone) : null;
 
   return (
     <AppShell title={`Letrero · ${data.label || data.publicCode}`} description="Letrero imprimible">
       <div className="space-y-6 print:hidden">
-        <PageHeader title="Letrero para instalar en terreno" description="Vista previa generada con los datos reales de este punto. Descarga o imprime desde aquí." backHref={`/on-street-qr/ubicaciones/${id}`} backLabel="Volver a la ficha" />
+        <PageHeader title="Letrero para instalar en terreno" description="Vista previa generada con los datos reales de este punto. Descarga o imprime desde aquí." onBack={() => router.back()} backLabel="Volver" />
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={handlePrint} disabled={!dataUrl} className="inline-flex items-center gap-2 rounded-full bg-[var(--pf-color-onstreet-primary)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"><Printer className="h-4 w-4" />Imprimir letrero</button>
           <button type="button" onClick={handleDownloadQr} disabled={!dataUrl} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] disabled:opacity-60"><Download className="h-4 w-4" />Descargar QR</button>
@@ -131,7 +145,10 @@ export default function OnStreetSignageClient({ id }) {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
               <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--pf-color-onstreet-primary)] text-white"><span className="text-lg font-black leading-none">P</span></span>
-              <span className="text-2xl font-black tracking-tight">ParkFacil</span>
+              <div>
+                <span className="block text-2xl font-black tracking-tight">ParkFacil</span>
+                <span className="block text-xs font-bold tracking-[0.15em] text-slate-400">PARKFACIL — QR ON STREET</span>
+              </div>
             </div>
             <span className="inline-flex items-center gap-2 rounded-full bg-[var(--pf-color-onstreet-primary)] px-4 py-2 text-xs font-bold text-white">
               <Car className="h-4 w-4" /> Estacionamiento por minutos
@@ -150,8 +167,8 @@ export default function OnStreetSignageClient({ id }) {
                 <div className="grid aspect-square place-items-center bg-white p-3">
                   {dataUrl ? <img src={dataUrl} alt={`Código QR de ${data.label || data.publicCode}`} className="h-full w-full" /> : <div className="grid h-full w-full place-items-center text-xs text-slate-400">Generando QR…</div>}
                 </div>
-                <div className="flex items-center justify-center gap-2 bg-[var(--pf-color-onstreet-primary)] py-2.5 text-xs font-bold text-white">
-                  <Smartphone className="h-3.5 w-3.5" /> Escanea para estacionar
+                <div className="flex items-center justify-center gap-2 bg-[var(--pf-color-onstreet-primary)] py-2.5 text-center text-xs font-bold text-white">
+                  <Smartphone className="h-3.5 w-3.5 shrink-0" /> Escanee el código QR para iniciar su estacionamiento
                 </div>
               </div>
               {data.rate ? (
@@ -173,14 +190,18 @@ export default function OnStreetSignageClient({ id }) {
             </div>
           </div>
 
-          {/* Ubicación */}
+          {/* Ubicación: Estacionamiento/Área/Calle/Tramo/Tarifa itemizados
+              (Modificación letrero QR On Street, 2026-08-30) -- datos reales
+              del punto, sin combinarlos en un solo texto. */}
           <div className="mt-7 flex items-start gap-3 rounded-2xl bg-[var(--pf-color-onstreet-tint)] p-4">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--pf-color-onstreet-primary)] text-white"><MapPin className="h-4.5 w-4.5" /></span>
-            <div>
-              <p className="text-[11px] font-black uppercase tracking-wide text-[var(--pf-color-onstreet-primary)]">Ubicación</p>
-              <p className="text-base font-bold text-[#041E42]">{data.parking.name}</p>
-              {location ? <p className="text-sm text-slate-500">{location}{data.segment?.side && data.segment.side !== "—" ? ` · Lado ${data.segment.side}` : ""}</p> : null}
-            </div>
+            <dl className="grid flex-1 grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
+              <div><dt className="text-[11px] font-black uppercase tracking-wide text-[var(--pf-color-onstreet-primary)]">Estacionamiento</dt><dd className="font-bold text-[#041E42]">{data.parking.name}</dd></div>
+              <div><dt className="text-[11px] font-black uppercase tracking-wide text-[var(--pf-color-onstreet-primary)]">Área</dt><dd className="font-bold text-[#041E42]">{data.area?.name || "—"}</dd></div>
+              <div><dt className="text-[11px] font-black uppercase tracking-wide text-[var(--pf-color-onstreet-primary)]">Calle</dt><dd className="font-bold text-[#041E42]">{data.street?.name || "—"}</dd></div>
+              <div><dt className="text-[11px] font-black uppercase tracking-wide text-[var(--pf-color-onstreet-primary)]">Tramo</dt><dd className="font-bold text-[#041E42]">{data.segment?.name || "—"}{data.segment?.side && data.segment.side !== "—" ? ` · Lado ${data.segment.side}` : ""}</dd></div>
+              <div><dt className="text-[11px] font-black uppercase tracking-wide text-[var(--pf-color-onstreet-primary)]">Tarifa</dt><dd className="font-bold text-[#041E42]">{data.rate ? `${money(data.rate.minuteAmount)}/min` : "—"}</dd></div>
+            </dl>
           </div>
 
           {/* Operador */}
@@ -195,8 +216,19 @@ export default function OnStreetSignageClient({ id }) {
             </div>
             <div className="space-y-1 text-sm">
               {contactEmail ? <p className="flex items-center gap-2 text-[#041E42]"><Mail className="h-4 w-4 text-emerald-700" /> {contactEmail}</p> : null}
-              {contactPhone ? <p className="flex items-center gap-2 text-[#041E42]"><Phone className="h-4 w-4 text-emerald-700" /> {contactPhone}</p> : null}
+              {contactPhone ? <p className="flex items-center gap-2 text-[#041E42]"><Phone className="h-4 w-4 text-emerald-700" /> {contactPhoneDisplay}</p> : null}
               {!contactEmail && !contactPhone ? <p className="text-slate-500">Contacto no informado</p> : null}
+            </div>
+          </div>
+
+          {/* ¿Necesita ayuda? (Modificación letrero QR On Street,
+              2026-08-30): mismo contacto ya existente del operador
+              (companies.email/phone) -- configurable, no hardcodeado. */}
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-[11px] font-black uppercase tracking-wide text-slate-500">¿Necesita ayuda?</p>
+            <div className="mt-1.5 space-y-1 text-sm text-[#041E42]">
+              <p>Teléfono: {contactPhoneDisplay || "No informado"}</p>
+              <p>Correo: {contactEmail || "No informado"}</p>
             </div>
           </div>
         </div>

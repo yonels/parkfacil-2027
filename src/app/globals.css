@@ -35,6 +35,14 @@
   --pf-color-onstreet-tint: #fbf1ea;
 }
 
+/* Ajuste visual puntual — legibilidad del sidebar (ago-2026): tipografía Arial
+   explícita para todo el árbol de navegación (no depende implícitamente de la
+   fuente base de <body>, que podría cambiar en el futuro). Regla única,
+   heredada por todos los niveles -- no se repite por opción/nivel. */
+.pf-sidebar {
+  font-family: Arial, Helvetica, sans-serif;
+}
+
 .input {
   width: 100%;
   border: 1px solid #e2e8f0;

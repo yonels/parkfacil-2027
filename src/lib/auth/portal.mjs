@@ -1,4 +1,4 @@
-export const PORTALS = Object.freeze({ ROOT: "root", CLIENT: "client", TERMINAL: "terminal" });
+export const PORTALS = Object.freeze({ ROOT: "root", CLIENT: "client", TERMINAL: "terminal", INSPECTOR: "inspector" });
 
 export function normalizeHost(value) {
   return String(value || "").split(":")[0].trim().toLowerCase();
@@ -21,6 +21,12 @@ export function getRequestPortal(request) {
   // no concede acceso: la membresía, operations:use y el parking se validan después.
   if (pathname === "/pos" || pathname.startsWith("/pos/") || explicitPortal === PORTALS.TERMINAL) {
     return PORTALS.TERMINAL;
+  }
+  // Inspectores (Etapa 2): mismo criterio que Terminal -- reconocerlo por
+  // ruta/cabecera no concede nada, resolveAuthenticatedContext exige además
+  // role===INSPECTOR.
+  if (pathname === "/inspector" || pathname.startsWith("/inspector/") || explicitPortal === PORTALS.INSPECTOR) {
+    return PORTALS.INSPECTOR;
   }
   return getPortalFromHost(request?.headers?.get?.("x-forwarded-host") || request?.headers?.get?.("host"));
 }

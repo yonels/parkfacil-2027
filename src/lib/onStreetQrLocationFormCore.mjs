@@ -20,6 +20,13 @@ export function buildOnStreetQrLocationCreate(payload) {
   if (!isUuid(source.sectorId)) errors.push("Selecciona un área válida.");
   if (!isUuid(source.streetId)) errors.push("Selecciona una calle válida.");
   if (!isUuid(source.segmentId)) errors.push("Selecciona un tramo válido.");
+  // Decisión funcional "Proyectos On Street" (2026-08-29): cada Ubicación QR
+  // debe tener asignada una tarifa CONCRETA, elegida explícitamente por
+  // quien crea el QR -- nunca resuelta automáticamente (última/más
+  // reciente/"activa genérica"). Por eso rateId es obligatorio aquí, con la
+  // misma validación de forma que el resto de los IDs; la pertenencia real
+  // al estacionamiento se revalida en el servidor (onStreetAdminRepository.js).
+  if (!isUuid(source.rateId)) errors.push("Selecciona una tarifa para esta ubicación.");
 
   const label = String(source.label || "").trim();
   if (!label) errors.push("Ingresa un nombre o descripción para la ubicación.");
@@ -30,7 +37,7 @@ export function buildOnStreetQrLocationCreate(payload) {
   if (errors.length) return { errors, data: null };
   return {
     errors: [],
-    data: { parkingId: source.parkingId, sectorId: source.sectorId, streetId: source.streetId, segmentId: source.segmentId, label, status },
+    data: { parkingId: source.parkingId, sectorId: source.sectorId, streetId: source.streetId, segmentId: source.segmentId, rateId: source.rateId, label, status },
   };
 }
 

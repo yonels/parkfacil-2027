@@ -90,6 +90,18 @@ export default function PublicParkingSession({ token }) {
     if (busy) return;
     setBusy(true);
     setError("");
+    // Cada intento de extensión es una operación financiera nueva: nuevo
+    // intent, nueva payment_transaction, nuevo buy_order/token_ws (ver
+    // createExtensionPaymentIntent/startWebpayPayment). Las claves de
+    // idempotencia se regeneran aquí -- si quedaran fijas por el ciclo de
+    // vida del componente, un segundo intento con un monto de minutos
+    // distinto (p. ej. el conductor cambia de 10 a 20 min sin recargar la
+    // página) devolvería silenciosamente el intent/transacción del primer
+    // intento en vez de uno nuevo. El guard "if (busy) return" de arriba ya
+    // impide un doble envío del MISMO click, así que regenerar aquí no
+    // reintroduce ningún riesgo de doble cobro.
+    intentKey.current = crypto.randomUUID();
+    paymentKey.current = crypto.randomUUID();
     try {
       const ir = await fetch(`/api/public/on-street/sessions/${token}/extension-intents`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": intentKey.current }, body: JSON.stringify({ minutes: extra }) });
       const ib = await ir.json();

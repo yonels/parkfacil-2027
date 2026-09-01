@@ -16,13 +16,29 @@ const DESCRIPTIONS = {
   segment: "Elige el estacionamiento, el área y la calle donde se creará el nuevo tramo.",
 };
 
-export default function OnStreetQuickCreate({ kind }) {
+// initialParkingId/initialSectorId (§3 de la auditoría de fichas On Street
+// 2026-08-28): permiten llegar aquí con la jerarquía ya conocida desde la
+// ficha de un Área ("+ Nueva calle" en OnStreetAreaDetail.js), sin volver a
+// pedirla -- ver /calles/nueva/page.js, que las lee de searchParams. Sin
+// estos props (acceso directo desde el menú), el comportamiento es idéntico
+// al de siempre: el usuario elige desde cero.
+//
+// onReady (§1/§2 de "Nueva calle 100% On Street", 2026-08-28): cuando se
+// provee (solo kind="street", usado por OnStreetStreetCreate.js), reemplaza
+// la redirección a /estacionamientos/.../calles/nueva por una notificación
+// in-place -- el picker de Estacionamiento/Área se sigue reutilizando tal
+// cual (no se duplica), pero el formulario real se renderiza a continuación
+// dentro del mismo árbol On Street en vez de navegar fuera. Sin este prop
+// (kind="area"/"segment", o "street" desde /on-street-qr/calles/nueva
+// llamado directamente sin envoltura) el comportamiento es idéntico al de
+// siempre.
+export default function OnStreetQuickCreate({ kind, initialParkingId = "", initialSectorId = "", onReady = null }) {
   const router = useRouter();
   const [options, setOptions] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [parkingId, setParkingId] = useState("");
-  const [sectorId, setSectorId] = useState("");
+  const [parkingId, setParkingId] = useState(initialParkingId);
+  const [sectorId, setSectorId] = useState(initialSectorId);
   const [streetId, setStreetId] = useState("");
 
   useEffect(() => {
@@ -68,10 +84,20 @@ export default function OnStreetQuickCreate({ kind }) {
       return;
     }
     if (kind === "street") {
+      if (onReady) {
+        onReady(parkingId, sectorId);
+        return;
+      }
       router.push(`/estacionamientos/${parkingSeleccionado.code}/sectores/${sectorId}/calles/nueva`);
       return;
     }
-    router.push(`/estacionamientos/${parkingSeleccionado.code}/sectores/${sectorId}/calles/${streetId}`);
+    // Cierre integral del flujo (2026-08-30): la ficha nativa On Street de
+    // Calle (OnStreetStreetDetail.js) ya reemplazó a la ruta Off Street para
+    // administrar Tramos -- usa el modelo aprobado (Tramo A/B/C, código
+    // automático, ver OnStreetTramosManager.js). Antes este acceso directo
+    // llevaba a /estacionamientos/.../calles/[id] (StructureRoute.js, con el
+    // formulario viejo de Orden/Código manual): dos sistemas para lo mismo.
+    router.push(`/on-street-qr/calles/${streetId}`);
   }
 
   if (loading) {
@@ -90,19 +116,21 @@ export default function OnStreetQuickCreate({ kind }) {
       <div className="mt-5 grid gap-4 sm:grid-cols-3">
         <label className="block space-y-1.5 text-sm text-slate-700">
           <span className="font-medium text-slate-500">Estacionamiento</span>
-          <select value={parkingId} onChange={(event) => actualizarParking(event.target.value)} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[var(--pf-color-onstreet-primary)]">
+          <select value={parkingId} onChange={(event) => actualizarParking(event.target.value)} disabled={Boolean(initialParkingId)} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[var(--pf-color-onstreet-primary)] disabled:bg-slate-100">
             <option value="">Selecciona un estacionamiento</option>
             {parkings.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.companyName})</option>)}
           </select>
+          {initialParkingId ? <span className="text-xs text-slate-400">Ya definido desde la ficha del área.</span> : null}
         </label>
 
         {kind !== "area" ? (
           <label className="block space-y-1.5 text-sm text-slate-700">
             <span className="font-medium text-slate-500">Área</span>
-            <select value={sectorId} onChange={(event) => actualizarArea(event.target.value)} disabled={!parkingId} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[var(--pf-color-onstreet-primary)] disabled:bg-slate-100">
+            <select value={sectorId} onChange={(event) => actualizarArea(event.target.value)} disabled={!parkingId || Boolean(initialSectorId)} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[var(--pf-color-onstreet-primary)] disabled:bg-slate-100">
               <option value="">Selecciona un área</option>
               {areas.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
             </select>
+            {initialSectorId ? <span className="text-xs text-slate-400">Ya definida desde la ficha del área.</span> : null}
           </label>
         ) : null}
 

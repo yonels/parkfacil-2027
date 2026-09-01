@@ -20,6 +20,12 @@ export async function PATCH(request, { params }) {
     const supabase = auth.db;
     const current = auth.parking;
     payload.companyId = current.companyId;
+    // Código de Estacionamiento/Proyecto (corrección funcional 2026-08-29):
+    // identidad estable una vez asignado desde el catálogo -- no se
+    // reasigna por edición. La UI ya lo muestra como solo lectura al
+    // editar; esto es la defensa de servidor equivalente (no confiar solo
+    // en que el frontend no lo modifique).
+    payload.code = current.code;
     if (current.type !== payload.type) return NextResponse.json({ error: "Cambia el tipo desde el configurador para conservar el historial.", code: "USE_TYPE_CHANGE_ENDPOINT" }, { status: 409 });
     if (payload.status === "ACTIVE" && current.status !== "ACTIVE") return NextResponse.json({ error: "Activa el estacionamiento desde la revisión final.", code: "USE_ACTIVATION_ENDPOINT" }, { status: 409 });
     const { data, error } = await supabase.from("parkings").update(parkingRowInput(payload)).eq("id", current.id).select("*").limit(1);

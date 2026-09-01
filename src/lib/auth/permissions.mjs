@@ -2,6 +2,11 @@ export const ROLES = Object.freeze({
   PLATFORM_ADMIN: "platform_admin",
   COMPANY_ADMIN: "company_admin",
   OPERATOR: "operator",
+  // Inspector ParkFacil On-Street (ver Etapa 2): consulta global de patentes +
+  // fiscalización, nunca administración. No es una membresía de empresa (sin
+  // company_id, ver contextCore.mjs) -- exactamente por eso su consulta de
+  // patentes nunca queda restringida por empresa/área/sector/calle/tramo.
+  INSPECTOR: "inspector",
 });
 
 export const PERMISSIONS = Object.freeze({
@@ -31,6 +36,11 @@ export const PERMISSIONS = Object.freeze({
   // Módulo On-Street QR (producto definitivo, con Webpay): /on-street-qr/*.
   ON_STREET_QR_READ: "on_street_qr:read",
   ON_STREET_QR_MANAGE: "on_street_qr:manage",
+  // Única operación del rol Inspector: consulta global de patentes On-Street
+  // + registro de fiscalizaciones. Deliberadamente una sola permission (no
+  // una por sub-acción): todas las operaciones del §3.2 de Etapa 2 forman un
+  // mismo bloque de trabajo de terreno, ninguna tiene sentido sin las demás.
+  INSPECTOR_USE: "inspector:use",
 });
 
 const ROLE_PERMISSIONS = Object.freeze({
@@ -60,6 +70,12 @@ const ROLE_PERMISSIONS = Object.freeze({
     PERMISSIONS.COUPONS_READ,
     PERMISSIONS.OPERATIONS_USE,
   ]),
+  // Ningún permiso administrativo: ni tarifas, ni usuarios, ni
+  // estacionamientos/áreas/sectores/calles, ni pagos -- exclusivamente lo que
+  // requiere operar en terreno. Cualquier endpoint que ya exija un permiso
+  // distinto (requirePermission) rechaza a Inspector automáticamente, sin
+  // necesidad de tocar ese endpoint (ver §3.2/§25 de Etapa 2).
+  [ROLES.INSPECTOR]: new Set([PERMISSIONS.INSPECTOR_USE]),
 });
 
 export function hasPermission(role, permission) {
@@ -102,6 +118,10 @@ const ROOT_ONLY_PREFIXES = [
   "/contratos",
   "/facturacion",
   "/modelo-gestion-modulos",
+  // Catálogo de códigos de Estacionamiento/Proyecto (corrección funcional
+  // 2026-08-29): administración exclusiva de Root, ver
+  // /api/administracion/codigos-estacionamiento (requirePlatformAdmin).
+  "/administracion",
   // Accesos directos de creación de Área/Calle/Tramo On Street: crean
   // estructura compartida entre empresas (parking_sectors/parking_streets/
   // parking_street_segments), por lo que quedan reservados a Root, aunque
@@ -134,6 +154,16 @@ export function canAccessPath({ portal, role, enabledProducts }, pathname) {
   if (portal === "terminal") {
     const terminalPath = pathname === "/pos" || pathname.startsWith("/pos/");
     return terminalPath && hasPermission(role, PERMISSIONS.OPERATIONS_USE);
+  }
+  // Portal Inspectores (Etapa 2): mismo patrón que Terminal -- un solo rol,
+  // un solo prefijo de ruta, sin restricción por producto/empresa (consulta
+  // global, ver §3.1). role===INSPECTOR nunca resuelve ningún otro portal
+  // (ver contextCore.mjs), así que este chequeo por sí solo ya es
+  // suficiente; hasPermission queda además como segunda comprobación
+  // explícita, igual que Terminal.
+  if (portal === "inspector") {
+    const inspectorPath = pathname === "/inspector" || pathname.startsWith("/inspector/");
+    return inspectorPath && role === ROLES.INSPECTOR && hasPermission(role, PERMISSIONS.INSPECTOR_USE);
   }
   if (role === ROLES.PLATFORM_ADMIN) {
     return portal === "root";

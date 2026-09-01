@@ -92,8 +92,11 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
     ? openSections
     : (typeof openSections === "string" && openSections ? [openSections] : []);
 
+  // Nivel 2 (módulos principales, p.ej. "Off Street"/"On Street"): Arial 15px/600,
+  // line-height 1.45 (ver AJUSTE VISUAL PUNTUAL — LEGIBILIDAD DEL SIDEBAR). Contraste
+  // del texto inactivo levemente mejorado (slate-600 -> slate-700).
   const linkClasses = (active) =>
-    `flex items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium transition ${active ? "bg-[#EEF4FF] text-[#3150D8] shadow-sm" : "text-slate-600 hover:bg-slate-100 hover:text-[#041E42]"}`;
+    `flex items-center gap-3 rounded-2xl px-3 py-3 text-[15px] font-semibold leading-[1.45] transition ${active ? "bg-[#EEF4FF] text-[#3150D8] shadow-sm" : "text-slate-700 hover:bg-slate-100 hover:text-[#041E42]"}`;
 
   const visibleItems = useMemo(() => {
     // Mismo criterio de visibilidad que ya se aplicaba solo a los ítems de
@@ -152,21 +155,25 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
     const activeClasses = branch
       ? "bg-[var(--pf-color-onstreet-tint)] text-[var(--pf-color-onstreet-primary-700)]"
       : "bg-[#EEF4FF] text-[#3150D8]";
+    // Contraste del texto inactivo levemente mejorado (slate-600 -> slate-700).
     const hoverClasses = branch
-      ? "text-slate-600 hover:bg-[var(--pf-color-onstreet-tint)] hover:text-[var(--pf-color-onstreet-primary-700)]"
-      : "text-slate-600 hover:bg-[#EEF4FF] hover:text-[#3150D8]";
+      ? "text-slate-700 hover:bg-[var(--pf-color-onstreet-tint)] hover:text-[var(--pf-color-onstreet-primary-700)]"
+      : "text-slate-700 hover:bg-[#EEF4FF] hover:text-[#3150D8]";
 
     if (child.children?.length) {
+      // Nivel 3 (segundo nivel del árbol, p.ej. "Proyectos On Street"): Arial 14px/600.
       const childKey = parentKey ? `${parentKey}/${child.label}` : child.label;
       const childExpanded = openTrees.includes(childKey);
       return (
         <div key={child.label} className="relative">
-          <button type="button" aria-label={`${childExpanded ? "Contraer" : "Expandir"} ${child.label}`} aria-expanded={childExpanded} onClick={() => toggleTree(childKey)} className={`relative flex w-full items-center gap-1 rounded-lg px-3 py-2 text-left text-xs font-medium transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${childActive ? activeClasses : hoverClasses}`}>
+          <button type="button" aria-label={`${childExpanded ? "Contraer" : "Expandir"} ${child.label}`} aria-expanded={childExpanded} onClick={() => toggleTree(childKey)} className={`relative flex w-full items-center gap-1 rounded-lg px-3 py-2 text-left text-[14px] font-semibold leading-[1.45] transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${childActive ? activeClasses : hoverClasses}`}>
             <span className="min-w-0 flex-1">{child.label}</span>
               <ChevronDown className={`h-3.5 w-3.5 transition ${childExpanded ? "rotate-180" : ""}`} />
           </button>
           {childExpanded ? (
-            <div className="relative ml-4 mt-0.5 space-y-0.5 border-l border-slate-300 pl-3">
+            // Sangría reducida moderadamente (ml-4 -> ml-3) para que las opciones
+            // finales (p.ej. "Nuevo proyecto") no queden demasiado desplazadas.
+            <div className="relative ml-3 mt-0.5 space-y-0.5 border-l border-slate-300 pl-3">
               {child.children.map((grandchild) => renderChild(grandchild, onNavigate, branch, childKey))}
             </div>
           ) : null}
@@ -174,8 +181,9 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
       );
     }
 
+    // Nivel 4 (opciones finales, p.ej. "Proyectos actuales"/"Nuevo proyecto"): Arial 14px/500.
     return (
-      <Link key={child.href} href={child.href} onClick={onNavigate} className={`relative block rounded-lg px-3 py-2 text-xs font-medium transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${childActive ? activeClasses : hoverClasses}`}>
+      <Link key={child.href} href={child.href} onClick={onNavigate} className={`relative block rounded-lg px-3 py-2 text-[14px] font-medium leading-[1.45] transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${childActive ? activeClasses : hoverClasses}`}>
         {child.label}
       </Link>
     );
@@ -200,7 +208,8 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
             <ChevronDown className={`h-4 w-4 transition ${expanded ? "rotate-180" : ""}`} />
           </button>
           {expanded ? (
-            <div className="relative ml-6 mt-1 space-y-0.5 border-l border-slate-300 pl-3">
+            // Sangría reducida moderadamente (ml-6 -> ml-4), ver renderChild.
+            <div className="relative ml-4 mt-1 space-y-0.5 border-l border-slate-300 pl-3">
               {item.children.map((child) => renderChild(child, onNavigate, onStreetItem, treeKey))}
             </div>
           ) : null}
@@ -256,7 +265,9 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
                   ? current.filter((id) => id !== section.id)
                   : [...current, section.id];
               })}
-              className={`flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-xs font-semibold uppercase tracking-[0.18em] transition ${containsActive ? "text-[#3150D8]" : "text-slate-500 hover:text-[#041E42]"}`}
+              // Nivel 1 (encabezado de sección, p.ej. "PLATAFORMA"): Arial 12px/700.
+              // Contraste del texto inactivo levemente mejorado (slate-500 -> slate-600).
+              className={`flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-[12px] font-bold uppercase leading-[1.45] tracking-[0.18em] transition ${containsActive ? "text-[#3150D8]" : "text-slate-600 hover:text-[#041E42]"}`}
             >
               <span>{section.title}</span>
               <ChevronDown className={`h-4 w-4 transition ${expanded ? "rotate-180" : ""}`} />
@@ -288,7 +299,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
 
   return (
     <>
-      <aside className={`relative sticky top-0 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white px-4 py-5 shadow-sm lg:flex ${collapsed ? "w-24" : "w-72"}`}>
+      <aside className={`pf-sidebar relative sticky top-0 hidden h-screen shrink-0 flex-col overflow-hidden border-r border-slate-200 bg-white px-4 py-5 shadow-sm lg:flex ${collapsed ? "w-24" : "w-72"}`}>
         <div className="flex items-center justify-between gap-3">
           <Link href="/" onClick={onHomeNavigate} aria-label="Ir al inicio" className="flex items-center gap-3 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3150D8] focus-visible:ring-offset-2">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#041E42] text-lg font-semibold text-white">P</div>
@@ -392,7 +403,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
 
       {mobileOpen ? (
         <div className="fixed inset-0 z-40 bg-slate-950/40 lg:hidden" onClick={() => setMobileOpen(false)}>
-          <div className="h-full w-80 max-w-[85%] bg-white p-4 shadow-xl" onClick={(event) => event.stopPropagation()}>
+          <div className="pf-sidebar h-full w-80 max-w-[85%] bg-white p-4 shadow-xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex items-center justify-between">
               <Link href="/" onClick={() => setMobileOpen(false)} aria-label="Ir al inicio" className="flex items-center gap-3 rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3150D8] focus-visible:ring-offset-2">
                 <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[#041E42] text-sm font-semibold text-white">P</div>

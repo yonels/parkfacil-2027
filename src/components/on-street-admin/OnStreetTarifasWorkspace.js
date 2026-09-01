@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, BadgeDollarSign } from "lucide-react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import ParkingRatesManager from "@/components/estacionamientos/ParkingRatesManager";
@@ -10,12 +11,31 @@ import ParkingRatesManager from "@/components/estacionamientos/ParkingRatesManag
 // monta dentro de /on-street-qr para no atravesar la superficie visual
 // /estacionamientos/*, cuya navegación corresponde al producto Off Street.
 export default function OnStreetTarifasWorkspace() {
+  const router = useRouter();
+  // Corrección UX/funcional "Proyectos On Street" (2026-08-29): al llegar
+  // desde la ficha de un Proyecto (/on-street-qr/proyectos/[id]?parkingId=),
+  // esta pantalla debe abrir DIRECTO la tarifa de ESE estacionamiento -- sin
+  // volver a mostrar el selector genérico (que antes obligaba a re-elegir y
+  // fue la causa real de perder el contexto del Proyecto). Si parkingId no
+  // existe, no es ON_STREET o no está autorizado para este usuario, se
+  // muestra un error explícito: JAMÁS cae de vuelta al selector ni a "el
+  // primer estacionamiento" en silencio.
+  // Se lee directamente de window.location (en vez de useSearchParams(), que
+  // exige un límite Suspense y rompía el prerender estático de esta ruta) --
+  // mismo patrón ya usado en OnStreetWorkspace.js para ?segmentId=/?parkingId=.
+  const [parkingIdParam, setParkingIdParam] = useState(undefined); // undefined = aún no leído
+  useEffect(() => {
+    const timer = window.setTimeout(() => setParkingIdParam(new URLSearchParams(window.location.search).get("parkingId")), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
   const [parkings, setParkings] = useState([]);
   const [selectedParking, setSelectedParking] = useState(null);
+  const [contextError, setContextError] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const cargar = useCallback(async () => {
+    if (parkingIdParam === undefined) return; // aún no se leyó window.location -- evita una carga extra
     setLoading(true);
     setError("");
     try {
@@ -23,25 +43,51 @@ export default function OnStreetTarifasWorkspace() {
       const body = await response.json().catch(() => ({}));
       if (response.status === 401) throw new Error("SESSION_EXPIRED");
       if (!response.ok) throw new Error(body.error || "No fue posible cargar los estacionamientos On Street.");
-      setParkings(body.data?.parkings || []);
+      const loaded = body.data?.parkings || [];
+      setParkings(loaded);
+      if (parkingIdParam) {
+        const match = loaded.find((p) => p.id === parkingIdParam);
+        if (match) { setSelectedParking(match); setContextError(""); }
+        else setContextError("Este Proyecto no existe, no es On Street, o no tienes autorización para administrarlo.");
+      }
     } catch (cause) {
       setError(cause.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [parkingIdParam]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => cargar(), 0);
     return () => window.clearTimeout(timer);
   }, [cargar]);
 
+  if (parkingIdParam && contextError) {
+    return (
+      <section className="space-y-4">
+        <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{contextError}</p>
+      </section>
+    );
+  }
+
+  // parkingIdParam: undefined = aún no se leyó window.location; string = viene
+  // de un Proyecto; null = confirmado sin contexto (picker genérico de abajo).
+  if (parkingIdParam !== null && loading) {
+    return <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">Cargando…</div>;
+  }
+
   if (selectedParking) {
     return (
       <section className="space-y-5">
-        <button type="button" onClick={() => setSelectedParking(null)} className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--pf-color-onstreet-primary)]">
-          <ArrowLeft className="h-4 w-4" /> Volver a estacionamientos On Street
-        </button>
+        {parkingIdParam ? (
+          <button type="button" onClick={() => router.back()} className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--pf-color-onstreet-primary)]">
+            <ArrowLeft className="h-4 w-4" /> Volver
+          </button>
+        ) : (
+          <button type="button" onClick={() => setSelectedParking(null)} className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--pf-color-onstreet-primary)]">
+            <ArrowLeft className="h-4 w-4" /> Volver a estacionamientos On Street
+          </button>
+        )}
         <div className="rounded-2xl border border-[var(--pf-color-onstreet-border)] bg-[var(--pf-color-onstreet-tint)] px-4 py-3 text-sm text-[var(--pf-color-onstreet-primary-700)]">
           Configuración tarifaria QR On Street · {selectedParking.companyName}
         </div>

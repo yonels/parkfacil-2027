@@ -11,7 +11,7 @@ export default function Page() {
   return (
     <AppShell title="Crear tramo On Street" description="Acceso directo — Tramo">
       <div className="space-y-6">
-        <PageHeader title="Crear tramo" description="Selecciona el estacionamiento, el área y la calle On Street." backHref="/on-street-qr" backLabel="Volver a On Street" />
+        <PageHeader title="Crear tramo" description="Selecciona el estacionamiento, el área y la calle On Street." backToHistory backLabel="Volver" />
         <OnStreetQuickCreate kind="segment" />
       </div>
     </AppShell>

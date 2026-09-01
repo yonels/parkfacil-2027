@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { classifyParkingPersistenceError, sanitizeParkingInput, validateParkingInput } from "@/lib/estacionamientos.mjs";
-import { listParkings, parkingRowInput } from "@/lib/estacionamientosRepository";
+import { listParkings, createParkingWithCatalogCode, CatalogCodeNotAvailableError } from "@/lib/estacionamientosRepository";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { assignedParkingIds } from "@/lib/auth/parkingAuthorization";
 import { parkingQueryScope } from "@/lib/auth/parkingAuthorizationCore.mjs";
@@ -46,8 +46,14 @@ export async function POST(request) {
     const company = await supabase.from("companies").select("id,status,relationship_type").eq("id", payload.companyId).maybeSingle();
     if (company.error) throw company.error;
     if (!company.data || company.data.status !== "active" || company.data.relationship_type !== "client") return NextResponse.json({ error: "No se encontró la empresa solicitada.", code: "RESOURCE_NOT_FOUND" }, { status: 404 });
-    const { data, error } = await supabase.from("parkings").insert(parkingRowInput(payload)).select("*").limit(1);
-    if (error) throw error;
-    return NextResponse.json({ data: data[0] }, { status: 201 });
-  } catch (error) { return fail(error, "No fue posible crear el estacionamiento."); }
+    // Código de Estacionamiento/Proyecto desde catálogo (corrección
+    // funcional 2026-08-29): ya no es un insert directo -- createParkingWithCatalogCode
+    // valida y consume el código del catálogo, con respaldo transaccional
+    // contra condición de carrera (ver estacionamientosRepository.js).
+    const parking = await createParkingWithCatalogCode(supabase, payload);
+    return NextResponse.json({ data: parking }, { status: 201 });
+  } catch (error) {
+    if (error instanceof CatalogCodeNotAvailableError) return NextResponse.json({ error: "El código seleccionado ya fue asignado. Selecciona otro.", code: "CATALOG_CODE_NOT_AVAILABLE" }, { status: 409 });
+    return fail(error, "No fue posible crear el estacionamiento.");
+  }
 }

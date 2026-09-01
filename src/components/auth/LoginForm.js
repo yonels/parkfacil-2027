@@ -12,6 +12,7 @@ export default function LoginForm({
   loginScope = "default",
   defaultDestination = "/",
   forcePosDestination = false,
+  forceInspectorDestination = false,
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -28,6 +29,8 @@ export default function LoginForm({
     const requestedDestination = getSafeDestination(searchParams.get("next"));
     const destination = forcePosDestination
       ? (requestedDestination === "/pos" || requestedDestination.startsWith("/pos/") ? requestedDestination : "/pos")
+      : forceInspectorDestination
+      ? (requestedDestination === "/inspector" || requestedDestination.startsWith("/inspector/") ? requestedDestination : "/inspector")
       : (requestedDestination === "/" ? defaultDestination : requestedDestination);
 
     try {
@@ -42,13 +45,14 @@ export default function LoginForm({
         headers: {
           "content-type": "application/json",
           ...(tipoAcceso === "terminal" ? { "x-parkfacil-portal": "terminal" } : {}),
+          ...(tipoAcceso === "inspector" ? { "x-parkfacil-portal": "inspector" } : {}),
         },
         body: JSON.stringify({ accessToken: data.session?.access_token, scope: loginScope }),
       });
       const sessionPayload = await sessionResponse.json().catch(() => ({}));
       if (!sessionResponse.ok) {
         await supabase.auth.signOut();
-        const nombrePortal = tipoAcceso === "cliente" ? "Portal Cliente" : tipoAcceso === "terminal" ? "ParkFacil Terminal" : "Portal Root";
+        const nombrePortal = tipoAcceso === "cliente" ? "Portal Cliente" : tipoAcceso === "terminal" ? "ParkFacil Terminal" : tipoAcceso === "inspector" ? "ParkFacil Inspectores" : "Portal Root";
         throw new Error(sessionPayload.error || `Esta cuenta no puede acceder a ${nombrePortal}.`);
       }
       // Portal Cliente con destino por defecto ("/"): en vez de la pantalla

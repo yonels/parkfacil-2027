@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatChileDateTime, formatCountdownClock, formatDuration, isPublicCode, isPublicToken, localChileanMobile, maskPhone, normalizeChileanMobile,normalizePurchasedMinutes,remainingSeconds,simulatedAmount,MIN_PURCHASED_MINUTES,MAX_PURCHASED_MINUTES } from "./onStreetPilot.mjs";
+import { formatChileDateTime, formatChileanPhoneForDisplay, formatCountdownClock, formatDuration, isPublicCode, isPublicToken, localChileanMobile, maskPhone, normalizeChileanMobile,normalizePurchasedMinutes,remainingSeconds,simulatedAmount,MIN_PURCHASED_MINUTES,MAX_PURCHASED_MINUTES } from "./onStreetPilot.mjs";
 import { normalizePlate } from "./dataEntry.mjs";
 import { publicSmsMessage, secureSessionUrl } from "./onStreetSms.mjs";
 test("normaliza móviles chilenos sin aceptar otros formatos",()=>{assert.equal(normalizeChileanMobile("+56 9 1234 5678"),"+56912345678");assert.equal(normalizeChileanMobile("912345678"),"+56912345678");assert.equal(normalizeChileanMobile("221234567"),null);assert.equal(normalizeChileanMobile("91234"),null);});
@@ -20,6 +20,27 @@ test("formatea comprobantes siempre en America/Santiago", () => {
 });
 test("reutiliza la normalización común de patente",()=>{assert.equal(normalizePlate("abcd12",{truncate:false}),"ABCD12");assert.equal(normalizePlate("AB-CD-12",{truncate:false}),"ABCD12");assert.equal(normalizePlate(" ab cd 12 ",{truncate:false}),"ABCD12");assert.equal(normalizePlate("...---",{truncate:false}),"");assert.equal(normalizePlate("ABCDEFGHI",{truncate:false}),"ABCDEFGHI");});
 test("enmascara el teléfono administrativo",()=>assert.equal(maskPhone("+56912345678"),"+569 **** 5678"));
+
+// Letrero QR On Street (2026-08-30): formatChileanPhoneForDisplay reutiliza
+// normalizeChileanMobile -- misma regla de reconocimiento, nunca duplica +56.
+test("formatChileanPhoneForDisplay: móvil chileno reconocido en cualquier formato de entrada -> siempre '+56 9 XXXX XXXX'", () => {
+  for (const value of ["+56912345678", "912345678", "56912345678", "+56 9 1234 5678", "+56-912345678"]) {
+    assert.equal(formatChileanPhoneForDisplay(value), "+56 9 1234 5678", value);
+  }
+});
+test("formatChileanPhoneForDisplay: nunca duplica +56 (nunca produce '+56 +56 ...' ni '+5656...')", () => {
+  assert.doesNotMatch(formatChileanPhoneForDisplay("+56912345678"), /\+56.*\+56|5656/);
+});
+test("formatChileanPhoneForDisplay: un fijo chileno, un número de otro país, o texto sin teléfono se muestran TAL CUAL -- nunca se les fuerza el formato de móvil chileno", () => {
+  assert.equal(formatChileanPhoneForDisplay("+56 2 2345 6789"), "+56 2 2345 6789");
+  assert.equal(formatChileanPhoneForDisplay("+57 4 3210 9876"), "+57 4 3210 9876");
+  assert.equal(formatChileanPhoneForDisplay("Sin teléfono informado"), "Sin teléfono informado");
+});
+test("formatChileanPhoneForDisplay: vacío/nulo -> null (no fabrica un teléfono)", () => {
+  assert.equal(formatChileanPhoneForDisplay(""), null);
+  assert.equal(formatChileanPhoneForDisplay(null), null);
+  assert.equal(formatChileanPhoneForDisplay(undefined), null);
+});
 test("formatea duración sin dinero ni tarifas",()=>{assert.equal(formatDuration(8),"8 s");assert.equal(formatDuration(125),"2 min 5 s");assert.equal(formatDuration(3720),"1 h 2 min");});
 test("valida identificadores públicos opacos",()=>{assert.equal(isPublicCode("12345678901234567890"),true);assert.equal(isPublicCode("corto"),false);assert.equal(isPublicToken("123e4567-e89b-42d3-a456-426614174000"),true);assert.equal(isPublicToken("1"),false);});
 test("valida el ingreso libre de minutos en el rango 1-1440",()=>{assert.equal(MIN_PURCHASED_MINUTES,1);assert.equal(MAX_PURCHASED_MINUTES,1440);assert.equal(normalizePurchasedMinutes(75),75);assert.equal(normalizePurchasedMinutes(1),1);assert.equal(normalizePurchasedMinutes(1440),1440);assert.equal(normalizePurchasedMinutes(0),null);assert.equal(normalizePurchasedMinutes(1441),null);assert.equal(normalizePurchasedMinutes(721),721);assert.equal(normalizePurchasedMinutes(1.5),null);});

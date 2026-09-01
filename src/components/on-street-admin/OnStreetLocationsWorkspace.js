@@ -30,6 +30,16 @@ export default function OnStreetLocationsWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busqueda, setBusqueda] = useState("");
+  // Corrección UX/funcional "Proyectos On Street" (2026-08-29): la ficha de
+  // un Proyecto enlaza aquí con ?parkingId=... -- antes se ignoraba por
+  // completo (mostraba TODAS las ubicaciones de todos los proyectos). Se lee
+  // de window.location (mismo patrón que OnStreetWorkspace.js) y filtra por
+  // coincidencia exacta de parking_id, nunca por texto/nombre.
+  const [parkingIdFiltro, setParkingIdFiltro] = useState(null);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setParkingIdFiltro(new URLSearchParams(window.location.search).get("parkingId")), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const [preview, setPreview] = useState(null);
   const [editando, setEditando] = useState(null);
@@ -59,10 +69,11 @@ export default function OnStreetLocationsWorkspace() {
   }, [cargar]);
 
   const resultados = useMemo(() => {
+    const porProyecto = parkingIdFiltro ? rows.filter((row) => (row.parking_id || row.location?.parking?.id) === parkingIdFiltro) : rows;
     const normalized = normalize(busqueda);
-    if (!normalized) return rows;
-    return rows.filter((row) => [row.label, row.public_code, row.location?.parking?.company_name, row.location?.parking?.name, row.location?.area?.name, row.location?.street?.name, row.location?.segment?.name].some((value) => normalize(value).includes(normalized)));
-  }, [busqueda, rows]);
+    if (!normalized) return porProyecto;
+    return porProyecto.filter((row) => [row.label, row.public_code, row.location?.parking?.company_name, row.location?.parking?.name, row.location?.area?.name, row.location?.street?.name, row.location?.segment?.name].some((value) => normalize(value).includes(normalized)));
+  }, [busqueda, rows, parkingIdFiltro]);
 
   function abrirEdicion(row) {
     setEditDraft({ label: row.label || "", status: row.status });

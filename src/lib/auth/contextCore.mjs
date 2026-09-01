@@ -18,6 +18,15 @@ export async function resolveAuthenticatedContext({ user, portal, loadMembership
     if (portal !== "root") throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al Portal Root.", { userId: user.id, companyId: null, portal, role: ROLES.PLATFORM_ADMIN });
     return { userId: user.id, email: user.email || "", portal, role: ROLES.PLATFORM_ADMIN, companyId: null, enabledProducts: resolveEnabledProducts(ROLES.PLATFORM_ADMIN, null), membership: null };
   }
+  // Inspector (Etapa 2): igual que platform_admin, resuelto por
+  // app_metadata.role -- deliberadamente SIN loadMembership/company_id, para
+  // que la consulta de patentes nunca quede restringida por empresa (ver
+  // §3.1 de Etapa 2). enabledProducts vacío: Inspector no usa el gating por
+  // producto Off/On Street, portal "inspector" no lo evalúa (ver canAccessPath).
+  if (metadataRole === ROLES.INSPECTOR) {
+    if (portal !== "inspector") throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al portal de Inspectores.", { userId: user.id, companyId: null, portal, role: ROLES.INSPECTOR });
+    return { userId: user.id, email: user.email || "", portal, role: ROLES.INSPECTOR, companyId: null, enabledProducts: [], membership: null };
+  }
 
   const membership = await loadMembership(user.id);
   if (!membership || membership.status !== "active") {

@@ -22,7 +22,23 @@ function initialValues(kind, entity) {
   return values;
 }
 
-export default function StructureEntityForm({ kind, parking, parent = null, entity = null }) {
+// cancelHrefOverride/onSaved (§2/§3 de la reorganización On Street
+// 2026-08-28): permiten envolver este mismo formulario -- misma validación,
+// mismo endpoint, mismo componente -- desde un contexto ajeno a
+// /estacionamientos (p. ej. la ficha On Street de Área/Calle en
+// /on-street-qr/...), sin que el "Cancelar" ni el éxito del guardado saquen
+// al usuario de vuelta al árbol Off Street. Sin estas props, el
+// comportamiento es IDÉNTICO al de siempre (cancelHref calculado igual que
+// antes, onSaved por defecto navega a /estacionamientos/...) -- cero riesgo
+// para los llamadores existentes (StructureFormRoute).
+// onCancel (cierre integral del flujo "Proyectos On Street" 2026-08-30):
+// causa REAL del bug "Cancelar cierra el wizard completo". El wizard ya
+// pasaba cancelHref={null} esperando "sin navegación", pero cancelHref=null
+// simplemente cae al defaultCancelHref (una URL real de Off Street) --
+// "Cancelar" seguía siendo un <Link> de navegación. Con onCancel presente,
+// el botón pasa a ser un callback puro (cierra SOLO el modal hijo); sin
+// onCancel, comportamiento IDÉNTICO al de siempre.
+export default function StructureEntityForm({ kind, parking, parent = null, entity = null, cancelHref: cancelHrefOverride = null, onSaved = null, onCancel = null }) {
   const router = useRouter();
   const editing = Boolean(entity);
   const [values, setValues] = useState(() => initialValues(kind, entity));
@@ -32,7 +48,8 @@ export default function StructureEntityForm({ kind, parking, parent = null, enti
   const set = (field, value) => setValues((current) => ({ ...current, [field]: value }));
   const parentPath = kind === "street" ? `sectores/${parent.id}/calles` : kind === "zone" ? `niveles/${parent.id}/zonas` : `${kind === "sector" ? "sectores" : "niveles"}`;
   const endpoint = `/api/estacionamientos/${parking.code}/${parentPath}${editing ? `/${entity.id}` : ""}`;
-  const cancelHref = `/estacionamientos/${parking.code}${parent ? `/${kind === "street" ? `sectores/${parent.id}` : `niveles/${parent.id}`}` : ""}`;
+  const defaultCancelHref = `/estacionamientos/${parking.code}${parent ? `/${kind === "street" ? `sectores/${parent.id}` : `niveles/${parent.id}`}` : ""}`;
+  const cancelHref = cancelHrefOverride || defaultCancelHref;
 
   async function submit(event) {
     event.preventDefault();
@@ -48,8 +65,12 @@ export default function StructureEntityForm({ kind, parking, parent = null, enti
       const response = await authenticatedFetch(endpoint, request);
       const body = await response.json().catch(() => null);
       if (!response.ok) throw new Error(body?.error || "No fue posible guardar.");
-      router.push(creatingLevel ? `/estacionamientos/${parking.code}/niveles/${body.data.id}?created=${encodeURIComponent(body.data.code)}` : cancelHref);
-      router.refresh();
+      if (onSaved) {
+        onSaved(body.data);
+      } else {
+        router.push(creatingLevel ? `/estacionamientos/${parking.code}/niveles/${body.data.id}?created=${encodeURIComponent(body.data.code)}` : cancelHref);
+        router.refresh();
+      }
     } catch (error) {
       setRequestError(error.message);
     } finally {
@@ -92,7 +113,10 @@ export default function StructureEntityForm({ kind, parking, parent = null, enti
           </tbody>
         </table>
       </div>
-      <div className="mt-6 flex justify-end gap-3"><Link href={cancelHref} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold">Cancelar</Link><button disabled={submitting} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{submitting ? (editing ? "Modificando nivel…" : "Creando nivel…") : editing ? "Modificar nivel" : "Crear nivel"}</button></div>
+      <div className="mt-6 flex justify-end gap-3">
+        {onCancel ? <button type="button" onClick={onCancel} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold">Cancelar</button> : <Link href={cancelHref} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold">Cancelar</Link>}
+        <button disabled={submitting} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{submitting ? (editing ? "Modificando nivel…" : "Creando nivel…") : editing ? "Modificar nivel" : "Crear nivel"}</button>
+      </div>
     </form>;
   }
 
@@ -108,7 +132,10 @@ export default function StructureEntityForm({ kind, parking, parent = null, enti
       {(kind === "sector" || kind === "level" || kind === "zone") && <Field label="Descripción"><textarea maxLength={kind === "level" ? 500 : undefined} rows="3" value={values.description ?? ""} onChange={(e) => set("description", e.target.value)} className={inputClass} /></Field>}
       {kind !== "level" && <Field label="Observaciones"><textarea rows="3" value={values.notes ?? ""} onChange={(e) => set("notes", e.target.value)} className={inputClass} /></Field>}
     </div>
-    <div className="mt-6 flex justify-end gap-3"><Link href={cancelHref} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold">Cancelar</Link><button disabled={submitting} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{submitting ? (editing ? "Modificando…" : "Creando…") : editing ? "Modificar" : "Crear"}</button></div>
+    <div className="mt-6 flex justify-end gap-3">
+      {onCancel ? <button type="button" onClick={onCancel} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold">Cancelar</button> : <Link href={cancelHref} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold">Cancelar</Link>}
+      <button disabled={submitting} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{submitting ? (editing ? "Modificando…" : "Creando…") : editing ? "Modificar" : "Crear"}</button>
+    </div>
   </form>;
 }
 

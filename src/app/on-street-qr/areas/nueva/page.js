@@ -10,7 +10,7 @@ export default function Page() {
   return (
     <AppShell title="Crear área On Street" description="Acceso directo — Área">
       <div className="space-y-6">
-        <PageHeader title="Crear área" description="Selecciona el estacionamiento On Street." backHref="/on-street-qr" backLabel="Volver a On Street" />
+        <PageHeader title="Crear área" description="Selecciona el estacionamiento On Street." backToHistory backLabel="Volver" />
         <OnStreetQuickCreate kind="area" />
       </div>
     </AppShell>

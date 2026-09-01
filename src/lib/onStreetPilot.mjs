@@ -25,6 +25,24 @@ export function maskPhone(phone) {
   return /^\+569\d{8}$/.test(phone || "") ? `${phone.slice(0, 4)} **** ${phone.slice(-4)}` : "—";
 }
 
+// Formatea un teléfono de CONTACTO (companies.phone -- no confundir con
+// phone_normalized de sesiones On Street, +569XXXXXXXX sin espacios,
+// almacenamiento) para mostrarlo en el letrero QR: "Modificación letrero QR
+// On Street" 2026-08-30. Reutiliza normalizeChileanMobile (ya existente,
+// misma regla de reconocimiento/anti-duplicado de +56) -- solo agrega el
+// espaciado de exhibición. Los datos reales de companies.phone hoy vienen
+// en formatos mixtos (chilenos, colombianos, o texto sin teléfono
+// informado): si no es un móvil chileno reconocible, se muestra tal cual,
+// sin inventar un formato que no corresponde.
+export function formatChileanPhoneForDisplay(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return null;
+  const normalized = normalizeChileanMobile(trimmed); // "+56912345678" o null
+  if (!normalized) return trimmed;
+  const local = normalized.slice(3); // "912345678"
+  return `+56 ${local.slice(0, 1)} ${local.slice(1, 5)} ${local.slice(5, 9)}`;
+}
+
 export function formatDuration(seconds) {
   const total = Math.max(0, Number(seconds) || 0);
   const hours = Math.floor(total / 3600);
