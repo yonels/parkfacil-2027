@@ -121,6 +121,17 @@ export default function ParkFacilDataGrid({
   onPageChange,
   onPageSizeChange,
   pageSizeOptions = [25, 50, 100],
+  // renderMobileCard (2026-09-01, "cards móviles reutilizables"): función
+  // OPCIONAL y retrocompatible -- (row) => ReactNode. Si no se pasa, el
+  // comportamiento es IDÉNTICO al de siempre (tabla visible en todos los
+  // tamaños, con su propio scroll horizontal interno, ya corregido en el
+  // fix responsive anterior). Si se pasa, por debajo de "lg" se reemplaza
+  // la tabla por una lista de tarjetas (una por fila de `sortedRows`, ya
+  // filtradas/ordenadas/buscadas -- ningún dato ni lógica se duplica), y
+  // desde "lg" la tabla sigue exactamente igual. La navegación/acción de
+  // cada tarjeta es responsabilidad de quien la renderiza (mismo patrón
+  // que columns[].render), no de este componente.
+  renderMobileCard,
 }) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState({ key: null, direction: null });
@@ -130,6 +141,7 @@ export default function ParkFacilDataGrid({
   const [visibleKeys, setVisibleKeys] = useState(columns.map((column) => column.key));
   const [selectedIds, setSelectedIds] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const allCheckboxRef = useRef(null);
   const liveWidthRef = useRef({});
 
@@ -377,57 +389,126 @@ export default function ParkFacilDataGrid({
           </span>
           {!serverMode ? <span className="rounded-full bg-[#F5F9FF] px-3 py-1.5 font-semibold text-[#3150D8]">{selectedSet.size} seleccionadas</span> : null}
 
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setMenuOpen((current) => !current)}
-              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold"
-            >
-              <LayoutList className="h-3.5 w-3.5" /> Columnas
+          {/* Desktop (>=lg): controles inline, comportamiento idéntico al de siempre. */}
+          <div className="hidden items-center gap-2 lg:flex">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((current) => !current)}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold"
+              >
+                <LayoutList className="h-3.5 w-3.5" /> Columnas
+              </button>
+              {menuOpen ? (
+                <div className="absolute right-0 z-30 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
+                  {orderedColumns.map((column) => {
+                    if (column.key === "_selection") return null;
+                    const visible = visibleKeys.includes(column.key);
+                    const canHide = !column.required;
+                    return (
+                      <button
+                        key={column.key}
+                        type="button"
+                        disabled={!canHide}
+                        onClick={() => canHide && toggleVisibleColumn(column.key)}
+                        className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <span>{column.label}</span>
+                        <span className={`inline-flex h-5 w-5 items-center justify-center rounded border ${visible ? "border-[#3150D8] bg-[#3150D8] text-white" : "border-slate-300 text-transparent"}`}>
+                          <Check className="h-3.5 w-3.5" />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+
+            <button type="button" onClick={resetColumns} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold" title="Vuelve el orden, ancho y visibilidad de columnas a los valores por defecto">
+              <RotateCcw className="h-3.5 w-3.5" /> Restablecer columnas
             </button>
-            {menuOpen ? (
-              <div className="absolute right-0 z-30 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
-                {orderedColumns.map((column) => {
-                  if (column.key === "_selection") return null;
-                  const visible = visibleKeys.includes(column.key);
-                  const canHide = !column.required;
-                  return (
-                    <button
-                      key={column.key}
-                      type="button"
-                      disabled={!canHide}
-                      onClick={() => canHide && toggleVisibleColumn(column.key)}
-                      className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <span>{column.label}</span>
-                      <span className={`inline-flex h-5 w-5 items-center justify-center rounded border ${visible ? "border-[#3150D8] bg-[#3150D8] text-white" : "border-slate-300 text-transparent"}`}>
-                        <Check className="h-3.5 w-3.5" />
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+
+            {!serverMode ? (
+              <>
+                <button type="button" onClick={exportCsv} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold">
+                  <Download className="h-3.5 w-3.5" /> CSV
+                </button>
+                <button type="button" onClick={exportXlsx} className="inline-flex items-center gap-1 rounded-full bg-[#3150D8] px-3 py-1.5 font-semibold text-white">
+                  <Download className="h-3.5 w-3.5" /> XLSX
+                </button>
+              </>
             ) : null}
           </div>
 
-          <button type="button" onClick={resetColumns} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold" title="Vuelve el orden, ancho y visibilidad de columnas a los valores por defecto">
-            <RotateCcw className="h-3.5 w-3.5" /> Restablecer columnas
-          </button>
+          {/* Mobile/tablet (<lg): Columnas/Restablecer/CSV/XLSX agrupados bajo
+             "Más" -- mismas acciones, mismos manejadores, solo agrupadas para
+             no competir por espacio con Buscar/filas en pantallas angostas. */}
+          <div className="relative lg:hidden">
+            <button
+              type="button"
+              onClick={() => setMoreOpen((current) => !current)}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold"
+              aria-expanded={moreOpen}
+            >
+              <LayoutList className="h-3.5 w-3.5" /> Más
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${moreOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+            </button>
+            {moreOpen ? (
+              <div className="absolute right-0 z-30 mt-2 w-64 space-y-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen((current) => !current)}
+                    className="flex w-full items-center gap-1 rounded-xl px-2 py-2 text-left text-sm font-semibold hover:bg-slate-50"
+                  >
+                    <LayoutList className="h-3.5 w-3.5" /> Columnas
+                  </button>
+                  {menuOpen ? (
+                    <div className="mt-1 space-y-1 border-t border-slate-100 pt-1">
+                      {orderedColumns.map((column) => {
+                        if (column.key === "_selection") return null;
+                        const visible = visibleKeys.includes(column.key);
+                        const canHide = !column.required;
+                        return (
+                          <button
+                            key={column.key}
+                            type="button"
+                            disabled={!canHide}
+                            onClick={() => canHide && toggleVisibleColumn(column.key)}
+                            className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <span>{column.label}</span>
+                            <span className={`inline-flex h-5 w-5 items-center justify-center rounded border ${visible ? "border-[#3150D8] bg-[#3150D8] text-white" : "border-slate-300 text-transparent"}`}>
+                              <Check className="h-3.5 w-3.5" />
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
 
-          {!serverMode ? (
-            <>
-              <button type="button" onClick={exportCsv} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold">
-                <Download className="h-3.5 w-3.5" /> CSV
-              </button>
-              <button type="button" onClick={exportXlsx} className="inline-flex items-center gap-1 rounded-full bg-[#3150D8] px-3 py-1.5 font-semibold text-white">
-                <Download className="h-3.5 w-3.5" /> XLSX
-              </button>
-            </>
-          ) : null}
+                <button type="button" onClick={resetColumns} className="flex w-full items-center gap-1 rounded-xl px-2 py-2 text-left text-sm font-semibold hover:bg-slate-50">
+                  <RotateCcw className="h-3.5 w-3.5" /> Restablecer columnas
+                </button>
+
+                {!serverMode ? (
+                  <>
+                    <button type="button" onClick={exportCsv} className="flex w-full items-center gap-1 rounded-xl px-2 py-2 text-left text-sm font-semibold hover:bg-slate-50">
+                      <Download className="h-3.5 w-3.5" /> CSV
+                    </button>
+                    <button type="button" onClick={exportXlsx} className="flex w-full items-center gap-1 rounded-xl bg-[#F5F9FF] px-2 py-2 text-left text-sm font-semibold text-[#3150D8] hover:bg-blue-50">
+                      <Download className="h-3.5 w-3.5" /> XLSX
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 
-      <div className="overflow-auto">
+      <div className={renderMobileCard ? "hidden overflow-auto lg:block" : "overflow-auto"}>
         <table className="min-w-full border-collapse text-left text-sm">
           <thead className="sticky top-0 z-20 bg-[#F7FAFF] text-[#041E42]">
             <tr>
@@ -568,6 +649,17 @@ export default function ParkFacilDataGrid({
           </tbody>
         </table>
       </div>
+
+      {renderMobileCard ? (
+        <div className="grid gap-3 p-4 lg:hidden">
+          {sortedRows.map((row) => (
+            <div key={String(row[rowIdKey])}>{renderMobileCard(row)}</div>
+          ))}
+          {!sortedRows.length ? (
+            <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">{emptyMessage}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {serverMode && pagination ? (
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs text-slate-600">
