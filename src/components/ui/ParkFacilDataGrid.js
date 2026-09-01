@@ -387,7 +387,13 @@ export default function ParkFacilDataGrid({
           <span className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold">
             {serverMode && pagination ? `Mostrando ${pagination.totalRows ? (pagination.page - 1) * pagination.pageSize + 1 : 0}–${Math.min(pagination.page * pagination.pageSize, pagination.totalRows)} de ${pagination.totalRows.toLocaleString("es-CL")}` : `${sortedRows.length} filas`}
           </span>
-          {!serverMode ? <span className="rounded-full bg-[#F5F9FF] px-3 py-1.5 font-semibold text-[#3150D8]">{selectedSet.size} seleccionadas</span> : null}
+          {/* En móvil, cuando existe vista de tarjetas (renderMobileCard), la
+             tabla con checkboxes de selección está oculta -- el contador
+             "seleccionadas" no aporta valor ahí, así que se oculta solo <lg
+             y solo para grillas que ya usan tarjetas (2026-09-01, "cabecera
+             móvil compacta"). Ninguna otra grilla ni el desktop cambian: ni
+             el estado `selectedSet` ni sus manejadores se tocan. */}
+          {!serverMode ? <span className={`rounded-full bg-[#F5F9FF] px-3 py-1.5 font-semibold text-[#3150D8] ${renderMobileCard ? "hidden lg:inline-flex" : ""}`}>{selectedSet.size} seleccionadas</span> : null}
 
           {/* Desktop (>=lg): controles inline, comportamiento idéntico al de siempre. */}
           <div className="hidden items-center gap-2 lg:flex">

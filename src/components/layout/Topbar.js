@@ -21,7 +21,7 @@ const BANNER_SOURCES = [
   "/images/inicio-parkfacil.png",
 ];
 
-export default function Topbar({ title, description, onMenuClick, userContext, sessionResolved, onBack }) {
+export default function Topbar({ title, description, onMenuClick, userContext, sessionResolved, onBack, hideBannerOnMobile = false }) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const [bannerSourceIndex, setBannerSourceIndex] = useState(0);
@@ -81,7 +81,7 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
           </div>
         </div>
       </div>
-      <div className="mx-auto mt-4 w-full max-w-7xl overflow-hidden rounded-2xl border border-[#5271E8] bg-[#3150D8] shadow-sm">
+      <div className={`mx-auto mt-4 w-full max-w-7xl overflow-hidden rounded-2xl border border-[#5271E8] bg-[#3150D8] shadow-sm ${hideBannerOnMobile ? "hidden lg:block" : ""}`}>
         <NextImage
           key={bannerSourceIndex}
           src={BANNER_SOURCES[bannerSourceIndex]}

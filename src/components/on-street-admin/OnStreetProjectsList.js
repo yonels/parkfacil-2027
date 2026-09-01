@@ -146,8 +146,26 @@ export default function OnStreetProjectsList() {
   useEffect(() => { const timer = setTimeout(() => void load(), 0); return () => clearTimeout(timer); }, [load]);
 
   return (
-    <div className="space-y-6">
-      <header className="rounded-3xl border border-[var(--pf-color-onstreet-border)] bg-gradient-to-br from-[var(--pf-color-onstreet-primary-700)] to-[var(--pf-color-onstreet-primary-800)] p-6 text-white shadow-sm">
+    <div className="space-y-4 lg:space-y-6">
+      {/* Cabecera móvil compacta (2026-09-01, "cabecera móvil compacta"):
+         EXCLUSIVA de <lg -- reemplaza, solo en móvil, el bloque marrón de
+         abajo (que sigue intacto en desktop) más el banner promocional y la
+         navegación horizontal que AppShell/Topbar ocultan en esta misma
+         ruta (ver compactMobileHeader en AppShell.js). Objetivo: que la
+         primera tarjeta quede visible lo antes posible al abrir la
+         pantalla en un teléfono. No duplica datos: mismo destino
+         "/on-street-qr/proyectos/nuevo" que el botón desktop. */}
+      <div className="lg:hidden">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--pf-color-onstreet-primary-700)]">ParkFacil On Street</p>
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <h1 className="text-lg font-black text-[#041E42]">Proyectos</h1>
+          <Link href="/on-street-qr/proyectos/nuevo" className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--pf-color-onstreet-primary-700)] px-3 py-1.5 text-xs font-bold text-white">
+            <Plus className="h-3.5 w-3.5" />Nuevo
+          </Link>
+        </div>
+      </div>
+
+      <header className="hidden rounded-3xl border border-[var(--pf-color-onstreet-border)] bg-gradient-to-br from-[var(--pf-color-onstreet-primary-700)] to-[var(--pf-color-onstreet-primary-800)] p-6 text-white shadow-sm lg:block">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-black">Proyectos On Street</h1>

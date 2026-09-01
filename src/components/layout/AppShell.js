@@ -70,6 +70,17 @@ export default function AppShell({
   const showClientContextBanner =
     pathname === "/modelo-gestion-modulos";
 
+  // "cabecera móvil compacta" (2026-09-01, EXCLUSIVO de
+  // /on-street-qr/proyectos): en esta pantalla concreta la lista de
+  // Proyectos ya trae su propia cabecera compacta (ver
+  // OnStreetProjectsList.js) -- el banner promocional de Topbar y el árbol
+  // de navegación horizontal de MobileNavigation solo se ocultan en móvil
+  // (<lg) para ESTA ruta exacta, nunca en desktop ni en ninguna otra
+  // pantalla de la plataforma. Mismo patrón de bandera por pathname que
+  // showClientContextBanner, arriba.
+  const compactMobileHeader =
+    pathname === "/on-street-qr/proyectos";
+
   useEffect(() => {
     if (!sessionResolved) {
       return;
@@ -188,6 +199,7 @@ export default function AppShell({
               userContext={userContext}
               sessionResolved={sessionResolved}
               onBack={effectiveOnBack}
+              hideBannerOnMobile={compactMobileHeader}
             />
           </div>
 
@@ -237,11 +249,13 @@ export default function AppShell({
 
           <main className="min-w-0 flex-1 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
             <div className="mx-auto w-full max-w-7xl space-y-6">
-              <MobileNavigation
-                onNavigate={() => {}}
-                clientContext={clientContext}
-                userContext={userContext}
-              />
+              {compactMobileHeader ? null : (
+                <MobileNavigation
+                  onNavigate={() => {}}
+                  clientContext={clientContext}
+                  userContext={userContext}
+                />
+              )}
 
               {children}
             </div>
