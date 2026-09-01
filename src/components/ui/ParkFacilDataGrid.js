@@ -371,7 +371,7 @@ export default function ParkFacilDataGrid({
           </div>
         )}
 
-        <div className="flex items-center gap-2 text-xs text-slate-600">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 lg:flex-nowrap">
           <span className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold">
             {serverMode && pagination ? `Mostrando ${pagination.totalRows ? (pagination.page - 1) * pagination.pageSize + 1 : 0}–${Math.min(pagination.page * pagination.pageSize, pagination.totalRows)} de ${pagination.totalRows.toLocaleString("es-CL")}` : `${sortedRows.length} filas`}
           </span>

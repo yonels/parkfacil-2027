@@ -59,7 +59,7 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
               <span>Notificaciones</span>
             </div>
           </div>
-          <div className={`flex items-center gap-2 rounded-full border px-3 py-2 text-sm lg:w-fit lg:ml-auto ${userContext ? "border-[#BFD2FF] bg-[#EEF4FF] text-[#3150D8]" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+          <div className={`flex flex-wrap items-center gap-2 rounded-full border px-3 py-2 text-sm lg:w-fit lg:ml-auto lg:flex-nowrap ${userContext ? "border-[#BFD2FF] bg-[#EEF4FF] text-[#3150D8]" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
             <UserCircle2 className="h-4 w-4 shrink-0" />
             {userContext ? (
               <>
