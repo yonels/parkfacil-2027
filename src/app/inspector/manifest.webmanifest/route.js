@@ -22,7 +22,27 @@ export function GET() {
       name: "ParkFacil Inspector",
       short_name: "Inspector",
       description: "Consulta de patentes y fiscalización en terreno para ParkFacil.",
-      start_url: "/inspector",
+      // start_url = "/inspector/login" (2026-09-02, "PWA start URL
+      // corregido"): antes era "/inspector". El launch en sí SIEMPRE
+      // terminaba bien encaminado (proxy.js ya redirige /inspector sin
+      // sesión a /inspector/login, nunca a /login -- ver PUBLIC_PATHS/
+      // isInspectorPath ahí) -- el bug real reportado en Android fue que la
+      // PWA se instaló mientras el navegador estaba en /login (Root), no en
+      // /inspector: ese dominio raíz/túnel, sin ruta, redirige sin sesión a
+      // /login genérico (ni /pos ni /inspector calzan en proxy.js), y ese
+      // /login no declara manifest propio -- hereda el manifest GLOBAL
+      // (src/app/manifest.js, identidad POS) vía la convención de Next.js.
+      // Fijar aquí el start_url exacto a /inspector/login hace que
+      // cualquier instalación futura hecha DESDE una pantalla de Inspector
+      // (login o app) quede inequívocamente anclada a esa ruta, sin
+      // depender de desde qué URL exacta se disparó "Agregar a inicio".
+      // scope se mantiene "/inspector" (sin barra final): como prefijo de
+      // string cubre tanto "/inspector" como "/inspector/login" y
+      // "/inspector/*" sin ambigüedad -- "/inspector/" con barra final
+      // podría no calzar con la ruta real "/inspector" (sin barra) en un
+      // matching estricto, así que no se cambia pese a la preferencia
+      // indicada (ver informe).
+      start_url: "/inspector/login",
       scope: "/inspector",
       display: "standalone",
       orientation: "any",

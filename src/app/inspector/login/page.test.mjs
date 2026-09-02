@@ -49,6 +49,23 @@ test("/inspector/login sigue delegando correo/contraseña/mostrar-ocultar/recupe
   // Iniciar sesión) vive en LoginForm.js -- no se reimplementa aquí.
 });
 
+// 2026-09-02, "PWA start URL corregido": un Inspector YA autenticado que
+// reabre el ícono instalado (start_url="/inspector/login") no debe quedar
+// atascado viendo el formulario -- se redirige server-side a /inspector
+// reutilizando getAuthenticatedContext (misma función que proxy.js), nunca
+// una copia de la lógica de autorización.
+test("/inspector/login redirige a /inspector si ya existe una sesión Inspector válida (nunca duplica la lógica de autorización de proxy.js)", async () => {
+  const source = await readSource("./page.js");
+  assert.match(source, /getAuthenticatedContext/);
+  assert.match(source, /redirect\("\/inspector"\)/);
+  assert.match(source, /existing\?\.role === ROLES\.INSPECTOR/);
+});
+
+test("/inspector/login: sin sesión (o error al resolverla) sigue mostrando el formulario normalmente, nunca lanza", async () => {
+  const source = await readSource("./page.js");
+  assert.match(source, /catch\s*\{\s*[\s\S]*?return null;/);
+});
+
 test("/pos/login mantiene sus textos actuales ('ParkFacil POS', 'Acceso Operador') -- no debe verse afectado por la identidad propia de Inspector", async () => {
   const source = await readSource("../../pos/login/page.js");
   assert.match(source, /ParkFacil POS/);

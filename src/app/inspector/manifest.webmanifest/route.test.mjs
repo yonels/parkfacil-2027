@@ -8,12 +8,23 @@ import { readFile } from "node:fs/promises";
 // fuente en vez de ejecutar el handler.
 const source = await readFile(new URL("./route.js", import.meta.url), "utf8");
 
-test("manifest de Inspectores: standalone, propio (start_url/scope /inspector, no pisa el de POS)", () => {
-  assert.match(source, /start_url: "\/inspector"/);
+test("manifest de Inspectores: standalone, propio (scope /inspector, no pisa el de POS)", () => {
   assert.match(source, /scope: "\/inspector"/);
   assert.match(source, /display: "standalone"/);
   assert.match(source, /theme_color: "#041E42"/);
   assert.doesNotMatch(source, /name: "ParkFacil POS"/);
+});
+
+// 2026-09-02, "PWA start URL corregido": start_url ancla el launch de la app
+// instalada exactamente a /inspector/login (antes "/inspector") -- ver el
+// comentario junto a start_url en route.js para la causa raíz completa (el
+// bug real en Android fue instalar desde /login Root, no un problema de
+// este manifest). scope sigue siendo "/inspector" (sin barra final): cubre
+// tanto "/inspector" como "/inspector/login" como prefijo de string.
+test("start_url es exactamente '/inspector/login' -- nunca /inspector ni /login", () => {
+  assert.match(source, /start_url: "\/inspector\/login"/);
+  assert.doesNotMatch(source, /start_url: "\/inspector",/);
+  assert.doesNotMatch(source, /start_url: "\/login"/);
 });
 
 // 2026-09-02, PWA instalable: name/short_name alineados con /inspector/login

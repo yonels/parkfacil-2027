@@ -1,6 +1,10 @@
+import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 import { ShieldCheck } from "lucide-react";
 import LoginForm from "@/components/auth/LoginForm";
+import { getAuthenticatedContext } from "@/lib/auth/authenticatedContext";
+import { ROLES } from "@/lib/auth/permissions.mjs";
 
 export const metadata = { title: "ParkFacil Inspector - Acceso", robots: { index: false, follow: false } };
 
@@ -14,7 +18,44 @@ export const metadata = { title: "ParkFacil Inspector - Acceso", robots: { index
 // ni duplicar el sistema de autenticación para lograrlo: tipoAcceso=
 // "inspector" ya basta para que el propio LoginForm scopee la sesión al
 // portal correcto (ver /api/auth/session).
-export default function InspectorLoginPage() {
+
+// "PWA start URL corregido" (2026-09-02): el manifest de Inspector ahora usa
+// start_url="/inspector/login" (antes "/inspector") para anclar el launch de
+// la app instalada inequívocamente a esta pantalla -- ver
+// manifest.webmanifest/route.js para la causa raíz completa. Efecto
+// colateral a evitar: un Inspector YA autenticado que reabre el ícono
+// instalado vería el formulario de login en cada apertura, en vez de entrar
+// directo a la app (regresión de uso diario). Se resuelve reutilizando la
+// MISMA función de resolución de sesión que ya usa proxy.js (nunca
+// lógica de autorización duplicada): si ya existe una sesión Inspector
+// válida, se redirige server-side a /inspector antes de renderizar nada;
+// si no hay sesión (o pertenece a otro portal), se muestra el formulario
+// normalmente -- comportamiento idéntico al de antes para cualquier otro
+// caso.
+async function getExistingInspectorContext() {
+  try {
+    const cookieStore = await cookies();
+    const headerStore = await headers();
+    // proxy.js resuelve el portal leyendo el pathname de request.url -- se
+    // construye aquí con la ruta real de esta página para obtener
+    // exactamente la misma resolución (portal "inspector").
+    const fakeRequest = {
+      url: "http://localhost/inspector/login",
+      cookies: { get: (name) => cookieStore.get(name) },
+      headers: { get: (name) => headerStore.get(name) },
+    };
+    return await getAuthenticatedContext(fakeRequest);
+  } catch {
+    // Sin sesión, sesión inválida, o cuenta de otro portal -- se muestra el
+    // login normalmente, igual que siempre.
+    return null;
+  }
+}
+
+export default async function InspectorLoginPage() {
+  const existing = await getExistingInspectorContext();
+  if (existing?.role === ROLES.INSPECTOR) redirect("/inspector");
+
   return (
     <main className="grid min-h-dvh place-items-center bg-[#EEF4FF] p-4" style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
       <section
