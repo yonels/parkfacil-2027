@@ -16,6 +16,13 @@ test("manifest de Inspectores: standalone, propio (start_url/scope /inspector, n
   assert.doesNotMatch(source, /name: "ParkFacil POS"/);
 });
 
+// 2026-09-02, PWA instalable: name/short_name alineados con /inspector/login
+// ("ParkFacil Inspector", singular) -- ver page.test.mjs del login.
+test("name/short_name son 'ParkFacil Inspector' / 'Inspector' (singular, igual que /inspector/login)", () => {
+  assert.match(source, /name: "ParkFacil Inspector"/);
+  assert.match(source, /short_name: "Inspector"/);
+});
+
 test("incluye iconos SVG y PNG 192/512, con al menos uno maskable -- compatibilidad iOS/Android", () => {
   assert.match(source, /sizes: "192x192"/);
   assert.match(source, /sizes: "512x512"/);

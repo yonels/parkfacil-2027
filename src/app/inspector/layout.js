@@ -5,14 +5,17 @@ import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistratio
 // MISMO componente de registro de service worker que ya usa POS -- no se
 // crea un service worker nuevo para Inspectores.
 export const metadata = {
-  title: "ParkFacil Inspectores",
+  // "ParkFacil Inspector" / "Inspector" (2026-09-02, PWA instalable): mismo
+  // ajuste de identidad que manifest.webmanifest/route.js -- alinea con
+  // /inspector/login, que ya usa "ParkFacil Inspector" (singular).
+  title: "ParkFacil Inspector",
   description: "Consulta de patentes y fiscalización en terreno para ParkFacil.",
-  applicationName: "ParkFacil Inspectores",
+  applicationName: "ParkFacil Inspector",
   manifest: "/inspector/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Inspectores",
+    title: "Inspector",
   },
   formatDetection: { telephone: false },
   icons: {

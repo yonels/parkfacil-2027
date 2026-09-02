@@ -40,6 +40,20 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Mismo patrón exacto que /pos arriba (2026-09-02, "PWA instalable" de
+  // Inspector): fallback puramente informativo, red primero, sin cachear
+  // ninguna patente/fiscalización/dato de sesión -- si la red falla, solo
+  // se sirve este HTML estático.
+  if (request.mode === "navigate" && (url.pathname === "/inspector" || url.pathname.startsWith("/inspector/"))) {
+    event.respondWith(
+      fetch(new Request(request, { cache: "no-store" })).catch(() => new Response(
+        "<!doctype html><html lang=es><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>ParkFacil Inspector sin conexión</title><body style='font-family:system-ui;background:#EEF4FF;color:#041E42;padding:2rem'><main style='max-width:32rem;margin:auto;background:white;border-radius:1.5rem;padding:2rem'><h1>Sin conexión</h1><p>ParkFacil Inspector necesita conexión para consultar y fiscalizar. No se registró ninguna fiscalización.</p><button onclick=location.reload() style='padding:.8rem 1rem'>Reintentar</button></main></body></html>",
+        { status: 503, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } }
+      ))
+    );
+    return;
+  }
+
   const isVersionedAsset = url.pathname.startsWith("/_next/static/") || url.pathname.startsWith("/icons/");
   if (!isVersionedAsset) return;
   event.respondWith(

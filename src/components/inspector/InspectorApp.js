@@ -4,6 +4,7 @@ import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { inspectionMotivoLabel } from "@/lib/inspector/inspectorPlateStateCore.mjs";
 import { INSPECTOR_VIEW } from "./inspectorViews.mjs";
 import InspectorTopBar from "./InspectorTopBar";
+import InstallPrompt from "./InstallPrompt";
 import InspectorSidebar from "./InspectorSidebar";
 import InspectorBottomNav from "./InspectorBottomNav";
 import InspectorDrawer from "./InspectorDrawer";
@@ -136,6 +137,11 @@ export default function InspectorApp() {
       <InspectorSidebar view={view} onNavigate={navigate} onLogout={handleLogout} />
       <div className="md:pl-64">
         <InspectorTopBar inspector={inspector} />
+        {/* Banner de instalación PWA (2026-09-02): solo aquí, después de
+           confirmar sesión -- nunca en /inspector/login ni en las pantallas
+           de "cargando"/"sesión inválida" de arriba, para no bloquear ni
+           competir con el login. */}
+        <InstallPrompt />
         <main className="pb-24 md:pb-8">
           {view === INSPECTOR_VIEW.CONSULTA ? (
             <InspectorConsulta history={history} onConsult={consult} onOpenPast={consult} error={consultError} />

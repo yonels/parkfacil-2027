@@ -12,8 +12,15 @@ export function GET() {
   return NextResponse.json(
     {
       id: "/inspector",
-      name: "ParkFacil Inspectores",
-      short_name: "Inspectores",
+      // "ParkFacil Inspector" / "Inspector" (2026-09-02, PWA instalable):
+      // antes decía "Inspectores" (plural) aquí -- inconsistente con
+      // /inspector/login, que YA usa "ParkFacil Inspector" (singular) en su
+      // <title> y en el H1 visible (ver src/app/inspector/login/page.js).
+      // Se alinea el manifest a esa identidad ya existente; no se toca
+      // ningún otro texto en pantalla (p. ej. InspectorTopBar.js sigue
+      // diciendo "Inspectores" -- fuera de alcance de esta tarea).
+      name: "ParkFacil Inspector",
+      short_name: "Inspector",
       description: "Consulta de patentes y fiscalización en terreno para ParkFacil.",
       start_url: "/inspector",
       scope: "/inspector",
