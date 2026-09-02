@@ -13,6 +13,13 @@ export default function LoginForm({
   defaultDestination = "/",
   forcePosDestination = false,
   forceInspectorDestination = false,
+  // "compactMobile" (2026-09-02, "login mobile optimizado"): opt-in,
+  // default false -- NINGÚN llamador existente (Root/POS/Cliente) pasa esta
+  // prop, así que sus 3 pantallas de login quedan con exactamente el mismo
+  // markup/clases de siempre, cero diff. Solo /inspector/login la activa,
+  // para reducir los espacios verticales entre bloques EXCLUSIVAMENTE en
+  // <md; en >=md el resultado es idéntico al de antes en los 4 portales.
+  compactMobile = false,
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -78,7 +85,7 @@ export default function LoginForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="login-form mt-8 space-y-5 text-white">
+    <form onSubmit={handleSubmit} className={`login-form text-white ${compactMobile ? "mt-5 space-y-3.5 md:mt-8 md:space-y-5" : "mt-8 space-y-5"}`}>
       <label className="block">
         <span className="text-sm font-semibold text-white">Correo electrónico</span>
         <span className="mt-2 flex items-center gap-3 rounded-2xl border border-white/35 bg-white/10 px-4 focus-within:border-white/80 focus-within:ring-4 focus-within:ring-white/20">
