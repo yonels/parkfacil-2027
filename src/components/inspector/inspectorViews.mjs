@@ -12,6 +12,7 @@ export const INSPECTOR_VIEW = Object.freeze({
   MAPA: "MAPA",
   SYNC: "SYNC",
   AJUSTES: "AJUSTES",
+  SMS_REPORT: "SMS_REPORT",
 });
 
 // A qué item de la barra inferior/sidebar corresponde resaltarse como

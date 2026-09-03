@@ -46,3 +46,61 @@ test("propaga el error de la consulta sin ocultarlo (mismo criterio que el resto
 test("selecciona exactamente las columnas necesarias para reabrir la pantalla de resultado, incluida la trazabilidad de copia inspector (migración 20260903011348)", () => {
   assert.match(getBody, /id,license_plate_normalized,inspection_type,inspected_at,sms_required,sms_status,inspector_copy_sms_status,inspector_copy_sms_sent_at,inspector_copy_sms_provider_message_id/);
 });
+
+// --- 2026-09-03, "Reporte SMS Inspector" (TAREA 10.H) ---
+
+function bodyOf(fnName) {
+  const start = source.indexOf(`export async function ${fnName}`);
+  assert.ok(start >= 0, `${fnName} debe existir`);
+  return source.slice(start, source.indexOf("\n}", start));
+}
+
+test("TAREA 10.H: listInspectorSmsReportRows/getInspectorSmsReportDetail/listPendingInspectorSmsDeliveryChecks son SOLO LECTURA -- ningún .insert/.update/.delete/.upsert", () => {
+  for (const fn of ["listInspectorSmsReportRows", "getInspectorSmsReportDetail", "listPendingInspectorSmsDeliveryChecks"]) {
+    const body = bodyOf(fn);
+    for (const forbidden of [".insert(", ".update(", ".delete(", ".upsert("]) {
+      assert.ok(!body.includes(forbidden), `${fn} no debe llamar a ${forbidden}`);
+    }
+  }
+});
+
+test("listInspectorSmsReportRows/getInspectorSmsReportDetail/listPendingInspectorSmsDeliveryChecks seleccionan las columnas de entrega (sms_delivery_status/_checked_at/_description) -- vía la misma constante compartida SMS_REPORT_COLUMNS, nunca duplicada por función", () => {
+  assert.match(source, /const SMS_REPORT_COLUMNS = "[^"]*sms_delivery_status,sms_delivery_checked_at,sms_delivery_description[^"]*";/);
+  for (const fn of ["listInspectorSmsReportRows", "getInspectorSmsReportDetail"]) {
+    assert.match(bodyOf(fn), /\.select\(SMS_REPORT_COLUMNS\)/);
+  }
+});
+
+test("persistInspectorSmsDeliveryStatus SOLO escribe las 3 columnas de entrega (+ updated_at) -- nunca sms_status/sms_sent_at/sms_provider_message_id", () => {
+  const body = bodyOf("persistInspectorSmsDeliveryStatus");
+  assert.match(body, /sms_delivery_status:/);
+  assert.match(body, /sms_delivery_checked_at:/);
+  assert.match(body, /sms_delivery_description:/);
+  assert.doesNotMatch(body, /sms_status:|sms_sent_at:|sms_provider_message_id:/);
+});
+
+// --- Alcance RBAC (2026-09-03, agregado tras revisión) ---
+
+test("TAREA A/B/E: listInspectorSmsReportRows/getInspectorSmsReportDetail/listPendingInspectorSmsDeliveryChecks SIEMPRE aplican el scope recibido -- applyInspectorSmsReportScope, nunca una consulta sin acotar por defecto", () => {
+  for (const fn of ["listInspectorSmsReportRows", "getInspectorSmsReportDetail", "listPendingInspectorSmsDeliveryChecks"]) {
+    assert.match(bodyOf(fn), /applyInspectorSmsReportScope\(query, scope\)/);
+  }
+});
+
+test("fail-closed a nivel SQL: applyInspectorSmsReportScope filtra a 0 filas ante cualquier scope que no sea own/company/global explícito -- nunca cae a 'sin filtro' por defecto", () => {
+  const start = source.indexOf("function applyInspectorSmsReportScope");
+  const body = source.slice(start, source.indexOf("\n}", start));
+  assert.match(body, /scope\?\.type === "own"/);
+  assert.match(body, /scope\?\.type === "company"/);
+  assert.match(body, /scope\?\.type === "global"/);
+  assert.match(body, /00000000-0000-0000-0000-000000000000/, "el fallback debe filtrar a un id imposible, no devolver la query sin filtro");
+});
+
+test("TAREA C/D: getInspectorSmsReportDetail re-verifica la fila ya traída contra el scope (inspectorSmsReportRowInScope) antes de devolverla -- defensa en profundidad, no confía solo en el filtro SQL", () => {
+  assert.match(source, /import \{ inspectorSmsReportRowInScope \} from "\.\/inspectorSmsReportCore\.mjs";/);
+  assert.match(bodyOf("getInspectorSmsReportDetail"), /if \(!inspectorSmsReportRowInScope\(result\.data, scope\)\) return null;/);
+});
+
+test("inspectorEmailById ya NO se usa desde el portal Inspector (solo desde el admin) -- una cuenta Inspector no necesita la lista completa de otros inspectores", () => {
+  assert.match(source, /export async function inspectorEmailById/, "sigue existiendo (la usa el admin)");
+});

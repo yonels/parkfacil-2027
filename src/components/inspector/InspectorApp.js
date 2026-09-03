@@ -17,6 +17,7 @@ import InspectorMorosos from "./InspectorMorosos";
 import InspectorMapa from "./InspectorMapa";
 import InspectorSync from "./InspectorSync";
 import InspectorAjustes from "./InspectorAjustes";
+import InspectorSmsReport from "./InspectorSmsReport";
 
 const PORTAL_HEADERS = { "x-parkfacil-portal": "inspector" };
 
@@ -206,6 +207,7 @@ export default function InspectorApp() {
           {view === INSPECTOR_VIEW.MOROSOS ? <InspectorMorosos onOpenPlate={consult} /> : null}
           {view === INSPECTOR_VIEW.MAPA ? <InspectorMapa /> : null}
           {view === INSPECTOR_VIEW.SYNC ? <InspectorSync /> : null}
+          {view === INSPECTOR_VIEW.SMS_REPORT ? <InspectorSmsReport /> : null}
           {view === INSPECTOR_VIEW.AJUSTES ? <InspectorAjustes inspector={inspector} onLogout={handleLogout} /> : null}
         </main>
       </div>

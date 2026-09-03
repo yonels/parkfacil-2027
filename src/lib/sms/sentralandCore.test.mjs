@@ -202,6 +202,30 @@ test("idmensaje inexistente (estado 7) y datos inválidos (estado 104) mapean a 
   assert.equal(mapSentralandDeliveryState("104", ""), "UNKNOWN");
 });
 
+// --- 2026-09-03, "Reporte SMS Inspector": vocabulario SMPP estándar (best-effort, no documentado por Sentraland) ---
+test("UNDELIV/UNDELIVERED mapea a UNDELIVERED", () => {
+  assert.equal(mapSentralandDeliveryState("0", "UNDELIV"), "UNDELIVERED");
+  assert.equal(mapSentralandDeliveryState("8", "UNDELIVERED"), "UNDELIVERED");
+});
+
+test("EXPIRED mapea a EXPIRED", () => {
+  assert.equal(mapSentralandDeliveryState("0", "EXPIRED"), "EXPIRED");
+});
+
+test("REJECTD/REJECTED/DELETED mapean a REJECTED", () => {
+  assert.equal(mapSentralandDeliveryState("0", "REJECTD"), "REJECTED");
+  assert.equal(mapSentralandDeliveryState("0", "REJECTED"), "REJECTED");
+  assert.equal(mapSentralandDeliveryState("0", "DELETED"), "REJECTED");
+});
+
+test("es case-insensitive (minúsculas del proveedor igual se reconocen)", () => {
+  assert.equal(mapSentralandDeliveryState("0", "undeliv"), "UNDELIVERED");
+});
+
+test("un final state SMPP no documentado nunca cambia lo ya probado antes: ENROUTE sigue siendo ACCEPTED, no un nuevo estado inventado", () => {
+  assert.equal(mapSentralandDeliveryState("0", "ENROUTE"), "ACCEPTED");
+});
+
 test("sentralandQueryStatus exige idmensaje y no llama al proveedor sin él", async () => {
   await withEnv(FULL_CONFIG_ENV, async () => {
     const fetchImpl = fakeFetch({});

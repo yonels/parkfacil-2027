@@ -169,11 +169,35 @@ export async function sentralandSendSms({ fono, mensaje, token, fetchImpl = fetc
 // "DELIVRD", se devuelve ACCEPTED (el proveedor tiene registro del envío
 // pero no confirma entrega) en vez de asumir un estado más específico que
 // el manual no respalda. Debe confirmarse con una consulta real.
+//
+// 2026-09-03, "Reporte SMS Inspector": se agregan UNDELIVERED/EXPIRED/
+// REJECTED reconociendo el vocabulario ESTÁNDAR de DLR final states SMPP
+// (DELIVRD/EXPIRED/DELETED/UNDELIV/ACCEPTD/REJECTD/UNKNOWN -- spec SMPP
+// v3.4/v5, usado por la inmensa mayoría de gateways SMS incluidos los
+// basados en Kannel/SMPP como aparenta ser Sentraland) -- NO es parte del
+// manual oficial de Sentraland (que sigue sin documentar estos casos
+// explícitamente), así que se trata como un reconocimiento best-effort de
+// un estándar de la industria, nunca como un hecho confirmado por
+// Sentraland. Si una consulta real demuestra otro vocabulario, ajustar
+// solo este mapeo. Cualquier "descripcion" no reconocida (incluida
+// ENROUTE, no un final state) sigue cayendo en ACCEPTED (estado=0) o
+// UNKNOWN (cualquier otro estado) exactamente como antes -- ningún caso
+// previamente probado cambia de resultado.
+const SMPP_FINAL_STATE_KEYWORDS = Object.freeze({
+  UNDELIV: "UNDELIVERED",
+  UNDELIVERED: "UNDELIVERED",
+  EXPIRED: "EXPIRED",
+  REJECTD: "REJECTED",
+  REJECTED: "REJECTED",
+  DELETED: "REJECTED",
+});
+
 export function mapSentralandDeliveryState(estado, descripcion) {
   const normalizedEstado = String(estado ?? "").trim();
   const normalizedDescripcion = String(descripcion ?? "").trim().toUpperCase();
   if (normalizedEstado === "0" && normalizedDescripcion === "DELIVRD") return "DELIVERED";
   if (normalizedEstado === "7" || normalizedEstado === "104") return "UNKNOWN";
+  if (SMPP_FINAL_STATE_KEYWORDS[normalizedDescripcion]) return SMPP_FINAL_STATE_KEYWORDS[normalizedDescripcion];
   if (normalizedEstado === "0") return "ACCEPTED";
   return "UNKNOWN";
 }
