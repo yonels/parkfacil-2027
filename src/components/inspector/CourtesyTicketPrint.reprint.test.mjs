@@ -38,6 +38,20 @@ test("REIMPRIMIR: 'IMPRIMIR NUEVAMENTE' y 'REINTENTAR IMPRESIÓN' llaman al MISM
   assert.match(source, /printLabel = printStatus === "error" \? "REINTENTAR IMPRESIÓN" : printStatus === "done" \? "IMPRIMIR NUEVAMENTE"/, "ambas etiquetas son solo texto del MISMO botón/handler, no una ruta de código distinta");
 });
 
+// 2026-09-03, "abrir detalle desde la lista de Fiscalizaciones" (TAREA 5.D):
+// desde ahora CourtesyTicketPrint también se monta al REABRIR una
+// fiscalización ya existente (InspectorFiscalizacion.js, prop
+// existingRegistro), con exactamente los mismos props (plate/inspectedAt/
+// inspectionId) que justo después de registrar -- así que la garantía ya
+// probada arriba (nunca fetch/authenticatedFetch, ningún useState propio de
+// plate/inspectedAt/inspectionId) aplica IDÉNTICA en ambos flujos: abrir el
+// detalle o reimprimir desde ahí nunca puede duplicar la fiscalización ni
+// volver a registrarla, porque el componente no tiene ningún camino de
+// código que pudiera hacerlo, sin importar cómo se llegó hasta aquí.
+test("TAREA 5.D: reimpresión no puede duplicar la fiscalización -- ni un solo fetch/POST existe en este archivo, se llegue por 'recién registrada' o por 'reabierta desde la lista'", () => {
+  assert.doesNotMatch(source, /fetch\(|authenticatedFetch\(|method:\s*"POST"/);
+});
+
 test("REIMPRIMIR: un error de impresión (Bluetooth desconectado, agente no disponible, etc.) solo cambia printStatus/printError -- nunca toca ningún estado relacionado con la fiscalización, que ni siquiera existe en este componente", () => {
   const catchBlock = source.slice(source.indexOf("} catch (cause) {", source.indexOf("async function handlePrint")), source.indexOf("}\n  }\n\n  if (!available)"));
   assert.match(catchBlock, /setPrintStatus\("error"\)/);

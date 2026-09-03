@@ -68,7 +68,15 @@ function isNativeCameraAvailable() {
 //    fiscalización sigue siendo válida (no se pierde ni se duplica) y se
 //    ofrece reintentar solo esa foto -- decisión documentada en la
 //    migración 20260828150000 y en el informe de Etapa 3.
-export default function InspectorFiscalizacion({ plate: initialPlate, lockToOverstay = false, onRegistrado, onCancelar }) {
+// existingRegistro (2026-09-03, "abrir detalle desde la lista de
+// Fiscalizaciones"): reabre esta MISMA pantalla de resultado para una
+// fiscalización YA registrada (leída solo-lectura vía
+// GET /api/inspector/inspections/[id], ver InspectorApp.js) -- nunca pasa
+// por el formulario ni por submit()/POST, así que reabrir jamás registra
+// otra fiscalización ni reenvía SMS. Es la misma forma que body.data
+// (registro) trae justo después de un submit() real, así que el resto del
+// componente no necesita distinguir entre ambos casos.
+export default function InspectorFiscalizacion({ plate: initialPlate, lockToOverstay = false, existingRegistro = null, onRegistrado, onCancelar }) {
   const [plateInput, setPlateInput] = useState(initialPlate || "");
   const [motivo, setMotivo] = useState(INSPECTOR_FISCALIZACION_MOTIVOS[0]);
   const [observaciones, setObservaciones] = useState("");
@@ -79,7 +87,7 @@ export default function InspectorFiscalizacion({ plate: initialPlate, lockToOver
   const [fotos, setFotos] = useState([]); // [{ id, file, previewUrl }]
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [registro, setRegistro] = useState(null); // { id, ... } una vez creada
+  const [registro, setRegistro] = useState(existingRegistro); // { id, ... } una vez creada (o reabierta, ver arriba)
   const [evidenceErrors, setEvidenceErrors] = useState([]);
   // Resumen de impresión (2026-09-03, "decouple printing + sms copy"):
   // reportado por CourtesyTicketPrint vía onStatusChange -- null hasta que
@@ -256,12 +264,21 @@ export default function InspectorFiscalizacion({ plate: initialPlate, lockToOver
   }
 
   if (registro) {
+    // smsRequired (2026-09-03, "abrir detalle desde la lista"): esta
+    // pantalla se reutiliza tanto justo después de registrar (donde
+    // requiresPresenceConfirmation, derivado del FORMULARIO, coincide
+    // exactamente con registro.smsRequired -- ver comentario del prop
+    // existingRegistro) como al reabrir una fiscalización YA existente
+    // (donde no hay formulario en absoluto, requiresPresenceConfirmation no
+    // aplica). registro.smsRequired es la misma fuente de verdad real en
+    // ambos casos (viene del servidor, nunca del cliente).
+    const smsRequired = Boolean(registro.smsRequired);
     return (
       <div className="mx-auto grid w-full max-w-2xl place-items-center p-4 pb-8 text-center">
         <div className="mt-10 w-full rounded-3xl bg-white p-8 shadow-sm">
           <CheckCircle2 className="mx-auto h-14 w-14 text-emerald-600" aria-hidden="true" />
           <h1 className="mt-3 text-2xl font-black text-[#041E42]">Fiscalización registrada</h1>
-          <p className="mt-2 text-slate-600">{requiresPresenceConfirmation ? inspectorSmsStatusMessage(registro) : "Quedó registrada correctamente."}</p>
+          <p className="mt-2 text-slate-600">{smsRequired ? inspectorSmsStatusMessage(registro) : "Quedó registrada correctamente."}</p>
 
           {/* Estados separados (2026-09-03, "decouple printing + sms copy",
              §7): fiscalización/SMS conductor/copia inspector/impresión
@@ -271,7 +288,7 @@ export default function InspectorFiscalizacion({ plate: initialPlate, lockToOver
              neutral, ver StatusRow). Solo aplica a OVERSTAY
              (requiresPresenceConfirmation): es el único tipo que dispara
              SMS/copia/multa de cortesía. */}
-          {requiresPresenceConfirmation ? (
+          {smsRequired ? (
             <div className="mt-5 space-y-2 rounded-2xl bg-slate-50 p-4 text-left">
               <StatusRow label="Fiscalización" status={{ label: "Registrada", tone: "success" }} />
               <StatusRow label="SMS conductor" status={inspectorSmsShortStatus(registro)} />
@@ -308,8 +325,8 @@ export default function InspectorFiscalizacion({ plate: initialPlate, lockToOver
               /api/inspector/inspections/route.js). La impresión es
               opcional y 100% local (ver CourtesyTicketPrint.js): nunca
               vuelve a tocar esta fiscalización. */}
-          {requiresPresenceConfirmation ? (
-            <CourtesyTicketPrint plate={normalized} inspectedAt={registro.inspectedAt} inspectionId={registro.id} onStatusChange={setPrintSummary} />
+          {smsRequired ? (
+            <CourtesyTicketPrint plate={registro.plate || normalized} inspectedAt={registro.inspectedAt} inspectionId={registro.id} onStatusChange={setPrintSummary} />
           ) : null}
 
           <button onClick={onCancelar} className="mt-6 min-h-14 w-full rounded-2xl bg-[#3150D8] font-black text-white">VOLVER</button>

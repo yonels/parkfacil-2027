@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { inspectorSmsStatusMessage, inspectorSmsShortStatus, inspectorCopySmsShortStatus } from "./inspectorSmsStatusMessage.mjs";
+import { inspectorSmsStatusMessage, inspectorSmsShortStatus, inspectorCopySmsShortStatus, inspectorCopySmsFromPersistedStatus } from "./inspectorSmsStatusMessage.mjs";
 
 test("SIMULATED: el mensaje deja explícito que NO se envió un SMS real (aunque sms_status sea SENT)", () => {
   const msg = inspectorSmsStatusMessage({ smsRequired: true, smsStatus: "SENT", smsProvider: "SIMULATED", smsProviderMessageId: "simulated-abc123" });
@@ -80,4 +80,33 @@ test("inspectorCopySmsShortStatus: 'skipped' (SMS conductor falló) es un estado
   assert.equal(status.label, "No enviada (SMS conductor falló)");
   assert.equal(status.tone, "neutral");
   assert.notEqual(status.label, "No configurada");
+});
+
+// --- 2026-09-03, "abrir detalle desde la lista de Fiscalizaciones" ---
+
+test("inspectorCopySmsFromPersistedStatus: reconstruye la MISMA forma efímera que produce sendInspectorCopySmsIfNeeded en vivo, a partir de la columna persistida", () => {
+  assert.deepEqual(inspectorCopySmsFromPersistedStatus("SENT"), { attempted: true, phoneConfigured: true, sent: true });
+  assert.deepEqual(inspectorCopySmsFromPersistedStatus("FAILED"), { attempted: true, phoneConfigured: true, sent: false });
+  assert.deepEqual(inspectorCopySmsFromPersistedStatus("NOT_CONFIGURED"), { attempted: false, phoneConfigured: false });
+  assert.deepEqual(inspectorCopySmsFromPersistedStatus("SKIPPED"), { attempted: false, skipped: true });
+});
+
+test("inspectorCopySmsFromPersistedStatus: null/undefined/valor desconocido -> null ('no aplicaba'), nunca lanza", () => {
+  assert.equal(inspectorCopySmsFromPersistedStatus(null), null);
+  assert.equal(inspectorCopySmsFromPersistedStatus(undefined), null);
+  assert.equal(inspectorCopySmsFromPersistedStatus("ALGO_INESPERADO"), null);
+});
+
+test("round-trip: inspectorCopySmsShortStatus(inspectorCopySmsFromPersistedStatus(x)) da la MISMA etiqueta que el flujo en vivo para cada estado real", () => {
+  const casos = [
+    ["SENT", "Enviada", "success"],
+    ["FAILED", "Error", "error"],
+    ["NOT_CONFIGURED", "No configurada", "neutral"],
+    ["SKIPPED", "No enviada (SMS conductor falló)", "neutral"],
+  ];
+  for (const [persisted, label, tone] of casos) {
+    const status = inspectorCopySmsShortStatus({ smsRequired: true, inspectorCopySms: inspectorCopySmsFromPersistedStatus(persisted) });
+    assert.equal(status.label, label, persisted);
+    assert.equal(status.tone, tone, persisted);
+  }
 });

@@ -51,8 +51,17 @@ test("FISCALIZAR desde un resultado VENCIDO siempre bloquea el motivo a Exceso d
   assert.match(source, /onFiscalizar=\{\(\) => goFiscalizar\(activeResult\.plate, \{ lockToOverstay: true \}\)\}/);
 });
 
+// 2026-09-03, "abrir detalle desde la lista de Fiscalizaciones": se agregó
+// un TERCER caso (existingRegistro, ver más abajo) -- el routing original
+// (RESULTADO si venía de FISCALIZAR, lista si no) sigue exactamente igual
+// para los otros dos casos, solo se extendió el mismo ternario.
 test("cancelar una fiscalización sin registrar vuelve a RESULTADO si venía de FISCALIZAR, o a la lista si no", () => {
-  assert.match(source, /onCancelar=\{\(\) => navigate\(fiscalizacionPlate \? INSPECTOR_VIEW\.RESULTADO : INSPECTOR_VIEW\.FISCALIZACIONES\)\}/);
+  assert.match(source, /const destino = existingRegistro \? INSPECTOR_VIEW\.FISCALIZACIONES : fiscalizacionPlate \? INSPECTOR_VIEW\.RESULTADO : INSPECTOR_VIEW\.FISCALIZACIONES;/);
+});
+
+test("cancelar/volver de una fiscalización REABIERTA desde la lista (existingRegistro) siempre vuelve a la lista, nunca a RESULTADO -- y limpia existingRegistro para no arrastrarlo a la próxima", () => {
+  assert.match(source, /existingRegistro \? INSPECTOR_VIEW\.FISCALIZACIONES/);
+  assert.match(source, /setExistingRegistro\(null\);\s*\n\s*navigate\(destino\);/);
 });
 
 test("una repetición idempotente (reused=true) del registro de fiscalización nunca duplica la fila en el historial local", () => {
@@ -63,6 +72,25 @@ test("el shell nunca importa Webpay/reconciliador/payment_transactions -- Inspec
   for (const forbidden of ["Webpay", "reconcile", "payment_transactions", "createTransaction"]) {
     assert.doesNotMatch(source, new RegExp(forbidden, "i"), forbidden);
   }
+});
+
+test("openFiscalizacion (TAREA 5.A/B/C): abre el detalle vía GET (nunca POST/fetch con method), y pasa existingRegistro/onOpen a los componentes correctos", () => {
+  const openFn = source.slice(source.indexOf("async function openFiscalizacion"), source.indexOf("async function openFiscalizacion") + 600);
+  assert.match(openFn, /fetchInspectorInspectionDetail\(f\.id\)/);
+  assert.match(openFn, /setExistingRegistro\(detalle\)/);
+  assert.match(openFn, /setView\(INSPECTOR_VIEW\.FISCALIZACION\)/);
+
+  const fetchDetailFn = source.slice(source.indexOf("async function fetchInspectorInspectionDetail"), source.indexOf("async function fetchInspectorInspectionDetail") + 400);
+  assert.match(fetchDetailFn, /fetch\(`\/api\/inspector\/inspections\/\$\{encodeURIComponent\(id\)\}`, \{ headers: PORTAL_HEADERS, cache: "no-store" \}\)/);
+  assert.doesNotMatch(fetchDetailFn, /method:\s*"POST"/);
+
+  assert.match(source, /existingRegistro=\{existingRegistro\}/);
+  assert.match(source, /onOpen=\{openFiscalizacion\}/);
+});
+
+test("goFiscalizar (registrar UNA NUEVA fiscalización) siempre limpia existingRegistro -- nunca arrastra un detalle reabierto a un registro nuevo", () => {
+  const goFn = source.slice(source.indexOf("function goFiscalizar"), source.indexOf("// Abre el detalle"));
+  assert.match(goFn, /setExistingRegistro\(null\)/);
 });
 
 test("cada vista se resuelve exactamente a un componente, sin duplicados", () => {

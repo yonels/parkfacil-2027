@@ -155,3 +155,26 @@ export async function listInspectorInspections(inspectorUserId, db = getSupabase
   if (result.error) throw result.error;
   return result.data || [];
 }
+
+// Detalle de UNA fiscalización ya existente (2026-09-03, "abrir detalle
+// desde la lista de Fiscalizaciones"): SOLO LECTURA -- ningún UPDATE/INSERT,
+// nunca reenvía SMS ni vuelve a llamar register_on_street_inspection. Acotado
+// al mismo inspector que la registró (igual criterio que
+// listInspectorInspections, nunca expone la fiscalización de otro
+// inspector) -- devuelve null si no existe o pertenece a otro inspector, sin
+// distinguir el motivo (mismo criterio de "no filtrar existencia" que el
+// resto de Inspector). Incluye las columnas de trazabilidad de SMS
+// conductor/copia inspector (persistidas por register_on_street_inspection y
+// por la migración 20260903011348) para poder reconstruir la misma pantalla
+// de resultado que ya usa InspectorFiscalizacion.js justo después de
+// registrar, sin inventar una pantalla nueva.
+export async function getInspectorInspectionById(id, inspectorUserId, db = getSupabaseAdminClient()) {
+  const result = await db
+    .from("on_street_inspections")
+    .select("id,license_plate_normalized,inspection_type,inspected_at,sms_required,sms_status,inspector_copy_sms_status,inspector_copy_sms_sent_at,inspector_copy_sms_provider_message_id")
+    .eq("id", id)
+    .eq("inspector_user_id", inspectorUserId)
+    .maybeSingle();
+  if (result.error) throw result.error;
+  return result.data || null;
+}

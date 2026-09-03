@@ -61,3 +61,24 @@ export function inspectorCopySmsShortStatus(registro) {
   if (!copy.attempted) return { label: "No enviada", tone: "neutral" };
   return copy.sent ? { label: "Enviada", tone: "success" } : { label: "Error", tone: "error" };
 }
+
+// Reconstruye la forma efímera {attempted, phoneConfigured, sent, skipped}
+// (2026-09-03, "abrir detalle de fiscalización existente"): esa forma solo
+// existe en memoria justo después de registrar (ver
+// sendInspectorCopySmsIfNeeded en inspectorInspectionService.js) -- nunca se
+// persiste tal cual. Para reabrir una fiscalización YA registrada (leída de
+// on_street_inspections, solo lectura) hay que reconstruirla a partir de la
+// única columna persistida, inspector_copy_sms_status (texto:
+// SENT/FAILED/NOT_CONFIGURED/SKIPPED/null) -- mismo mapeo 1 a 1 que ya usan
+// persistInspectorCopySmsStatus/inspectorCopySmsShortStatus arriba, así
+// ambos flujos (recién registrada / reabierta) terminan mostrando
+// exactamente la misma fila "Copia inspector".
+export function inspectorCopySmsFromPersistedStatus(status) {
+  switch (status) {
+    case "SENT": return { attempted: true, phoneConfigured: true, sent: true };
+    case "FAILED": return { attempted: true, phoneConfigured: true, sent: false };
+    case "NOT_CONFIGURED": return { attempted: false, phoneConfigured: false };
+    case "SKIPPED": return { attempted: false, skipped: true };
+    default: return null; // null/NULL: no aplicaba (ver comentario de la migración 20260903011348)
+  }
+}

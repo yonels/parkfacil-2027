@@ -92,9 +92,29 @@ test("REGISTRAR FISCALIZACIÓN está deshabilitado sin patente válida, mientras
 // de un OVERSTAY sin la casilla de presencia marcada, así que si
 // "registro" llega a existir con ese flag en true, el servidor ya validó
 // todo antes de aceptar el POST.
+// 2026-09-03, "abrir detalle desde la lista de Fiscalizaciones": el gate ya
+// no es requiresPresenceConfirmation (derivado del FORMULARIO, no aplica al
+// reabrir una fiscalización existente) sino registro.smsRequired -- misma
+// condición real (OVERSTAY confirmado por el servidor), pero válida en
+// ambos flujos (recién registrada / reabierta), ver comentario "smsRequired"
+// dentro de "if (registro) {" en InspectorFiscalizacion.js.
 test("Multa de cortesía: el botón de impresión SOLO se muestra para OVERSTAY (VENCIDO) ya confirmado por el servidor -- nunca para NO_SESSION/OTHER", () => {
   assert.match(source, /import CourtesyTicketPrint from "\.\/CourtesyTicketPrint";/);
-  assert.match(source, /\{requiresPresenceConfirmation \? \(\s*<CourtesyTicketPrint plate=\{normalized\} inspectedAt=\{registro\.inspectedAt\} inspectionId=\{registro\.id\} onStatusChange=\{setPrintSummary\} \/>\s*\) : null\}/);
+  assert.match(source, /const smsRequired = Boolean\(registro\.smsRequired\);/);
+  assert.match(source, /\{smsRequired \? \(\s*<CourtesyTicketPrint plate=\{registro\.plate \|\| normalized\} inspectedAt=\{registro\.inspectedAt\} inspectionId=\{registro\.id\} onStatusChange=\{setPrintSummary\} \/>\s*\) : null\}/);
+});
+
+test("smsRequired se calcula DENTRO del bloque 'if (registro)', a partir del servidor -- nunca del estado del formulario (requiresPresenceConfirmation no aplica al reabrir una fiscalización existente)", () => {
+  const registroBlockStart = source.indexOf("if (registro) {");
+  const smsRequiredIndex = source.indexOf("const smsRequired = Boolean(registro.smsRequired);");
+  assert.ok(registroBlockStart >= 0 && smsRequiredIndex > registroBlockStart, "smsRequired debe calcularse dentro de 'if (registro) {', desde el dato real del servidor");
+});
+
+// --- 2026-09-03, "abrir detalle desde la lista de Fiscalizaciones" ---
+
+test("existingRegistro: reabre la MISMA pantalla de resultado para una fiscalización ya existente -- nunca pasa por el formulario ni por submit()/POST", () => {
+  assert.match(source, /existingRegistro = null,/);
+  assert.match(source, /const \[registro, setRegistro\] = useState\(existingRegistro\);/);
 });
 
 test("Multa de cortesía: se monta DENTRO del bloque 'if (registro)' (fiscalización ya confirmada por el servidor) -- nunca antes de esa confirmación", () => {

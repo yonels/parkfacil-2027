@@ -40,6 +40,18 @@ async function fetchInspectorInspections() {
   return payload?.data || [];
 }
 
+// Detalle de UNA fiscalización ya existente (2026-09-03, "abrir detalle
+// desde la lista de Fiscalizaciones"): SOLO LECTURA -- ver
+// getInspectorInspectionById/GET /api/inspector/inspections/[id]/route.js.
+// null si no existe o no es del inspector autenticado (mismo criterio de
+// "no filtrar existencia" que el resto de Inspector).
+async function fetchInspectorInspectionDetail(id) {
+  const response = await fetch(`/api/inspector/inspections/${encodeURIComponent(id)}`, { headers: PORTAL_HEADERS, cache: "no-store" });
+  if (!response.ok) return null;
+  const payload = await response.json().catch(() => ({}));
+  return payload?.data || null;
+}
+
 // Normaliza la forma real de la API (license_plate_normalized/inspection_type/
 // inspected_at) a la misma forma que ya consumían los componentes de
 // pantalla de la Etapa 1 -- para no reescribirlos innecesariamente.
@@ -61,6 +73,11 @@ export default function InspectorApp() {
   const [activeResult, setActiveResult] = useState(null);
   const [fiscalizacionPlate, setFiscalizacionPlate] = useState(null);
   const [fiscalizacionLockToOverstay, setFiscalizacionLockToOverstay] = useState(false);
+  // existingRegistro (2026-09-03, "abrir detalle desde la lista de
+  // Fiscalizaciones"): cuando no es null, InspectorFiscalizacion reabre
+  // directamente la pantalla de resultado de ESA fiscalización ya
+  // registrada -- nunca pasa por el formulario, nunca registra otra.
+  const [existingRegistro, setExistingRegistro] = useState(null);
   // "Últimas consultas" se mantiene client-side, alimentada por resultados
   // REALES de la API (§15: "consultas recientes cuando corresponda") -- no
   // hay ninguna tabla de consultas que persistir en esta etapa.
@@ -109,6 +126,18 @@ export default function InspectorApp() {
   function goFiscalizar(plate, { lockToOverstay = false } = {}) {
     setFiscalizacionPlate(plate);
     setFiscalizacionLockToOverstay(lockToOverstay);
+    setExistingRegistro(null); // nunca arrastra un detalle reabierto a un registro NUEVO
+    setView(INSPECTOR_VIEW.FISCALIZACION);
+  }
+
+  // Abre el detalle de una fiscalización YA registrada, tocada desde la
+  // lista (2026-09-03) -- SOLO LECTURA, nunca registra otra ni reenvía SMS.
+  async function openFiscalizacion(f) {
+    const detalle = await fetchInspectorInspectionDetail(f.id);
+    if (!detalle) return;
+    setFiscalizacionPlate(detalle.plate);
+    setFiscalizacionLockToOverstay(false);
+    setExistingRegistro(detalle);
     setView(INSPECTOR_VIEW.FISCALIZACION);
   }
 
@@ -158,12 +187,20 @@ export default function InspectorApp() {
             <InspectorFiscalizacion
               plate={fiscalizacionPlate}
               lockToOverstay={fiscalizacionLockToOverstay}
+              existingRegistro={existingRegistro}
               onRegistrado={onFiscalizacionRegistrada}
-              onCancelar={() => navigate(fiscalizacionPlate ? INSPECTOR_VIEW.RESULTADO : INSPECTOR_VIEW.FISCALIZACIONES)}
+              onCancelar={() => {
+                // Reabierta desde la lista (existingRegistro) siempre vuelve
+                // a la lista -- INSPECTOR_VIEW.RESULTADO no aplica ahí (no
+                // hay ningún activeResult de una consulta detrás).
+                const destino = existingRegistro ? INSPECTOR_VIEW.FISCALIZACIONES : fiscalizacionPlate ? INSPECTOR_VIEW.RESULTADO : INSPECTOR_VIEW.FISCALIZACIONES;
+                setExistingRegistro(null);
+                navigate(destino);
+              }}
             />
           ) : null}
           {view === INSPECTOR_VIEW.FISCALIZACIONES ? (
-            <InspectorFiscalizaciones fiscalizaciones={fiscalizaciones} onNueva={() => goFiscalizar(null)} />
+            <InspectorFiscalizaciones fiscalizaciones={fiscalizaciones} onNueva={() => goFiscalizar(null)} onOpen={openFiscalizacion} />
           ) : null}
           {view === INSPECTOR_VIEW.HISTORIAL ? <InspectorHistorial history={history} fiscalizaciones={fiscalizaciones} /> : null}
           {view === INSPECTOR_VIEW.MOROSOS ? <InspectorMorosos onOpenPlate={consult} /> : null}
