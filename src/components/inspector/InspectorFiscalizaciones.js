@@ -2,15 +2,24 @@
 import { ClipboardPlus } from "lucide-react";
 import { relativeTimeFromNow } from "@/lib/inspector/inspectorTime.mjs";
 
-// Pestaña "Fiscalizaciones" de la navegación (Etapa 1, sección 11): lista lo
-// registrado en esta sesión (simulado, ver InspectorFiscalizacion.js) y
-// permite iniciar una nueva sin necesidad de pasar antes por una consulta.
+// Pestaña "Fiscalizaciones" de la navegación (Etapa 1, sección 11): lista
+// las fiscalizaciones reales del inspector autenticado (GET
+// /api/inspector/inspections, ver InspectorApp.js) y permite iniciar una
+// nueva sin necesidad de pasar antes por una consulta.
 // onOpen (2026-09-03, "abrir detalle desde la lista"): cada tarjeta ahora es
 // tocable -- antes no tenía ningún onClick/Link, así que tocarla no hacía
 // nada (bug reportado: "toca QA9001 y no abre el detalle"). Reabrir NUNCA
 // vuelve a fiscalizar ni a enviar SMS -- ver getInspectorInspectionById
 // (solo lectura) y el uso de onOpen en InspectorApp.js.
-export default function InspectorFiscalizaciones({ fiscalizaciones, onNueva, onOpen }) {
+//
+// status (incidente CXPY93, 2026-09-03): "idle" | "loading" | "success" |
+// "error" -- reportado por InspectorApp.js (loadFiscalizaciones). Antes un
+// fetch fallido devolvía [] y esta pantalla lo mostraba idéntico a "no
+// tienes fiscalizaciones", así que una fiscalización real (CXPY93, SMS
+// enviado, ticket impreso) parecía no existir. Ahora la lista vacía SOLO se
+// muestra cuando status==="success" && fiscalizaciones.length===0 -- nunca
+// como sustituto silencioso de un error.
+export default function InspectorFiscalizaciones({ fiscalizaciones, status = "success", onRetry, onNueva, onOpen }) {
   return (
     <div className="mx-auto w-full max-w-2xl p-4 pb-8">
       <div className="flex items-center justify-between">
@@ -23,9 +32,18 @@ export default function InspectorFiscalizaciones({ fiscalizaciones, onNueva, onO
       </button>
 
       <section className="mt-6">
-        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Registradas en esta sesión</h2>
-        {fiscalizaciones.length === 0 ? (
-          <p className="mt-3 rounded-2xl bg-white p-4 text-sm text-slate-500 shadow-sm">Aún no registras fiscalizaciones en esta sesión.</p>
+        <h2 className="text-sm font-black uppercase tracking-wide text-slate-500">Tus fiscalizaciones</h2>
+        {status === "loading" || status === "idle" ? (
+          <p className="mt-3 rounded-2xl bg-white p-4 text-sm text-slate-500 shadow-sm">Cargando fiscalizaciones…</p>
+        ) : status === "error" ? (
+          <div role="alert" className="mt-3 rounded-2xl bg-rose-50 p-4 text-left">
+            <p className="text-sm font-semibold text-rose-700">No fue posible cargar las fiscalizaciones.</p>
+            <button type="button" onClick={onRetry} className="mt-3 min-h-11 rounded-xl border border-rose-300 px-4 text-sm font-bold text-rose-700">
+              Reintentar
+            </button>
+          </div>
+        ) : fiscalizaciones.length === 0 ? (
+          <p className="mt-3 rounded-2xl bg-white p-4 text-sm text-slate-500 shadow-sm">Aún no hay fiscalizaciones.</p>
         ) : (
           <ul className="mt-3 space-y-2">
             {fiscalizaciones.map((f, i) => (

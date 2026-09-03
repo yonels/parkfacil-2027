@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 const source = await readFile(new URL("./InspectorFiscalizaciones.js", import.meta.url), "utf8");
 
 test("TAREA 5.A: cada tarjeta de la lista es tocable -- llama a onOpen(f) con la fila completa", () => {
-  assert.match(source, /export default function InspectorFiscalizaciones\(\{ fiscalizaciones, onNueva, onOpen \}\)/);
+  assert.match(source, /export default function InspectorFiscalizaciones\(\{ fiscalizaciones, status = "success", onRetry, onNueva, onOpen \}\)/);
   assert.match(source, /<button[\s\S]{0,40}type="button"[\s\S]{0,40}onClick=\{\(\) => onOpen\?\.\(f\)\}/);
 });
 

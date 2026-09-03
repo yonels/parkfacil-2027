@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { inspectionMotivoLabel } from "@/lib/inspector/inspectorPlateStateCore.mjs";
 import { INSPECTOR_VIEW } from "./inspectorViews.mjs";
@@ -34,9 +34,13 @@ async function fetchPlateState(plate) {
   return { ok: response.ok, status: response.status, payload };
 }
 
+// Incidente CXPY93 (2026-09-03): antes devolvía [] en cualquier fallo HTTP,
+// indistinguible de "el inspector no tiene fiscalizaciones" -- ahora lanza,
+// para que el llamador (loadFiscalizaciones, más abajo) pueda distinguir un
+// error real de una lista real vacía y nunca lo confunda con [].
 async function fetchInspectorInspections() {
   const response = await fetch("/api/inspector/inspections", { headers: PORTAL_HEADERS, cache: "no-store" });
-  if (!response.ok) return [];
+  if (!response.ok) throw new Error("FISCALIZACIONES_FETCH_FAILED");
   const payload = await response.json().catch(() => ({}));
   return payload?.data || [];
 }
@@ -84,8 +88,28 @@ export default function InspectorApp() {
   // hay ninguna tabla de consultas que persistir en esta etapa.
   const [history, setHistory] = useState([]);
   const [fiscalizaciones, setFiscalizaciones] = useState([]);
+  // fiscalizacionesStatus (incidente CXPY93, 2026-09-03): idle | loading |
+  // success | error -- separado de `fiscalizaciones` en sí para que la
+  // pantalla nunca confunda "todavía no se pidió/falló el pedido" con "se
+  // pidió, tuvo éxito, y la respuesta real tiene 0 filas" (antes ambos casos
+  // se veían idénticos: un arreglo vacío).
+  const [fiscalizacionesStatus, setFiscalizacionesStatus] = useState("idle");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [consultError, setConsultError] = useState("");
+
+  // Único lugar que pide GET /api/inspector/inspections (mount, navegar a la
+  // pestaña, volver de background, y después de fiscalizar -- todos abajo
+  // reutilizan esta misma función, nunca una segunda copia de la lógica).
+  const loadFiscalizaciones = useCallback(async () => {
+    setFiscalizacionesStatus("loading");
+    try {
+      const data = await fetchInspectorInspections();
+      setFiscalizaciones(data.map(mapApiInspection));
+      setFiscalizacionesStatus("success");
+    } catch {
+      setFiscalizacionesStatus("error");
+    }
+  }, []);
 
   useEffect(() => {
     // Mismo patrón que useReorderableColumns.js para leer estado externo al
@@ -94,10 +118,36 @@ export default function InspectorApp() {
       const session = await getInspectorSession();
       setInspector(session);
       setCheckedSession(true);
-      if (session) setFiscalizaciones((await fetchInspectorInspections()).map(mapApiInspection));
+      if (session) void loadFiscalizaciones();
     }, 0);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [loadFiscalizaciones]);
+
+  // TAREA 1 (incidente CXPY93): re-pedir la lista cada vez que se NAVEGA a
+  // la pestaña Fiscalizaciones -- no solo al montar la app una vez. `view`
+  // solo cambia al navegar, así que esto nunca dispara un loop ni un fetch
+  // de más mientras el inspector se queda en la misma pestaña.
+  useEffect(() => {
+    if (view !== INSPECTOR_VIEW.FISCALIZACIONES) return undefined;
+    // Mismo patrón que el efecto de montaje de arriba: setTimeout(...,0) para
+    // no llamar a loadFiscalizaciones() (que hace setState de inmediato,
+    // "loading") de forma síncrona dentro del cuerpo del efecto.
+    const timer = window.setTimeout(() => void loadFiscalizaciones(), 0);
+    return () => window.clearTimeout(timer);
+  }, [view, loadFiscalizaciones]);
+
+  // TAREA 6 (incidente CXPY93): al volver la app desde background estando
+  // en la pestaña Fiscalizaciones, revalidar con el mismo mecanismo de
+  // arriba -- basado en el evento visibilitychange (nunca polling: no hay
+  // ningún setInterval/setTimeout recurrente acá, solo reacciona a que el
+  // sistema operativo vuelva a mostrar la pestaña/app).
+  useEffect(() => {
+    function handleVisibility() {
+      if (document.visibilityState === "visible" && view === INSPECTOR_VIEW.FISCALIZACIONES) void loadFiscalizaciones();
+    }
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [view, loadFiscalizaciones]);
 
   async function handleLogout() {
     try { await getSupabaseBrowserClient().auth.signOut(); } catch {}
@@ -148,6 +198,13 @@ export default function InspectorApp() {
       // repetición idempotente no debe duplicar la fila en pantalla tampoco.
       setFiscalizaciones((prev) => [{ id: row.id, plate: fiscalizacionPlate, motivo: fiscalizacionLockToOverstay ? "Exceso de tiempo" : null, observaciones: "", at: row.inspectedAt || new Date().toISOString() }, ...prev]);
     }
+    // TAREA 5 (incidente CXPY93): además del agregado local optimista de
+    // arriba (feedback inmediato), se reconcilia con el servidor -- mismo
+    // loadFiscalizaciones que ya usa el resto de esta pantalla, nunca una
+    // segunda fuente de verdad. Cubre también el caso reused=true (idempotente)
+    // sin necesitar lógica de dedupe adicional, porque loadFiscalizaciones
+    // reemplaza la lista completa con la respuesta real del servidor.
+    void loadFiscalizaciones();
   }
 
   if (!checkedSession) return <main className="grid min-h-dvh place-items-center bg-[#EEF4FF]"><p className="font-bold text-[#041E42]">Cargando…</p></main>;
@@ -201,7 +258,13 @@ export default function InspectorApp() {
             />
           ) : null}
           {view === INSPECTOR_VIEW.FISCALIZACIONES ? (
-            <InspectorFiscalizaciones fiscalizaciones={fiscalizaciones} onNueva={() => goFiscalizar(null)} onOpen={openFiscalizacion} />
+            <InspectorFiscalizaciones
+              fiscalizaciones={fiscalizaciones}
+              status={fiscalizacionesStatus}
+              onRetry={loadFiscalizaciones}
+              onNueva={() => goFiscalizar(null)}
+              onOpen={openFiscalizacion}
+            />
           ) : null}
           {view === INSPECTOR_VIEW.HISTORIAL ? <InspectorHistorial history={history} fiscalizaciones={fiscalizaciones} /> : null}
           {view === INSPECTOR_VIEW.MOROSOS ? <InspectorMorosos onOpenPlate={consult} /> : null}

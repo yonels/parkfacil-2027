@@ -94,7 +94,13 @@ test("goFiscalizar (registrar UNA NUEVA fiscalización) siempre limpia existingR
 });
 
 test("cada vista se resuelve exactamente a un componente, sin duplicados", () => {
-  const renders = [...source.matchAll(/view === INSPECTOR_VIEW\.(\w+)/g)].map((m) => m[1]);
+  // Acotado al JSX de retorno (2026-09-03, incidente CXPY93): los nuevos
+  // efectos de refresco de Fiscalizaciones (loadFiscalizaciones al navegar
+  // / volver de background) también comparan `view === INSPECTOR_VIEW.
+  // FISCALIZACIONES`, fuera del switch de render -- no son una vista
+  // renderizada dos veces, así que no deben contarse acá.
+  const jsx = source.slice(source.indexOf("return (\n    <div"));
+  const renders = [...jsx.matchAll(/view === INSPECTOR_VIEW\.(\w+)/g)].map((m) => m[1]);
   const unique = new Set(renders);
   assert.ok(renders.length >= 8, "deben renderizarse al menos 8 vistas");
   assert.equal(unique.size, renders.length, `no debe haber una vista renderizada dos veces: ${renders.join(", ")}`);
