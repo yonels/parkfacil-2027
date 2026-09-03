@@ -38,11 +38,14 @@ export default function InspectorConsulta({ history, onConsult, onOpenPast, erro
         <div className="mt-2 flex gap-2">
           <input
             id="inspector-plate-input"
+            type="text"
             value={plateInput}
             onChange={(event) => setPlateInput(event.target.value)}
             placeholder="ABC123"
             autoCapitalize="characters"
             autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
             inputMode="text"
             aria-label="Patente a consultar"
             className="min-h-16 min-w-0 flex-1 rounded-2xl border-2 px-4 text-2xl font-black uppercase tracking-widest text-[#041E42]"
