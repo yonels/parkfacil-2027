@@ -127,10 +127,20 @@ export async function registerOnStreetInspection(db = getSupabaseAdminClient(), 
     // mínima sugerida).
     if (smsResult.attempted && smsResult.sent) {
       inspection.inspectorCopySms = await sendInspectorCopySmsIfNeeded(db, {
+        inspectionId: inspection.id,
         inspectorUserId,
         plate,
         sentAtIso: smsResult.sms_sent_at || new Date().toISOString(),
       });
+    } else if (smsResult.attempted && !smsResult.sent) {
+      // Regla D (2026-09-03, "persist inspector sms copy trace"): el SMS al
+      // conductor SÍ se intentó pero falló -- la copia NUNCA se intenta (no
+      // tiene sentido "copiar" un aviso que nunca salió), y eso mismo queda
+      // persistido de forma explícita como SKIPPED (no NULL: NULL significa
+      // "no aplicaba en absoluto", SKIPPED significa "aplicaba, pero no se
+      // intentó por esta razón concreta" -- distinción útil para auditoría).
+      inspection.inspectorCopySms = { attempted: false, skipped: true };
+      await persistInspectorCopySmsStatus(db, inspection.id, { inspector_copy_sms_status: "SKIPPED", inspector_copy_sms_sent_at: null, inspector_copy_sms_provider_message_id: null });
     }
   }
   return inspection;
@@ -150,15 +160,40 @@ async function getInspectorPhone(db, inspectorUserId) {
   return typeof phone === "string" && phone.trim() ? phone.trim() : null;
 }
 
+// Persistencia de trazabilidad de la copia (2026-09-03, "persist inspector
+// sms copy trace"): UPDATE de mejor esfuerzo sobre inspector_copy_sms_status/
+// _sent_at/_provider_message_id (migración 20260903011348). Un fallo AQUÍ
+// (p. ej. la BD momentáneamente inalcanzable) nunca debe propagarse ni
+// revertir la fiscalización/SMS/impresión ya resueltos -- se captura, se
+// deja un log sanitizado (sin patente/teléfono/observaciones) y se
+// continúa. inspection.inspectorCopySms (la respuesta inmediata al
+// cliente) no depende de que este UPDATE tenga éxito.
+async function persistInspectorCopySmsStatus(db, inspectionId, patch) {
+  try {
+    const { error: updateError } = await db.from("on_street_inspections").update({ ...patch, updated_at: new Date().toISOString() }).eq("id", inspectionId);
+    if (updateError) throw updateError;
+  } catch (cause) {
+    console.error("[inspector] no fue posible persistir inspector_copy_sms_status", cause?.message || cause?.code || "error desconocido");
+  }
+}
+
 // Copia SMS al propio Inspector (2026-09-03): mismo proveedor resuelto que
 // el SMS al conductor (SMS_PROVIDER, "simulated" por defecto -- nunca envía
 // real sin que alguien lo configure a propósito), pero un mensaje propio
 // (inspectorCopySms.mjs) y un destinatario distinto. Sin teléfono
 // configurado, "no configurada" es un resultado válido -- nunca se
-// considera un fallo del flujo.
-export async function sendInspectorCopySmsIfNeeded(db, { inspectorUserId, plate, sentAtIso, provider = resolveSmsProvider() }) {
+// considera un fallo del flujo. Persiste inspector_copy_sms_status/_sent_at/
+// _provider_message_id (mismo patrón que sendInspectionSmsIfNeeded abajo
+// persiste sms_status/sms_sent_at/sms_provider_message_id para el
+// conductor), reutilizando los mismos 2 resultados posibles del proveedor
+// (SENT/FAILED) más NOT_CONFIGURED, propio de este flujo (nunca aplica al
+// SMS del conductor, que siempre tiene un teléfono real de la sesión).
+export async function sendInspectorCopySmsIfNeeded(db, { inspectionId, inspectorUserId, plate, sentAtIso, provider = resolveSmsProvider() }) {
   const phone = await getInspectorPhone(db, inspectorUserId);
-  if (!phone) return { attempted: false, phoneConfigured: false };
+  if (!phone) {
+    await persistInspectorCopySmsStatus(db, inspectionId, { inspector_copy_sms_status: "NOT_CONFIGURED", inspector_copy_sms_sent_at: null, inspector_copy_sms_provider_message_id: null });
+    return { attempted: false, phoneConfigured: false };
+  }
 
   let result;
   try {
@@ -166,6 +201,12 @@ export async function sendInspectorCopySmsIfNeeded(db, { inspectorUserId, plate,
   } catch (cause) {
     result = { ok: false, errorCode: cause?.code || "PROVIDER_ERROR" };
   }
+
+  const patch = result.ok
+    ? { inspector_copy_sms_status: "SENT", inspector_copy_sms_sent_at: new Date().toISOString(), inspector_copy_sms_provider_message_id: result.providerMessageId || null }
+    : { inspector_copy_sms_status: "FAILED", inspector_copy_sms_sent_at: null, inspector_copy_sms_provider_message_id: null };
+  await persistInspectorCopySmsStatus(db, inspectionId, patch);
+
   return {
     attempted: true,
     phoneConfigured: true,

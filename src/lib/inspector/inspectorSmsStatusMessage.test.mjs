@@ -70,3 +70,14 @@ test("inspectorCopySmsShortStatus: fallo del proveedor es 'Error', nunca invalid
 test("inspectorCopySmsShortStatus: no aplica cuando el tipo de fiscalización no requiere SMS (no OVERSTAY)", () => {
   assert.deepEqual(inspectorCopySmsShortStatus({ smsRequired: false }), { label: "No aplica", tone: "neutral" });
 });
+
+// 2026-09-03, "persist inspector sms copy trace", regla D -- SMS conductor
+// falló, la copia nunca se intenta: NO debe confundirse con "No
+// configurada" (ese caso es phoneConfigured===false explícito, este es
+// skipped===true con phoneConfigured indefinido).
+test("inspectorCopySmsShortStatus: 'skipped' (SMS conductor falló) es un estado propio, NUNCA se confunde con 'No configurada'", () => {
+  const status = inspectorCopySmsShortStatus({ smsRequired: true, inspectorCopySms: { attempted: false, skipped: true } });
+  assert.equal(status.label, "No enviada (SMS conductor falló)");
+  assert.equal(status.tone, "neutral");
+  assert.notEqual(status.label, "No configurada");
+});

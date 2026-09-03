@@ -48,10 +48,15 @@ export function inspectorSmsShortStatus(registro) {
 // -- ausencia de teléfono configurado es un estado válido ("No
 // configurada"), nunca un error; un fallo del proveedor SÍ se distingue
 // como error, pero ninguno de los dos invalida la fiscalización.
+// "skipped" (2026-09-03, "persist inspector sms copy trace", regla D): el
+// SMS al conductor falló, así que la copia NUNCA se intentó -- se revisa
+// ANTES que phoneConfigured (que aquí viene undefined, no false) para no
+// confundirlo con "sin teléfono configurado".
 export function inspectorCopySmsShortStatus(registro) {
   if (!registro?.smsRequired) return { label: "No aplica", tone: "neutral" };
   const copy = registro?.inspectorCopySms;
   if (!copy) return { label: "No enviada", tone: "neutral" };
+  if (copy.skipped) return { label: "No enviada (SMS conductor falló)", tone: "neutral" };
   if (!copy.phoneConfigured) return { label: "No configurada", tone: "neutral" };
   if (!copy.attempted) return { label: "No enviada", tone: "neutral" };
   return copy.sent ? { label: "Enviada", tone: "success" } : { label: "Error", tone: "error" };
