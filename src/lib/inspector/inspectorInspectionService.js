@@ -3,6 +3,7 @@ import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { resolveSmsProvider } from "@/lib/onStreetSmsProvider";
 import { getOnStreetSessionForInspection } from "./inspectorRepository";
 import { INSPECTION_OVERDUE_SMS_TEXT } from "./inspectorSms.mjs";
+import { buildInspectorCopySmsText } from "./inspectorCopySms.mjs";
 
 function error(code, status = 400) {
   const e = new Error(code);
@@ -115,8 +116,63 @@ export async function registerOnStreetInspection(db = getSupabaseAdminClient(), 
       inspection.smsProvider = smsResult.providerName;
       inspection.smsProviderMessageId = smsResult.sms_provider_message_id ?? null;
     }
+    // Copia operativa al teléfono del propio Inspector (2026-09-03,
+    // "decouple printing + sms copy", regla de negocio B -> C): SOLO se
+    // intenta si el SMS al conductor realmente se envió (smsResult.sent) --
+    // si el proveedor falló, no tiene sentido "copiar" un aviso que nunca
+    // salió. Un fallo (o falta de teléfono configurado) aquí NUNCA revierte
+    // ni invalida la fiscalización ya registrada arriba -- solo se informa
+    // en inspection.inspectorCopySms, ephemeral en la respuesta (no hay
+    // columna dedicada todavía, ver informe de esta tarea para la migración
+    // mínima sugerida).
+    if (smsResult.attempted && smsResult.sent) {
+      inspection.inspectorCopySms = await sendInspectorCopySmsIfNeeded(db, {
+        inspectorUserId,
+        plate,
+        sentAtIso: smsResult.sms_sent_at || new Date().toISOString(),
+      });
+    }
   }
   return inspection;
+}
+
+// Reutiliza auth.admin.getUserById (misma API administrativa que ya usan
+// los scripts locales de bootstrap/creación de usuarios) para leer
+// user_metadata.phone del propio Inspector autenticado -- NO existe hoy
+// ninguna tabla de perfil de Inspector ni columna dedicada (ver TAREA 2 del
+// informe): user_metadata es el lugar correcto ya existente, sin
+// necesidad de migración. Ausencia de teléfono configurado NUNCA es un
+// error -- es un estado válido y esperado (ver CASO B del informe).
+async function getInspectorPhone(db, inspectorUserId) {
+  const { data, error } = await db.auth.admin.getUserById(inspectorUserId);
+  if (error || !data?.user) return null;
+  const phone = data.user.user_metadata?.phone;
+  return typeof phone === "string" && phone.trim() ? phone.trim() : null;
+}
+
+// Copia SMS al propio Inspector (2026-09-03): mismo proveedor resuelto que
+// el SMS al conductor (SMS_PROVIDER, "simulated" por defecto -- nunca envía
+// real sin que alguien lo configure a propósito), pero un mensaje propio
+// (inspectorCopySms.mjs) y un destinatario distinto. Sin teléfono
+// configurado, "no configurada" es un resultado válido -- nunca se
+// considera un fallo del flujo.
+export async function sendInspectorCopySmsIfNeeded(db, { inspectorUserId, plate, sentAtIso, provider = resolveSmsProvider() }) {
+  const phone = await getInspectorPhone(db, inspectorUserId);
+  if (!phone) return { attempted: false, phoneConfigured: false };
+
+  let result;
+  try {
+    result = await provider.send({ to: phone, message: buildInspectorCopySmsText({ plate, sentAtIso }) });
+  } catch (cause) {
+    result = { ok: false, errorCode: cause?.code || "PROVIDER_ERROR" };
+  }
+  return {
+    attempted: true,
+    phoneConfigured: true,
+    sent: Boolean(result.ok),
+    providerName: provider.name,
+    providerMessageId: result.providerMessageId ?? null,
+  };
 }
 
 // Reclamo atómico (mismo patrón que claimNotification en onStreetSmsCore.mjs):

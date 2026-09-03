@@ -20,6 +20,32 @@ const fnSrc = source.slice(start, end).replace("export async function sendInspec
 const INSPECTION_OVERDUE_SMS_TEXT = "ParkFacil: Su tiempo de estacionamiento ha vencido. Su patente será multada.";
 const sendInspectionSmsIfNeeded = new Function("INSPECTION_OVERDUE_SMS_TEXT", `return (${fnSrc});`)(INSPECTION_OVERDUE_SMS_TEXT);
 
+// Mismo patrón para getInspectorPhone + sendInspectorCopySmsIfNeeded
+// (2026-09-03, "decouple printing + sms copy") -- se extraen JUNTAS porque
+// sendInspectorCopySmsIfNeeded llama a getInspectorPhone por su nombre
+// (closure de función normal dentro del módulo, no de `new Function`).
+// buildInspectorCopySmsText se inyecta igual que INSPECTION_OVERDUE_SMS_TEXT
+// arriba -- no se re-implementa, se prueba de verdad en
+// inspectorCopySms.test.mjs.
+function extractFn(name) {
+  const s = source.indexOf(`async function ${name}`);
+  const e = source.indexOf("\n}", s) + 2;
+  return source.slice(s, e);
+}
+const buildInspectorCopySmsText = ({ plate, sentAtIso }) => `COPIA INSPECTOR - Fiscalizacion patente ${String(plate || "").toUpperCase()}. Aviso SMS enviado al conductor el ${sentAtIso}.`;
+const copySmsFnsSrc = `${extractFn("getInspectorPhone")}\n${extractFn("sendInspectorCopySmsIfNeeded").replace("export async function sendInspectorCopySmsIfNeeded", "async function sendInspectorCopySmsIfNeeded")}\nreturn { getInspectorPhone, sendInspectorCopySmsIfNeeded };`;
+const { sendInspectorCopySmsIfNeeded } = new Function("buildInspectorCopySmsText", copySmsFnsSrc)(buildInspectorCopySmsText);
+
+// Mock mínimo de auth.admin.getUserById -- expone user_metadata.phone (o su
+// ausencia) igual que el cliente admin real de Supabase.
+function authDb(usersByid) {
+  return { auth: { admin: { async getUserById(id) {
+    const user = usersByid[id];
+    if (!user) return { data: { user: null }, error: { message: "not found" } };
+    return { data: { user }, error: null };
+  } } } };
+}
+
 // Mismo memoryDb minimalista que onStreetSmsSimulatedE2E.test.mjs: soporta
 // exactamente lo que usa el "claim" -- update/eq/eq/select/maybeSingle,
 // aplicando el patch SOLO si la fila coincide con TODOS los filtros
@@ -144,6 +170,57 @@ test("el SMS solo se intenta cuando el registro fue nuevo (no reused) y realment
 test("registerOnStreetInspection propaga smsStatus/smsProvider REALES (post-envío) al objeto devuelto al cliente -- ya no se queda con el smsStatus previo de register_on_street_inspection, que la UI mostraba como 'enviado' incluso en SIMULATED", () => {
   assert.match(source, /const smsResult = await sendInspectionSmsIfNeeded\(db, \{ inspectionId: inspection\.id, phoneNormalized: session\.phone_normalized \}\);/);
   assert.match(source, /if \(smsResult\.attempted\) \{\s*\n\s*inspection\.smsStatus = smsResult\.sms_status;\s*\n\s*inspection\.smsProvider = smsResult\.providerName;\s*\n\s*inspection\.smsProviderMessageId = smsResult\.sms_provider_message_id \?\? null;/);
+});
+
+// --- 2026-09-03, "decouple printing + sms copy": sendInspectorCopySmsIfNeeded ---
+
+test("sin teléfono configurado en user_metadata: 'no configurada', nunca un error, nunca intenta enviar", async () => {
+  const db = authDb({ "insp-1": { user_metadata: {} } });
+  const sent = [];
+  const provider = { name: "SIMULATED", async send(p) { sent.push(p); return { ok: true, providerMessageId: "x" }; } };
+  const result = await sendInspectorCopySmsIfNeeded(db, { inspectorUserId: "insp-1", plate: "ABC123", sentAtIso: "2026-09-03T00:00:00Z", provider });
+  assert.deepEqual(result, { attempted: false, phoneConfigured: false });
+  assert.equal(sent.length, 0);
+});
+
+test("con teléfono configurado: envía la copia con el mensaje operativo (no el texto legal del conductor) al teléfono del inspector", async () => {
+  const db = authDb({ "insp-1": { user_metadata: { phone: "+56900000099" } } });
+  const sent = [];
+  const provider = { name: "SIMULATED", async send(p) { sent.push(p); return { ok: true, providerMessageId: "copy-1" }; } };
+  const result = await sendInspectorCopySmsIfNeeded(db, { inspectorUserId: "insp-1", plate: "abc123", sentAtIso: "2026-09-03T00:00:00Z", provider });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, "+56900000099");
+  assert.match(sent[0].message, /^COPIA INSPECTOR/);
+  assert.match(sent[0].message, /ABC123/);
+  assert.doesNotMatch(sent[0].message, /multada/i, "nunca reutiliza el texto legal del SMS al conductor");
+  assert.deepEqual(result, { attempted: true, phoneConfigured: true, sent: true, providerName: "SIMULATED", providerMessageId: "copy-1" });
+});
+
+test("fallo del proveedor en la copia: se reporta como error, nunca lanza", async () => {
+  const db = authDb({ "insp-1": { user_metadata: { phone: "+56900000099" } } });
+  const provider = { name: "SIMULATED", async send() { return { ok: false, errorCode: "PROVIDER_DOWN" }; } };
+  const result = await sendInspectorCopySmsIfNeeded(db, { inspectorUserId: "insp-1", plate: "ABC123", sentAtIso: "2026-09-03T00:00:00Z", provider });
+  assert.equal(result.attempted, true);
+  assert.equal(result.sent, false);
+});
+
+test("una excepción del proveedor en la copia tampoco se propaga -- se captura y se reporta como no enviada", async () => {
+  const db = authDb({ "insp-1": { user_metadata: { phone: "+56900000099" } } });
+  const provider = { name: "SIMULATED", async send() { throw new Error("timeout"); } };
+  const result = await sendInspectorCopySmsIfNeeded(db, { inspectorUserId: "insp-1", plate: "ABC123", sentAtIso: "2026-09-03T00:00:00Z", provider });
+  assert.equal(result.sent, false);
+});
+
+// --- Contrato de integración: la copia solo se intenta si el SMS al conductor se envió ---
+
+test("registerOnStreetInspection solo intenta la copia al inspector cuando el SMS al conductor realmente se envió (smsResult.sent), nunca si falló", () => {
+  assert.match(source, /if \(smsResult\.attempted && smsResult\.sent\) \{\s*\n\s*inspection\.inspectorCopySms = await sendInspectorCopySmsIfNeeded/);
+});
+
+test("un fallo o ausencia de la copia al inspector nunca revierte, duplica ni vuelve a tocar la fiscalización ya registrada (no hay ningún throw/rollback alrededor de sendInspectorCopySmsIfNeeded)", () => {
+  const s = source.indexOf("sendInspectorCopySmsIfNeeded(db, {");
+  const block = source.slice(s, source.indexOf("\n  }", s));
+  assert.doesNotMatch(block, /throw|rollback|delete\(/i);
 });
 
 test("nunca importa ni llama a createTransaction/Webpay/reconciliador -- Etapa 2 de Inspectores no toca pagos", () => {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { inspectorSmsStatusMessage } from "./inspectorSmsStatusMessage.mjs";
+import { inspectorSmsStatusMessage, inspectorSmsShortStatus, inspectorCopySmsShortStatus } from "./inspectorSmsStatusMessage.mjs";
 
 test("SIMULATED: el mensaje deja explícito que NO se envió un SMS real (aunque sms_status sea SENT)", () => {
   const msg = inspectorSmsStatusMessage({ smsRequired: true, smsStatus: "SENT", smsProvider: "SIMULATED", smsProviderMessageId: "simulated-abc123" });
@@ -40,4 +40,33 @@ test("nunca afirma 'enviado' para un estado que no sea SENT confirmado", () => {
 test("registro null/undefined no lanza -- se trata como 'no requerido' de forma segura", () => {
   assert.doesNotThrow(() => inspectorSmsStatusMessage(null));
   assert.doesNotThrow(() => inspectorSmsStatusMessage(undefined));
+});
+
+// --- 2026-09-03, "decouple printing + sms copy": filas compactas ---
+
+test("inspectorSmsShortStatus: Enviado/Error/Pendiente/No requerido, tono correcto en cada caso", () => {
+  assert.deepEqual(inspectorSmsShortStatus({ smsRequired: false }), { label: "No requerido", tone: "neutral" });
+  assert.deepEqual(inspectorSmsShortStatus({ smsRequired: true, smsStatus: "SENT" }), { label: "Enviado", tone: "success" });
+  assert.deepEqual(inspectorSmsShortStatus({ smsRequired: true, smsStatus: "FAILED" }), { label: "Error", tone: "error" });
+  assert.deepEqual(inspectorSmsShortStatus({ smsRequired: true, smsStatus: "PENDING" }), { label: "Pendiente", tone: "neutral" });
+  assert.doesNotThrow(() => inspectorSmsShortStatus(null));
+});
+
+test("inspectorCopySmsShortStatus: ausencia de teléfono es 'No configurada' (neutral, nunca error)", () => {
+  const status = inspectorCopySmsShortStatus({ smsRequired: true, inspectorCopySms: { attempted: false, phoneConfigured: false } });
+  assert.deepEqual(status, { label: "No configurada", tone: "neutral" });
+});
+
+test("inspectorCopySmsShortStatus: enviada exitosamente", () => {
+  const status = inspectorCopySmsShortStatus({ smsRequired: true, inspectorCopySms: { attempted: true, phoneConfigured: true, sent: true } });
+  assert.deepEqual(status, { label: "Enviada", tone: "success" });
+});
+
+test("inspectorCopySmsShortStatus: fallo del proveedor es 'Error', nunca invalida la fila de fiscalización", () => {
+  const status = inspectorCopySmsShortStatus({ smsRequired: true, inspectorCopySms: { attempted: true, phoneConfigured: true, sent: false } });
+  assert.deepEqual(status, { label: "Error", tone: "error" });
+});
+
+test("inspectorCopySmsShortStatus: no aplica cuando el tipo de fiscalización no requiere SMS (no OVERSTAY)", () => {
+  assert.deepEqual(inspectorCopySmsShortStatus({ smsRequired: false }), { label: "No aplica", tone: "neutral" });
 });

@@ -29,3 +29,30 @@ export function inspectorSmsStatusMessage(registro) {
   // defensivo, nunca se inventa un "enviado" que no está confirmado.
   return "El aviso SMS quedó pendiente de envío.";
 }
+
+// Fila compacta "SMS conductor" (2026-09-03, "decouple printing + sms
+// copy"): mismo criterio de verdad que inspectorSmsStatusMessage de arriba
+// (nunca decide nada por su cuenta, solo describe smsRequired/smsStatus ya
+// resueltos por el servidor), pero en forma de {label, tone} para la lista
+// de estados separados de la pantalla de éxito -- no reemplaza el mensaje
+// largo de arriba, es una vista distinta de los MISMOS datos.
+export function inspectorSmsShortStatus(registro) {
+  if (!registro?.smsRequired) return { label: "No requerido", tone: "neutral" };
+  if (registro.smsStatus === "SENT") return { label: "Enviado", tone: "success" };
+  if (registro.smsStatus === "FAILED") return { label: "Error", tone: "error" };
+  return { label: "Pendiente", tone: "neutral" };
+}
+
+// Fila compacta "Copia inspector": consume inspection.inspectorCopySms tal
+// cual lo devuelve sendInspectorCopySmsIfNeeded (inspectorInspectionService.js)
+// -- ausencia de teléfono configurado es un estado válido ("No
+// configurada"), nunca un error; un fallo del proveedor SÍ se distingue
+// como error, pero ninguno de los dos invalida la fiscalización.
+export function inspectorCopySmsShortStatus(registro) {
+  if (!registro?.smsRequired) return { label: "No aplica", tone: "neutral" };
+  const copy = registro?.inspectorCopySms;
+  if (!copy) return { label: "No enviada", tone: "neutral" };
+  if (!copy.phoneConfigured) return { label: "No configurada", tone: "neutral" };
+  if (!copy.attempted) return { label: "No enviada", tone: "neutral" };
+  return copy.sent ? { label: "Enviada", tone: "success" } : { label: "Error", tone: "error" };
+}

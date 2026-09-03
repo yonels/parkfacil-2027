@@ -37,7 +37,22 @@ import {
   unavailableReason, UNAVAILABLE_MESSAGE,
 } from "@/lib/inspector/printerAdapter";
 
-export default function CourtesyTicketPrint({ plate, inspectedAt, inspectionId }) {
+// onStatusChange (2026-09-03, "decouple printing + sms copy"): callback
+// OPCIONAL (nunca cambia el comportamiento propio de este componente si no
+// se pasa) que reporta hacia arriba un resumen {label, tone} del estado de
+// impresión -- para que InspectorFiscalizacion.js lo muestre como una fila
+// más en la lista de estados separados de la pantalla de éxito (§7 de la
+// tarea), sin duplicar la lógica de disponibilidad/estado que ya vive
+// aquí.
+function printSummaryFor({ available, printerState, isAndroid, printStatus }) {
+  if (!available) return { label: "No disponible", tone: "neutral" };
+  if (printStatus === "done") return { label: "Realizada", tone: "success" };
+  if (printStatus === "error") return { label: "Error", tone: "error" };
+  if (isAndroid && printerState !== "connected") return { label: "Pendiente (conectar impresora)", tone: "neutral" };
+  return { label: "Pendiente", tone: "neutral" };
+}
+
+export default function CourtesyTicketPrint({ plate, inspectedAt, inspectionId, onStatusChange }) {
   const lines = useMemo(() => courtesyTicketLines({ plate, inspectedAt, inspectionId }), [plate, inspectedAt, inspectionId]);
   const [platform] = useState(() => detectPlatform());
   const isAndroid = platform === PLATFORM.ANDROID;
@@ -58,6 +73,11 @@ export default function CourtesyTicketPrint({ plate, inspectedAt, inspectionId }
   // Impresión (separada de la conexión): idle -> printing -> done | error.
   const [printStatus, setPrintStatus] = useState("idle");
   const [printError, setPrintError] = useState("");
+
+  useEffect(() => {
+    onStatusChange?.(printSummaryFor({ available, printerState, isAndroid, printStatus }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onStatusChange es un callback del padre, no un dato propio a re-observar; available/isAndroid son fijos por montaje.
+  }, [printerState, printStatus]);
 
   const refreshStatus = useCallback(async () => {
     const status = await getPrinterStatus();
@@ -167,7 +187,10 @@ export default function CourtesyTicketPrint({ plate, inspectedAt, inspectionId }
   if (!available) {
     return (
       <div className="mt-6 rounded-2xl border-2 border-dashed border-slate-300 p-4 text-left">
-        <p className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">{UNAVAILABLE_MESSAGE[reason]}</p>
+        {/* Tono neutral, no de advertencia (2026-09-03, §7): la impresión es
+           opcional y su ausencia no es un fallo del flujo -- ver resumen de
+           estados separados en InspectorFiscalizacion.js. */}
+        <p className="rounded-xl bg-slate-100 p-3 text-xs font-semibold text-slate-600">{UNAVAILABLE_MESSAGE[reason]}</p>
       </div>
     );
   }

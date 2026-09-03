@@ -7,11 +7,25 @@ import { compressImageFile } from "@/lib/inspector/inspectorImageCompression";
 import InspectorLocationPicker, { readStoredContext } from "./InspectorLocationPicker";
 import { contextToInspectionPayload } from "@/lib/inspector/inspectorContextCore.mjs";
 import { INSPECTOR_FISCALIZACION_MOTIVOS, INSPECTOR_FISCALIZACION_TYPE_BY_MOTIVO } from "./inspectorFiscalizacionMotivos.mjs";
-import { inspectorSmsStatusMessage } from "@/lib/inspector/inspectorSmsStatusMessage.mjs";
+import { inspectorSmsStatusMessage, inspectorSmsShortStatus, inspectorCopySmsShortStatus } from "@/lib/inspector/inspectorSmsStatusMessage.mjs";
 import CourtesyTicketPrint from "./CourtesyTicketPrint";
 import { detectPlatform, PLATFORM } from "@/lib/inspector/printerAdapter";
 
 const MAX_FOTOS = 3;
+
+// Fila compacta de estado (2026-09-03, "decouple printing + sms copy",
+// §7): tono neutral por defecto -- "no disponible"/"no configurada" NUNCA
+// se pintan como error, solo un fallo real del proveedor/impresión lo es.
+// Un solo lugar para el mapeo de color, reutilizado por las 4 filas.
+const STATUS_TONE_CLASSES = { success: "text-emerald-700", error: "text-rose-700", neutral: "text-slate-500" };
+function StatusRow({ label, status }) {
+  return (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className="font-bold text-[#041E42]">{label}</span>
+      <span className={`font-semibold ${STATUS_TONE_CLASSES[status?.tone] || STATUS_TONE_CLASSES.neutral}`}>{status?.label || "—"}</span>
+    </div>
+  );
+}
 
 // Cámara nativa Android (corrección 2026-08-31): <input type="file"
 // capture="environment"> abre el selector de archivos en vez de la cámara
@@ -67,6 +81,12 @@ export default function InspectorFiscalizacion({ plate: initialPlate, lockToOver
   const [error, setError] = useState("");
   const [registro, setRegistro] = useState(null); // { id, ... } una vez creada
   const [evidenceErrors, setEvidenceErrors] = useState([]);
+  // Resumen de impresión (2026-09-03, "decouple printing + sms copy"):
+  // reportado por CourtesyTicketPrint vía onStatusChange -- null hasta que
+  // ese componente monta y calcula su primer estado (siempre síncrono, ver
+  // printSummaryFor ahí), así que en la práctica nunca queda visible como
+  // null en pantalla real.
+  const [printSummary, setPrintSummary] = useState(null);
   const [online, setOnline] = useState(true);
   const idempotencyKey = useRef(crypto.randomUUID());
   const fileInputRef = useRef(null);
@@ -243,6 +263,23 @@ export default function InspectorFiscalizacion({ plate: initialPlate, lockToOver
           <h1 className="mt-3 text-2xl font-black text-[#041E42]">Fiscalización registrada</h1>
           <p className="mt-2 text-slate-600">{requiresPresenceConfirmation ? inspectorSmsStatusMessage(registro) : "Quedó registrada correctamente."}</p>
 
+          {/* Estados separados (2026-09-03, "decouple printing + sms copy",
+             §7): fiscalización/SMS conductor/copia inspector/impresión
+             nunca se mezclan en un solo veredicto de éxito/fallo -- la
+             impresión en particular nunca debe leerse como que "algo
+             falló" solo por no estar disponible en este dispositivo (tono
+             neutral, ver StatusRow). Solo aplica a OVERSTAY
+             (requiresPresenceConfirmation): es el único tipo que dispara
+             SMS/copia/multa de cortesía. */}
+          {requiresPresenceConfirmation ? (
+            <div className="mt-5 space-y-2 rounded-2xl bg-slate-50 p-4 text-left">
+              <StatusRow label="Fiscalización" status={{ label: "Registrada", tone: "success" }} />
+              <StatusRow label="SMS conductor" status={inspectorSmsShortStatus(registro)} />
+              <StatusRow label="Copia inspector" status={inspectorCopySmsShortStatus(registro)} />
+              <StatusRow label="Impresión" status={printSummary || { label: "Verificando…", tone: "neutral" }} />
+            </div>
+          ) : null}
+
           {evidenceErrors.length ? (
             <div className="mt-5 space-y-3 text-left">
               <p className="rounded-2xl bg-amber-50 p-3 text-sm font-bold text-amber-800">
@@ -272,7 +309,7 @@ export default function InspectorFiscalizacion({ plate: initialPlate, lockToOver
               opcional y 100% local (ver CourtesyTicketPrint.js): nunca
               vuelve a tocar esta fiscalización. */}
           {requiresPresenceConfirmation ? (
-            <CourtesyTicketPrint plate={normalized} inspectedAt={registro.inspectedAt} inspectionId={registro.id} />
+            <CourtesyTicketPrint plate={normalized} inspectedAt={registro.inspectedAt} inspectionId={registro.id} onStatusChange={setPrintSummary} />
           ) : null}
 
           <button onClick={onCancelar} className="mt-6 min-h-14 w-full rounded-2xl bg-[#3150D8] font-black text-white">VOLVER</button>

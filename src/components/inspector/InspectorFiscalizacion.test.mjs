@@ -94,7 +94,7 @@ test("REGISTRAR FISCALIZACIÓN está deshabilitado sin patente válida, mientras
 // todo antes de aceptar el POST.
 test("Multa de cortesía: el botón de impresión SOLO se muestra para OVERSTAY (VENCIDO) ya confirmado por el servidor -- nunca para NO_SESSION/OTHER", () => {
   assert.match(source, /import CourtesyTicketPrint from "\.\/CourtesyTicketPrint";/);
-  assert.match(source, /\{requiresPresenceConfirmation \? \(\s*<CourtesyTicketPrint plate=\{normalized\} inspectedAt=\{registro\.inspectedAt\} inspectionId=\{registro\.id\} \/>\s*\) : null\}/);
+  assert.match(source, /\{requiresPresenceConfirmation \? \(\s*<CourtesyTicketPrint plate=\{normalized\} inspectedAt=\{registro\.inspectedAt\} inspectionId=\{registro\.id\} onStatusChange=\{setPrintSummary\} \/>\s*\) : null\}/);
 });
 
 test("Multa de cortesía: se monta DENTRO del bloque 'if (registro)' (fiscalización ya confirmada por el servidor) -- nunca antes de esa confirmación", () => {
@@ -114,4 +114,30 @@ test("Multa de cortesía: nunca llama a ningún endpoint de ParkFacil -- la impr
   const fetchCalls = [...adapterSource.matchAll(/fetch\(\s*([A-Z_]+)/g)].map((m) => m[1]);
   assert.deepEqual(fetchCalls, ["PRINT_AGENT_URL"], "el único fetch() de printerAdapter.js debe apuntar al agente local de PC, nunca a otra URL");
   assert.match(adapterSource, /const PRINT_AGENT_URL = "http:\/\/127\.0\.0\.1:19100\/print";/, "el agente de impresión local, nunca un endpoint de ParkFacil");
+});
+
+// --- 2026-09-03, "decouple printing + sms copy" ---
+
+test("§7: la pantalla de éxito muestra 4 filas de estado separadas (Fiscalización/SMS conductor/Copia inspector/Impresión) -- nunca un solo veredicto combinado", () => {
+  assert.match(source, /<StatusRow label="Fiscalización" status=\{\{ label: "Registrada", tone: "success" \}\} \/>/);
+  assert.match(source, /<StatusRow label="SMS conductor" status=\{inspectorSmsShortStatus\(registro\)\} \/>/);
+  assert.match(source, /<StatusRow label="Copia inspector" status=\{inspectorCopySmsShortStatus\(registro\)\} \/>/);
+  assert.match(source, /<StatusRow label="Impresión" status=\{printSummary \|\| \{ label: "Verificando…", tone: "neutral" \}\} \/>/);
+});
+
+test("§7/§1 (tests): 'Fiscalización registrada' se muestra siempre de forma incondicional en esta pantalla -- ninguna condición de impresora/SMS/copia puede ocultarla", () => {
+  assert.match(source, /<h1 className="mt-3 text-2xl font-black text-\[#041E42\]">Fiscalización registrada<\/h1>/);
+});
+
+test("§2 (tests): el resumen de impresión se recibe del propio CourtesyTicketPrint vía onStatusChange -- nunca se calcula una condición de bloqueo propia que dependa de la impresora", () => {
+  assert.match(source, /const \[printSummary, setPrintSummary\] = useState\(null\);/);
+  assert.doesNotMatch(source, /disabled=\{[^}]*print/i, "ningún botón/registro debe depender del estado de impresión");
+});
+
+test("§3: SMS conductor y copia inspector se leen de fuentes separadas (inspectorSmsShortStatus vs inspectorCopySmsShortStatus), nunca una mezclada con la otra", () => {
+  assert.match(source, /import \{ inspectorSmsStatusMessage, inspectorSmsShortStatus, inspectorCopySmsShortStatus \} from "@\/lib\/inspector\/inspectorSmsStatusMessage\.mjs";/);
+});
+
+test("StatusRow: 'no disponible'/'no configurada' se pintan en tono neutral, nunca como error -- solo un fallo real del proveedor/impresión lo es", () => {
+  assert.match(source, /const STATUS_TONE_CLASSES = \{ success: "text-emerald-700", error: "text-rose-700", neutral: "text-slate-500" \};/);
 });
