@@ -2,17 +2,29 @@ import "server-only";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { requirePermission } from "@/lib/auth/apiAuthorizationCore.mjs";
 import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
+import { hasPermission } from "@/lib/auth/permissions.mjs";
 import { assignedParkingIds } from "@/lib/auth/parkingAuthorization";
 import { parkingQueryScope } from "@/lib/auth/parkingAuthorizationCore.mjs";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { getParking } from "@/lib/estacionamientosRepository";
 import { requireOperationRow, requireOwnShift } from "@/lib/auth/operationAuthorizationCore.mjs";
 
+// `permission` acepta un string (comportamiento histórico, exactamente igual
+// que antes vía requirePermission) o un arreglo de permisos alternativos
+// (basta con tener uno) -- usado por /api/operacion, donde tanto REPORTS_READ
+// (root/company_admin) como OPERATIONS_USE (operador ya expuesto a /operacion
+// en navigation.js) deben poder consultar, cada uno con su propio scope real.
 export async function authorizeOperationRequest(request, permission) {
   const authorization = await authorizeApiRequest(request);
   if (authorization.response) return authorization;
   try {
-    requirePermission(authorization.context, permission);
+    if (Array.isArray(permission)) {
+      if (!permission.some((item) => hasPermission(authorization.context?.role, item))) {
+        throw new AuthorizationError("PERMISSION_FORBIDDEN", 403, "No tienes permiso para realizar esta acción.", authorization.context);
+      }
+    } else {
+      requirePermission(authorization.context, permission);
+    }
     const db = getSupabaseAdminClient();
     const assigned = await assignedParkingIds(db, authorization.context);
     return { context: authorization.context, db, scope: parkingQueryScope(authorization.context, assigned || []), assignedParkingIds: assigned, response: null };
