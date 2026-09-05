@@ -130,14 +130,18 @@ const ROOT_ONLY_PREFIXES = [
   "/on-street-qr/calles",
   "/on-street-qr/tramos",
 ];
-// "/dashboard-off-street" (Fase 3) y "/reportes-off-street" (Fase 4): la API
+// "/dashboard-off-street" (Fase 3), "/reportes-off-street" (Fase 4) y
+// "/recaudacion" (Fase 2, agregado en la validación Fase 5 -- §17: quedaba
+// afuera de este arreglo, así que el menú SÍ le ofrecía el enlace a
+// operator aunque la API igual lo rechazara con 403 por falta de
+// REPORTS_READ; navegación y API deben estar alineadas): la API
 // (REPORTS_READ) ya rechaza a operator/inspector con 403 -- este prefijo
 // además oculta el ítem de navegación y bloquea la ruta en proxy.js
 // (canAccessPath se usa en ambos) para operator, para que el menú nunca
 // ofrezca un enlace que la API rechazaría. NO se le concede REPORTS_READ ni
 // OPERATIONS_USE a operator; esto es únicamente visibilidad/enrutamiento, el
 // permiso real no cambia.
-const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street"];
+const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion"];
 
 // Prefijos de ruta que exigen un producto habilitado (Portal Cliente/
 // Terminal no aplica -- Root nunca pasa por aquí, ver canAccessPath). El

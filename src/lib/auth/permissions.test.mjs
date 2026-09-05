@@ -73,6 +73,28 @@ test("Reportes Off Street: navigationVisibleForRole oculta el ítem del menú pa
   assert.equal(navigationVisibleForRole(item, admin), true);
 });
 
+// Recaudación (Fase 2, defecto real encontrado en la validación Fase 5
+// §17): la API (REPORTS_READ) ya rechazaba a operator con 403, pero
+// "/recaudacion" faltaba en COMPANY_ADMIN_PREFIXES -- el menú SÍ le ofrecía
+// el enlace a operator aunque la API lo fuera a rechazar igual. Mismo
+// criterio que Dashboard/Reportes: navegación y API alineadas.
+test("Recaudación: platform_admin y company_admin acceden, operator e inspector quedan fuera", () => {
+  assert.equal(canAccessPath({ portal: "root", role: "platform_admin" }, "/recaudacion"), true);
+  const admin = { portal: "client", role: "company_admin", enabledProducts: ["OFF_STREET"] };
+  assert.equal(canAccessPath(admin, "/recaudacion"), true);
+  const operator = { portal: "client", role: "operator", enabledProducts: ["OFF_STREET"] };
+  assert.equal(canAccessPath(operator, "/recaudacion"), false);
+  assert.equal(canAccessPath({ portal: "inspector", role: "inspector" }, "/recaudacion"), false);
+});
+
+test("Recaudación: navigationVisibleForRole oculta el ítem del menú para operator", () => {
+  const item = { href: "/recaudacion", label: "Recaudación" };
+  const operator = { portal: "client", role: "operator", enabledProducts: ["OFF_STREET"] };
+  const admin = { portal: "client", role: "company_admin", enabledProducts: ["OFF_STREET"] };
+  assert.equal(navigationVisibleForRole(item, operator), false);
+  assert.equal(navigationVisibleForRole(item, admin), true);
+});
+
 test("accesos directos de creación On Street (área/calle/tramo) son exclusivos de Root", () => {
   assert.equal(canAccessPath({ portal: "root", role: "platform_admin" }, "/on-street-qr/areas/nueva"), true);
   assert.equal(canAccessPath({ portal: "root", role: "platform_admin" }, "/on-street-qr/calles/nueva"), true);

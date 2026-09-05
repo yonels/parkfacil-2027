@@ -7,11 +7,14 @@ import AppShell from "@/components/layout/AppShell";
 import OperacionResumen from "@/components/operacion/OperacionResumen";
 import EstadoTicketBadge from "@/components/operacion/EstadoTicketBadge";
 import SpreadsheetTable from "@/components/ui/SpreadsheetTable";
+import { OPERATIONAL_TIME_ZONE } from "@/lib/dataEntry.mjs";
 
 // "Hoy" en el día operacional real (America/Santiago) -- nunca una fecha
-// demostrativa fija. en-CA formatea directamente como AAAA-MM-DD.
+// demostrativa fija. en-CA formatea directamente como AAAA-MM-DD. Reutiliza
+// la constante central (dataEntry.mjs) en vez de repetir el literal --
+// defecto real detectado en la validación Fase 5 (§18).
 function todayIsoSantiago() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(new Date());
+  return new Intl.DateTimeFormat("en-CA", { timeZone: OPERATIONAL_TIME_ZONE }).format(new Date());
 }
 
 function money(value) {

@@ -21,11 +21,15 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import AppShell from "@/components/layout/AppShell";
+import { sanitizeCsvCell } from "@/lib/offStreetReportsCore.mjs";
+import { OPERATIONAL_TIME_ZONE } from "@/lib/dataEntry.mjs";
 
 // "Hoy" en el día operacional real (America/Santiago) -- mismo patrón que
-// /operacion (Fase 1). en-CA formatea directamente como AAAA-MM-DD.
+// /operacion (Fase 1). en-CA formatea directamente como AAAA-MM-DD. Reutiliza
+// la constante central en vez de repetir el literal (defecto real detectado
+// en la validación Fase 5, §18).
 function todayIsoSantiago() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(new Date());
+  return new Intl.DateTimeFormat("en-CA", { timeZone: OPERATIONAL_TIME_ZONE }).format(new Date());
 }
 function monthStartIsoSantiago() {
   return `${todayIsoSantiago().slice(0, 7)}-01`;
@@ -246,7 +250,10 @@ export default function RecaudacionPage() {
     }));
     const headers = transactionColumns.map(([, label]) => label);
     const csvRows = mapped.map((item) => transactionColumns.map(([key]) => item[key]));
-    return [headers, ...csvRows].map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(";")).join("\n");
+    // Defecto Fase 5 (§13): faltaba la misma protección anti CSV-injection
+    // que ya usa Reportes Off Street (offStreetReportsCore.mjs) -- una celda
+    // como =CMD(...) en patente/operador/turno se neutraliza antes de citar.
+    return [headers, ...csvRows].map((row) => row.map((value) => `"${sanitizeCsvCell(value).replaceAll('"', '""')}"`).join(";")).join("\n");
   }
 
   function downloadCsv(csv, filename) {

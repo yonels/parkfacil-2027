@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Download, FileSpreadsheet } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
+import { OPERATIONAL_TIME_ZONE } from "@/lib/dataEntry.mjs";
 
 function money(value) {
   return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(value || 0);
@@ -54,8 +55,10 @@ const TABS = [
 ];
 const TAB_IDS = new Set(TABS.map((t) => t.id));
 
+// Reutiliza la constante central en vez de repetir el literal (defecto real
+// detectado en la validación Fase 5, §18).
 function todayIsoSantiago() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(new Date());
+  return new Intl.DateTimeFormat("en-CA", { timeZone: OPERATIONAL_TIME_ZONE }).format(new Date());
 }
 function monthStartIsoSantiago() {
   return `${todayIsoSantiago().slice(0, 7)}-01`;
