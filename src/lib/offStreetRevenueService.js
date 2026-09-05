@@ -53,7 +53,7 @@ export class RevenueRangeTooWideError extends Error {
 // `queryFactory` reconstruye el builder completo (todos los filtros + order)
 // en cada vuelta -- .range() es la paginación real de PostgREST (LIMIT/
 // OFFSET ejecutado en el servidor), no una ilusión en memoria.
-async function fetchAllMatchingRows(queryFactory) {
+export async function fetchAllMatchingRows(queryFactory) {
   const all = [];
   let offset = 0;
   for (;;) {
@@ -79,7 +79,7 @@ async function fetchAllMatchingRows(queryFactory) {
 // función es la ÚNICA fuente de estacionamientos candidatos para las tres
 // consultas (transacciones/resumen/cierres): ninguna puede ver un parking
 // ON_STREET aunque esté en el scope autorizado de la empresa.
-function offStreetParkings(scopedParkings) {
+export function offStreetParkings(scopedParkings) {
   return (Array.isArray(scopedParkings) ? scopedParkings : []).filter((parking) => parking.type === "OFF_STREET");
 }
 
@@ -93,7 +93,7 @@ function uniqueCompaniesFromParkings(parkings) {
   return [...map.values()];
 }
 
-function resolveQueryParkingIds(parkings, { parkingId, companyId } = {}) {
+export function resolveQueryParkingIds(parkings, { parkingId, companyId } = {}) {
   const candidateParkings = companyId ? parkings.filter((parking) => parking.companyId === companyId) : parkings;
   if (!parkingId) return { candidateParkings, queryParkingIds: candidateParkings.map((parking) => parking.id) };
   const normalized = String(parkingId).toUpperCase();

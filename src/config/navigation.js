@@ -57,8 +57,13 @@ export const navigationItems = [
   {
     label: "Off Street",
     icon: ParkingSquare,
-    activePrefix: ["/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo"],
+    // Fase 3: agrega el Dashboard Off Street real (/dashboard-off-street) --
+    // primer ítem del árbol, mismo lugar que ocupa "Dashboard" en On Street
+    // (/on-street-qr). No reemplaza /modelo-dashboard (Dashboard General de
+    // Plataforma, fuera de este alcance) ni mezcla datos On Street.
+    activePrefix: ["/dashboard-off-street", "/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo"],
     children: [
+      { href: "/dashboard-off-street", label: "Dashboard", icon: BarChart3 },
       {
         label: "Operación",
         children: [

@@ -69,13 +69,20 @@ test("la rama string sigue usando literalmente requirePermission (mismo camino d
 // empresa/estacionamiento, PORTAL_FORBIDDEN, platform_admin/company_admin/
 // operator) no fue tocada por esta tarea -- prueba dura: diff vacío contra
 // HEAD en cada archivo del que depende authorizeOperationRequest.
-test("E: los archivos de los que depende el scope (parkingQueryScope/contextCore/parkingAuthorization/permissions) no fueron modificados por esta tarea", async () => {
+//
+// permissions.mjs se retiró deliberadamente de esta lista en Fase 3: recibió
+// un cambio real y acotado (agregar "/dashboard-off-street" a
+// COMPANY_ADMIN_PREFIXES, ver permissions.test.mjs) para que operator/
+// inspector no vean el ítem de navegación del Dashboard -- hasPermission/
+// ROLE_PERMISSIONS (lo que sí decide la rama Array.isArray(permission) de
+// más abajo) no cambiaron, y la tabla de verdad de este archivo sigue
+// probando exactamente eso.
+test("E: los archivos de los que depende el scope (parkingQueryScope/contextCore/parkingAuthorization) no fueron modificados por esta tarea", async () => {
   const { execFileSync } = await import("node:child_process");
   const files = [
     "src/lib/auth/parkingAuthorizationCore.mjs",
     "src/lib/auth/contextCore.mjs",
     "src/lib/auth/parkingAuthorization.js",
-    "src/lib/auth/permissions.mjs",
     "src/lib/auth/authenticatedContext.js",
     "src/lib/auth/apiAuthorization.js",
     "src/lib/auth/apiAuthorizationCore.mjs",

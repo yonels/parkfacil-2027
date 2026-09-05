@@ -31,6 +31,28 @@ test("operator queda fuera de administración de usuarios y empresa", () => {
   assert.equal(hasPermission("operator", PERMISSIONS.USER_CREDENTIALS_MANAGE), false);
 });
 
+// Dashboard Off Street (Fase 3): visible/alcanzable para platform_admin y
+// company_admin, nunca para operator ni inspector -- la API ya exige
+// REPORTS_READ (que operator/inspector no tienen); este prefijo asegura que
+// el menú y proxy.js (ambos consumen canAccessPath) coincidan con esa regla
+// en vez de ofrecer un enlace que la API luego rechazaría con 403.
+test("Dashboard Off Street: platform_admin y company_admin acceden, operator e inspector quedan fuera", () => {
+  assert.equal(canAccessPath({ portal: "root", role: "platform_admin" }, "/dashboard-off-street"), true);
+  const admin = { portal: "client", role: "company_admin", enabledProducts: ["OFF_STREET"] };
+  assert.equal(canAccessPath(admin, "/dashboard-off-street"), true);
+  const operator = { portal: "client", role: "operator", enabledProducts: ["OFF_STREET"] };
+  assert.equal(canAccessPath(operator, "/dashboard-off-street"), false);
+  assert.equal(canAccessPath({ portal: "inspector", role: "inspector" }, "/dashboard-off-street"), false);
+});
+
+test("Dashboard Off Street: navigationVisibleForRole oculta el ítem del menú para operator", () => {
+  const item = { href: "/dashboard-off-street", label: "Dashboard" };
+  const operator = { portal: "client", role: "operator", enabledProducts: ["OFF_STREET"] };
+  const admin = { portal: "client", role: "company_admin", enabledProducts: ["OFF_STREET"] };
+  assert.equal(navigationVisibleForRole(item, operator), false);
+  assert.equal(navigationVisibleForRole(item, admin), true);
+});
+
 test("accesos directos de creación On Street (área/calle/tramo) son exclusivos de Root", () => {
   assert.equal(canAccessPath({ portal: "root", role: "platform_admin" }, "/on-street-qr/areas/nueva"), true);
   assert.equal(canAccessPath({ portal: "root", role: "platform_admin" }, "/on-street-qr/calles/nueva"), true);
