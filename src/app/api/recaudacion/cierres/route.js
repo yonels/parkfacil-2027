@@ -28,9 +28,13 @@ export async function GET(request) {
     const operatorId = url.searchParams.get("operatorId") || null;
     const page = url.searchParams.get("page");
     const pageSize = url.searchParams.get("pageSize");
+    const all = url.searchParams.get("all") === "true";
 
     const validation = validateRevenueFilters({ dateFrom, dateTo });
     if (!validation.ok) return fail(validation.message, 400, { code: "INVALID_FILTERS" });
+    if (all && !dateFrom && !dateTo) {
+      return fail("Selecciona un rango de fechas antes de exportar todo el resultado.", 400, { code: "EXPORT_REQUIRES_DATE_RANGE" });
+    }
 
     const scopedParkings = await listParkings(authorization.db, authorization.scope);
     const result = await searchRevenueClosures(authorization.db, scopedParkings, {
@@ -39,6 +43,7 @@ export async function GET(request) {
       dateFrom,
       dateTo,
       operatorId,
+      all,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
@@ -49,6 +54,7 @@ export async function GET(request) {
         total: result.total,
         page: result.page,
         pageSize: result.pageSize,
+        all,
         actor: operationActor(authorization.context),
       },
     });

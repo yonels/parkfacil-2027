@@ -263,6 +263,13 @@ test("AISLAMIENTO: cierre de otro parking (empresa distinta) no aparece", async 
   assert.ok(!result.rows.some((r) => r.id === "c4"));
 });
 
+test("CIERRES: all=true (exportación completa, Fase 4) devuelve el conjunto completo, no solo una página, y sigue excluyendo otros tenants/On Street", async () => {
+  const db = createMockDb({ closures: CLOSURES });
+  const result = await searchRevenueClosures(db, CO1_PARKINGS, { dateFrom: "2026-07-01", dateTo: "2026-07-31", all: true, pageSize: 1 });
+  assert.deepEqual(result.rows.map((r) => r.id).sort(), ["c1", "c2"]); // ambas filas Off Street, pageSize=1 ignorado por all=true
+  assert.equal(result.pageSize, result.rows.length);
+});
+
 test("CIERRES: parkingId fuera del scope se rechaza", async () => {
   const db = createMockDb({ closures: CLOSURES });
   await assert.rejects(

@@ -61,7 +61,7 @@ export const navigationItems = [
     // primer ítem del árbol, mismo lugar que ocupa "Dashboard" en On Street
     // (/on-street-qr). No reemplaza /modelo-dashboard (Dashboard General de
     // Plataforma, fuera de este alcance) ni mezcla datos On Street.
-    activePrefix: ["/dashboard-off-street", "/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo"],
+    activePrefix: ["/dashboard-off-street", "/reportes-off-street", "/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo"],
     children: [
       { href: "/dashboard-off-street", label: "Dashboard", icon: BarChart3 },
       {
@@ -117,7 +117,8 @@ export const navigationItems = [
       { href: "/monitoreo", label: "Monitoreo", icon: Monitor },
       // Placeholder ya existente ("próximamente"), reubicado aquí -- no es
       // una ruta real, se preserva deshabilitado tal como estaba.
-      { href: null, label: "Reportes", icon: FileChartColumnIncreasing, future: true },
+      // Fase 4: reemplaza el placeholder "próximamente" por la ruta real.
+      { href: "/reportes-off-street", label: "Reportes", icon: FileChartColumnIncreasing },
     ],
   },
 

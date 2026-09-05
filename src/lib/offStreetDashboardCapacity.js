@@ -24,9 +24,18 @@ import { resolveParkingCapacity } from "./offStreetDashboardCore.mjs";
 // getStructurePageData/getDemoStructure, que sí lo tiene y por eso NO se usa
 // aquí) -- un error real de base de datos se propaga tal cual, nunca se
 // disfraza de estructura ficticia.
-export async function getDashboardCapacity(db, offStreetParkingsInScope) {
+// Capacidad real por estacionamiento (Fase 4, reporte de Ocupación --
+// necesita la fila por parking, no solo el total agregado). getDashboardCapacity
+// (Fase 3) pasa a sumar este mismo resultado -- comportamiento idéntico,
+// verificado por su propia suite de tests, sin duplicar la consulta.
+export async function getDashboardCapacityByParking(db, offStreetParkingsInScope) {
   const parkings = Array.isArray(offStreetParkingsInScope) ? offStreetParkingsInScope : [];
-  if (!parkings.length) return 0;
+  if (!parkings.length) return [];
   const structures = await Promise.all(parkings.map((parking) => getParkingStructure(db, parking)));
-  return structures.reduce((sum, structure) => sum + resolveParkingCapacity(structure), 0);
+  return parkings.map((parking, index) => ({ parkingId: parking.id, capacity: resolveParkingCapacity(structures[index]) }));
+}
+
+export async function getDashboardCapacity(db, offStreetParkingsInScope) {
+  const byParking = await getDashboardCapacityByParking(db, offStreetParkingsInScope);
+  return byParking.reduce((sum, item) => sum + item.capacity, 0);
 }

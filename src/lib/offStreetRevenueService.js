@@ -245,7 +245,7 @@ export async function getRevenueOverview(db, scopedParkings, options = {}) {
 // reproyecta la fila ya calculada por close_operator_shift (toRevenueClosureRow),
 // cero recálculo. Sin techo silencioso (mismo mecanismo que transacciones).
 export async function searchRevenueClosures(db, scopedParkings, options = {}) {
-  const { dateFrom = null, dateTo = null, parkingId = null, companyId = null, operatorId = null, page, pageSize } = options;
+  const { dateFrom = null, dateTo = null, parkingId = null, companyId = null, operatorId = null, page, pageSize, all = false } = options;
   const { page: safePage, pageSize: safeSize, offset } = normalizePagination({ page, pageSize });
 
   const parkings = offStreetParkings(scopedParkings);
@@ -257,8 +257,8 @@ export async function searchRevenueClosures(db, scopedParkings, options = {}) {
 
   const today = operationalTodayIso();
   const hasExplicitBound = Boolean(dateFrom || dateTo || operatorId);
-  const effectiveDateFrom = dateFrom || (hasExplicitBound ? null : addDaysToIsoDate(today, -30));
-  const effectiveDateTo = dateTo || (hasExplicitBound ? null : today);
+  const effectiveDateFrom = dateFrom || (all || hasExplicitBound ? null : addDaysToIsoDate(today, -30));
+  const effectiveDateTo = dateTo || (all || hasExplicitBound ? null : today);
 
   const queryFactory = () => {
     let q = db.from("shift_closures").select(closureFields).in("parking_id", queryParkingIds);
@@ -269,7 +269,8 @@ export async function searchRevenueClosures(db, scopedParkings, options = {}) {
   };
   const widened = await fetchAllMatchingRows(queryFactory);
   const exactRows = filterRowsByExactOperationalDateRange(widened, "actual_close_at", effectiveDateFrom, effectiveDateTo);
-  const rows = exactRows.slice(offset, offset + safeSize).map((row) => toRevenueClosureRow(row));
+  const pageRows = all ? exactRows : exactRows.slice(offset, offset + safeSize);
+  const rows = pageRows.map((row) => toRevenueClosureRow(row));
 
-  return { rows, total: exactRows.length, page: safePage, pageSize: safeSize };
+  return { rows, total: exactRows.length, page: safePage, pageSize: all ? rows.length : safeSize };
 }
