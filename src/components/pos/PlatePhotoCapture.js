@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { computePlateCropOutputSize, computePlateFrameRect } from "@/lib/offStreet/platePhotoFrame.mjs";
 import { averageLuminance, isLowLight } from "@/lib/offStreet/platePhotoLowLight.mjs";
+import { gpsRequirementMessage } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
 
 // Captura de fotografía de patente para ENTRY (Off Street, Fase 6). Cámara
 // en vivo vía getUserMedia con guía rectangular de encuadre -- esto SÍ
@@ -120,7 +121,31 @@ async function setNativeTorch(enabled) {
   }
 }
 
-export default function PlatePhotoCapture({ plate, required, onCapture, onCancel }) {
+// Ajuste final, §18/§19: GPS configurable por proyecto (DISABLED/OPTIONAL/
+// REQUIRED, mismo enum que gpsMode). Una sola lectura (getCurrentPosition,
+// no watchPosition -- no hace falta seguimiento continuo para una foto
+// puntual), nunca inventa una coordenada cuando no está disponible.
+function requestGpsPosition(timeout = 8000) {
+  return new Promise((resolve) => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      resolve(null);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        resolve({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+        });
+      },
+      () => resolve(null),
+      { enableHighAccuracy: true, timeout, maximumAge: 0 }
+    );
+  });
+}
+
+export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED", onCapture, onCancel }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const trackRef = useRef(null);
@@ -140,6 +165,39 @@ export default function PlatePhotoCapture({ plate, required, onCapture, onCancel
   const [torchOn, setTorchOn] = useState(false);
   const [torchError, setTorchError] = useState("");
   const [lowLightWarning, setLowLightWarning] = useState(false);
+
+  // GPS (§18/§19): nunca se solicita si gpsMode es DISABLED (ni siquiera el
+  // permiso del navegador). "IDLE" = no aplica; "LOADING"/"READY"/"ERROR"
+  // reflejan el intento real -- gpsData se lee en vivo al confirmar "Usar
+  // foto" (nunca queda congelado desde el instante de "Capturar": si la
+  // ubicación termina de resolverse mientras el operador revisa la vista
+  // previa, igual se usa).
+  // Estado inicial vía inicializador perezoso (no un setState síncrono
+  // dentro del efecto de abajo, que solo debe reaccionar al resultado
+  // async -- ver retryGps para el mismo criterio en el reintento manual):
+  // si GPS aplica, arranca directamente en "LOADING" desde el primer
+  // render, sin un paso intermedio en "IDLE" que nunca se vería.
+  const [gpsStatus, setGpsStatus] = useState(() => (gpsMode === "DISABLED" ? "IDLE" : "LOADING"));
+  const [gpsData, setGpsData] = useState(null);
+  const [gpsRetryToken, setGpsRetryToken] = useState(0);
+
+  useEffect(() => {
+    // gpsMode DISABLED: ni siquiera se solicita el permiso de ubicación
+    // (§18). gpsMode no cambia durante la vida de este diálogo (viene fijo
+    // de la configuración ya cargada por PosTerminal.js).
+    if (gpsMode === "DISABLED") return undefined;
+    let cancelled = false;
+    requestGpsPosition().then((result) => {
+      if (cancelled) return;
+      if (result) {
+        setGpsData(result);
+        setGpsStatus("READY");
+      } else {
+        setGpsStatus("ERROR");
+      }
+    });
+    return () => { cancelled = true; };
+  }, [gpsMode, gpsRetryToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -294,7 +352,9 @@ export default function PlatePhotoCapture({ plate, required, onCapture, onCancel
         setError("No fue posible procesar la fotografía. Intenta nuevamente.");
         return;
       }
-      setPreview({ url: URL.createObjectURL(blob), blob });
+      // capturedAt (§17): el instante REAL del disparo -- nunca el de
+      // impresión/consulta/reimpresión, que ocurren después.
+      setPreview({ url: URL.createObjectURL(blob), blob, capturedAt: new Date().toISOString() });
       setMode("PREVIEW");
     } catch {
       setError("No fue posible tomar la fotografía. Intenta nuevamente.");
@@ -332,7 +392,7 @@ export default function PlatePhotoCapture({ plate, required, onCapture, onCancel
         setError("No fue posible procesar la fotografía. Intenta nuevamente.");
         return;
       }
-      setPreview({ url: URL.createObjectURL(blob), blob });
+      setPreview({ url: URL.createObjectURL(blob), blob, capturedAt: new Date().toISOString() });
       setMode("PREVIEW");
     } catch {
       setError("No fue posible procesar la fotografía seleccionada.");
@@ -346,11 +406,32 @@ export default function PlatePhotoCapture({ plate, required, onCapture, onCancel
     setMode(streamRef.current ? "LIVE" : "FALLBACK");
   }
 
+  function retryGps() {
+    // setState directo aquí es un manejador de clic normal, no el cuerpo de
+    // un efecto -- válido mostrar "Obteniendo ubicación…" de inmediato.
+    setGpsStatus("LOADING");
+    setGpsRetryToken((current) => current + 1);
+  }
+
+  // §19: GPS REQUIRED nunca completa la evidencia sin una posición válida
+  // -- se bloquea "Usar foto" (nunca la fotografía en sí, que ya se tomó)
+  // hasta tener una lectura real. OPTIONAL/DISABLED nunca bloquean.
+  const gpsBlocksConfirm = gpsMode === "REQUIRED" && gpsStatus !== "READY";
+
   async function usePhoto() {
-    if (!preview?.blob) return;
+    if (!preview?.blob || gpsBlocksConfirm) return;
     const base64 = await blobToBase64(preview.blob);
     stopStream();
-    onCapture({ base64, mimeType: "image/jpeg", sizeBytes: preview.blob.size, previewUrl: preview.url });
+    onCapture({
+      base64,
+      mimeType: "image/jpeg",
+      sizeBytes: preview.blob.size,
+      previewUrl: preview.url,
+      capturedAt: preview.capturedAt,
+      latitude: gpsData?.latitude ?? null,
+      longitude: gpsData?.longitude ?? null,
+      gpsAccuracyM: gpsData?.accuracy ?? null,
+    });
   }
 
   function cancel() {
@@ -452,8 +533,21 @@ export default function PlatePhotoCapture({ plate, required, onCapture, onCancel
         {mode === "PREVIEW" && preview ? (
           <div className="mt-4">
             <img src={preview.url} alt={`Fotografía de la patente ${plate || ""}`} className="w-full rounded-2xl border border-slate-200 object-cover" />
+
+            {gpsMode === "REQUIRED" && gpsStatus === "LOADING" ? (
+              <p className="mt-3 rounded-xl bg-slate-100 px-3 py-2 text-center text-xs font-bold text-slate-600">Obteniendo ubicación…</p>
+            ) : null}
+            {gpsMode === "REQUIRED" && gpsStatus === "ERROR" ? (
+              <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-center">
+                <p className="text-xs font-bold text-rose-700">{gpsRequirementMessage("REQUIRED")}</p>
+                <button type="button" onClick={retryGps} className="mt-2 rounded-full border border-rose-300 bg-white px-3 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100">
+                  Reintentar ubicación
+                </button>
+              </div>
+            ) : null}
+
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <button type="button" onClick={usePhoto} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500">
+              <button type="button" onClick={usePhoto} disabled={gpsBlocksConfirm} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50">
                 Usar foto
               </button>
               <button type="button" onClick={retake} className="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50">

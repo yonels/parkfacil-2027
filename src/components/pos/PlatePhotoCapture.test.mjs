@@ -139,11 +139,13 @@ test("turnOffTorch es no-op si el torch no estaba encendido -- nunca llama a app
 
 // ---- §14/§16.11: contrato de salida sin cambios -- Fase 6B sigue recibiendo la MISMA imagen ----
 
-test("onCapture entrega exactamente el mismo contrato de siempre (base64/mimeType/sizeBytes/previewUrl) -- PosTerminal.js no necesita cambios", () => {
-  assert.match(
-    source,
-    /onCapture\(\{ base64, mimeType: "image\/jpeg", sizeBytes: preview\.blob\.size, previewUrl: preview\.url \}\);/
-  );
+test("onCapture entrega el contrato original (base64/mimeType/sizeBytes/previewUrl) MÁS los campos nuevos de trazabilidad (capturedAt/GPS) -- nunca menos que antes", () => {
+  const callStart = source.indexOf("onCapture({");
+  const callEnd = source.indexOf("});", callStart);
+  const call = source.slice(callStart, callEnd);
+  for (const field of ["base64", 'mimeType: "image/jpeg"', "sizeBytes: preview.blob.size", "previewUrl: preview.url", "capturedAt: preview.capturedAt", "latitude: gpsData?.latitude ?? null", "longitude: gpsData?.longitude ?? null", "gpsAccuracyM: gpsData?.accuracy ?? null"]) {
+    assert.ok(call.includes(field), `falta ${field} en el payload de onCapture`);
+  }
 });
 
 // ---- §17: no se agregó nada fuera de alcance ----
@@ -152,7 +154,60 @@ test("no se agregó OCR, reconocimiento de caracteres ni detección automática 
   assert.doesNotMatch(source, /ocr|tesseract|reconoc|detectPlate/i);
 });
 
-test("no se tocó la lógica REQUIRED/OPTIONAL/DISABLED -- el prop 'required' se sigue usando tal cual, sin nueva lógica de gating", () => {
-  assert.match(source, /export default function PlatePhotoCapture\(\{ plate, required, onCapture, onCancel \}\)/);
+test("no se tocó la lógica REQUIRED/OPTIONAL/DISABLED de la FOTO -- el prop 'required' se sigue usando tal cual, sin nueva lógica de gating", () => {
+  assert.match(source, /export default function PlatePhotoCapture\(\{ plate, required, gpsMode = "DISABLED", onCapture, onCancel \}\)/);
   assert.match(source, /\{required \? \(/);
+});
+
+// ---- Ajuste final: GPS configurable por proyecto (§18/§19) ----
+
+test("GPS DISABLED nunca solicita el permiso de ubicación (ni siquiera navigator.geolocation)", () => {
+  const fnStart = source.indexOf("useEffect(() => {\n    // gpsMode DISABLED");
+  assert.ok(fnStart > -1);
+  const fnEnd = source.indexOf("[gpsMode, gpsRetryToken]);", fnStart);
+  const fn = source.slice(fnStart, fnEnd);
+  assert.match(fn, /if \(gpsMode === "DISABLED"\) return undefined;/);
+});
+
+test("GPS REQUIRED bloquea 'Usar foto' hasta tener una posición válida -- OPTIONAL/DISABLED nunca bloquean", () => {
+  assert.match(source, /const gpsBlocksConfirm = gpsMode === "REQUIRED" && gpsStatus !== "READY";/);
+  assert.match(source, /async function usePhoto\(\) \{\s*\n\s*if \(!preview\?\.blob \|\| gpsBlocksConfirm\) return;/);
+  assert.match(source, /disabled=\{gpsBlocksConfirm\}/);
+});
+
+test("capturar la fotografía NUNCA se bloquea por GPS -- solo 'Usar foto' puede quedar bloqueado", () => {
+  const fnStart = source.indexOf("async function capture()");
+  const fnEnd = source.indexOf("async function handleFileSelected");
+  const fn = source.slice(fnStart, fnEnd);
+  assert.doesNotMatch(fn, /gpsBlocksConfirm|gpsStatus|gpsMode/);
+});
+
+test("un fallo de GPS (REQUIRED) muestra el mismo mensaje que el servidor (gpsRequirementMessage) y permite reintentar sin perder la foto ya tomada", () => {
+  assert.match(source, /gpsStatus === "ERROR" \? \(/);
+  assert.match(source, /\{gpsRequirementMessage\("REQUIRED"\)\}/);
+  assert.match(source, /onClick=\{retryGps\}/);
+  // Reintentar NUNCA vuelve a LIVE/FALLBACK ni toca "preview" -- solo repite
+  // la solicitud de ubicación.
+  const fnStart = source.indexOf("function retryGps() {");
+  const fnEnd = source.indexOf("\n  }\n", fnStart);
+  const fn = source.slice(fnStart, fnEnd);
+  assert.doesNotMatch(fn, /setPreview|setMode/);
+});
+
+test("la lectura de GPS se toma en vivo al confirmar (gpsData), no congelada desde el instante de 'Capturar' -- puede resolverse mientras se revisa la vista previa", () => {
+  const fnStart = source.indexOf("async function capture()");
+  const fnEnd = source.indexOf("async function handleFileSelected");
+  const captureFn = source.slice(fnStart, fnEnd);
+  assert.doesNotMatch(captureFn, /gpsData/);
+  assert.match(source, /latitude: gpsData\?\.latitude \?\? null,/);
+});
+
+test("capturedAt se registra en el instante REAL de la captura, no al confirmar/usar la foto", () => {
+  const matches = source.match(/capturedAt: new Date\(\)\.toISOString\(\)/g) || [];
+  assert.equal(matches.length, 2, "debe fijarse tanto en capture() (cámara) como en handleFileSelected() (fallback)");
+});
+
+test("GPS es una única lectura (getCurrentPosition), nunca un seguimiento continuo (watchPosition) -- sin complejidad innecesaria (§13 del encargo)", () => {
+  assert.match(source, /navigator\.geolocation\.getCurrentPosition\(/);
+  assert.doesNotMatch(source, /navigator\.geolocation\.watchPosition\(/);
 });

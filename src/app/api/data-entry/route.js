@@ -5,13 +5,55 @@ import { authorizeOperationRequest, operationActor, operationAuthorizationError,
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { getPlatePhotoSettings } from "@/lib/offStreet/offStreetPlatePhotoSettingsRepository";
 import { linkPlateEntryPhoto, removeOrphanedPlatePhoto, uploadPlateEntryPhoto } from "@/lib/offStreet/platePhotoEvidenceRepository";
-import { canCompleteEntry, entryPhotoRequirementMessage, validatePlatePhotoFile } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
+import { canCompleteEntry, canCompleteEvidenceGps, entryPhotoRequirementMessage, gpsRequirementMessage, validatePlatePhotoFile } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
 
 const publicStayFields = "id,code,parking_id,license_plate,qr_token,status,entry_at,entry_operator_name,entry_source,entry_shift_id,exit_at,exit_operator_name,payment_shift_id,elapsed_minutes,rate_name,billing_mode,net_amount,tax_amount,total_amount,payment_method,payment_code,coupon_id,coupon_code,discount_amount,subtotal_amount,updated_at";
 const ticketParkingFields = "id,code,name,company_name,address,city,status,company:companies(business_name,address,district,city,rut_number,rut_dv,phone)";
 
 function fail(message, status = 400, details) { return NextResponse.json({ error: message, details }, { status }); }
 function code(prefix) { return `${prefix}-${new Date().toISOString().replace(/\D/g, "").slice(2, 14)}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`; }
+
+// Ajuste final (GPS/metadatos de evidencia, §16/§18): null/undefined/""
+// tratados como AUSENTES, nunca como 0 -- mismo tipo de bug ya corregido en
+// este proyecto para numeroSeguro/toFiniteNumberOrNull (Number(null) es 0 y
+// pasaría Number.isFinite). GPS ausente queda null, nunca (0, 0).
+function toFiniteOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+// El cliente envía latitude/longitude solo si obtuvo una posición real
+// (nunca se inventa una cuando GPS está DISABLED o no disponible, §18).
+function decodePlateGpsInput(input) {
+  const latitude = toFiniteOrNull(input?.platePhotoLatitude);
+  const longitude = toFiniteOrNull(input?.platePhotoLongitude);
+  if (latitude === null || longitude === null) return { latitude: null, longitude: null, accuracy: null };
+  return { latitude, longitude, accuracy: toFiniteOrNull(input?.platePhotoGpsAccuracyM) };
+}
+
+// §20: solo datos razonables del dispositivo, nunca identificadores
+// innecesarios -- se acepta lo que ya expone window.ParkFacilDevice.getDeviceInfo()
+// (bridge existente, ver ParkFacilDeviceBridge.kt) o el descriptor mínimo
+// del navegador cuando no hay bridge nativo; cualquier otro campo enviado se
+// descarta.
+function sanitizeDeviceInfo(value) {
+  if (!value || typeof value !== "object") return null;
+  const pick = (field, max) => String(value[field] || "").trim().slice(0, max) || null;
+  const info = {
+    platform: pick("platform", 20),
+    manufacturer: pick("manufacturer", 60),
+    model: pick("model", 60),
+    appVersion: pick("appVersion", 30) || pick("runtimeVersion", 30),
+  };
+  return Object.values(info).some(Boolean) ? info : null;
+}
+
+function sanitizeCapturedAt(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
 
 // Fase 6 (fotografía de patente): el cliente ya comprime la imagen y la
 // envía como data URL ("data:image/jpeg;base64,...") o como base64 puro +
@@ -88,7 +130,7 @@ export async function GET(request) {
     // muestra el control de cámara en el formulario de ingreso. Sin fila de
     // configuración, el resultado es DISABLED — el flujo actual queda 100%
     // intacto (§12 del encargo).
-    getPlatePhotoSettings(current.db, current.actor.parkingId).catch(() => ({ plateMode: "DISABLED", printOnTicket: false })),
+    getPlatePhotoSettings(current.db, current.actor.parkingId).catch(() => ({ plateMode: "DISABLED", printOnTicket: false, gpsMode: "DISABLED" })),
   ]);
   const { data: parking, error: parkingError } = parkingResult;
   const { data: stays, error: stayError } = stayResult;
@@ -103,7 +145,7 @@ export async function GET(request) {
       storageReady: !operationalStorageMissing,
       warning: operationalStorageMissing ? "El almacenamiento operacional todavía no está activado; la asignación sí fue cargada." : null,
       actor: { name: current.actor.name, role: current.actor.role, parkingId: current.actor.parkingId },
-      platePhotoSettings: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket },
+      platePhotoSettings: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket, gpsMode: platePhotoSettings.gpsMode },
     },
   });
 }
@@ -128,7 +170,7 @@ export async function POST(request) {
     // todavía no existe en este ambiente (migración pendiente), se asume
     // DISABLED -- el ENTRY nunca debe romperse por esto (§12: compatibilidad
     // 100% cuando la función está desactivada).
-    const platePhotoSettings = await getPlatePhotoSettings(current.db, assignedParkingId).catch(() => ({ plateMode: "DISABLED", printOnTicket: false }));
+    const platePhotoSettings = await getPlatePhotoSettings(current.db, assignedParkingId).catch(() => ({ plateMode: "DISABLED", printOnTicket: false, gpsMode: "DISABLED" }));
     const decodedPhoto = decodePlatePhotoInput(input);
     if (decodedPhoto?.error) return fail("La fotografía enviada no es válida.", 400, { code: decodedPhoto.error });
     if (!canCompleteEntry(platePhotoSettings.plateMode, Boolean(decodedPhoto))) {
@@ -142,6 +184,20 @@ export async function POST(request) {
         // descarta y se continúa exactamente como si no se hubiese
         // adjuntado ninguna (§4 del encargo).
         decodedPhoto.discard = true;
+      }
+    }
+
+    // Ajuste final, §18/§19: GPS solo se exige cuando efectivamente va a
+    // existir evidencia (si no hay foto -- OPTIONAL sin adjuntar, o se
+    // descartó arriba -- no hay nada a lo que asociarle una posición, así
+    // que la regla de GPS no aplica). Se valida ANTES de subir el archivo
+    // (mismo criterio que la validación de mime/tamaño): nunca se sube nada
+    // al bucket si la evidencia de todas formas no va a quedar completa.
+    const gpsInput = decodePlateGpsInput(input);
+    if (decodedPhoto && !decodedPhoto.discard) {
+      const hasValidGps = gpsInput.latitude !== null && gpsInput.longitude !== null;
+      if (!canCompleteEvidenceGps(platePhotoSettings.gpsMode, hasValidGps)) {
+        return fail(gpsRequirementMessage(platePhotoSettings.gpsMode), 400, { code: "PLATE_PHOTO_GPS_REQUIRED" });
       }
     }
 
@@ -193,6 +249,12 @@ export async function POST(request) {
           mimeType: uploadedPhoto.mimeType,
           sizeBytes: uploadedPhoto.sizeBytes,
           createdBy: current.actor.id,
+          sha256: uploadedPhoto.sha256,
+          capturedAt: sanitizeCapturedAt(input.platePhotoCapturedAt),
+          latitude: gpsInput.latitude,
+          longitude: gpsInput.longitude,
+          gpsAccuracyM: gpsInput.accuracy,
+          deviceInfo: sanitizeDeviceInfo(input.deviceInfo),
         });
         photoLinked = true;
       } catch (linkError) {

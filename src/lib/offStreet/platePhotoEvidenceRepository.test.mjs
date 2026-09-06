@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { createHash } from "node:crypto";
+
 import {
   getPlateEntryPhotoByStay,
   getPlateEntryPhotoSignedUrl,
@@ -122,7 +124,7 @@ test("getPlateEntryPhotoByStay: aislamiento -- una estadía nunca ve la foto de 
   await linkPlateEntryPhoto(db, { companyId: "company-1", parkingId: "parking-a", parkingStayId: "stay-1", storagePath: uploaded.storagePath, mimeType: "image/jpeg", sizeBytes: validBuffer.length });
   assert.equal(await getPlateEntryPhotoByStay(db, "stay-2"), null);
   const found = await getPlateEntryPhotoByStay(db, "stay-1");
-  assert.equal(found.storage_path, uploaded.storagePath);
+  assert.equal(found.storagePath, uploaded.storagePath);
 });
 
 test("getPlateEntryPhotoSignedUrl: null cuando no hay fotografía; URL firmada cuando sí", async () => {
@@ -134,4 +136,78 @@ test("getPlateEntryPhotoSignedUrl: null cuando no hay fotografía; URL firmada c
   const signed = await getPlateEntryPhotoSignedUrl(db, "stay-1", 60);
   assert.ok(signed.url.includes(uploaded.storagePath));
   assert.ok(signed.url.includes("exp=60"));
+});
+
+// ---- Ajuste final: hash de integridad (§22) ----
+
+test("uploadPlateEntryPhoto: calcula el SHA-256 sobre los MISMOS bytes que se suben, nunca sobre una copia distinta", async () => {
+  const db = createFakeDb();
+  const uploaded = await uploadPlateEntryPhoto(db, { parkingId: "parking-a", buffer: validBuffer, mimeType: "image/jpeg", sizeBytes: validBuffer.length });
+  const expected = createHash("sha256").update(validBuffer).digest("hex");
+  assert.equal(uploaded.sha256, expected);
+});
+
+test("linkPlateEntryPhoto: persiste el hash calculado en uploadPlateEntryPhoto", async () => {
+  const db = createFakeDb();
+  const uploaded = await uploadPlateEntryPhoto(db, { parkingId: "parking-a", buffer: validBuffer, mimeType: "image/jpeg", sizeBytes: validBuffer.length });
+  const linked = await linkPlateEntryPhoto(db, {
+    companyId: "company-1", parkingId: "parking-a", parkingStayId: "stay-1",
+    storagePath: uploaded.storagePath, mimeType: "image/jpeg", sizeBytes: validBuffer.length, sha256: uploaded.sha256,
+  });
+  assert.equal(linked.sha256, uploaded.sha256);
+  assert.equal(db.evidenceRows[0].sha256, uploaded.sha256);
+});
+
+// ---- Ajuste final: metadatos de trazabilidad -- GPS/dispositivo/captured_at/tipo (§16/§18/§21) ----
+
+test("linkPlateEntryPhoto: sin GPS/dispositivo (no configurado o no disponible) guarda null, nunca inventa un valor", async () => {
+  const db = createFakeDb();
+  const uploaded = await uploadPlateEntryPhoto(db, { parkingId: "parking-a", buffer: validBuffer, mimeType: "image/jpeg", sizeBytes: validBuffer.length });
+  const linked = await linkPlateEntryPhoto(db, {
+    companyId: "company-1", parkingId: "parking-a", parkingStayId: "stay-1",
+    storagePath: uploaded.storagePath, mimeType: "image/jpeg", sizeBytes: validBuffer.length,
+  });
+  assert.equal(linked.latitude, null);
+  assert.equal(linked.longitude, null);
+  assert.equal(linked.gpsAccuracyM, null);
+  assert.equal(linked.deviceInfo, null);
+  assert.equal(linked.capturedAt, null);
+});
+
+test("linkPlateEntryPhoto: con GPS/dispositivo/captured_at, los guarda tal cual (nunca en formato de solo texto)", async () => {
+  const db = createFakeDb();
+  const uploaded = await uploadPlateEntryPhoto(db, { parkingId: "parking-a", buffer: validBuffer, mimeType: "image/jpeg", sizeBytes: validBuffer.length });
+  const capturedAt = "2026-09-06T17:42:36.000Z";
+  const deviceInfo = { manufacturer: "SUNMI", model: "V2", appVersion: "0.3.0" };
+  const linked = await linkPlateEntryPhoto(db, {
+    companyId: "company-1", parkingId: "parking-a", parkingStayId: "stay-1",
+    storagePath: uploaded.storagePath, mimeType: "image/jpeg", sizeBytes: validBuffer.length,
+    createdBy: "user-1", capturedAt, latitude: -33.456789, longitude: -70.56789, gpsAccuracyM: 8, deviceInfo,
+  });
+  assert.equal(linked.operatorId, "user-1");
+  assert.equal(linked.capturedAt, capturedAt);
+  assert.equal(linked.latitude, -33.456789);
+  assert.equal(linked.longitude, -70.56789);
+  assert.equal(linked.gpsAccuracyM, 8);
+  assert.deepEqual(linked.deviceInfo, deviceInfo);
+});
+
+test("linkPlateEntryPhoto: evidenceType por defecto es PHOTO_CAPTURED -- nunca se marca un render como foto real sin declararlo", async () => {
+  const db = createFakeDb();
+  const uploaded = await uploadPlateEntryPhoto(db, { parkingId: "parking-a", buffer: validBuffer, mimeType: "image/jpeg", sizeBytes: validBuffer.length });
+  const linked = await linkPlateEntryPhoto(db, {
+    companyId: "company-1", parkingId: "parking-a", parkingStayId: "stay-1",
+    storagePath: uploaded.storagePath, mimeType: "image/jpeg", sizeBytes: validBuffer.length,
+  });
+  assert.equal(linked.evidenceType, "PHOTO_CAPTURED");
+});
+
+test("linkPlateEntryPhoto: un evidenceType inválido cae al valor por defecto, nunca se guarda un valor fuera del enum", async () => {
+  const db = createFakeDb();
+  const uploaded = await uploadPlateEntryPhoto(db, { parkingId: "parking-a", buffer: validBuffer, mimeType: "image/jpeg", sizeBytes: validBuffer.length });
+  const linked = await linkPlateEntryPhoto(db, {
+    companyId: "company-1", parkingId: "parking-a", parkingStayId: "stay-1",
+    storagePath: uploaded.storagePath, mimeType: "image/jpeg", sizeBytes: validBuffer.length, evidenceType: "FOTO_REAL",
+  });
+  assert.equal(linked.evidenceType, "PHOTO_CAPTURED");
 });

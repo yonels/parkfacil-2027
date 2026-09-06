@@ -2,9 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_EVIDENCE_TYPE,
+  EVIDENCE_TYPES,
+  GPS_MODES,
+  PLATE_PHOTO_MODES,
   buildPrintableEntryPayload,
   canCompleteEntry,
+  canCompleteEvidenceGps,
   entryPhotoRequirementMessage,
+  gpsRequirementMessage,
+  isValidEvidenceType,
+  isValidGpsMode,
   isValidPlatePhotoMode,
   isValidRetentionDays,
   resolvePlatePhotoPrintDecision,
@@ -121,4 +129,44 @@ test("buildPrintableEntryPayload: un payload nulo nunca revienta (ticket ya perd
   const result = buildPrintableEntryPayload(null, { photoBase64: "x", printOnTicket: true, bridgeSupportsImage: true });
   assert.equal(result.payload, null);
   assert.equal(result.includePhoto, false);
+});
+
+// ---- Ajuste final: GPS configurable -- MISMO enum/semántica que el modo de foto (§2/§18/§19) ----
+
+test("GPS_MODES es exactamente PLATE_PHOTO_MODES -- nunca un segundo enum paralelo", () => {
+  assert.equal(GPS_MODES, PLATE_PHOTO_MODES);
+});
+
+test("isValidGpsMode acepta solo DISABLED/OPTIONAL/REQUIRED, igual que el modo de foto", () => {
+  assert.equal(isValidGpsMode("DISABLED"), true);
+  assert.equal(isValidGpsMode("OPTIONAL"), true);
+  assert.equal(isValidGpsMode("REQUIRED"), true);
+  assert.equal(isValidGpsMode("OTRO"), false);
+});
+
+test("canCompleteEvidenceGps: DISABLED/OPTIONAL nunca bloquean, REQUIRED exige posición válida", () => {
+  assert.equal(canCompleteEvidenceGps("DISABLED", false), true);
+  assert.equal(canCompleteEvidenceGps("OPTIONAL", false), true);
+  assert.equal(canCompleteEvidenceGps("REQUIRED", false), false);
+  assert.equal(canCompleteEvidenceGps("REQUIRED", true), true);
+});
+
+test("gpsRequirementMessage solo tiene texto para REQUIRED", () => {
+  assert.equal(gpsRequirementMessage("DISABLED"), "");
+  assert.equal(gpsRequirementMessage("OPTIONAL"), "");
+  assert.notEqual(gpsRequirementMessage("REQUIRED"), "");
+});
+
+// ---- Ajuste final: tipo de evidencia -- nunca marcar un render como foto real (§21) ----
+
+test("EVIDENCE_TYPES distingue PHOTO_CAPTURED de PLATE_RENDERED, sin valores inventados", () => {
+  assert.deepEqual(EVIDENCE_TYPES, ["PHOTO_CAPTURED", "PLATE_RENDERED"]);
+  assert.equal(DEFAULT_EVIDENCE_TYPE, "PHOTO_CAPTURED");
+});
+
+test("isValidEvidenceType rechaza cualquier valor fuera del enum", () => {
+  assert.equal(isValidEvidenceType("PHOTO_CAPTURED"), true);
+  assert.equal(isValidEvidenceType("PLATE_RENDERED"), true);
+  assert.equal(isValidEvidenceType("FOTO_REAL"), false);
+  assert.equal(isValidEvidenceType(undefined), false);
 });

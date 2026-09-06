@@ -4,11 +4,33 @@
 
 export const PLATE_PHOTO_MODES = Object.freeze(["DISABLED", "OPTIONAL", "REQUIRED"]);
 
+// Ajuste final (configurable por proyecto), §2/§18/§19 del encargo: GPS
+// reutiliza EXACTAMENTE los mismos tres valores/semántica que el modo de
+// fotografía -- nunca un segundo enum paralelo. "GPS_MODES" es un alias
+// intencional de PLATE_PHOTO_MODES (misma referencia congelada), no una
+// copia -- si un valor válido cambiara alguna vez tendría que cambiar acá
+// también, a propósito.
+export const GPS_MODES = PLATE_PHOTO_MODES;
+export const DEFAULT_GPS_MODE = "DISABLED";
+
 export const DEFAULT_PLATE_PHOTO_SETTINGS = Object.freeze({
   plateMode: "DISABLED",
   printOnTicket: false,
+  gpsMode: DEFAULT_GPS_MODE,
   evidenceRetentionDays: null,
 });
+
+// Diferencia explícita entre evidencia real y una eventual representación
+// gráfica generada desde texto (§21 del encargo) -- hoy este repo solo
+// produce PHOTO_CAPTURED (nunca se marca una imagen sintética como foto
+// real); PLATE_RENDERED queda declarado para cuando exista un generador de
+// ese tipo, sin necesidad de otra migración.
+export const EVIDENCE_TYPES = Object.freeze(["PHOTO_CAPTURED", "PLATE_RENDERED"]);
+export const DEFAULT_EVIDENCE_TYPE = "PHOTO_CAPTURED";
+
+export function isValidEvidenceType(value) {
+  return EVIDENCE_TYPES.includes(value);
+}
 
 // Tipos/tamaño aceptados para la fotografía ya comprimida por el cliente.
 // Debe coincidir con el bucket/tabla (ver migración 20260905130000).
@@ -35,6 +57,24 @@ export function canCompleteEntry(mode, hasValidPhoto) {
 export function entryPhotoRequirementMessage(mode) {
   if (mode === "REQUIRED") {
     return "Debes tomar una fotografía de la patente antes de confirmar el ingreso.";
+  }
+  return "";
+}
+
+export function isValidGpsMode(value) {
+  return isValidPlatePhotoMode(value);
+}
+
+// Mismo criterio EXACTO que canCompleteEntry (alias con nombre claro para
+// el llamador) -- DISABLED/OPTIONAL: nunca bloquea; REQUIRED: solo con
+// posición GPS válida ya obtenida (§18/§19 del encargo).
+export function canCompleteEvidenceGps(mode, hasValidGps) {
+  return canCompleteEntry(mode, hasValidGps);
+}
+
+export function gpsRequirementMessage(mode) {
+  if (mode === "REQUIRED") {
+    return "No fue posible obtener la ubicación GPS. Intenta nuevamente antes de continuar.";
   }
   return "";
 }

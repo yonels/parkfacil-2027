@@ -248,6 +248,26 @@ function getNativePrinterBridge() {
   return bridge;
 }
 
+// Ajuste final, §20: datos razonables del dispositivo para la evidencia
+// (manufacturer/model/versión de app) -- reutiliza getDeviceInfo(), YA
+// expuesto por el bridge nativo (ver ParkFacilDeviceBridge.kt), nunca un
+// segundo mecanismo de identificación. Sin bridge (navegador/PC), se
+// entrega el descriptor mínimo ya usado por WebDeviceAdapter.getDeviceInfo()
+// -- ningún identificador extra, best-effort (nunca bloquea el ingreso).
+async function collectDeviceInfoForEntry() {
+  const bridge = typeof window !== "undefined" ? window?.ParkFacilDevice : null;
+  if (bridge && typeof bridge.getDeviceInfo === "function") {
+    try {
+      const raw = await bridge.getDeviceInfo();
+      return typeof raw === "string" ? JSON.parse(raw) : raw;
+    } catch {
+      // Cae al descriptor web de abajo -- nunca bloquea el ingreso por esto.
+    }
+  }
+  if (typeof navigator === "undefined") return null;
+  return { platform: "web", userAgent: navigator.userAgent };
+}
+
 async function executeNativePrint(payload) {
   const bridge = getNativePrinterBridge();
   if (!bridge || !payload) return { attempted: false, ok: false };
@@ -596,6 +616,10 @@ export default function PosTerminal() {
   // exclusivamente para poder incluirla al imprimir/reimprimir el ticket.
   const [platePhotoMode, setPlatePhotoMode] = useState("DISABLED");
   const [printPlatePhotoOnTicket, setPrintPlatePhotoOnTicket] = useState(false);
+  // Ajuste final: GPS configurable por proyecto, mismo enum DISABLED/
+  // OPTIONAL/REQUIRED que platePhotoMode (§18/§19 del encargo) -- nunca se
+  // solicita ubicación por esta funcionalidad si viene DISABLED.
+  const [platePhotoGpsMode, setPlatePhotoGpsMode] = useState("DISABLED");
   const [entryPhoto, setEntryPhoto] = useState(null);
   const [photoCaptureOpen, setPhotoCaptureOpen] = useState(false);
   const [entryPhotoForPrint, setEntryPhotoForPrint] = useState(null);
@@ -682,6 +706,7 @@ export default function PosTerminal() {
       const photoSettings = summary.payload?.data?.platePhotoSettings || null;
       setPlatePhotoMode(photoSettings?.mode || "DISABLED");
       setPrintPlatePhotoOnTicket(Boolean(photoSettings?.printOnTicket));
+      setPlatePhotoGpsMode(photoSettings?.gpsMode || "DISABLED");
     } catch {
       setError("Error de red al cargar el terminal POS.");
     } finally {
@@ -1384,6 +1409,10 @@ export default function PosTerminal() {
     setEntryError("");
 
     try {
+      // deviceInfo se recolecta siempre (§20), incluso sin fotografía --
+      // best-effort, nunca bloquea el ENTRY; el backend igual lo descarta
+      // si no hay evidencia a la que asociarlo.
+      const deviceInfo = await collectDeviceInfoForEntry();
       const response = await fetch("/api/data-entry", {
         method: "POST",
         headers: {
@@ -1395,7 +1424,17 @@ export default function PosTerminal() {
           action: "ENTRY",
           plate,
           source: "POS",
-          ...(entryPhoto ? { platePhotoBase64: entryPhoto.base64, platePhotoMimeType: entryPhoto.mimeType } : {}),
+          deviceInfo,
+          ...(entryPhoto
+            ? {
+                platePhotoBase64: entryPhoto.base64,
+                platePhotoMimeType: entryPhoto.mimeType,
+                platePhotoCapturedAt: entryPhoto.capturedAt || null,
+                platePhotoLatitude: entryPhoto.latitude ?? null,
+                platePhotoLongitude: entryPhoto.longitude ?? null,
+                platePhotoGpsAccuracyM: entryPhoto.gpsAccuracyM ?? null,
+              }
+            : {}),
         }),
       });
       const payload = await response.json().catch(() => ({}));
@@ -3151,6 +3190,7 @@ export default function PosTerminal() {
         <PlatePhotoCapture
           plate={formatTicketPlate(entryPlate)}
           required={platePhotoMode === "REQUIRED"}
+          gpsMode={platePhotoGpsMode}
           onCapture={capturedPlatePhoto}
           onCancel={() => setPhotoCaptureOpen(false)}
         />

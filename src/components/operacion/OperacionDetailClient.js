@@ -22,6 +22,23 @@ function paymentMethodLabel(method) {
   return "—";
 }
 
+// §17 del ajuste final: DD-MM-YYYY HH:mm:ss, sin perder precisión interna
+// (el valor guardado sigue siendo el ISO completo -- esto es solo formato
+// de presentación).
+function formatCapturedAt(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
+function formatCoordinate(value) {
+  return typeof value === "number" ? value.toFixed(6) : null;
+}
+
+const EVIDENCE_TYPE_LABELS = { PHOTO_CAPTURED: "Fotografía real", PLATE_RENDERED: "Representación gráfica" };
+
 function Field({ label, value }) {
   return (
     <div className="flex justify-between gap-3 py-1.5">
@@ -144,6 +161,31 @@ export default function OperacionDetailClient({ id }) {
                   alt={`Fotografía de la patente ${detail.plate}`}
                   className="mt-2 w-full max-w-xs rounded-2xl border border-slate-200 object-cover"
                 />
+                {/* Trazabilidad de la evidencia (§16 del ajuste final) --
+                    cada campo se muestra solo si existe (histórico previo a
+                    esta migración puede no tenerlo, §27: nunca se inventa
+                    un valor faltante). */}
+                <dl className="mt-3 max-w-xs space-y-1 text-xs text-slate-500">
+                  {formatCapturedAt(platePhoto.capturedAt) ? (
+                    <div className="flex justify-between gap-2"><dt>Capturada</dt><dd className="font-semibold text-slate-700">{formatCapturedAt(platePhoto.capturedAt)}</dd></div>
+                  ) : null}
+                  {formatCoordinate(platePhoto.latitude) && formatCoordinate(platePhoto.longitude) ? (
+                    <div className="flex justify-between gap-2">
+                      <dt>Ubicación</dt>
+                      <dd className="font-semibold text-slate-700">
+                        {formatCoordinate(platePhoto.latitude)}, {formatCoordinate(platePhoto.longitude)}
+                        {typeof platePhoto.gpsAccuracyM === "number" ? ` (±${Math.round(platePhoto.gpsAccuracyM)} m)` : ""}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {platePhoto.deviceInfo?.manufacturer || platePhoto.deviceInfo?.model ? (
+                    <div className="flex justify-between gap-2"><dt>Dispositivo</dt><dd className="font-semibold text-slate-700">{[platePhoto.deviceInfo.manufacturer, platePhoto.deviceInfo.model].filter(Boolean).join(" ")}</dd></div>
+                  ) : null}
+                  <div className="flex justify-between gap-2"><dt>Tipo</dt><dd className="font-semibold text-slate-700">{EVIDENCE_TYPE_LABELS[platePhoto.evidenceType] || "Fotografía real"}</dd></div>
+                  {platePhoto.sha256 ? (
+                    <div className="flex justify-between gap-2"><dt>SHA-256</dt><dd className="truncate font-mono font-semibold text-slate-700" title={platePhoto.sha256}>{platePhoto.sha256.slice(0, 12)}…</dd></div>
+                  ) : null}
+                </dl>
               </div>
             ) : null}
 
