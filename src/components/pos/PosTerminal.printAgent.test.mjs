@@ -14,10 +14,15 @@ const terminalSource = await readFile(new URL("./PosTerminal.js", import.meta.ur
 const dataEntryRouteSource = await readFile(new URL("../../app/api/data-entry/route.js", import.meta.url), "utf8");
 
 test("el agente local solo se usa como fallback del bridge Android, nunca al revés", () => {
+  // Fase 6 (fotografía de patente en el ticket) agregó un tercer parámetro
+  // opcional (platePhoto) y una rama para el caso "bridge + foto", pero el
+  // contrato de fondo sigue intacto: el agente local (PC) SOLO se llama
+  // cuando no existe bridge nativo -- nunca al revés.
   assert.match(
     terminalSource,
-    /async function executeAutoPrint\(payload, toAgentPayload\) \{\s*\n\s*const bridge = getNativePrinterBridge\(\);\s*\n\s*if \(bridge\) return executeNativePrint\(payload\);\s*\n\s*return tryLocalAgentPrint\(toAgentPayload\(payload\)\);/,
+    /async function executeAutoPrint\(payload, toAgentPayload, platePhoto\) \{\s*\n\s*const bridge = getNativePrinterBridge\(\);\s*\n\s*if \(bridge\) \{/,
   );
+  assert.match(terminalSource, /return tryLocalAgentPrint\(toAgentPayload\(payload\)\);/);
 });
 
 test("el agente local solo escucha en 127.0.0.1 (mismo host que el POS)", () => {
@@ -29,8 +34,8 @@ test("INGRESO: la impresión ocurre después de confirmar el ENTRY, nunca antes"
     terminalSource.indexOf("async function submitEntry(event)"),
     terminalSource.indexOf("const navItems = ["),
   );
-  const entryPostIndex = fn.indexOf('body: JSON.stringify({ action: "ENTRY"');
-  const printCallIndex = fn.indexOf("await printLastEntryTicket(printPayload)");
+  const entryPostIndex = fn.indexOf('fetch("/api/data-entry"');
+  const printCallIndex = fn.indexOf("await printLastEntryTicket(printPayload,");
   assert.ok(entryPostIndex > -1 && printCallIndex > -1, "no se encontraron los puntos de referencia esperados");
   assert.ok(printCallIndex > entryPostIndex, "la impresión debe ocurrir después del POST de ENTRY, no antes");
 });

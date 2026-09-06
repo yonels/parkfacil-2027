@@ -8,6 +8,8 @@ import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { splitChileTaxFromTotal, toOperationalDateTimeParts } from "@/lib/dataEntry.mjs";
 import { ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
+import { buildPrintableEntryPayload, entryPhotoRequirementMessage } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
+import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
 
 const POS_VIEWS = {
   HOME: "HOME",
@@ -373,13 +375,59 @@ function toAgentExitPayload(payload) {
   };
 }
 
+// Fase 6 (fotografía de patente en el ticket): ni el bridge Android nativo
+// ni el agente local de PC implementados en este repo soportan imágenes hoy
+// (ver diagnóstico — ambos son de solo texto). Este es el único punto de
+// feature-detection: "printWithImage" es un método hipotético que un bridge
+// real (TUU u otro) tendría que exponer explícitamente. Mientras eso no
+// exista, esto siempre resuelve a false y el ticket se imprime en texto
+// solamente — nunca se asume soporte que no fue declarado por el bridge.
+function bridgeSupportsPlatePhoto(bridge) {
+  return Boolean(bridge && typeof bridge.printWithImage === "function");
+}
+
+// Intenta imprimir con fotografía cuando corresponde; si el bridge no
+// declara soporte, o lo declara pero la llamada falla, se cae SIEMPRE al
+// ticket de texto normal (§9 del encargo: un fallo de impresión gráfica
+// nunca invalida un ingreso ya confirmado).
+async function executeNativePrintWithPlatePhoto(payload, photoBase64, printPlatePhotoOnTicket) {
+  const bridge = getNativePrinterBridge();
+  if (!bridge || !payload) return { attempted: false, ok: false };
+
+  const decision = buildPrintableEntryPayload(payload, {
+    photoBase64,
+    printOnTicket: printPlatePhotoOnTicket,
+    bridgeSupportsImage: bridgeSupportsPlatePhoto(bridge),
+  });
+
+  if (decision.includePhoto) {
+    try {
+      const raw = await bridge.printWithImage(JSON.stringify(decision.payload));
+      const response = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (response?.ok) return { attempted: true, ok: true, code: "", message: "", photoIncluded: true };
+    } catch {
+      // El bridge declaró soporte pero falló al imprimir la imagen: se cae
+      // a texto sin propagar este error (fallback obligatorio, §9).
+    }
+  }
+
+  const textResult = await executeNativePrint(payload);
+  return { ...textResult, photoIncluded: false, photoSkippedReason: decision.reason || "IMAGE_PRINT_FAILED_FALLBACK_TEXT" };
+}
+
 // Resuelve el medio de impresión disponible en este dispositivo: primero
 // el bridge Android nativo (POS real); si no existe, el agente local
 // (Windows/PC). "toAgentPayload" traduce el payload histórico al esquema
-// del agente solo cuando corresponde usarlo.
-async function executeAutoPrint(payload, toAgentPayload) {
+// del agente solo cuando corresponde usarlo. El agente local de PC no tiene
+// (hoy) ningún soporte de imagen -- siempre recibe el ticket de texto.
+async function executeAutoPrint(payload, toAgentPayload, platePhoto) {
   const bridge = getNativePrinterBridge();
-  if (bridge) return executeNativePrint(payload);
+  if (bridge) {
+    if (platePhoto?.photoBase64) {
+      return executeNativePrintWithPlatePhoto(payload, platePhoto.photoBase64, platePhoto.printOnTicket);
+    }
+    return executeNativePrint(payload);
+  }
   return tryLocalAgentPrint(toAgentPayload(payload));
 }
 
@@ -541,6 +589,16 @@ export default function PosTerminal() {
   const [entryPrintBusy, setEntryPrintBusy] = useState(false);
   const [entryPrintStatus, setEntryPrintStatus] = useState("");
   const [nativePrintAvailable, setNativePrintAvailable] = useState(false);
+  // Fase 6 — fotografía de patente: modo/flag configurados por estacionamiento
+  // (DISABLED por defecto, ver GET /api/data-entry -> platePhotoSettings).
+  // entryPhoto es la foto ya comprimida elegida en el formulario (antes de
+  // enviar); entryPhotoForPrint conserva sus bytes tras un ENTRY exitoso,
+  // exclusivamente para poder incluirla al imprimir/reimprimir el ticket.
+  const [platePhotoMode, setPlatePhotoMode] = useState("DISABLED");
+  const [printPlatePhotoOnTicket, setPrintPlatePhotoOnTicket] = useState(false);
+  const [entryPhoto, setEntryPhoto] = useState(null);
+  const [photoCaptureOpen, setPhotoCaptureOpen] = useState(false);
+  const [entryPhotoForPrint, setEntryPhotoForPrint] = useState(null);
   const [receiptPrintPayload, setReceiptPrintPayload] = useState(null);
   const [receiptPrintBusy, setReceiptPrintBusy] = useState(false);
   const [receiptPrintStatus, setReceiptPrintStatus] = useState("");
@@ -621,6 +679,9 @@ export default function PosTerminal() {
       setParking(summary.payload?.data?.parking || null);
       setVehiclesInside(stays.length);
       setActiveStays(stays);
+      const photoSettings = summary.payload?.data?.platePhotoSettings || null;
+      setPlatePhotoMode(photoSettings?.mode || "DISABLED");
+      setPrintPlatePhotoOnTicket(Boolean(photoSettings?.printOnTicket));
     } catch {
       setError("Error de red al cargar el terminal POS.");
     } finally {
@@ -785,6 +846,9 @@ export default function PosTerminal() {
     setEntryPrintStatus("");
     setEntryError("");
     setEntryPlate("");
+    setEntryPhoto(null);
+    setEntryPhotoForPrint(null);
+    setPhotoCaptureOpen(false);
     setEntryOpen(true);
     setSidebarOpen(false);
   }
@@ -794,7 +858,20 @@ export default function PosTerminal() {
     setEntryError("");
     setEntrySuccess(null);
     setEntryPrintStatus("");
+    setEntryPhoto(null);
+    setEntryPhotoForPrint(null);
+    setPhotoCaptureOpen(false);
     setCurrentView(POS_VIEWS.HOME);
+  }
+
+  function capturedPlatePhoto(photo) {
+    // Libera el object URL de una captura anterior (p. ej. "Cambiar foto")
+    // antes de reemplazarla -- evita acumular blobs sin liberar durante un
+    // turno largo de POS.
+    if (entryPhoto?.previewUrl) URL.revokeObjectURL(entryPhoto.previewUrl);
+    setEntryPhoto(photo);
+    setPhotoCaptureOpen(false);
+    setEntryError("");
   }
 
   // Búsqueda por patente exclusiva de SALIDA. Nunca llama a una API nueva:
@@ -1035,7 +1112,7 @@ export default function PosTerminal() {
     }
   }
 
-  async function printLastEntryTicket(payload) {
+  async function printLastEntryTicket(payload, photoOptions) {
     const printPayload = payload || entryPrintPayload;
     if (!printPayload) {
       setEntryPrintStatus("No hay un ticket disponible para reimpresión.");
@@ -1046,10 +1123,16 @@ export default function PosTerminal() {
     setEntryPrintStatus("Imprimiendo...");
 
     try {
-      const result = await executeAutoPrint(printPayload, toAgentEntryPayload);
+      const photoBase64 = photoOptions?.photoBase64 ?? entryPhotoForPrint;
+      const result = await executeAutoPrint(printPayload, toAgentEntryPayload, {
+        photoBase64,
+        printOnTicket: printPlatePhotoOnTicket,
+      });
 
       if (result.ok) {
-        setEntryPrintStatus("Ticket impreso.");
+        setEntryPrintStatus(
+          result.photoIncluded ? "Ticket impreso con fotografía de patente." : "Ticket impreso."
+        );
       } else {
         const details = [];
         if (result.code) details.push(`Código: ${result.code}`);
@@ -1058,6 +1141,13 @@ export default function PosTerminal() {
           "Entrada registrada. No fue posible imprimir el ticket.",
           ...details,
         ].join("\n"));
+      }
+
+      // La fotografía se pidió imprimir pero el bridge no la soporta: no es
+      // un error de impresión (el ticket de texto sí se imprimió bien), solo
+      // una limitación informativa para el operador (§9 del encargo).
+      if (result.ok && photoBase64 && printPlatePhotoOnTicket && !result.photoIncluded) {
+        setEntryPrintStatus((current) => `${current}\nFotografía no impresa: el dispositivo no admite impresión de imágenes.`);
       }
 
       return result;
@@ -1282,6 +1372,12 @@ export default function PosTerminal() {
       setEntryError("Ingresa una patente válida. Ejemplo: CXPY-93.");
       return;
     }
+    // Gate de UX (regla real la vuelve a exigir /api/data-entry): en modo
+    // REQUIRED no se ni siquiera intenta enviar sin fotografía ya capturada.
+    if (platePhotoMode === "REQUIRED" && !entryPhoto) {
+      setEntryError(entryPhotoRequirementMessage(platePhotoMode));
+      return;
+    }
     const plate = toBackendPlate(formattedPlate);
 
     setEntrySubmitting(true);
@@ -1295,7 +1391,12 @@ export default function PosTerminal() {
           "x-parkfacil-portal": "terminal",
         },
         cache: "no-store",
-        body: JSON.stringify({ action: "ENTRY", plate, source: "POS" }),
+        body: JSON.stringify({
+          action: "ENTRY",
+          plate,
+          source: "POS",
+          ...(entryPhoto ? { platePhotoBase64: entryPhoto.base64, platePhotoMimeType: entryPhoto.mimeType } : {}),
+        }),
       });
       const payload = await response.json().catch(() => ({}));
 
@@ -1309,13 +1410,25 @@ export default function PosTerminal() {
       setEntrySuccess(stay ? { stay, parking: parkingResponse } : null);
       const printPayload = buildEntryPrintPayload(stay, parkingResponse);
       setEntryPrintPayload(printPayload);
+      // Los bytes de la foto ya están en el cliente (recién comprimidos) --
+      // se conservan para poder incluirlos al imprimir/reimprimir el
+      // ticket, independientemente de si el registro de metadata en
+      // servidor (parking_stay_evidence) llegó a vincularse o no. Se usa la
+      // variable local (no el state, que todavía no se actualizó) para la
+      // impresión inmediata de abajo.
+      const capturedPhotoBase64 = entryPhoto?.base64 || null;
+      setEntryPhotoForPrint(capturedPhotoBase64);
+      if (entryPhoto?.previewUrl) URL.revokeObjectURL(entryPhoto.previewUrl);
+      setEntryPhoto(null);
       setEntryPlate("");
       setEntryOpen(false);
       setCurrentView(POS_VIEWS.INGRESO);
       setVehiclesInside((current) => current + 1);
       void loadTerminalState(true);
 
-      const printResult = printPayload ? await printLastEntryTicket(printPayload) : null;
+      const printResult = printPayload
+        ? await printLastEntryTicket(printPayload, { photoBase64: capturedPhotoBase64 })
+        : null;
       // Solo se bloquea el retorno a HOME cuando existe bridge nativo y la
       // impresión se intentó pero falló (regla 3). Sin bridge (PC/navegador,
       // regla 2) o con impresión exitosa (regla 1), el ingreso ya es un
@@ -1567,6 +1680,12 @@ export default function PosTerminal() {
               <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">QR</p>
               <p className="mt-1 break-all font-mono text-sm font-bold">{entrySuccess.stay?.qr_token || "-"}</p>
             </div>
+            {platePhotoMode !== "DISABLED" ? (
+              <div className="sm:col-span-2">
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Fotografía de patente</p>
+                <p className="mt-1 font-bold">{entryPhotoForPrint ? "Capturada" : "No capturada"}</p>
+              </div>
+            ) : null}
           </div>
 
           {entryPrintStatus ? (
@@ -1629,6 +1748,42 @@ export default function PosTerminal() {
             Formato sugerido: CXPY-93
           </p>
 
+          {platePhotoMode !== "DISABLED" ? (
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-bold text-slate-700">
+                  Fotografía de patente {platePhotoMode === "REQUIRED" ? "(obligatoria)" : "(opcional)"}
+                </span>
+                {entryPhoto ? <span className="text-xs font-black uppercase text-emerald-600">Lista</span> : null}
+              </div>
+
+              {entryPhoto ? (
+                <div className="mt-3 flex items-center gap-3">
+                  <img
+                    src={entryPhoto.previewUrl}
+                    alt={`Fotografía de la patente ${formatTicketPlate(entryPlate)}`}
+                    className="h-20 w-28 rounded-xl border border-slate-200 object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setPhotoCaptureOpen(true)}
+                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                  >
+                    Cambiar foto
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setPhotoCaptureOpen(true)}
+                  className="mt-3 w-full rounded-xl border border-dashed border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700"
+                >
+                  Tomar fotografía
+                </button>
+              )}
+            </div>
+          ) : null}
+
           {entryError ? (
             <div className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
               {entryError}
@@ -1638,7 +1793,7 @@ export default function PosTerminal() {
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <button
               type="submit"
-              disabled={entrySubmitting}
+              disabled={entrySubmitting || (platePhotoMode === "REQUIRED" && !entryPhoto)}
               className="rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {entrySubmitting ? "Registrando..." : "Confirmar ingreso"}
@@ -2991,6 +3146,15 @@ export default function PosTerminal() {
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900">
       {paymentModalOpen ? renderPaymentModal() : null}
+
+      {photoCaptureOpen ? (
+        <PlatePhotoCapture
+          plate={formatTicketPlate(entryPlate)}
+          required={platePhotoMode === "REQUIRED"}
+          onCapture={capturedPlatePhoto}
+          onCancel={() => setPhotoCaptureOpen(false)}
+        />
+      ) : null}
 
       {sidebarOpen ? (
         <div className="fixed inset-0 z-40 bg-slate-950/45 lg:hidden" onClick={closeSidebar}>

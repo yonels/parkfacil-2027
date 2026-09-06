@@ -35,6 +35,10 @@ export default function OperacionDetailClient({ id }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Fase 6 — fotografía de patente: se resuelve aparte (nunca viaja junto al
+  // detalle general) y siempre como signed URL de corta duración, nunca una
+  // URL pública permanente (§10/§11 del encargo).
+  const [platePhoto, setPlatePhoto] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,6 +62,15 @@ export default function OperacionDetailClient({ id }) {
       }
     }
     void load();
+    return () => { cancelled = true; };
+  }, [id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/operacion/${id}/plate-photo`)
+      .then((response) => response.json().catch(() => null))
+      .then((payload) => { if (!cancelled) setPlatePhoto(payload?.data || null); })
+      .catch(() => { if (!cancelled) setPlatePhoto(null); });
     return () => { cancelled = true; };
   }, [id]);
 
@@ -122,6 +135,17 @@ export default function OperacionDetailClient({ id }) {
               <Field label="Operador" value={detail.entry.operator} />
               <Field label="Turno" value={detail.entry.shiftDate ? `Turno ${detail.entry.shiftDate}` : "—"} />
             </dl>
+
+            {platePhoto ? (
+              <div className="mt-4">
+                <p className="text-sm font-medium text-slate-500">Fotografía patente</p>
+                <img
+                  src={platePhoto.url}
+                  alt={`Fotografía de la patente ${detail.plate}`}
+                  className="mt-2 w-full max-w-xs rounded-2xl border border-slate-200 object-cover"
+                />
+              </div>
+            ) : null}
 
             <h2 className="mt-6 text-lg font-semibold text-[#041E42]">Salida</h2>
             {detail.exit ? (

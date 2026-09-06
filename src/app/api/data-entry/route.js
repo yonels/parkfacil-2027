@@ -3,12 +3,36 @@ import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
 import { buildPosQuoteSnapshot, quoteParkingStay, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
 import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
+import { getPlatePhotoSettings } from "@/lib/offStreet/offStreetPlatePhotoSettingsRepository";
+import { linkPlateEntryPhoto, removeOrphanedPlatePhoto, uploadPlateEntryPhoto } from "@/lib/offStreet/platePhotoEvidenceRepository";
+import { canCompleteEntry, entryPhotoRequirementMessage, validatePlatePhotoFile } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
 
 const publicStayFields = "id,code,parking_id,license_plate,qr_token,status,entry_at,entry_operator_name,entry_source,entry_shift_id,exit_at,exit_operator_name,payment_shift_id,elapsed_minutes,rate_name,billing_mode,net_amount,tax_amount,total_amount,payment_method,payment_code,coupon_id,coupon_code,discount_amount,subtotal_amount,updated_at";
 const ticketParkingFields = "id,code,name,company_name,address,city,status,company:companies(business_name,address,district,city,rut_number,rut_dv,phone)";
 
 function fail(message, status = 400, details) { return NextResponse.json({ error: message, details }, { status }); }
 function code(prefix) { return `${prefix}-${new Date().toISOString().replace(/\D/g, "").slice(2, 14)}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`; }
+
+// Fase 6 (fotografía de patente): el cliente ya comprime la imagen y la
+// envía como data URL ("data:image/jpeg;base64,...") o como base64 puro +
+// mimeType aparte. Se acepta cualquiera de las dos formas sin normalizar el
+// payload de ENTRY en sí (compatibilidad con clientes existentes que nunca
+// envían esto).
+function decodePlatePhotoInput(input) {
+  const raw = String(input?.platePhotoBase64 || "").trim();
+  if (!raw) return null;
+  const dataUrlMatch = raw.match(/^data:([^;]+);base64,(.+)$/s);
+  const mimeType = dataUrlMatch ? dataUrlMatch[1] : String(input?.platePhotoMimeType || "image/jpeg");
+  const base64 = dataUrlMatch ? dataUrlMatch[2] : raw;
+  let buffer;
+  try {
+    buffer = Buffer.from(base64, "base64");
+  } catch {
+    return { error: "PLATE_PHOTO_DECODE_FAILED" };
+  }
+  if (!buffer.length) return { error: "PLATE_PHOTO_DECODE_FAILED" };
+  return { buffer, mimeType, sizeBytes: buffer.length };
+}
 
 async function context(request, requestedParkingId = null) {
   let authorization;
@@ -56,9 +80,15 @@ async function requireOpenPosShift(db, actor) {
 export async function GET(request) {
   const requestedParkingId = new URL(request.url).searchParams.get("parkingId");
   const current = await context(request, requestedParkingId); if (current.response) return current.response;
-  const [parkingResult, stayResult] = await Promise.all([
+  const [parkingResult, stayResult, platePhotoSettings] = await Promise.all([
     current.db.from("parkings").select(ticketParkingFields).eq("id", current.actor.parkingId).eq("status", "ACTIVE").maybeSingle(),
     current.db.from("parking_stays").select(publicStayFields).eq("parking_id", current.actor.parkingId).eq("status", "OPEN").order("entry_at", { ascending: false }),
+    // Fase 6: el POS necesita conocer el modo configurado (DISABLED por
+    // defecto, ver offStreetPlatePhotoSettingsRepository.js) para decidir si
+    // muestra el control de cámara en el formulario de ingreso. Sin fila de
+    // configuración, el resultado es DISABLED — el flujo actual queda 100%
+    // intacto (§12 del encargo).
+    getPlatePhotoSettings(current.db, current.actor.parkingId).catch(() => ({ plateMode: "DISABLED", printOnTicket: false })),
   ]);
   const { data: parking, error: parkingError } = parkingResult;
   const { data: stays, error: stayError } = stayResult;
@@ -73,6 +103,7 @@ export async function GET(request) {
       storageReady: !operationalStorageMissing,
       warning: operationalStorageMissing ? "El almacenamiento operacional todavía no está activado; la asignación sí fue cargada." : null,
       actor: { name: current.actor.name, role: current.actor.role, parkingId: current.actor.parkingId },
+      platePhotoSettings: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket },
     },
   });
 }
@@ -89,6 +120,31 @@ export async function POST(request) {
     const plate = formatChileanPlate(input.plate || joinChileanPlate(input.platePrefix, input.plateSuffix));
     if (!plate) return fail("Ingresa una patente válida.", 400, { plate: "Formato requerido: CXPY93" });
     const assignedParkingId = current.actor.parkingId;
+
+    // Fase 6: fotografía de patente. Orden exigido por el encargo (§7) —
+    // fotografía -> upload -> creación de parking_stay -> ticket ->
+    // impresión — precisamente para que un upload fallido en modo REQUIRED
+    // nunca termine con un ingreso a medias. Si la tabla de configuración
+    // todavía no existe en este ambiente (migración pendiente), se asume
+    // DISABLED -- el ENTRY nunca debe romperse por esto (§12: compatibilidad
+    // 100% cuando la función está desactivada).
+    const platePhotoSettings = await getPlatePhotoSettings(current.db, assignedParkingId).catch(() => ({ plateMode: "DISABLED", printOnTicket: false }));
+    const decodedPhoto = decodePlatePhotoInput(input);
+    if (decodedPhoto?.error) return fail("La fotografía enviada no es válida.", 400, { code: decodedPhoto.error });
+    if (!canCompleteEntry(platePhotoSettings.plateMode, Boolean(decodedPhoto))) {
+      return fail(entryPhotoRequirementMessage(platePhotoSettings.plateMode), 400, { code: "PLATE_PHOTO_REQUIRED" });
+    }
+    if (decodedPhoto) {
+      const validation = validatePlatePhotoFile({ mimeType: decodedPhoto.mimeType, sizeBytes: decodedPhoto.sizeBytes });
+      if (!validation.valid) {
+        if (platePhotoSettings.plateMode === "REQUIRED") return fail(validation.message, 400, { code: validation.code });
+        // OPTIONAL: una foto inválida nunca bloquea el ingreso -- se
+        // descarta y se continúa exactamente como si no se hubiese
+        // adjuntado ninguna (§4 del encargo).
+        decodedPhoto.discard = true;
+      }
+    }
+
     const existing = await current.db
       .from("parking_stays")
       .select(publicStayFields)
@@ -98,12 +154,65 @@ export async function POST(request) {
       .maybeSingle();
     if (existing.error) return fail("No fue posible validar la entrada del vehículo.", 503);
     if (existing.data) return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409);
+
+    let uploadedPhoto = null;
+    if (decodedPhoto && !decodedPhoto.discard) {
+      try {
+        uploadedPhoto = await uploadPlateEntryPhoto(current.db, {
+          parkingId: assignedParkingId,
+          buffer: decodedPhoto.buffer,
+          mimeType: decodedPhoto.mimeType,
+          sizeBytes: decodedPhoto.sizeBytes,
+        });
+      } catch (uploadError) {
+        console.error("[data-entry:ENTRY:plate-photo:upload]", { code: uploadError?.code, message: uploadError?.message });
+        if (platePhotoSettings.plateMode === "REQUIRED") {
+          return fail("No fue posible subir la fotografía de la patente. Intenta nuevamente.", 503, { code: "PLATE_PHOTO_UPLOAD_FAILED" });
+        }
+        // OPTIONAL: se continúa sin fotografía, nunca se bloquea el ingreso.
+      }
+    }
+
     const row = { code: code("ING"), parking_id: assignedParkingId, license_plate: plate, entry_operator_id: current.actor.id, entry_operator_name: current.actor.name, entry_source: isPosRequest ? "POS" : "WEB", entry_shift_id: isPosRequest ? posShift.id : null };
     const { data, error } = await current.db.from("parking_stays").insert(row).select(publicStayFields).single();
-    if (error?.code === "23505") return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409);
-    if (error) return fail("No fue posible guardar el ingreso.", 503);
+    if (error) {
+      if (uploadedPhoto) await removeOrphanedPlatePhoto(current.db, uploadedPhoto.storagePath);
+      if (error.code === "23505") return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409);
+      return fail("No fue posible guardar el ingreso.", 503);
+    }
+
+    let photoLinked = false;
+    let photoLinkFailed = false;
+    if (uploadedPhoto) {
+      try {
+        await linkPlateEntryPhoto(current.db, {
+          companyId: current.parking.companyId,
+          parkingId: assignedParkingId,
+          parkingStayId: data.id,
+          storagePath: uploadedPhoto.storagePath,
+          mimeType: uploadedPhoto.mimeType,
+          sizeBytes: uploadedPhoto.sizeBytes,
+          createdBy: current.actor.id,
+        });
+        photoLinked = true;
+      } catch (linkError) {
+        // La permanencia ya es un evento de negocio real (el vehículo ya
+        // fue registrado) -- no se revierte por un fallo de metadata de la
+        // foto (ver nota de diseño en platePhotoEvidenceRepository.js). Se
+        // reporta como advertencia, nunca como fallo del ingreso.
+        console.error("[data-entry:ENTRY:plate-photo:link]", { code: linkError?.code, message: linkError?.message, stayId: data.id });
+        photoLinkFailed = true;
+      }
+    }
+
     const { data: parking } = await current.db.from("parkings").select(ticketParkingFields).eq("id", assignedParkingId).single();
-    return NextResponse.json({ data: { stay: data, parking } }, { status: 201 });
+    return NextResponse.json({
+      data: {
+        stay: data,
+        parking,
+        platePhoto: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket, hasPhoto: photoLinked, linkFailed: photoLinkFailed },
+      },
+    }, { status: 201 });
   }
   if (["QUOTE", "EXIT"].includes(input.action)) {
     const stay = await findOpenStay(current.db, input, current.actor.parkingId);
