@@ -5,7 +5,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { getSafeDestination } from "@/lib/auth/loginDestination.mjs";
+import { buildTechnicalEmail } from "@/lib/auth/accessUsernameDomain.mjs";
 import Link from "next/link";
+
+// Portales cuyas cuentas iniciales pueden tener un "usuario de acceso"
+// generado (sin @) en vez de un correo real -- Root e Inspector siempre
+// usan su correo real y no entran aquí (ver diagnóstico "ajustar flujo de
+// creación de empresas" 2026-09-10, punto D). Si lo que la persona escribe
+// ya trae "@", se envía tal cual: ninguna cuenta existente con correo real
+// (todas las creadas antes de este cambio) se ve afectada.
+const PORTALS_WITH_GENERATED_USERNAME = new Set(["cliente", "terminal"]);
 
 export default function LoginForm({
   tipoAcceso,
@@ -42,8 +51,16 @@ export default function LoginForm({
 
     try {
       const supabase = getSupabaseBrowserClient();
+      // Cuentas de empresa (administrador/operadores) pueden tener un
+      // "usuario de acceso" generado en vez de un correo real -- si lo
+      // escrito no trae "@", se completa con el dominio técnico fijo antes
+      // de autenticar. Un correo real (con "@") nunca se toca.
+      const typedValue = email.trim();
+      const effectiveEmail = PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) && typedValue && !typedValue.includes("@")
+        ? buildTechnicalEmail(typedValue)
+        : typedValue;
       const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: effectiveEmail,
         password,
       });
       if (authError) throw authError;
@@ -87,16 +104,16 @@ export default function LoginForm({
   return (
     <form onSubmit={handleSubmit} className={`login-form text-white ${compactMobile ? "mt-5 space-y-3.5 md:mt-8 md:space-y-5" : "mt-8 space-y-5"}`}>
       <label className="block">
-        <span className="text-sm font-semibold text-white">Correo electrónico</span>
+        <span className="text-sm font-semibold text-white">{PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) ? "Usuario o correo electrónico" : "Correo electrónico"}</span>
         <span className="mt-2 flex items-center gap-3 rounded-2xl border border-white/35 bg-white/10 px-4 focus-within:border-white/80 focus-within:ring-4 focus-within:ring-white/20">
           <Mail className="h-5 w-5 shrink-0 text-white/80" />
           <input
-            type="email"
-            autoComplete="email"
+            type={PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) ? "text" : "email"}
+            autoComplete={PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) ? "username" : "email"}
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="nombre@empresa.cl"
+            placeholder={PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) ? "pfadmin7f3k o nombre@empresa.cl" : "nombre@empresa.cl"}
             className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-white placeholder:text-white/70 outline-none"
           />
         </span>

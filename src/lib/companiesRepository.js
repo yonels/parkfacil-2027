@@ -1,4 +1,5 @@
 import "server-only";
+import { shapeContactDisplay } from "./companyContactDisplayCore.mjs";
 
 function relationUnavailable(error) {
   return ["42P01", "PGRST204", "PGRST205"].includes(error?.code);
@@ -121,9 +122,11 @@ async function enrichContactsWithAuthData(supabase, contacts = []) {
     if (!contact.id) return contact;
     const result = await supabase.auth.admin.getUserById(contact.id);
     const authUser = result.error ? null : result.data?.user;
+    const display = shapeContactDisplay({ email: authUser?.email, fallbackCorreo: contact.correo });
     return {
       ...contact,
-      correo: authUser?.email || contact.correo || "Sin correo informado",
+      ...display,
+      correo: display.correo || "Sin correo informado",
       telefono: authUser?.user_metadata?.phone || contact.telefono || "Sin telefono informado",
       ultimoAcceso: authUser?.last_sign_in_at || null,
     };
