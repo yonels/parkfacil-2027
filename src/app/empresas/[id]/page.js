@@ -10,6 +10,8 @@ import TipoRelacionBadge from "@/components/empresas/TipoRelacionBadge";
 import { formatearRut } from "@/data/empresas.mjs";
 import { getCompanyPageData } from "@/lib/companiesServer";
 import EmpresaEditButton from "@/components/empresas/EmpresaEditButton";
+import EntrarComoClienteButton from "@/components/empresas/EntrarComoClienteButton";
+import EmpresaEnrolamientoPanel from "@/components/empresas/EmpresaEnrolamientoPanel";
 
 function DetailItem({ label, value }) {
   return (
@@ -124,6 +126,15 @@ export default async function EmpresaDetallePage({ params }) {
           description={`${empresa.nombreFantasia} · ${formatearRut(`${empresa.rutNumero}-${empresa.rutDv}`)}`}
           showBack={false}
           actions={[
+            // "Entrar como cliente" (§2 del encargo): solo empresas
+            // relationship_type=client son impersonables (ver
+            // isCompanyImpersonable en impersonationCore.mjs) -- para
+            // operator/administrator/partner/supplier no tiene sentido
+            // "actuar como cliente". Deliberadamente disponible en
+            // cualquier estado (onboarding/inactive/active, §7).
+            empresa.tipoRelacion === "client"
+              ? <EntrarComoClienteButton key="entrar-como-cliente" empresaId={id} empresaNombre={empresa.nombreFantasia} />
+              : null,
             <EmpresaEditButton key="editar" empresa={empresa} />,
             <Link key="volver" href="/empresas" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
               <ArrowLeft className="h-4 w-4" /> Volver
@@ -190,7 +201,11 @@ export default async function EmpresaDetallePage({ params }) {
                   <div key={contacto.id || `${contacto.nombreCompleto}-${contacto.correo}`} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                     <p className="font-semibold text-[#041E42]">{contacto.nombreCompleto || "Sin nombre informado"}</p>
                     <p className="mt-1 text-xs text-slate-500">{contactRoleLabel(contacto.rol)} · {contactStatusLabel(contacto.estado)}</p>
-                    <p className="mt-2 text-sm text-slate-600">{contacto.correo || "Sin correo informado"}</p>
+                    {contacto.esCorreoTecnico ? (
+                      <p className="mt-2 text-sm text-slate-600"><span className="font-semibold text-slate-500">Usuario:</span> {contacto.usuario}</p>
+                    ) : (
+                      <p className="mt-2 text-sm text-slate-600"><span className="font-semibold text-slate-500">Correo:</span> {contacto.correo || "Sin correo informado"}</p>
+                    )}
                     <p className="text-sm text-slate-600">{contacto.telefono || "Sin telefono informado"}</p>
                   </div>
                 ))}
@@ -198,6 +213,8 @@ export default async function EmpresaDetallePage({ params }) {
             </div>
           </div>
         </section>
+
+        <EmpresaEnrolamientoPanel companyId={id} />
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="text-xl font-semibold text-[#041E42]">Documentos y seguimiento</h3>
