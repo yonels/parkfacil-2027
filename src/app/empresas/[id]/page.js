@@ -10,7 +10,6 @@ import TipoRelacionBadge from "@/components/empresas/TipoRelacionBadge";
 import { formatearRut } from "@/data/empresas.mjs";
 import { getCompanyPageData } from "@/lib/companiesServer";
 import EmpresaEditButton from "@/components/empresas/EmpresaEditButton";
-import EntrarComoClienteButton from "@/components/empresas/EntrarComoClienteButton";
 import EmpresaEnrolamientoPanel from "@/components/empresas/EmpresaEnrolamientoPanel";
 
 function DetailItem({ label, value }) {
@@ -126,15 +125,6 @@ export default async function EmpresaDetallePage({ params }) {
           description={`${empresa.nombreFantasia} · ${formatearRut(`${empresa.rutNumero}-${empresa.rutDv}`)}`}
           showBack={false}
           actions={[
-            // "Entrar como cliente" (§2 del encargo): solo empresas
-            // relationship_type=client son impersonables (ver
-            // isCompanyImpersonable en impersonationCore.mjs) -- para
-            // operator/administrator/partner/supplier no tiene sentido
-            // "actuar como cliente". Deliberadamente disponible en
-            // cualquier estado (onboarding/inactive/active, §7).
-            empresa.tipoRelacion === "client"
-              ? <EntrarComoClienteButton key="entrar-como-cliente" empresaId={id} empresaNombre={empresa.nombreFantasia} />
-              : null,
             <EmpresaEditButton key="editar" empresa={empresa} />,
             <Link key="volver" href="/empresas" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
               <ArrowLeft className="h-4 w-4" /> Volver
