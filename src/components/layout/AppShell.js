@@ -15,6 +15,7 @@ import MobileNavigation from "@/components/layout/MobileNavigation";
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
+import { shapeContactDisplay } from "@/lib/companyContactDisplayCore.mjs";
 
 const RUTAS_PUBLICAS = [
   "/login",
@@ -22,12 +23,24 @@ const RUTAS_PUBLICAS = [
   "/nueva-contrasena",
 ];
 
+// El shell nunca debe mostrar el email técnico interno
+// (@acceso.parkfacilapp.cl, ver accessUsernameDomain.mjs) -- reutiliza el
+// mismo helper ya usado en "Usuarios asociados" (companiesRepository.js)
+// para no duplicar el criterio de detección en cada lugar que renderiza el
+// correo de la sesión (badge de cuenta, Mi Cuenta, banner de empresa
+// impersonada). Una cuenta con correo real sigue mostrándose tal cual.
+function resolveDisplayEmail(email) {
+  const display = shapeContactDisplay({ email });
+  return display.esCorreoTecnico ? display.usuario : display.correo;
+}
+
 function getUserContext(context) {
   if (!context) return null;
+  const displayEmail = resolveDisplayEmail(context.email);
   return {
     id: context.userId,
-    name: context.membership?.fullName || context.email || "Usuario",
-    email: context.email,
+    name: context.membership?.fullName || displayEmail || "Usuario",
+    email: displayEmail,
     role: context.role,
     portal: context.portal,
     companyId: context.companyId,
@@ -121,7 +134,7 @@ export default function AppShell({
           const company = context.membership?.company;
           setClientContext(company ? {
             name: company.trade_name || company.business_name,
-            email: context.email,
+            email: resolveDisplayEmail(context.email),
             modules: [],
           } : null);
           setSessionResolved(true);
