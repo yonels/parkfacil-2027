@@ -142,9 +142,15 @@ test("la API y la UI POS quedan separadas de Webpay y no calculan minutos en el 
   assert.match(terminal, /EFECTIVO/);
   assert.match(terminal, /DÉBITO/);
   assert.match(terminal, /CRÉDITO/);
-  assert.match(terminal, /Pago con tarjeta pendiente de integración TUU/);
+  // El stub "Pago con tarjeta pendiente de integración TUU" ya fue
+  // reemplazado por la integración real (ver PosTerminal.tuuPayment.contract.test.mjs)
+  // -- lo que este test protege es que DÉBITO/CRÉDITO sigan cobrando vía
+  // bridge nativo (payWithTuu) y nunca vía Webpay/un checkout web.
+  assert.match(terminal, /bridge\.payWithTuu\(payloadJson\)/);
   assert.match(terminal, /action: "EXIT"/);
   assert.match(terminal, /paymentMethod: "CASH"/);
+  assert.match(terminal, /paymentMethod: "CARD"/);
+  assert.doesNotMatch(terminal, /webpay/i);
   assert.doesNotMatch(terminal, /Date\.now\(\)/);
   assert.doesNotMatch(terminal, /getMinutesInside/);
   assert.doesNotMatch(routeList, /insert\(|update\(/);

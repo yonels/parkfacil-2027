@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle, LogOut, Menu, RefreshCw, X } from "lucide-react";
 
@@ -9,6 +9,7 @@ import { splitChileTaxFromTotal, toOperationalDateTimeParts } from "@/lib/dataEn
 import { ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
 import { buildPrintableEntryPayload, entryPhotoRequirementMessage } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
+import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
 
 const POS_VIEWS = {
@@ -103,7 +104,7 @@ function buildEntryPrintPayload(stay, parkingResponse) {
 // que el backend devolvió tras confirmar el pago (stay/quote/parking del
 // EXIT) — nunca el monto u otros valores que haya tenido el frontend antes
 // de esa respuesta.
-function buildPaymentReceiptPayload(stay, quote, parkingResponse) {
+function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod = "CASH") {
   if (!stay || !quote || !parkingResponse) return null;
   const entryDateTime = formatBridgeEntryDateTime(stay.entry_at);
   const exitDateTime = formatBridgeEntryDateTime(stay.exit_at);
@@ -138,7 +139,7 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse) {
     netAmount: breakdown.netAmount,
     vatAmount: breakdown.vatAmount,
     amount: breakdown.totalAmount,
-    paymentMethod: "CASH",
+    paymentMethod,
     paymentId: String(stay?.payment_code || "").trim(),
   };
 
@@ -266,6 +267,85 @@ async function collectDeviceInfoForEntry() {
   }
   if (typeof navigator === "undefined") return null;
   return { platform: "web", userAgent: navigator.userAgent };
+}
+
+// ParkFacil POS -> TUU PRO2 (ambiente DEV): mismo criterio de
+// feature-detection que getNativePrinterBridge -- nunca asume soporte, solo
+// lo confirma comprobando que el método exista en window.ParkFacilDevice
+// (ver payWithTuu en ParkFacilDeviceBridge.kt, repo parkfacil-pos-android).
+function getTuuPaymentBridge() {
+  if (typeof window === "undefined") return null;
+  const bridge = window?.ParkFacilDevice;
+  if (!bridge || typeof bridge.payWithTuu !== "function") return null;
+  return bridge;
+}
+
+// payWithTuu() del bridge nativo es síncrono (como el resto del bridge) y
+// solo confirma que el Intent de pago se lanzó -- el resultado real del pago
+// es asíncrono (Activity Result de Android) y llega después, por separado,
+// vía window.ParkFacilTuuResult(...) (ver MainActivity.deliverTuuResultToWeb
+// en parkfacil-pos-android). Esta función envuelve ambas partes en una sola
+// Promise para que el llamador pueda usar await de principio a fin, con un
+// tope defensivo (TUU_RESULT_TIMEOUT_MS) para nunca quedar colgada si TUU no
+// responde.
+function startTuuPayment(payloadJson) {
+  const bridge = getTuuPaymentBridge();
+  if (!bridge) {
+    return Promise.resolve({
+      delivered: false,
+      code: "TUU_BRIDGE_UNAVAILABLE",
+      message: "Este dispositivo no tiene el bridge de pago TUU disponible.",
+    });
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const previousCallback = typeof window !== "undefined" ? window.ParkFacilTuuResult : undefined;
+
+    const finish = (outcome) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (typeof window !== "undefined") {
+        window.ParkFacilTuuResult = previousCallback;
+      }
+      resolve(outcome);
+    };
+
+    if (typeof window !== "undefined") {
+      window.ParkFacilTuuResult = (resultJson) => {
+        finish({ delivered: true, result: parseTuuResult(resultJson) });
+      };
+    }
+
+    timer = setTimeout(() => {
+      finish({ delivered: false, code: "NO_RESPONSE", message: "TUU no respondió dentro del tiempo esperado." });
+    }, TUU_RESULT_TIMEOUT_MS);
+
+    let ack;
+    try {
+      const raw = bridge.payWithTuu(payloadJson);
+      ack = typeof raw === "string" ? JSON.parse(raw) : raw;
+    } catch (error) {
+      finish({
+        delivered: false,
+        code: "TUU_BRIDGE_EXCEPTION",
+        message: error instanceof Error ? error.message : String(error ?? "Error desconocido"),
+      });
+      return;
+    }
+
+    if (!ack?.ok) {
+      finish({
+        delivered: false,
+        code: ack?.code || "TUU_LAUNCH_FAILED",
+        message: ack?.message || "No fue posible iniciar el pago TUU.",
+      });
+    }
+    // Si ack.ok === true, no se resuelve todavía: se espera
+    // window.ParkFacilTuuResult(...) o el timeout de arriba.
+  });
 }
 
 async function executeNativePrint(payload) {
@@ -600,6 +680,16 @@ export default function PosTerminal() {
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState("");
   const [paymentResult, setPaymentResult] = useState(null);
+  // Pago con tarjeta (TUU DEV): estado propio del paso "CARD_PAYMENT" --
+  // PROCESSING/APPROVED son transitorios (llevan directo a PRINT_PROMPT o al
+  // cierre del flujo, igual que EFECTIVO); DECLINED/CANCELLED/NOT_INSTALLED/
+  // ERROR/CHARGED_NOT_REGISTERED son terminales y se muestran en el modal.
+  // cardPaymentLockRef es una guarda SÍNCRONA (a diferencia de paymentSubmitting,
+  // que es estado de React y no se actualiza al instante) para impedir un
+  // doble clic que dispare dos pagos TUU en paralelo.
+  const [cardPaymentStatus, setCardPaymentStatus] = useState("");
+  const [cardPaymentMessage, setCardPaymentMessage] = useState("");
+  const cardPaymentLockRef = useRef(false);
   const [entryOpen, setEntryOpen] = useState(false);
   const [entryPlate, setEntryPlate] = useState("");
   const [entrySubmitting, setEntrySubmitting] = useState(false);
@@ -1005,6 +1095,8 @@ export default function PosTerminal() {
     setPaymentResult(null);
     setReceiptPrintPayload(null);
     setReceiptPrintStatus("");
+    setCardPaymentStatus("");
+    setCardPaymentMessage("");
   }
 
   // Obtiene una cotización nueva (misma llamada que ya usa el rechazo
@@ -1012,13 +1104,13 @@ export default function PosTerminal() {
   // y exige una nueva confirmación explícita del operador — nunca cobra ni
   // sustituye el importe en silencio. Se usa tanto si la cotización llegó
   // vencida al cliente como si el servidor la rechaza por vencida.
-  async function refreshExpiredQuote(reasonPrefix) {
+  async function refreshExpiredQuote(reasonPrefix, { targetStep = "CASH_CONFIRM" } = {}) {
     const refreshedQuote = await getPosVehicleQuote(selectedVehicle.stay.id);
     if (refreshedQuote.ok && refreshedQuote.payload?.data) {
       const detail = refreshedQuote.payload.data;
       setSelectedVehicle(detail);
       const refreshedAmount = normalizeQuoteView(detail?.quote)?.total ?? 0;
-      setPaymentStep("CASH_CONFIRM");
+      setPaymentStep(targetStep);
       setPaymentMessage(`${reasonPrefix} Nuevo total: ${formatCurrency(refreshedAmount)}. Confirma nuevamente para cobrar.`);
     } else {
       setPaymentMessage("La cotización venció y no se pudo actualizar automáticamente. Vuelve a abrir el detalle del vehículo.");
@@ -1128,12 +1220,157 @@ export default function PosTerminal() {
     if (method === "CASH") {
       setPaymentStep("CASH_CONFIRM");
       setPaymentMessage("");
-      return;
     }
+  }
 
-    if (method === "CARD") {
-      setPaymentStep("CARD_NOTICE");
-      setPaymentMessage("Pago con tarjeta pendiente de integración TUU.");
+  // Pago con tarjeta vía TUU PRO2 (ambiente DEV). tuuMethod distingue
+  // DÉBITO(2)/CRÉDITO(1) -- dato real que ya existían como dos botones
+  // separados en el MENU, nunca inventado acá (ver TUU_METHOD en
+  // src/lib/pos/tuuPayment.mjs).
+  //
+  // Protección contra doble cobro: cardPaymentLockRef se verifica y fija de
+  // forma SÍNCRONA antes de cualquier await -- un segundo clic mientras hay
+  // una transacción en curso nunca llega a lanzar un segundo Intent hacia
+  // TUU. El candado se libera SOLO en el finally de este función, que cubre
+  // tanto el pago TUU como el registro de la salida en el backend (fase
+  // posterior al cobro real) -- nunca se libera antes de que ambas partes
+  // terminen.
+  async function handleCardPaymentSelection(tuuMethod) {
+    if (cardPaymentLockRef.current || paymentSubmitting) return;
+    if (!selectedVehicle?.stay?.id) return;
+
+    cardPaymentLockRef.current = true;
+    setPaymentSubmitting(true);
+    setPaymentMessage("");
+
+    try {
+      const quoteSnapshot = selectedVehicle?.quote?.snapshot || null;
+
+      // La cotización se valida ANTES de cobrar con TUU (nunca después): una
+      // vez que TUU cobra la tarjeta, esa cobranza ya es real y no se puede
+      // deshacer desde acá -- por eso este chequeo es más estricto que en
+      // EFECTIVO (donde el backend recién cobra al confirmar).
+      if (!quoteSnapshot?.signature || isQuoteSnapshotExpired(quoteSnapshot)) {
+        await refreshExpiredQuote("La cotización del vehículo expiró.", { targetStep: "MENU" });
+        return;
+      }
+
+      const amount = normalizeQuoteView(selectedVehicle.quote)?.total;
+      if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+        console.error("[pos:tuu:status]", { status: "ERROR", reason: "invalid_amount" });
+        setPaymentStep("CARD_PAYMENT");
+        setCardPaymentStatus("ERROR");
+        setCardPaymentMessage("No hay un total válido para cobrar. Vuelve a abrir el detalle del vehículo.");
+        return;
+      }
+
+      setPaymentStep("CARD_PAYMENT");
+      setCardPaymentStatus("PROCESSING");
+      setCardPaymentMessage("Procesando pago...");
+
+      let tuuPayload;
+      try {
+        const netAmount = getTaxBreakdown(amount).netAmount;
+        tuuPayload = buildTuuPaymentPayload({ amount, method: tuuMethod, netAmount });
+      } catch (error) {
+        console.error("[pos:tuu:payload]", { message: error instanceof Error ? error.message : String(error) });
+        setCardPaymentStatus("ERROR");
+        setCardPaymentMessage("Error de comunicación con TUU.");
+        return;
+      }
+
+      console.info("[pos:tuu:start]", { package: TUU_PACKAGE_DEV, amount: tuuPayload.amount, method: tuuMethod });
+      const outcome = await startTuuPayment(JSON.stringify(tuuPayload));
+      console.info("[pos:tuu:outcome]", { delivered: Boolean(outcome?.delivered), code: outcome?.code || null });
+
+      if (!outcome?.delivered) {
+        if (outcome?.code === "TUU_NOT_INSTALLED" || outcome?.code === "TUU_BRIDGE_UNAVAILABLE") {
+          console.info("[pos:tuu:status]", { status: "NOT_INSTALLED", code: outcome?.code || null });
+          setCardPaymentStatus("NOT_INSTALLED");
+          setCardPaymentMessage("TUU no está instalada en este dispositivo.");
+        } else {
+          console.error("[pos:tuu:status]", { status: "ERROR", code: outcome?.code || null });
+          setCardPaymentStatus("ERROR");
+          setCardPaymentMessage("Error de comunicación con TUU.");
+        }
+        return;
+      }
+
+      const tuuResult = outcome.result;
+      if (!tuuResult?.success) {
+        if (tuuResult?.cancelled) {
+          console.info("[pos:tuu:status]", { status: "CANCELLED", responseCode: tuuResult?.responseCode || null });
+          setCardPaymentStatus("CANCELLED");
+          setCardPaymentMessage("Pago cancelado.");
+        } else {
+          console.info("[pos:tuu:status]", { status: "DECLINED", responseCode: tuuResult?.responseCode || null });
+          setCardPaymentStatus("DECLINED");
+          setCardPaymentMessage(tuuResult?.responseMessage || "Pago rechazado.");
+        }
+        return;
+      }
+
+      // A partir de aquí TUU YA cobró la tarjeta -- lo que sigue es registrar
+      // la salida en ParkFacil. Cualquier falla desde este punto NUNCA vuelve
+      // a MENU ni permite reintentar (evita un segundo cobro real): queda en
+      // CHARGED_NOT_REGISTERED para que el operador contacte soporte.
+      console.info("[pos:tuu:status]", { status: "APPROVED", transactionId: tuuResult?.transactionId || null });
+      setCardPaymentStatus("APPROVED");
+      setCardPaymentMessage("Pago aprobado. Registrando salida...");
+
+      let response;
+      try {
+        response = await fetch("/api/data-entry", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-parkfacil-portal": "terminal",
+          },
+          cache: "no-store",
+          body: JSON.stringify({ action: "EXIT", stayId: selectedVehicle.stay.id, paymentMethod: "CARD", quoteSnapshot }),
+        });
+      } catch {
+        console.error("[pos:tuu:status]", { status: "CHARGED_NOT_REGISTERED", reason: "network_error" });
+        setCardPaymentStatus("CHARGED_NOT_REGISTERED");
+        setCardPaymentMessage("El pago fue aprobado por TUU pero hubo un error de red al registrar la salida. Contacta a soporte antes de reintentar.");
+        return;
+      }
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        console.error("[pos:tuu:status]", { status: "CHARGED_NOT_REGISTERED", reason: payload?.error || "backend_error" });
+        setCardPaymentStatus("CHARGED_NOT_REGISTERED");
+        setCardPaymentMessage(
+          `El pago fue aprobado por TUU pero no se pudo registrar la salida (${payload?.error || "error desconocido"}). Contacta a soporte antes de reintentar.`
+        );
+        return;
+      }
+
+      const stay = payload?.data?.stay || null;
+      const quote = payload?.data?.quote || null;
+      const parkingResponse = payload?.data?.parking || parking;
+      const confirmedAmount = Number(quote?.total || 0);
+      setPaymentResult({
+        plate: stay?.license_plate || selectedVehicle.stay.license_plate,
+        total: confirmedAmount,
+        paymentMethod: payload?.data?.stay?.payment_method || "CARD",
+      });
+      const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse, "CARD");
+      setReceiptPrintPayload(receiptPayload);
+      setReceiptPrintStatus("");
+      await loadTerminalState(true);
+
+      const printResult = receiptPayload ? await printLastReceipt(receiptPayload) : null;
+      const printFailedOnDevice = Boolean(printResult?.attempted && !printResult.ok);
+
+      if (printFailedOnDevice) {
+        setPaymentStep("PRINT_PROMPT");
+      } else {
+        finishPaidFlow();
+      }
+    } finally {
+      cardPaymentLockRef.current = false;
+      setPaymentSubmitting(false);
     }
   }
 
@@ -2834,10 +3071,10 @@ export default function PosTerminal() {
                 <button type="button" onClick={() => handlePaymentSelection("CASH")} className="min-h-20 rounded-2xl bg-emerald-600 px-4 py-5 text-lg font-black text-white transition hover:bg-emerald-500">
                   EFECTIVO
                 </button>
-                <button type="button" onClick={() => handlePaymentSelection("CARD")} className="min-h-20 rounded-2xl bg-sky-600 px-4 py-5 text-lg font-black text-white transition hover:bg-sky-500">
+                <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.DEBIT)} className="min-h-20 rounded-2xl bg-sky-600 px-4 py-5 text-lg font-black text-white transition hover:bg-sky-500">
                   DÉBITO
                 </button>
-                <button type="button" onClick={() => handlePaymentSelection("CARD")} className="min-h-20 rounded-2xl bg-indigo-600 px-4 py-5 text-lg font-black text-white transition hover:bg-indigo-500">
+                <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.CREDIT)} className="min-h-20 rounded-2xl bg-indigo-600 px-4 py-5 text-lg font-black text-white transition hover:bg-indigo-500">
                   CRÉDITO
                 </button>
               </div>
@@ -2922,17 +3159,54 @@ export default function PosTerminal() {
               </div>
             ) : null}
 
-            {paymentStep === "CARD_NOTICE" ? (
-              <div className="space-y-4 rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                <p className="text-lg font-black text-sky-950">{paymentMessage || "Pago con tarjeta pendiente de integración TUU."}</p>
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <button type="button" onClick={() => { setPaymentStep("MENU"); setPaymentMessage(""); }} className="rounded-xl bg-sky-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-sky-600">
-                    VOLVER
-                  </button>
-                  <button type="button" onClick={closePaymentModal} className="rounded-xl border border-sky-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-sky-900 transition hover:bg-sky-100">
-                    CERRAR
-                  </button>
-                </div>
+            {/*
+              PROCESSING/APPROVED son transitorios: TUU está cobrando o ya
+              cobró y se está registrando la salida (mismo criterio que
+              EFECTIVO, que tampoco tiene una pantalla intermedia de
+              "aprobado" -- va directo a PRINT_PROMPT o al cierre del flujo).
+              Los demás son estados terminales que sí requieren una acción
+              del operador.
+            */}
+            {paymentStep === "CARD_PAYMENT" ? (
+              <div className={`space-y-4 rounded-2xl border p-4 ${
+                cardPaymentStatus === "CHARGED_NOT_REGISTERED" || cardPaymentStatus === "ERROR"
+                  ? "border-red-300 bg-red-50"
+                  : cardPaymentStatus === "DECLINED"
+                    ? "border-amber-300 bg-amber-50"
+                    : "border-sky-200 bg-sky-50"
+              }`}>
+                {cardPaymentStatus === "PROCESSING" || cardPaymentStatus === "APPROVED" ? (
+                  <div className="flex items-center gap-3">
+                    <LoaderCircle className="h-5 w-5 animate-spin text-sky-700" />
+                    <p className="text-lg font-black text-sky-950">{cardPaymentMessage || "Procesando pago..."}</p>
+                  </div>
+                ) : (
+                  <p className={`text-lg font-black ${cardPaymentStatus === "CHARGED_NOT_REGISTERED" || cardPaymentStatus === "ERROR" ? "text-red-950" : "text-sky-950"}`}>
+                    {cardPaymentStatus === "DECLINED" && "PAGO RECHAZADO"}
+                    {cardPaymentStatus === "CANCELLED" && "PAGO CANCELADO"}
+                    {cardPaymentStatus === "NOT_INSTALLED" && "TUU NO ESTÁ INSTALADA"}
+                    {cardPaymentStatus === "ERROR" && "ERROR DE COMUNICACIÓN CON TUU"}
+                    {cardPaymentStatus === "CHARGED_NOT_REGISTERED" && "ATENCIÓN: PAGO COBRADO, SALIDA NO REGISTRADA"}
+                    {cardPaymentMessage ? <span className="mt-2 block text-sm font-semibold">{cardPaymentMessage}</span> : null}
+                  </p>
+                )}
+
+                {cardPaymentStatus && cardPaymentStatus !== "PROCESSING" && cardPaymentStatus !== "APPROVED" ? (
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    {cardPaymentStatus !== "CHARGED_NOT_REGISTERED" ? (
+                      <button
+                        type="button"
+                        onClick={() => { setPaymentStep("MENU"); setCardPaymentStatus(""); setCardPaymentMessage(""); }}
+                        className="rounded-xl bg-sky-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-sky-600"
+                      >
+                        REINTENTAR
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={closePaymentModal} className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-slate-800 transition hover:bg-slate-100">
+                      CERRAR
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
