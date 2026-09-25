@@ -7,7 +7,20 @@ export const metadata = {
   title: "ParkFacil POS - Acceso Operador",
 };
 
-export default function PosLoginPage() {
+// POS Entry/Exit — Fase 1: motivo por el que el Terminal devolvió al
+// operador a esta pantalla (ver PosTerminal.js, redirectToPosLogin). Lista
+// cerrada: cualquier otro valor en la URL se ignora (nunca se refleja texto
+// arbitrario del query string en pantalla).
+const POS_LOGIN_REASONS = Object.freeze({
+  "sesion-expirada": "Tu sesión expiró. Inicia sesión nuevamente para continuar operando.",
+  "acceso-revocado": "Tu cuenta ya no está habilitada para operar este POS. Contacta a tu supervisor.",
+  "sesion-cerrada": "Sesión cerrada correctamente.",
+});
+
+export default async function PosLoginPage({ searchParams }) {
+  const params = (await searchParams) || {};
+  const reasonMessage = POS_LOGIN_REASONS[String(params.motivo || "")] || "";
+
   return (
     <main className="grid min-h-screen bg-slate-50 lg:grid-cols-[1.1fr_0.9fr]">
       <section
@@ -87,6 +100,12 @@ export default function PosLoginPage() {
             <p className="mt-2 text-sm leading-6 text-white/80">
               Esta pantalla es exclusiva para operadores POS.
             </p>
+
+            {reasonMessage ? (
+              <p role="status" className="mt-5 rounded-2xl border border-white/40 bg-white/15 px-4 py-3 text-sm font-semibold text-white">
+                {reasonMessage}
+              </p>
+            ) : null}
 
             <Suspense
               fallback={<div className="mt-8 h-72 animate-pulse rounded-2xl bg-white/10" />}

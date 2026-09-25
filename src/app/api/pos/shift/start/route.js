@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
+import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { findSelectableShift, POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { getPosOperatorShiftState, startPosOperatorShift } from "@/lib/posOperatorShiftService";
 
 const errors = {
@@ -20,11 +21,26 @@ export async function POST(request) {
   try {
     authorization = await authorizeOperationRequest(request, PERMISSIONS.OPERATIONS_USE);
     if (authorization.response) return authorization.response;
-    const parkingId = authorization.assignedParkingIds?.[0] || null;
-    if (!parkingId) return NextResponse.json({ error: "No tienes un estacionamiento asignado.", code: "PARKING_UNASSIGNED" }, { status: 409 });
-    const parking = await requireOperationalParking(authorization.db, authorization.context, authorization.scope, parkingId);
-    const actor = operationActor(authorization.context);
+    const resolved = await resolvePosOperationalParking(authorization);
+    const actor = posOperationActor(authorization.context);
     const body = await request.json().catch(() => ({}));
+
+    // Selección explícita (varios estacionamientos): el shiftId enviado solo
+    // se acepta si está entre los turnos PROGRAMMED de hoy que el servidor
+    // calculó para ESTE operador en estacionamientos autorizados. Nunca se
+    // usa un parkingId del cliente.
+    if (resolved.status === POS_PARKING_RESOLUTION.SELECTION_REQUIRED) {
+      const selected = findSelectableShift(resolved, body.shiftId);
+      if (!selected) {
+        return NextResponse.json({ error: "Selecciona un turno programado válido para iniciar.", code: "PARKING_SELECTION_REQUIRED" }, { status: 409 });
+      }
+      const shift = await startPosOperatorShift(authorization.db, { shiftId: selected.shiftId, actor });
+      const selectedParking = await resolvePosOperationalParking(authorization);
+      return NextResponse.json({ data: { state: "OPEN", shift, parking: selectedParking.parking, actor, serverNow: new Date().toISOString() } });
+    }
+
+    const parking = resolved.parking;
+    if (!parking) return NextResponse.json({ error: "No tienes un estacionamiento asignado.", code: "PARKING_UNASSIGNED" }, { status: 409 });
     const current = await getPosOperatorShiftState(authorization.db, { operatorId: actor.id, parkingId: parking.id });
     if (current.state !== "PROGRAMMED" || !current.shift || (body.shiftId && body.shiftId !== current.shift.id)) {
       return NextResponse.json({ error: "No existe un turno programado válido para iniciar.", code: "PROGRAMMED_SHIFT_NOT_AVAILABLE" }, { status: 409 });

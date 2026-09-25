@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
+import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { closePosOperatorShift, getPosOperatorShiftState, loadOperatorShiftPreview } from "@/lib/posOperatorShiftService";
 import { validatePosClosureInput } from "@/lib/posOperatorShiftCore.mjs";
 
@@ -22,10 +23,11 @@ export async function POST(request) {
   try {
     authorization = await authorizeOperationRequest(request, PERMISSIONS.OPERATIONS_USE);
     if (authorization.response) return authorization.response;
-    const parkingId = authorization.assignedParkingIds?.[0] || null;
-    if (!parkingId) return NextResponse.json({ error: "No tienes un estacionamiento asignado.", code: "PARKING_UNASSIGNED" }, { status: 409 });
-    const parking = await requireOperationalParking(authorization.db, authorization.context, authorization.scope, parkingId);
-    const actor = operationActor(authorization.context);
+    const resolved = await resolvePosOperationalParking(authorization);
+    if (resolved.status === POS_PARKING_RESOLUTION.SELECTION_REQUIRED) return NextResponse.json(posParkingSelectionRequiredResponse(), { status: 409 });
+    const parking = resolved.parking;
+    if (!parking) return NextResponse.json({ error: "No tienes un estacionamiento asignado.", code: "PARKING_UNASSIGNED" }, { status: 409 });
+    const actor = posOperationActor(authorization.context);
     const current = await getPosOperatorShiftState(authorization.db, { operatorId: actor.id, parkingId: parking.id });
     if (current.state !== "OPEN" || current.shift.status !== "OPEN") return NextResponse.json({ error: "No existe un turno abierto para cerrar.", code: "OPEN_SHIFT_NOT_AVAILABLE" }, { status: 409 });
     const body = await request.json().catch(() => ({}));

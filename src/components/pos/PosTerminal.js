@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { LoaderCircle, LogOut, Menu, RefreshCw, X } from "lucide-react";
 
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { splitChileTaxFromTotal, toOperationalDateTimeParts } from "@/lib/dataEntry.mjs";
 import { ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
+import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
 import { buildPrintableEntryPayload, entryPhotoRequirementMessage } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
 import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
@@ -536,9 +536,10 @@ async function getSessionContext() {
     headers: { "x-parkfacil-portal": "terminal" },
     cache: "no-store",
   });
-  if (!response.ok) return { ok: false, status: response.status, payload: {} };
+  // Fase 1: también en error se lee el cuerpo ({ error, code }) -- el
+  // código distingue un acceso revocado de una falla transitoria.
   const payload = await response.json().catch(() => ({}));
-  return { ok: true, status: response.status, payload };
+  return { ok: response.ok, status: response.status, payload: payload || {} };
 }
 
 async function getPosVehicleSummary() {
@@ -661,9 +662,74 @@ function formatPaymentMethodLabel(method) {
   return method || "-";
 }
 
+// POS Entry/Exit — Fase 1 (sesión y navegación). Toda salida hacia el login
+// usa navegación "dura" (location.replace): descarta de una vez el estado en
+// memoria del terminal (vehículo seleccionado, cobro en pantalla, etc.) y
+// reemplaza la entrada del historial, para que "Atrás" no vuelva a una
+// pantalla operativa. El motivo es una lista cerrada que /pos/login traduce
+// a un mensaje (ver POS_LOGIN_REASONS en src/app/pos/login/page.js).
+const POS_SESSION_REVALIDATE_MS = 60000;
+
+function redirectToPosLogin(reason) {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams({ next: "/pos" });
+  if (reason) params.set("motivo", reason);
+  window.location.replace(`/pos/login?${params.toString()}`);
+}
+
+// 401 = sesión expirada/cuenta deshabilitada. En 403 solo los códigos que
+// REALMENTE revocan el acceso (membresía inactiva/vencida, empresa
+// suspendida, rol/portal/permiso no permitido) envían al login: un 403
+// MEMBERSHIP_LOOKUP_FAILED/COMPANY_LOOKUP_FAILED es una falla transitoria
+// de base de datos y nunca debe expulsar al operador en pleno turno.
+const POS_REVOKED_ACCESS_CODES = new Set([
+  "MEMBERSHIP_INACTIVE",
+  "COMPANY_INACTIVE",
+  "ACCESS_EXPIRED",
+  "ROLE_FORBIDDEN",
+  "PORTAL_FORBIDDEN",
+  "PERMISSION_FORBIDDEN",
+]);
+
+function posLoginReasonForSessionStatus(status, code) {
+  if (status === 401) return "sesion-expirada";
+  if (status === 403 && POS_REVOKED_ACCESS_CODES.has(String(code || ""))) return "acceso-revocado";
+  return null;
+}
+
+// Revalidación periódica: un 401 aislado puede ser un corte momentáneo de
+// Supabase Auth -- se exige que se repita en revalidaciones consecutivas.
+const POS_SESSION_UNAUTHORIZED_THRESHOLD = 2;
+
+// Nunca se muestra el correo técnico interno (@acceso.parkfacilapp.cl):
+// nombre de la membresía, o en su defecto solo el usuario de acceso.
+function formatOperatorDisplayName(context) {
+  const fullName = String(context?.membership?.fullName || "").trim();
+  return fullName || extractDisplayUsername(context?.email) || "-";
+}
+
+function formatPosRoleLabel(role) {
+  if (role === "operator") return "Operador POS";
+  if (role === "company_admin") return "Administrador";
+  return role || "-";
+}
+
+function formatDeviceInfoLabel(info) {
+  if (!info) return "No disponible";
+  if (info.platform === "web") return "Navegador web";
+  const model = [info.manufacturer, info.model].filter(Boolean).join(" ");
+  return model || "Dispositivo Android";
+}
+
 export default function PosTerminal() {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
+  // Fase 1 — entorno POS: selección explícita de estacionamiento (varios
+  // autorizados), cierre de sesión en curso y datos del dispositivo.
+  const [parkingSelectionRequired, setParkingSelectionRequired] = useState(false);
+  const [parkingOptions, setParkingOptions] = useState([]);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState(null);
+  const operationBusyRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState(POS_VIEWS.HOME);
@@ -766,8 +832,11 @@ export default function PosTerminal() {
     try {
       const session = await getSessionContext();
       if (!session.ok) {
-        if (session.status === 401) {
-          router.replace("/pos/login?next=/pos");
+        // Fase 1: sesión expirada (401) o cuenta/membresía/empresa ya no
+        // habilitada (403) -> nunca se deja al operador en el terminal.
+        const reason = posLoginReasonForSessionStatus(session.status, session.payload?.code);
+        if (reason) {
+          redirectToPosLogin(reason);
           return;
         }
         setError("No fue posible validar la sesión del terminal.");
@@ -777,7 +846,18 @@ export default function PosTerminal() {
       const summary = await getPosVehicleSummary();
       if (!summary.ok) {
         if (summary.status === 401) {
-          router.replace("/pos/login?next=/pos");
+          redirectToPosLogin("sesion-expirada");
+          return;
+        }
+        // Fase 1: varios estacionamientos autorizados y ningún turno que
+        // defina cuál se opera -- no es un error: el gate de turno ofrece
+        // elegir el turno programado a iniciar (ver loadShiftState).
+        if (summary.status === 409 && summary.payload?.code === "PARKING_SELECTION_REQUIRED") {
+          setContext(session.payload?.data || null);
+          setParking(null);
+          setVehiclesInside(0);
+          setActiveStays([]);
+          setParkingSelectionRequired(true);
           return;
         }
         if (summary.status === 403) {
@@ -791,6 +871,7 @@ export default function PosTerminal() {
   const stays = Array.isArray(summary.payload?.data?.stays) ? summary.payload.data.stays : [];
       setContext(session.payload?.data || null);
       setParking(summary.payload?.data?.parking || null);
+      setParkingSelectionRequired(false);
       setVehiclesInside(stays.length);
       setActiveStays(stays);
       const photoSettings = summary.payload?.data?.platePhotoSettings || null;
@@ -803,7 +884,7 @@ export default function PosTerminal() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [router]);
+  }, []);
 
   const loadPaymentsToday = useCallback(async () => {
     setPaymentsTodayLoading(true);
@@ -813,7 +894,7 @@ export default function PosTerminal() {
       const result = await getPosPaymentsToday();
       if (!result.ok) {
         if (result.status === 401) {
-          router.replace("/pos/login?next=/pos");
+          redirectToPosLogin("sesion-expirada");
           return;
         }
         setPaymentsTodayError(result.payload?.error || "No fue posible cargar los pagos del día.");
@@ -827,7 +908,7 @@ export default function PosTerminal() {
     } finally {
       setPaymentsTodayLoading(false);
     }
-  }, [router]);
+  }, []);
 
   // Abre (si no existe) o recupera el turno POS del operador y trae, según
   // corresponda, la vista previa server-side (turno abierto) o el cierre ya
@@ -840,7 +921,7 @@ export default function PosTerminal() {
       const result = await getPosShift();
       if (!result.ok) {
         if (result.status === 401) {
-          router.replace("/pos/login?next=/pos");
+          redirectToPosLogin("sesion-expirada");
           return;
         }
         setShiftError(result.payload?.error || "No fue posible cargar el turno del operador.");
@@ -854,21 +935,26 @@ export default function PosTerminal() {
       setShiftClosure(data.closure || null);
       setShiftPreview(data.preview || null);
       setShiftServerNow(data.serverNow || null);
+      setParkingOptions(Array.isArray(data.parkingOptions) ? data.parkingOptions : []);
     } catch {
       setShiftError("Error de red al cargar el turno del operador.");
     } finally {
       setShiftLoading(false);
     }
-  }, [router]);
+  }, []);
 
-  async function startProgrammedShift() {
-    if (!shift?.id || shiftStartBusy) return;
+  // selectedShiftId: solo en la selección explícita de estacionamiento
+  // (PARKING_SELECTION_REQUIRED). El servidor lo valida contra los turnos
+  // programados que él mismo calculó -- nunca se envía un parkingId.
+  async function startProgrammedShift(selectedShiftId = null) {
+    const targetShiftId = selectedShiftId || shift?.id;
+    if (!targetShiftId || shiftStartBusy) return;
     setShiftStartBusy(true);
     setShiftError("");
     try {
-      const result = await postStartShift(shift.id);
+      const result = await postStartShift(targetShiftId);
       if (!result.ok) {
-        if (result.status === 401) router.replace("/pos/login?next=/pos");
+        if (result.status === 401) redirectToPosLogin("sesion-expirada");
         else setShiftError(result.payload?.error || "No fue posible iniciar el turno.");
         return;
       }
@@ -881,11 +967,23 @@ export default function PosTerminal() {
     }
   }
 
+  // Fase 1: el cierre de sesión nunca queda a medias. Antes, si
+  // supabase.auth.signOut() fallaba (p. ej. sin red), la excepción cortaba
+  // la función y el operador seguía dentro del terminal con la cookie de
+  // sesión intacta. Ahora cada paso es best-effort y la salida al login
+  // ocurre siempre. No se permite salir con un cobro con tarjeta en curso
+  // (TUU ya puede estar cobrando): paymentSubmitting permanece en true
+  // durante todo handleCardPaymentSelection, incluido el registro del EXIT.
   async function logout() {
-    const supabase = getSupabaseBrowserClient();
-    await supabase.auth.signOut();
+    if (loggingOut || paymentSubmitting) return;
+    setLoggingOut(true);
+    try {
+      await getSupabaseBrowserClient().auth.signOut();
+    } catch {
+      // Se continúa igual: la cookie httpOnly se invalida abajo.
+    }
     await fetch("/api/auth/session", { method: "DELETE" }).catch(() => null);
-    router.replace("/pos/login");
+    redirectToPosLogin("sesion-cerrada");
   }
 
   function openSidebar() {
@@ -1064,7 +1162,7 @@ export default function PosTerminal() {
       const response = await getPosVehicleQuote(stay.id);
       if (!response.ok) {
         if (response.status === 401) {
-          router.replace("/pos/login?next=/pos");
+          redirectToPosLogin("sesion-expirada");
           return;
         }
         setSelectedVehicleError(response.payload?.error || "No fue posible actualizar la cotización del vehículo.");
@@ -1148,6 +1246,12 @@ export default function PosTerminal() {
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        // Fase 1: con 401 el backend NO registró el pago (la autorización
+        // ocurre antes de cualquier escritura) -- se vuelve al login.
+        if (response.status === 401) {
+          redirectToPosLogin("sesion-expirada");
+          return;
+        }
         const errorCode = payload?.details?.code || payload?.code || "";
         if (errorCode === "QUOTE_SNAPSHOT_EXPIRED") {
           await refreshExpiredQuote("La cotización venció.");
@@ -1482,7 +1586,7 @@ export default function PosTerminal() {
 
       if (!result.ok) {
         if (result.status === 401) {
-          router.replace("/pos/login?next=/pos");
+          redirectToPosLogin("sesion-expirada");
           return;
         }
         setCloseError(result.payload?.error || "No fue posible cerrar el turno.");
@@ -1677,6 +1781,12 @@ export default function PosTerminal() {
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        // Fase 1: sesión vencida durante la operación -> nunca se deja al
+        // operador en una pantalla operativa sin sesión válida.
+        if (response.status === 401) {
+          redirectToPosLogin("sesion-expirada");
+          return;
+        }
         setEntryError(payload?.error || "No fue posible registrar el ingreso.");
         return;
       }
@@ -1775,7 +1885,7 @@ export default function PosTerminal() {
     if (shiftReadyForOperations) return null;
 
     const volverButton = hideVolver ? null : (
-      <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-4 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
+      <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-4 rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
     );
 
     if (shiftLoading && !shift) {
@@ -1794,6 +1904,42 @@ export default function PosTerminal() {
         <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
           {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
           <div className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{shiftError}</div>
+          {volverButton}
+        </section>
+      );
+    }
+
+    // Fase 1: varios estacionamientos autorizados -> el operador elige
+    // explícitamente qué turno programado iniciar. Las opciones vienen del
+    // servidor (solo estacionamientos autorizados de su empresa); una vez
+    // iniciado, el turno abierto fija el estacionamiento para toda la sesión.
+    if (shiftState === "PARKING_SELECTION_REQUIRED") {
+      return (
+        <section className="rounded-3xl border border-sky-300 bg-white p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sky-950">
+            <p className="text-xs font-black uppercase tracking-[0.1em] text-sky-700">Selecciona estacionamiento</p>
+            <p className="mt-1 font-black">Tienes más de un estacionamiento asignado.</p>
+            <p className="mt-1 text-sm font-semibold">
+              {parkingOptions.length ? "Elige el turno que vas a iniciar. El estacionamiento quedará fijo hasta cerrar el turno." : "No tienes turnos programados hoy. Contacta a tu supervisor."}
+            </p>
+          </div>
+          {parkingOptions.length ? (
+            <div className="mt-4 space-y-3">
+              {parkingOptions.map((option) => (
+                <button
+                  key={option.shiftId}
+                  type="button"
+                  onClick={() => void startProgrammedShift(option.shiftId)}
+                  disabled={shiftStartBusy}
+                  className="flex min-h-16 w-full flex-col items-start justify-center rounded-2xl bg-emerald-700 px-4 py-3 text-left text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="text-base font-black uppercase tracking-[0.04em]">{shiftStartBusy ? "Iniciando..." : `Iniciar turno · ${option.parkingName || option.parkingCode}`}</span>
+                  <span className="text-xs font-semibold text-emerald-50">Código {option.parkingCode || "-"} · Horario {option.scheduledStart || "-"}–{option.scheduledEnd || "-"}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {volverButton}
         </section>
       );
@@ -1946,7 +2092,7 @@ export default function PosTerminal() {
             </div>
             <div>
               <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Operador</p>
-              <p className="mt-1 font-bold">{entrySuccess.stay?.entry_operator_name || context?.email || "-"}</p>
+              <p className="mt-1 font-bold">{entrySuccess.stay?.entry_operator_name || formatOperatorDisplayName(context)}</p>
             </div>
             <div className="sm:col-span-2">
               <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Empresa</p>
@@ -2102,7 +2248,7 @@ export default function PosTerminal() {
           <button
             type="button"
             onClick={() => goToSection(POS_VIEWS.HOME)}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
           >
             Volver
           </button>
@@ -2659,13 +2805,17 @@ export default function PosTerminal() {
             <button
               type="button"
               onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
             >
               Volver
             </button>
           </div>
         </section>
       );
+    }
+
+    if (shiftState === "PARKING_SELECTION_REQUIRED") {
+      return renderShiftGate("Cierre de caja");
     }
 
     if (shiftState === "UNASSIGNED" || !shift) {
@@ -2675,7 +2825,7 @@ export default function PosTerminal() {
           <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
             No tienes un turno asignado para hoy en este estacionamiento.
           </div>
-          <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-4 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
+          <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-4 rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
         </section>
       );
     }
@@ -2691,12 +2841,12 @@ export default function PosTerminal() {
           <button type="button" onClick={() => void startProgrammedShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:opacity-60">
             {shiftStartBusy ? "Iniciando..." : "Iniciar turno"}
           </button>
-          <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-3 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
+          <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-3 rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
         </section>
       );
     }
 
-    const operatorFullName = context?.membership?.fullName || context?.email || "-";
+    const operatorFullName = formatOperatorDisplayName(context);
     const companyName = context?.membership?.company?.business_name || context?.membership?.company?.trade_name || "-";
     const openedParts = formatBridgeEntryDateTime(shift.openedAt);
     const nowParts = formatBridgeEntryDateTime(shiftServerNow || new Date().toISOString());
@@ -2714,7 +2864,7 @@ export default function PosTerminal() {
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Usuario / correo</p>
-            <p className="mt-1 break-all text-sm font-bold text-slate-800">{context?.email || "-"}</p>
+            <p className="mt-1 break-all text-sm font-bold text-slate-800">{extractDisplayUsername(context?.email) || "-"}</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Empresa</p>
@@ -2752,7 +2902,7 @@ export default function PosTerminal() {
           <button
             type="button"
             onClick={() => goToSection(POS_VIEWS.HOME)}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
           >
             Volver
           </button>
@@ -2895,7 +3045,7 @@ export default function PosTerminal() {
             <button
               type="button"
               onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
             >
               Volver
             </button>
@@ -3377,7 +3527,7 @@ export default function PosTerminal() {
             <button
               type="button"
               onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
             >
               Volver
             </button>
@@ -3411,12 +3561,23 @@ export default function PosTerminal() {
               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Versión POS</p>
               <p className="mt-1 text-sm font-black text-slate-800">{POS_FRONTEND_VERSION}</p>
             </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Dispositivo</p>
+              <p className="mt-1 text-sm font-black text-slate-800">{formatDeviceInfoLabel(deviceInfo)}</p>
+              {deviceInfo?.androidVersion ? <p className="text-xs text-slate-600">Android {deviceInfo.androidVersion}</p> : null}
+              {deviceInfo?.appVersion ? <p className="text-xs text-slate-600">App {deviceInfo.appVersion}{deviceInfo.runtimeVersion ? ` · runtime ${deviceInfo.runtimeVersion}` : ""}</p> : null}
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Identificador de terminal</p>
+              <p className="mt-1 text-sm font-black text-slate-800">No registrado</p>
+              <p className="text-xs text-slate-600">Los movimientos quedan asociados al operador y a su turno.</p>
+            </div>
           </div>
           <div className="mt-4">
             <button
               type="button"
               onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
             >
               Volver
             </button>
@@ -3456,6 +3617,76 @@ export default function PosTerminal() {
     setNativePrintAvailable(Boolean(getNativePrinterBridge()));
   }, []);
 
+  // Fase 1 — identificación del dispositivo (best-effort, mismo
+  // getDeviceInfo() que ya usa la evidencia de patente). Solo se muestra en
+  // ESTADO DEL DISPOSITIVO; no existe todavía un ID persistente de terminal.
+  useEffect(() => {
+    let cancelled = false;
+    void collectDeviceInfoForEntry().then((info) => {
+      if (!cancelled) setDeviceInfo(info || null);
+    }).catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fase 1 — una operación en curso (cobro, ingreso, cierre, inicio de
+  // turno) nunca se interrumpe con una redirección por revalidación.
+  useEffect(() => {
+    operationBusyRef.current = paymentSubmitting || entrySubmitting || closeSubmitting || shiftStartBusy;
+  }, [paymentSubmitting, entrySubmitting, closeSubmitting, shiftStartBusy]);
+
+  // Fase 1 — sesión expirada/revocada con el POS abierto: antes solo se
+  // detectaba al próximo request. Se revalida periódicamente y al volver a
+  // primer plano (p. ej. tras abrir TUU); 401/403 -> login con motivo. Un
+  // error de red NO se interpreta como sesión inválida. Además, si el
+  // navegador restaura la página desde el back/forward cache (Atrás tras
+  // cerrar sesión), se recarga para que el proxy vuelva a validar.
+  useEffect(() => {
+    let cancelled = false;
+    let consecutiveUnauthorized = 0;
+
+    async function revalidateSession() {
+      if (cancelled || operationBusyRef.current || cardPaymentLockRef.current) return;
+      if (document.visibilityState === "hidden") return;
+      try {
+        const session = await getSessionContext();
+        if (session.ok) {
+          consecutiveUnauthorized = 0;
+          return;
+        }
+        const reason = posLoginReasonForSessionStatus(session.status, session.payload?.code);
+        if (session.status === 401) {
+          consecutiveUnauthorized += 1;
+          if (consecutiveUnauthorized < POS_SESSION_UNAUTHORIZED_THRESHOLD) return;
+        } else {
+          consecutiveUnauthorized = 0;
+        }
+        if (!cancelled && reason && !operationBusyRef.current && !cardPaymentLockRef.current) redirectToPosLogin(reason);
+      } catch {
+        // Sin red: se reintenta en el próximo ciclo.
+      }
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") void revalidateSession();
+    }
+
+    function onPageShow(event) {
+      if (event.persisted) window.location.reload();
+    }
+
+    const timer = setInterval(() => void revalidateSession(), POS_SESSION_REVALIDATE_MS);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, []);
+
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900">
       {paymentModalOpen ? renderPaymentModal() : null}
@@ -3475,8 +3706,8 @@ export default function PosTerminal() {
           <aside className="h-full w-[84%] max-w-xs overflow-y-auto border-r border-slate-300 bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
               <p className="text-sm font-black uppercase tracking-[0.16em] text-slate-700">Menú POS</p>
-              <button type="button" onClick={closeSidebar} className="rounded-lg border border-slate-300 p-2 text-slate-700">
-                <X className="h-4 w-4" />
+              <button type="button" onClick={closeSidebar} aria-label="Cerrar menú" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-300 p-2 text-slate-700">
+                <X className="h-5 w-5" />
               </button>
             </div>
             <div className="space-y-2">
@@ -3485,7 +3716,7 @@ export default function PosTerminal() {
                   key={item.label}
                   type="button"
                   onClick={() => item.onSelect()}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"
+                  className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"
                 >
                   {item.label}
                 </button>
@@ -3505,7 +3736,7 @@ export default function PosTerminal() {
                 key={item.label}
                 type="button"
                 onClick={() => item.onSelect()}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"
+                className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"
               >
                 {item.label}
               </button>
@@ -3527,7 +3758,7 @@ export default function PosTerminal() {
                 <button
                   type="button"
                   onClick={openSidebar}
-                  className="inline-flex items-center justify-center rounded-xl border border-slate-300 p-2 text-slate-700 lg:hidden"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-300 p-2 text-slate-700 lg:hidden"
                   aria-label="Abrir menú"
                 >
                   <Menu className="h-5 w-5" />
@@ -3535,11 +3766,13 @@ export default function PosTerminal() {
 
                 <button
                   type="button"
-                  onClick={logout}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50"
+                  onClick={() => void logout()}
+                  disabled={loggingOut || paymentSubmitting}
+                  aria-label="Cerrar sesión"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-wait disabled:opacity-60"
                 >
-                  <LogOut className="h-4 w-4" />
-                  <span className="hidden sm:inline">Cerrar sesión</span>
+                  {loggingOut ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                  <span className="hidden sm:inline">{loggingOut ? "Cerrando..." : "Cerrar sesión"}</span>
                 </button>
               </div>
             </header>
@@ -3558,14 +3791,15 @@ export default function PosTerminal() {
                 <div className="grid gap-3 sm:grid-cols-3">
                   <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Operador</p>
-                    <p className="mt-1 break-all text-sm font-bold text-slate-800">{context?.email || "-"}</p>
-                    <p className="text-xs text-slate-600">Rol: {context?.role || "-"}</p>
+                    <p className="mt-1 break-words text-sm font-bold text-slate-800">{formatOperatorDisplayName(context)}</p>
+                    <p className="text-xs text-slate-600">Rol: {formatPosRoleLabel(context?.role)}</p>
                   </article>
 
                   <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Estacionamiento activo</p>
-                    <p className="mt-1 text-sm font-bold text-slate-800">{parking?.name || "Sin asignación"}</p>
+                    <p className="mt-1 text-sm font-bold text-slate-800">{parking?.name || (parkingSelectionRequired ? "Pendiente de selección" : "Sin asignación")}</p>
                     <p className="text-xs text-slate-600">Código: {parking?.code || "-"}</p>
+                    <p className="text-xs text-slate-600">Empresa: {context?.membership?.company?.trade_name || context?.membership?.company?.business_name || "-"}</p>
                   </article>
                 </div>
 
@@ -3576,7 +3810,7 @@ export default function PosTerminal() {
                     type="button"
                     onClick={() => void loadTerminalState(true)}
                     disabled={refreshing}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                    className="inline-flex items-center gap-2 min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-60"
                   >
                     <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
                     Actualizar
@@ -3586,7 +3820,7 @@ export default function PosTerminal() {
             )}
 
             <p className="mt-5 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-              ParkFacil POS · Versión 0.1.1
+              ParkFacil POS · Versión {POS_FRONTEND_VERSION}
             </p>
           </div>
         </section>

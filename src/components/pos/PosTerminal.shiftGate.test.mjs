@@ -69,8 +69,8 @@ test("HOME muestra el gate (con INICIAR TURNO cuando aplica) en vez de dejar sin
 
 test("startProgrammedShift refresca el turno y el estado del terminal sin exigir volver a iniciar sesión", () => {
   const fn = terminalSource.slice(
-    terminalSource.indexOf("async function startProgrammedShift()"),
-    terminalSource.indexOf("async function startProgrammedShift()") + 600,
+    terminalSource.indexOf("async function startProgrammedShift("),
+    terminalSource.indexOf("async function startProgrammedShift(") + 600,
   );
   // Camino de éxito: refresca turno + terminal, sin cerrar sesión ni
   // redirigir a login (el redirect a /pos/login solo existe para el caso

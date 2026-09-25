@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
 import { buildPosQuoteSnapshot, quoteParkingStay, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
-import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
+import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, requireOperationalParking, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
+import { isRequestedParkingConsistent, POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { getPlatePhotoSettings } from "@/lib/offStreet/offStreetPlatePhotoSettingsRepository";
 import { linkPlateEntryPhoto, removeOrphanedPlatePhoto, uploadPlateEntryPhoto } from "@/lib/offStreet/platePhotoEvidenceRepository";
 import { canCompleteEntry, canCompleteEvidenceGps, entryPhotoRequirementMessage, gpsRequirementMessage, validatePlatePhotoFile } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
@@ -82,8 +83,23 @@ async function context(request, requestedParkingId = null) {
   authorization = await authorizeOperationRequest(request, PERMISSIONS.OPERATIONS_USE);
   if (authorization.response) return { response: authorization.response };
   let parkingId = requestedParkingId;
-  if (!parkingId && authorization.context.role === ROLES.OPERATOR) parkingId = authorization.assignedParkingIds?.[0] || null;
-  if (!parkingId) {
+  const isTerminalRequest = String(request.headers.get("x-parkfacil-portal") || "").toLowerCase() === "terminal";
+  // POS Entry/Exit — Fase 1: operadores y cualquier solicitud del terminal
+  // resuelven el estacionamiento con la MISMA regla que /api/pos/* (turno
+  // abierto como fuente de verdad, ver resolvePosOperationalParking), nunca
+  // con la primera asignación sin orden. Un parkingId enviado por el cliente solo se
+  // acepta si coincide con el resuelto server-side.
+  if (isTerminalRequest || authorization.context.role === ROLES.OPERATOR) {
+    const resolved = await resolvePosOperationalParking(authorization);
+    if (resolved.status === POS_PARKING_RESOLUTION.SELECTION_REQUIRED) {
+      return { response: NextResponse.json(posParkingSelectionRequiredResponse(), { status: 409 }) };
+    }
+    if (!isRequestedParkingConsistent(resolved.parkingId, requestedParkingId)) {
+      return { response: fail("El estacionamiento solicitado no corresponde a tu sesión POS.", 403, { code: "POS_PARKING_MISMATCH" }) };
+    }
+    parkingId = resolved.parkingId;
+  }
+  if (!parkingId && !isTerminalRequest && authorization.context.role !== ROLES.OPERATOR) {
     let query = authorization.db.from("parkings").select("id").eq("status", "ACTIVE").order("code").limit(1);
     if (authorization.scope.companyId) query = query.eq("company_id", authorization.scope.companyId);
     const result = await query;
@@ -92,7 +108,7 @@ async function context(request, requestedParkingId = null) {
   }
   if (!parkingId) return { response: fail("El usuario no tiene un estacionamiento autorizado.", 404) };
   const parking = await requireOperationalParking(authorization.db, authorization.context, authorization.scope, parkingId);
-  return { ...authorization, actor: { ...operationActor(authorization.context), parkingId: parking.id }, parking };
+  return { ...authorization, actor: { ...posOperationActor(authorization.context), parkingId: parking.id }, parking };
   } catch (error) {
     const denied = operationAuthorizationError(request, authorization?.context, error);
     if (denied) return { response: denied };
@@ -151,7 +167,10 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
-  const input = await request.json();
+  // Un cuerpo inválido nunca debe producir un 500 antes de validar la sesión
+  // (Fase 1): se trata como vacío y cae en "Acción operacional no
+  // reconocida" tras la autorización.
+  const input = (await request.json().catch(() => null)) || {};
   const current = await context(request); if (current.response) return current.response;
   const isPosRequest = String(request.headers.get("x-parkfacil-portal") || "").toLowerCase() === "terminal";
   const posShift = isPosRequest ? await requireOpenPosShift(current.db, current.actor) : null;

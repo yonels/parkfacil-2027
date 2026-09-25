@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
+import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { PosShiftClosureError, validateClosureInput } from "@/lib/pos/posShiftCore.mjs";
 import { closePosOperatorShift, getPosOperatorShiftState, loadOperatorShiftPreview } from "@/lib/posOperatorShiftService";
 
@@ -37,13 +38,16 @@ export async function POST(request) {
     authorization = await authorizeOperationRequest(request, PERMISSIONS.OPERATIONS_USE);
     if (authorization.response) return authorization.response;
 
-    const parkingId = authorization.assignedParkingIds?.[0] || null;
-    if (!parkingId) {
+    const resolved = await resolvePosOperationalParking(authorization);
+    if (resolved.status === POS_PARKING_RESOLUTION.SELECTION_REQUIRED) {
+      return NextResponse.json(posParkingSelectionRequiredResponse(), { status: 409 });
+    }
+    const parking = resolved.parking;
+    if (!parking) {
       return fail("El usuario no tiene un estacionamiento autorizado.", 404);
     }
 
-    const parking = await requireOperationalParking(authorization.db, authorization.context, authorization.scope, parkingId);
-    const actor = operationActor(authorization.context);
+    const actor = posOperationActor(authorization.context);
 
     const body = await request.json().catch(() => ({}));
     if (body?.confirm !== true) {

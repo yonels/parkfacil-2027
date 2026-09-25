@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedContext, SESSION_COOKIE } from "@/lib/auth/authenticatedContext";
 import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
-import { canAccessPath } from "@/lib/auth/permissions.mjs";
+import { canAccessPath, ROLES } from "@/lib/auth/permissions.mjs";
 import { getRequestPortal } from "@/lib/auth/portal.mjs";
 
 const PUBLIC_PATHS = new Set([
@@ -37,10 +37,36 @@ function loginRedirect(request) {
 }
 
 function forbidden(context) {
+  // POS Entry/Exit — Fase 1: en el Terminal, "Volver al Terminal" (/pos)
+  // devolvía a esta misma pantalla en bucle -- el operador no tenía salida.
+  // Para el portal Terminal se ofrece volver al login POS (ingresar con otra
+  // cuenta); el resto de portales conserva exactamente el enlace anterior.
+  const isTerminal = context?.portal === "terminal";
+  const exitLink = isTerminal
+    ? `<a href="/pos/login" style="display:inline-block;margin-top:1rem;padding:.9rem 1.2rem;border-radius:.9rem;background:#455A64;color:white;font-weight:700;text-decoration:none">Ingresar con otra cuenta</a>`
+    : `<a href="/pos">Volver al Terminal</a>`;
   return new NextResponse(
-    `<!doctype html><html lang="es"><meta charset="utf-8"><title>Acceso denegado | ParkFacil</title><body style="font-family:system-ui;background:#f8fafc;color:#041e42;padding:3rem"><main style="max-width:42rem;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:1.5rem;padding:2rem"><h1>Acceso denegado</h1><p>Tu cuenta autenticada no tiene permiso para acceder a esta ruta desde el portal ${context?.portal === "client" ? "Cliente" : context?.portal === "terminal" ? "Terminal" : context?.portal === "inspector" ? "Inspectores" : "Root"}.</p><a href="/pos">Volver al Terminal</a></main></body></html>`,
+    `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Acceso denegado | ParkFacil</title><body style="font-family:system-ui;background:#f8fafc;color:#041e42;padding:3rem"><main style="max-width:42rem;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:1.5rem;padding:2rem"><h1>Acceso denegado</h1><p>Tu cuenta autenticada no tiene permiso para acceder a esta ruta desde el portal ${context?.portal === "client" ? "Cliente" : context?.portal === "terminal" ? "Terminal" : context?.portal === "inspector" ? "Inspectores" : "Root"}.</p>${exitLink}</main></body></html>`,
     { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
   );
+}
+
+// POS Entry/Exit — Fase 1: el Terminal es exclusivo de operadores -- misma
+// regla que ya exige el login POS (/api/auth/session, scope pos_operator).
+// Sin esto, una sesión company_admin abierta en el Portal Cliente (misma
+// cookie) podía abrir /pos directamente. Las APIs POS igualmente resuelven
+// UNASSIGNED para no-operadores; esto evita mostrar un POS inutilizable.
+function canOpenPosTerminal(context) {
+  return context?.portal !== "terminal" || context?.role === ROLES.OPERATOR;
+}
+
+// Las pantallas del POS nunca deben quedar en caché del navegador (incluido
+// el back/forward cache): tras cerrar sesión, "Atrás" no debe mostrar una
+// pantalla operativa restaurada de memoria sin pasar otra vez por el proxy.
+function allowPosPath(pathname) {
+  const response = NextResponse.next();
+  if (isPosPath(pathname)) response.headers.set("cache-control", "no-store, max-age=0");
+  return response;
 }
 
 export async function proxy(request) {
@@ -51,7 +77,8 @@ export async function proxy(request) {
   ) return NextResponse.next();
   try {
     const context = await getAuthenticatedContext(request);
-    return canAccessPath(context, request.nextUrl.pathname) ? NextResponse.next() : forbidden(context);
+    if (!canAccessPath(context, request.nextUrl.pathname) || !canOpenPosTerminal(context)) return forbidden(context);
+    return allowPosPath(request.nextUrl.pathname);
   } catch (error) {
     if (error instanceof AuthorizationError && error.status === 401) return loginRedirect(request);
     return forbidden({ portal: getRequestPortal(request) });
