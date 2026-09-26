@@ -31,7 +31,7 @@ test("el agente local solo escucha en 127.0.0.1 (mismo host que el POS)", () => 
 
 test("INGRESO: la impresión ocurre después de confirmar el ENTRY, nunca antes", () => {
   const fn = terminalSource.slice(
-    terminalSource.indexOf("async function submitEntry(event)"),
+    terminalSource.indexOf("async function submitEntry(event"),
     terminalSource.indexOf("const navItems = ["),
   );
   const entryPostIndex = fn.indexOf('fetch("/api/data-entry"');

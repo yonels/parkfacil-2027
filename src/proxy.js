@@ -73,6 +73,11 @@ export async function proxy(request) {
   if (
     PUBLIC_PATHS.has(request.nextUrl.pathname) ||
     request.nextUrl.pathname.startsWith("/icons/") ||
+    // POS Entry/Exit — Fase 2: librerías estáticas servidas desde public/
+    // (OCR local de patentes). El worker del OCR se carga desde /vendor y
+    // su portal no es /pos, así que sin esta excepción el proxy lo
+    // rechazaría. No contiene datos ni rutas de la app.
+    request.nextUrl.pathname.startsWith("/vendor/") ||
     request.nextUrl.pathname.startsWith("/estacionar/")
   ) return NextResponse.next();
   try {

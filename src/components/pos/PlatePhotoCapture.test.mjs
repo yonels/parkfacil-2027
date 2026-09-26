@@ -150,13 +150,18 @@ test("onCapture entrega el contrato original (base64/mimeType/sizeBytes/previewU
 
 // ---- §17: no se agregó nada fuera de alcance ----
 
-test("no se agregó OCR, reconocimiento de caracteres ni detección automática de la patente", () => {
-  assert.doesNotMatch(source, /ocr|tesseract|reconoc|detectPlate/i);
+// Fase 2 (Entrada V2): el OCR pasó a estar en alcance, pero vive en
+// src/lib/pos/plateOcr.js -- este componente solo captura la imagen (misma
+// cámara/recorte) y nunca ejecuta el reconocimiento por sí mismo.
+test("PlatePhotoCapture no ejecuta OCR: solo captura; el reconocimiento vive en plateOcr.js", () => {
+  assert.doesNotMatch(source, /tesseract|recognizePlate|plateOcr|detectPlate/i);
 });
 
 test("no se tocó la lógica REQUIRED/OPTIONAL/DISABLED de la FOTO -- el prop 'required' se sigue usando tal cual, sin nueva lógica de gating", () => {
-  assert.match(source, /export default function PlatePhotoCapture\(\{ plate, required, gpsMode = "DISABLED", onCapture, onCancel \}\)/);
-  assert.match(source, /\{required \? \(/);
+  // Fase 2: purpose="OCR" solo cambia textos; por defecto es la evidencia de siempre.
+  assert.match(source, /export default function PlatePhotoCapture\(\{ plate, required, gpsMode = "DISABLED", onCapture, onCancel, purpose = "EVIDENCE" \}\)/);
+  assert.match(source, /\) : required \? \(/);
+  assert.match(source, /\{!required && !isOcr && mode !== "PREVIEW" \? \(/);
 });
 
 // ---- Ajuste final: GPS configurable por proyecto (§18/§19) ----
@@ -210,4 +215,21 @@ test("capturedAt se registra en el instante REAL de la captura, no al confirmar/
 test("GPS es una única lectura (getCurrentPosition), nunca un seguimiento continuo (watchPosition) -- sin complejidad innecesaria (§13 del encargo)", () => {
   assert.match(source, /navigator\.geolocation\.getCurrentPosition\(/);
   assert.doesNotMatch(source, /navigator\.geolocation\.watchPosition\(/);
+});
+
+// ---- Fase 2 (QA en vivo): la vista de cámara no puede quedar en negro ----
+
+test("el stream se conecta al <video> cuando ya está montado (mode LIVE), también tras 'Tomar nuevamente'", () => {
+  // El <video> solo existe en modo LIVE; asignarle el stream antes de ese
+  // render dejaba la vista negra (videoWidth 0) y 'Capturar' no hacía nada.
+  assert.match(source, /\{mode === "LIVE" \? \(/);
+  const effect = source.slice(source.indexOf('if (mode !== "LIVE") return;'), source.indexOf("}, [mode]);"));
+  assert.match(effect, /const video = videoRef\.current;\s*const stream = streamRef\.current;/);
+  assert.match(effect, /if \(!video \|\| !stream \|\| video\.srcObject === stream\) return;\s*video\.srcObject = stream;\s*video\.play\(\)\.catch\(\(\) => \{\}\);/);
+});
+
+test("al volver de segundo plano con el stream terminado, la cámara se reabre (no queda congelada)", () => {
+  assert.match(source, /trackRef\.current\.readyState !== "ended"/);
+  assert.match(source, /setCameraRestartToken\(\(current\) => current \+ 1\);/);
+  assert.match(source, /\}, \[cameraRestartToken\]\);/);
 });

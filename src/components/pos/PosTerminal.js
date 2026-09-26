@@ -8,9 +8,14 @@ import { splitChileTaxFromTotal, toOperationalDateTimeParts } from "@/lib/dataEn
 import { ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
 import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
-import { buildPrintableEntryPayload, entryPhotoRequirementMessage } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
+import { buildPrintableEntryPayload, entryPhotoRequirementMessage, resolvePlatePhotoPrintDecision } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
+import { buildAgentEntryTicketPayload } from "@/lib/pos/entryTicketPayload.mjs";
+import { photoToTicketRaster } from "@/lib/pos/ticketPhotoRaster.mjs";
 import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
+import { classifyEntryFailure, entryErrorMessage, isPlateAlreadyInside, PLATE_SOURCES } from "@/lib/pos/entryPlateCore.mjs";
+import { recognizePlate, releasePlateOcr } from "@/lib/pos/plateOcr";
+import { detectLocalVoiceSupport, installLocalVoice, listenForPlate } from "@/lib/pos/plateVoice";
 
 const POS_VIEWS = {
   HOME: "HOME",
@@ -96,6 +101,14 @@ function buildEntryPrintPayload(stay, parkingResponse) {
   if (!payload.companyName || !payload.parkingName || !payload.operator || !payload.ticketNumber || !payload.qrValue) {
     return null;
   }
+
+  // Ticket del agente local (PT-210 / MTP-II): formato aprobado físicamente,
+  // con datos de empresa opcionales y fecha con segundos -- se arma aquí,
+  // con la MISMA estadía/parking que confirmó el backend, para que la
+  // reimpresión reutilice exactamente el mismo contenido. El bridge nativo
+  // (SUNMI) ignora este campo.
+  const agentTicket = buildAgentEntryTicketPayload(stay, parkingResponse);
+  if (agentTicket) payload.agentTicket = agentTicket;
 
   return payload;
 }
@@ -433,6 +446,9 @@ async function tryLocalAgentPrint(agentPayload) {
 // original, que sigue siendo lo que recibe el bridge nativo tal cual.
 function toAgentEntryPayload(payload) {
   if (!payload) return null;
+  // Formato definitivo PT-210 (ver buildAgentEntryTicketPayload). El mapeo
+  // de abajo queda solo para payloads construidos antes de este cambio.
+  if (payload.agentTicket) return { ...payload.agentTicket };
   return {
     type: "ENTRY",
     razonSocial: payload.razonSocial,
@@ -527,6 +543,24 @@ async function executeAutoPrint(payload, toAgentPayload, platePhoto) {
       return executeNativePrintWithPlatePhoto(payload, platePhoto.photoBase64, platePhoto.printOnTicket);
     }
     return executeNativePrint(payload);
+  }
+  // Agente local (PT-210 / MTP-II): SÍ imprime la fotografía (raster ESC/POS
+  // validado físicamente). Misma regla de decisión que el bridge nativo
+  // (resolvePlatePhotoPrintDecision: configuración del parking + foto
+  // disponible). Si la foto no se puede convertir, el ticket sale igual con
+  // la patente en texto grande.
+  const agentPayload = toAgentPayload(payload);
+  if (agentPayload?.type === "ENTRY" && platePhoto?.photoBase64) {
+    const decision = resolvePlatePhotoPrintDecision({
+      printOnTicket: Boolean(platePhoto.printOnTicket),
+      hasPhoto: true,
+      bridgeSupportsImage: true,
+    });
+    const fotoRaster = decision.includePhoto ? await photoToTicketRaster(platePhoto.photoBase64) : null;
+    if (fotoRaster) {
+      const result = await tryLocalAgentPrint({ ...agentPayload, fotoRaster });
+      return { ...result, photoIncluded: Boolean(result.ok) };
+    }
   }
   return tryLocalAgentPrint(toAgentPayload(payload));
 }
@@ -758,6 +792,32 @@ export default function PosTerminal() {
   const cardPaymentLockRef = useRef(false);
   const [entryOpen, setEntryOpen] = useState(false);
   const [entryPlate, setEntryPlate] = useState("");
+  // Fase 2 — Entrada V2: PLATE (capturar/escribir) -> CONFIRM (confirmar
+  // o corregir, obligatorio) -> PHOTO (solo si la foto no está DISABLED) ->
+  // registro. entryConfirmedPlate es la ÚNICA llave para registrar: se fija
+  // al tocar CONFIRMAR (y se pasa explícitamente a submitEntry cuando la
+  // foto está DISABLED, sin esperar un render); submitEntry se niega a
+  // enviar otra patente distinta -- ni el OCR ni la voz registran solos.
+  const [entryStep, setEntryStep] = useState("PLATE");
+  const [entryPlateSource, setEntryPlateSource] = useState(PLATE_SOURCES.MANUAL);
+  const [entryProposalNotice, setEntryProposalNotice] = useState("");
+  const [entryErrorCode, setEntryErrorCode] = useState("");
+  const [entryConfirmedPlate, setEntryConfirmedPlate] = useState("");
+  // Guarda SÍNCRONA contra doble toque/latencia (entrySubmitting es estado
+  // de React y no se actualiza al instante): un segundo toque nunca lanza
+  // un segundo POST de ENTRY.
+  const entrySubmitLockRef = useRef(false);
+  // OCR: la imagen capturada para LEER la patente (temporal, nunca se
+  // sube por sí sola). Solo pasa a ser evidencia si el operador elige
+  // explícitamente "USAR FOTO DE LA LECTURA" en el paso de fotografía.
+  const [ocrCaptureOpen, setOcrCaptureOpen] = useState(false);
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrPhoto, setOcrPhoto] = useState(null);
+  // Voz: IDLE | CHECKING | LISTENING | INSTALLING. voiceInstallLang != null
+  // cuando el modelo local se puede descargar (acción del operador).
+  const [voiceState, setVoiceState] = useState("IDLE");
+  const [voiceInstallLang, setVoiceInstallLang] = useState(null);
+  const [voiceController, setVoiceController] = useState(null);
   const [entrySubmitting, setEntrySubmitting] = useState(false);
   const [entryError, setEntryError] = useState("");
   const [entrySuccess, setEntrySuccess] = useState(null);
@@ -1010,6 +1070,9 @@ export default function PosTerminal() {
     }
 
     if (section !== POS_VIEWS.INGRESO) {
+      // Fase 2: salir de INGRESO corta la escucha de voz y descarta la
+      // captura V2 en curso (nada se registra).
+      if (entryOpen) resetEntryCapture();
       setEntryOpen(false);
       setEntryError("");
       setEntrySuccess(null);
@@ -1052,7 +1115,27 @@ export default function PosTerminal() {
     }
   }
 
+  // Fase 2: estado de la captura V2 limpio (se usa al abrir y al cerrar el
+  // formulario). Libera los object URLs de las imágenes temporales.
+  function resetEntryCapture() {
+    voiceController?.cancel();
+    setVoiceController(null);
+    if (ocrPhoto?.previewUrl) URL.revokeObjectURL(ocrPhoto.previewUrl);
+    if (entryPhoto?.previewUrl && entryPhoto !== ocrPhoto) URL.revokeObjectURL(entryPhoto.previewUrl);
+    setEntryConfirmedPlate("");
+    setEntryStep("PLATE");
+    setEntryPlateSource(PLATE_SOURCES.MANUAL);
+    setEntryProposalNotice("");
+    setEntryErrorCode("");
+    setOcrCaptureOpen(false);
+    setOcrBusy(false);
+    setOcrPhoto(null);
+    setVoiceState("IDLE");
+    setVoiceInstallLang(null);
+  }
+
   function openEntryForm() {
+    resetEntryCapture();
     setCurrentView(POS_VIEWS.INGRESO);
     setEntrySuccess(null);
     setEntryPrintPayload(null);
@@ -1067,6 +1150,7 @@ export default function PosTerminal() {
   }
 
   function closeEntryForm() {
+    resetEntryCapture();
     setEntryOpen(false);
     setEntryError("");
     setEntrySuccess(null);
@@ -1080,11 +1164,174 @@ export default function PosTerminal() {
   function capturedPlatePhoto(photo) {
     // Libera el object URL de una captura anterior (p. ej. "Cambiar foto")
     // antes de reemplazarla -- evita acumular blobs sin liberar durante un
-    // turno largo de POS.
-    if (entryPhoto?.previewUrl) URL.revokeObjectURL(entryPhoto.previewUrl);
+    // turno largo de POS. La imagen de la lectura OCR se conserva (puede
+    // volver a elegirse) y se libera al cerrar el formulario.
+    if (entryPhoto?.previewUrl && entryPhoto !== ocrPhoto) URL.revokeObjectURL(entryPhoto.previewUrl);
     setEntryPhoto(photo);
     setPhotoCaptureOpen(false);
     setEntryError("");
+  }
+
+  function setEntryFailure(code) {
+    setEntryErrorCode(code);
+    setEntryError(entryErrorMessage(code));
+  }
+
+  function clearEntryFailure() {
+    setEntryErrorCode("");
+    setEntryError("");
+  }
+
+  // Toda patente propuesta (manual, OCR o voz) pasa SIEMPRE por la
+  // confirmación explícita del operador. Nunca registra.
+  function proposeEntryPlate(plate, source, notice = "") {
+    setEntryConfirmedPlate("");
+    setEntryPlate(formatPosPlateInput(plate));
+    setEntryPlateSource(source);
+    setEntryProposalNotice(notice);
+    clearEntryFailure();
+    setEntryStep("CONFIRM");
+  }
+
+  function continueManualPlate() {
+    const formatted = formatPosPlateInput(entryPlate);
+    if (!POS_PLATE_REGEX.test(formatted)) {
+      setEntryFailure("INVALID_PLATE");
+      return;
+    }
+    // En el paso PLATE la patente siempre es manual: OCR y voz proponen y
+    // saltan directo a CONFIRM.
+    proposeEntryPlate(formatted, PLATE_SOURCES.MANUAL);
+  }
+
+  // CORREGIR: vuelve al campo con la patente propuesta para editarla; nada
+  // se registra. Desde aquí la patente pasa a ser manual.
+  function correctEntryPlate() {
+    setEntryConfirmedPlate("");
+    setEntryPlateSource(PLATE_SOURCES.MANUAL);
+    setEntryProposalNotice("");
+    clearEntryFailure();
+    setEntryStep("PLATE");
+  }
+
+  // CONFIRMAR: fija la patente confirmada. Con foto DISABLED registra de
+  // inmediato; si no, pasa al paso de fotografía (REQUIRED u OPTIONAL).
+  function confirmEntryPlate() {
+    if (entrySubmitting || entrySubmitLockRef.current) return;
+    const formatted = formatPosPlateInput(entryPlate);
+    if (!POS_PLATE_REGEX.test(formatted)) {
+      correctEntryPlate();
+      setEntryFailure("INVALID_PLATE");
+      return;
+    }
+    const confirmedPlate = toBackendPlate(formatted);
+    setEntryConfirmedPlate(confirmedPlate);
+    clearEntryFailure();
+    if (platePhotoMode === "DISABLED") {
+      void submitEntry(null, confirmedPlate);
+      return;
+    }
+    setEntryStep("PHOTO");
+  }
+
+  // OCR (cámara): misma cámara/encuadre/recorte que la evidencia, pero la
+  // imagen es TEMPORAL -- solo sirve para leer la patente. GPS nunca
+  // bloquea la lectura (REQUIRED se trata como OPTIONAL aquí; si la foto se
+  // reutiliza como evidencia se vuelve a exigir abajo).
+  async function handleOcrCapture(photo) {
+    setOcrCaptureOpen(false);
+    if (ocrPhoto?.previewUrl && ocrPhoto !== entryPhoto) URL.revokeObjectURL(ocrPhoto.previewUrl);
+    setOcrPhoto(photo);
+    setOcrBusy(true);
+    clearEntryFailure();
+    try {
+      const result = await recognizePlate(photo.base64);
+      if (!result.ok) {
+        setEntryFailure(result.code);
+        return;
+      }
+      const confidence = Number.isFinite(result.proposal?.confidence) ? ` (confianza ${Math.round(result.proposal.confidence)}%)` : "";
+      proposeEntryPlate(
+        result.proposal.plate,
+        PLATE_SOURCES.OCR,
+        result.proposal.lowConfidence ? entryErrorMessage("OCR_LOW_CONFIDENCE") : `Leída con la cámara${confidence}. Verifica antes de confirmar.`
+      );
+    } finally {
+      setOcrBusy(false);
+    }
+  }
+
+  // Voz: solo reconocimiento EN EL DISPOSITIVO (ver plateVoice.js). Nunca
+  // escucha permanentemente: una frase, con tope de tiempo y botón Cancelar.
+  async function startVoiceCapture() {
+    if (voiceState !== "IDLE") return;
+    clearEntryFailure();
+    setVoiceState("CHECKING");
+    const support = await detectLocalVoiceSupport();
+    if (support.status === "DOWNLOADABLE") {
+      setVoiceInstallLang(support.lang);
+      setVoiceState("IDLE");
+      setEntryFailure("VOICE_LOCAL_UNAVAILABLE");
+      return;
+    }
+    if (support.status !== "AVAILABLE") {
+      setVoiceState("IDLE");
+      setEntryFailure(support.status === "UNSUPPORTED" ? "VOICE_UNSUPPORTED" : "VOICE_LOCAL_UNAVAILABLE");
+      return;
+    }
+    setVoiceState("LISTENING");
+    let finishedSynchronously = false;
+    const controller = listenForPlate({
+      lang: support.lang,
+      onDone: (outcome) => {
+        finishedSynchronously = true;
+        setVoiceController(null);
+        setVoiceState("IDLE");
+        if (outcome.ok) {
+          proposeEntryPlate(outcome.plate, PLATE_SOURCES.VOICE, `Dictado: "${outcome.transcript}". Verifica antes de confirmar.`);
+        } else {
+          setEntryFailure(outcome.code);
+        }
+      },
+    });
+    // Si el micrófono falló al arrancar, onDone ya corrió: no queda nada
+    // que cancelar.
+    if (!finishedSynchronously) setVoiceController(controller);
+  }
+
+  function cancelVoiceCapture() {
+    voiceController?.cancel();
+    setVoiceController(null);
+    setVoiceState("IDLE");
+  }
+
+  async function installVoiceModel() {
+    if (!voiceInstallLang || voiceState !== "IDLE") return;
+    setVoiceState("INSTALLING");
+    const installed = await installLocalVoice(voiceInstallLang);
+    setVoiceState("IDLE");
+    if (installed) {
+      setVoiceInstallLang(null);
+      clearEntryFailure();
+    } else {
+      setEntryFailure("VOICE_LOCAL_UNAVAILABLE");
+    }
+  }
+
+  // Un solo <form> para toda la captura: Enter/submit avanza según el paso
+  // (PLATE -> CONFIRM -> registrar). El registro real sigue siendo
+  // exclusivamente submitEntry.
+  function handleEntryFormSubmit(event) {
+    event.preventDefault();
+    if (entryStep === "PLATE") {
+      continueManualPlate();
+      return;
+    }
+    if (entryStep === "CONFIRM") {
+      confirmEntryPlate();
+      return;
+    }
+    void submitEntry(event);
   }
 
   // Búsqueda por patente exclusiva de SALIDA. Nunca llama a una API nueva:
@@ -1731,23 +1978,36 @@ export default function PosTerminal() {
     }
   }
 
-  async function submitEntry(event) {
-    event.preventDefault();
+  async function submitEntry(event, confirmedPlateOverride = null) {
+    event?.preventDefault?.();
+    // Fase 2: doble toque / respuesta lenta -> nunca un segundo POST.
+    if (entrySubmitLockRef.current) return;
     const formattedPlate = formatPosPlateInput(entryPlate);
     if (!POS_PLATE_REGEX.test(formattedPlate)) {
-      setEntryError("Ingresa una patente válida. Ejemplo: CXPY-93.");
+      setEntryFailure("INVALID_PLATE");
+      return;
+    }
+    const plate = toBackendPlate(formattedPlate);
+    // Fase 2: confirmación explícita obligatoria. Solo se registra la
+    // patente que el operador confirmó con CONFIRMAR (ni el OCR ni la voz
+    // llegan aquí sin pasar por ese paso).
+    const confirmedPlate = confirmedPlateOverride ?? entryConfirmedPlate;
+    if (!confirmedPlate || confirmedPlate !== plate) {
+      setEntryConfirmedPlate("");
+      setEntryStep("CONFIRM");
       return;
     }
     // Gate de UX (regla real la vuelve a exigir /api/data-entry): en modo
     // REQUIRED no se ni siquiera intenta enviar sin fotografía ya capturada.
     if (platePhotoMode === "REQUIRED" && !entryPhoto) {
+      setEntryErrorCode("PLATE_PHOTO_REQUIRED");
       setEntryError(entryPhotoRequirementMessage(platePhotoMode));
       return;
     }
-    const plate = toBackendPlate(formattedPlate);
 
+    entrySubmitLockRef.current = true;
     setEntrySubmitting(true);
-    setEntryError("");
+    clearEntryFailure();
 
     try {
       // deviceInfo se recolecta siempre (§20), incluso sin fotografía --
@@ -1787,12 +2047,21 @@ export default function PosTerminal() {
           redirectToPosLogin("sesion-expirada");
           return;
         }
-        setEntryError(payload?.error || "No fue posible registrar el ingreso.");
+        // Fase 2: cada rechazo con su mensaje y acción (un 409 de vehículo
+        // ya ingresado nunca se muestra como error genérico).
+        const failureCode = classifyEntryFailure(response.status, payload);
+        setEntryErrorCode(failureCode);
+        setEntryError(failureCode === "UNEXPECTED" && payload?.error ? payload.error : entryErrorMessage(failureCode));
+        if (failureCode === "VEHICLE_ALREADY_INSIDE") void loadTerminalState(true);
         return;
       }
 
       const stay = payload?.data?.stay || null;
       const parkingResponse = payload?.data?.parking || parking;
+      setEntryConfirmedPlate("");
+      if (ocrPhoto?.previewUrl && ocrPhoto !== entryPhoto) URL.revokeObjectURL(ocrPhoto.previewUrl);
+      setOcrPhoto(null);
+      setEntryStep("PLATE");
       setEntrySuccess(stay ? { stay, parking: parkingResponse } : null);
       const printPayload = buildEntryPrintPayload(stay, parkingResponse);
       setEntryPrintPayload(printPayload);
@@ -1829,8 +2098,9 @@ export default function PosTerminal() {
         setCurrentView(POS_VIEWS.HOME);
       }
     } catch {
-      setEntryError("Error de red al registrar el ingreso.");
+      setEntryFailure("NETWORK_ERROR");
     } finally {
+      entrySubmitLockRef.current = false;
       setEntrySubmitting(false);
     }
   }
@@ -2057,6 +2327,251 @@ export default function PosTerminal() {
     );
   }
 
+  // Fase 2 — Entrada V2. Tres pasos dentro de un solo <form>:
+  // PLATE (escribir / leer con cámara / dictar) -> CONFIRM (CONFIRMAR o
+  // CORREGIR, obligatorio para toda fuente) -> PHOTO (solo si la foto no
+  // está DISABLED). Ningún paso registra por sí solo salvo CONFIRMAR con
+  // foto DISABLED o REGISTRAR INGRESO en el paso de foto, ambos vía
+  // submitEntry.
+  function renderEntryV2Form() {
+    const displayPlate = formatTicketPlate(entryPlate) || "—";
+    const busy = entrySubmitting || ocrBusy || voiceState === "CHECKING" || voiceState === "INSTALLING";
+    const alreadyInside = entryStep !== "PLATE" && isPlateAlreadyInside(entryPlate, activeStays);
+    const sourceLabel = entryPlateSource === PLATE_SOURCES.OCR ? "Leída con cámara" : entryPlateSource === PLATE_SOURCES.VOICE ? "Dictada por voz" : "Ingresada manualmente";
+    const canReuseOcrPhoto = Boolean(ocrPhoto) && (platePhotoGpsMode !== "REQUIRED" || (ocrPhoto?.latitude != null && ocrPhoto?.longitude != null));
+    const stepLabel = entryStep === "PLATE" ? "Paso 1 de 3 · Patente" : entryStep === "CONFIRM" ? "Paso 2 de 3 · Confirmar" : "Paso 3 de 3 · Fotografía";
+    const errorIsDuplicate = entryErrorCode === "VEHICLE_ALREADY_INSIDE";
+
+    return (
+      <form onSubmit={handleEntryFormSubmit} className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Ingreso · {stepLabel}</p>
+            <h2 className="mt-1 text-xl font-black text-slate-800">Registrar vehículo</h2>
+            <p className="mt-1 text-sm text-slate-600">Se usará el estacionamiento asignado a tu sesión. La hora oficial la registra el servidor.</p>
+          </div>
+          <button
+            type="button"
+            onClick={closeEntryForm}
+            disabled={entrySubmitting}
+            className="min-h-11 rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-white disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+        </div>
+
+        {entryStep === "PLATE" ? (
+          <div className="mt-5">
+            <label className="block">
+              <span className="mb-2 block text-sm font-bold text-slate-700">Patente</span>
+              <input
+                value={entryPlate}
+                onChange={(event) => {
+                  setEntryPlate(formatPosPlateInput(event.target.value));
+                  if (entryError) clearEntryFailure();
+                }}
+                inputMode="text"
+                autoCapitalize="characters"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoFocus
+                placeholder="CXPY-93"
+                maxLength={7}
+                disabled={busy}
+                aria-invalid={entryErrorCode === "INVALID_PLATE"}
+                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-2xl font-black tracking-[0.16em] text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-emerald-500 disabled:opacity-60"
+              />
+            </label>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Formato: CXPY-93 o AB-1234</p>
+              {entryPlate ? (
+                <button type="button" onClick={() => { setEntryPlate(""); clearEntryFailure(); }} disabled={busy} className="min-h-11 rounded-xl px-3 text-sm font-bold text-slate-600 hover:bg-white">
+                  Borrar
+                </button>
+              ) : null}
+            </div>
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => { clearEntryFailure(); setOcrCaptureOpen(true); }}
+                disabled={busy || voiceState === "LISTENING"}
+                className="min-h-16 rounded-2xl border border-sky-300 bg-sky-50 px-3 py-3 text-base font-black uppercase tracking-[0.04em] text-sky-900 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {ocrBusy ? "Leyendo patente..." : "Leer con cámara"}
+              </button>
+              {voiceState === "LISTENING" ? (
+                <button
+                  type="button"
+                  onClick={cancelVoiceCapture}
+                  className="min-h-16 rounded-2xl border border-rose-300 bg-rose-50 px-3 py-3 text-base font-black uppercase tracking-[0.04em] text-rose-800"
+                  aria-live="polite"
+                >
+                  Escuchando… Cancelar
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void startVoiceCapture()}
+                  disabled={busy}
+                  className="min-h-16 rounded-2xl border border-violet-300 bg-violet-50 px-3 py-3 text-base font-black uppercase tracking-[0.04em] text-violet-900 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {voiceState === "CHECKING" ? "Verificando micrófono..." : voiceState === "INSTALLING" ? "Instalando voz..." : "Dictar patente"}
+                </button>
+              )}
+            </div>
+
+            {voiceInstallLang ? (
+              <button
+                type="button"
+                onClick={() => void installVoiceModel()}
+                disabled={busy}
+                className="mt-3 min-h-11 w-full rounded-2xl border border-violet-200 bg-white px-4 py-2 text-sm font-bold text-violet-800 disabled:opacity-60"
+              >
+                Instalar reconocimiento de voz local ({voiceInstallLang})
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {entryStep === "CONFIRM" || entryStep === "PHOTO" ? (
+          <div className="mt-5 rounded-2xl border-2 border-emerald-300 bg-white p-4 text-center">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
+              {entryStep === "CONFIRM" ? "Patente detectada / ingresada" : "Patente confirmada"}
+            </p>
+            <p className="mt-2 text-4xl font-black tracking-[0.18em] text-slate-900">{displayPlate}</p>
+            <p className="mt-2 text-xs font-bold uppercase tracking-wide text-slate-500">{sourceLabel}</p>
+            {entryProposalNotice && entryStep === "CONFIRM" ? (
+              <p className={`mt-3 rounded-xl px-3 py-2 text-sm font-semibold ${entryPlateSource !== PLATE_SOURCES.MANUAL && entryProposalNotice === entryErrorMessage("OCR_LOW_CONFIDENCE") ? "bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-700"}`}>
+                {entryProposalNotice}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {alreadyInside ? (
+          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+            <p className="font-black uppercase tracking-wide">Vehículo ya ingresado</p>
+            <p className="mt-1 text-sm font-semibold">Esta patente figura dentro del estacionamiento. Revisa la patente o búscala en SALIDA.</p>
+            <button type="button" onClick={() => void loadTerminalState(true)} className="mt-2 min-h-11 rounded-xl border border-amber-300 bg-white px-3 text-sm font-bold text-amber-900">
+              Actualizar lista
+            </button>
+          </div>
+        ) : null}
+
+        {entryStep === "PHOTO" && platePhotoMode !== "DISABLED" ? (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-bold text-slate-700">
+                Fotografía de patente {platePhotoMode === "REQUIRED" ? "(obligatoria)" : "(opcional)"}
+              </span>
+              {entryPhoto ? <span className="text-xs font-black uppercase text-emerald-600">Lista</span> : null}
+            </div>
+
+            {entryPhoto ? (
+              <div className="mt-3 flex items-center gap-3">
+                <img
+                  src={entryPhoto.previewUrl}
+                  alt={`Fotografía de la patente ${displayPlate}`}
+                  className="h-20 w-28 rounded-xl border border-slate-200 object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => setPhotoCaptureOpen(true)}
+                  disabled={entrySubmitting}
+                  className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Cambiar foto
+                </button>
+              </div>
+            ) : (
+              <div className="mt-3 grid gap-3">
+                {canReuseOcrPhoto ? (
+                  <button
+                    type="button"
+                    onClick={() => capturedPlatePhoto(ocrPhoto)}
+                    className="min-h-12 w-full rounded-xl border border-sky-300 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-900"
+                  >
+                    Usar la foto de la lectura
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setPhotoCaptureOpen(true)}
+                  className="min-h-12 w-full rounded-xl border border-dashed border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700"
+                >
+                  Tomar fotografía
+                </button>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {entryError ? (
+          <div
+            role="alert"
+            className={`mt-4 rounded-2xl border p-4 text-sm font-semibold ${errorIsDuplicate ? "border-amber-300 bg-amber-50 text-amber-950" : "border-rose-300 bg-rose-50 text-rose-700"}`}
+          >
+            {entryError}
+          </div>
+        ) : null}
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {entryStep === "PLATE" ? (
+            <button
+              type="submit"
+              disabled={busy || voiceState === "LISTENING"}
+              className="min-h-16 rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Continuar
+            </button>
+          ) : null}
+
+          {entryStep === "CONFIRM" ? (
+            <>
+              <button
+                type="submit"
+                disabled={entrySubmitting || alreadyInside}
+                className="min-h-16 rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {entrySubmitting ? "Registrando..." : "CONFIRMAR"}
+              </button>
+              <button
+                type="button"
+                onClick={correctEntryPlate}
+                disabled={entrySubmitting}
+                className="min-h-16 rounded-2xl border border-slate-300 bg-white px-4 py-4 text-lg font-black text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                CORREGIR
+              </button>
+            </>
+          ) : null}
+
+          {entryStep === "PHOTO" ? (
+            <>
+              <button
+                type="submit"
+                disabled={entrySubmitting || alreadyInside || (platePhotoMode === "REQUIRED" && !entryPhoto)}
+                className="min-h-16 rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {entrySubmitting ? "Registrando..." : entryPhoto || platePhotoMode === "REQUIRED" ? "REGISTRAR INGRESO" : "REGISTRAR SIN FOTO"}
+              </button>
+              <button
+                type="button"
+                onClick={correctEntryPlate}
+                disabled={entrySubmitting}
+                className="min-h-16 rounded-2xl border border-slate-300 bg-white px-4 py-4 text-lg font-black text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                CORREGIR PATENTE
+              </button>
+            </>
+          ) : null}
+        </div>
+      </form>
+    );
+  }
+
   function renderIngresoPanel() {
     // El gate no debe ocultar la confirmación de un ingreso ya registrado
     // (p. ej. si el turno cambió de estado justo después de confirmar).
@@ -2133,104 +2648,7 @@ export default function PosTerminal() {
     }
 
     if (entryOpen) {
-      return (
-        <form onSubmit={submitEntry} className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Ingreso</p>
-              <h2 className="mt-1 text-xl font-black text-slate-800">Registrar vehículo</h2>
-              <p className="mt-1 text-sm text-slate-600">Se usará el estacionamiento asignado a tu sesión.</p>
-            </div>
-            <button
-              type="button"
-              onClick={closeEntryForm}
-              className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-white"
-            >
-              Cancelar
-            </button>
-          </div>
-
-          <label className="mt-5 block">
-            <span className="mb-2 block text-sm font-bold text-slate-700">Patente</span>
-            <input
-              value={entryPlate}
-              onChange={(event) => setEntryPlate(formatPosPlateInput(event.target.value))}
-              inputMode="text"
-              autoCapitalize="characters"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              placeholder="CXPY-93"
-              maxLength={7}
-              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-2xl font-black tracking-[0.16em] text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-emerald-500"
-            />
-          </label>
-
-          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Formato sugerido: CXPY-93
-          </p>
-
-          {platePhotoMode !== "DISABLED" ? (
-            <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-sm font-bold text-slate-700">
-                  Fotografía de patente {platePhotoMode === "REQUIRED" ? "(obligatoria)" : "(opcional)"}
-                </span>
-                {entryPhoto ? <span className="text-xs font-black uppercase text-emerald-600">Lista</span> : null}
-              </div>
-
-              {entryPhoto ? (
-                <div className="mt-3 flex items-center gap-3">
-                  <img
-                    src={entryPhoto.previewUrl}
-                    alt={`Fotografía de la patente ${formatTicketPlate(entryPlate)}`}
-                    className="h-20 w-28 rounded-xl border border-slate-200 object-cover"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setPhotoCaptureOpen(true)}
-                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                  >
-                    Cambiar foto
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setPhotoCaptureOpen(true)}
-                  className="mt-3 w-full rounded-xl border border-dashed border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700"
-                >
-                  Tomar fotografía
-                </button>
-              )}
-            </div>
-          ) : null}
-
-          {entryError ? (
-            <div className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
-              {entryError}
-            </div>
-          ) : null}
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <button
-              type="submit"
-              disabled={entrySubmitting || (platePhotoMode === "REQUIRED" && !entryPhoto)}
-              className="rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {entrySubmitting ? "Registrando..." : "Confirmar ingreso"}
-            </button>
-            <button
-              type="button"
-              onClick={closeEntryForm}
-              disabled={entrySubmitting}
-              className="rounded-2xl border border-slate-300 px-4 py-4 text-lg font-black text-slate-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Cancelar
-            </button>
-          </div>
-        </form>
-      );
+      return renderEntryV2Form();
     }
 
     return (
@@ -3617,6 +4035,17 @@ export default function PosTerminal() {
     setNativePrintAvailable(Boolean(getNativePrinterBridge()));
   }, []);
 
+  // Fase 2 — al salir del terminal se libera el worker del OCR (memoria
+  // WASM) y se corta cualquier escucha de voz pendiente.
+  useEffect(() => () => {
+    void releasePlateOcr();
+  }, []);
+
+  // Corta la escucha si el controlador se reemplaza o el terminal se desmonta.
+  useEffect(() => () => {
+    voiceController?.cancel();
+  }, [voiceController]);
+
   // Fase 1 — identificación del dispositivo (best-effort, mismo
   // getDeviceInfo() que ya usa la evidencia de patente). Solo se muestra en
   // ESTADO DEL DISPOSITIVO; no existe todavía un ID persistente de terminal.
@@ -3698,6 +4127,21 @@ export default function PosTerminal() {
           gpsMode={platePhotoGpsMode}
           onCapture={capturedPlatePhoto}
           onCancel={() => setPhotoCaptureOpen(false)}
+        />
+      ) : null}
+
+      {/* Fase 2: misma cámara/recorte para LEER la patente (OCR local). La
+          imagen es temporal; GPS nunca bloquea la lectura (REQUIRED se
+          degrada a OPTIONAL aquí y se vuelve a exigir si la imagen se
+          reutiliza como evidencia). Con foto DISABLED no se pide ubicación. */}
+      {ocrCaptureOpen ? (
+        <PlatePhotoCapture
+          purpose="OCR"
+          plate=""
+          required={false}
+          gpsMode={platePhotoMode === "DISABLED" || platePhotoGpsMode === "DISABLED" ? "DISABLED" : "OPTIONAL"}
+          onCapture={(photo) => void handleOcrCapture(photo)}
+          onCancel={() => setOcrCaptureOpen(false)}
         />
       ) : null}
 

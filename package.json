@@ -14,7 +14,8 @@
     "test:lot-e": "node --test --experimental-test-isolation=none src/lib/auth/*.test.mjs src/lib/notifications/*.test.mjs src/lib/modulePricing.test.mjs",
     "start": "next start",
     "lint": "eslint",
-    "bootstrap:root": "node scripts/bootstrap-root-local.mjs"
+    "bootstrap:root": "node scripts/bootstrap-root-local.mjs",
+    "vendor:tesseract": "node scripts/vendor-tesseract.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",
@@ -37,6 +38,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "tesseract.js": "7.0.0"
   }
 }

@@ -145,7 +145,13 @@ function requestGpsPosition(timeout = 8000) {
   });
 }
 
-export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED", onCapture, onCancel }) {
+// POS Entry/Exit — Fase 2: purpose="OCR" reutiliza exactamente la misma
+// cámara/encuadre/recorte/compresión para LEER la patente (Entrada V2): cambia
+// solo los textos y oculta "Opcional/Obligatoria" y "Continuar sin
+// fotografía" (no es la evidencia). Sin la prop, el comportamiento de
+// evidencia queda idéntico al de antes.
+export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED", onCapture, onCancel, purpose = "EVIDENCE" }) {
+  const isOcr = purpose === "OCR";
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const trackRef = useRef(null);
@@ -154,6 +160,13 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
   const [mode, setMode] = useState("LOADING"); // LOADING | LIVE | PREVIEW | FALLBACK | ERROR
   const [preview, setPreview] = useState(null); // { url, blob }
   const [error, setError] = useState("");
+  // Fase 2: motivo por el que no se pudo abrir la cámara en vivo (permiso
+  // denegado vs. sin cámara), para que el operador sepa qué hacer.
+  const [cameraIssue, setCameraIssue] = useState("");
+  // Fase 2: al volver de segundo plano (p. ej. app POS pausada por Android)
+  // el stream de la cámara queda "ended" -- se reabre la cámara en vez de
+  // dejar el video en negro.
+  const [cameraRestartToken, setCameraRestartToken] = useState(0);
   const fileInputRef = useRef(null);
 
   // Flash/torch (§7-§13 del encargo): torch CONTINUO antes de capturar
@@ -221,10 +234,15 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
         }
         setMode("LIVE");
         await detectTorchSupport(track);
-      } catch {
+      } catch (cameraError) {
         // Permiso denegado o sin cámara utilizable: fallback al selector de
         // archivo nativo (sigue permitiendo tomar la foto en móviles).
-        if (!cancelled) setMode("FALLBACK");
+        if (!cancelled) {
+          const name = cameraError?.name || "";
+          if (name === "NotAllowedError" || name === "SecurityError") setCameraIssue("PERMISSION_DENIED");
+          else if (name === "NotFoundError" || name === "OverconstrainedError") setCameraIssue("NOT_FOUND");
+          setMode("FALLBACK");
+        }
       }
     }
 
@@ -258,7 +276,35 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
       void turnOffTorch();
       streamRef.current?.getTracks().forEach((track) => track.stop());
     };
-  }, []);
+  }, [cameraRestartToken]);
+
+  // Fase 2 (QA en vivo): el <video> solo existe en el DOM cuando mode ===
+  // "LIVE", pero startCamera() intentaba asignarle el stream ANTES de pasar
+  // a LIVE (videoRef.current todavía era null) -- la vista quedaba negra y
+  // "Capturar" no hacía nada (videoWidth === 0). Lo mismo al "Tomar
+  // nuevamente". El stream se conecta aquí, una vez montado el <video>.
+  useEffect(() => {
+    if (mode !== "LIVE") return;
+    const video = videoRef.current;
+    const stream = streamRef.current;
+    if (!video || !stream || video.srcObject === stream) return;
+    video.srcObject = stream;
+    video.play().catch(() => {});
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "LIVE") return undefined;
+    function onVisibilityChange() {
+      if (document.visibilityState !== "visible") return;
+      if (trackRef.current && trackRef.current.readyState !== "ended") return;
+      streamRef.current = null;
+      trackRef.current = null;
+      setMode("LOADING");
+      setCameraRestartToken((current) => current + 1);
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [mode]);
 
   // §10: estimación simple de luminancia (promedio de luma sobre una
   // muestra minúscula, downscaleada -- nada de visión artificial) mientras
@@ -445,15 +491,17 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
       <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Fotografía de patente</p>
-            <h2 className="mt-1 text-lg font-black text-slate-800">{plate || "Patente"}</h2>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">{isOcr ? "Leer patente con cámara" : "Fotografía de patente"}</p>
+            <h2 className="mt-1 text-lg font-black text-slate-800">{isOcr ? "Encuadre la patente" : (plate || "Patente")}</h2>
           </div>
-          <button type="button" onClick={cancel} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
+          <button type="button" onClick={cancel} className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50">
             Cerrar
           </button>
         </div>
 
-        {required ? (
+        {isOcr ? (
+          <p className="mt-2 text-xs font-bold uppercase tracking-wide text-slate-500">La lectura es una propuesta: deberá confirmarla</p>
+        ) : required ? (
           <p className="mt-2 text-xs font-bold uppercase tracking-wide text-rose-600">Obligatoria para continuar</p>
         ) : (
           <p className="mt-2 text-xs font-bold uppercase tracking-wide text-slate-500">Opcional</p>
@@ -514,7 +562,11 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
         {mode === "FALLBACK" ? (
           <div className="mt-4 space-y-3">
             <p className="text-sm text-slate-600">
-              No fue posible activar la cámara del navegador. Usa el botón para tomar la fotografía con la cámara del dispositivo.
+              {cameraIssue === "PERMISSION_DENIED"
+                ? "El permiso de cámara fue denegado. Autorízalo en el navegador, o usa el botón para tomar la fotografía con la cámara del dispositivo."
+                : cameraIssue === "NOT_FOUND"
+                  ? "No se encontró una cámara disponible. Usa el botón para elegir una fotografía del dispositivo."
+                  : "No fue posible activar la cámara del navegador. Usa el botón para tomar la fotografía con la cámara del dispositivo."}
             </p>
             <input
               ref={fileInputRef}
@@ -548,7 +600,7 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <button type="button" onClick={usePhoto} disabled={gpsBlocksConfirm} className="rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50">
-                Usar foto
+                {isOcr ? "Leer patente" : "Usar foto"}
               </button>
               <button type="button" onClick={retake} className="rounded-2xl border border-slate-300 px-4 py-3 text-sm font-black text-slate-700 hover:bg-slate-50">
                 Tomar nuevamente
@@ -557,7 +609,7 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
           </div>
         ) : null}
 
-        {!required && mode !== "PREVIEW" ? (
+        {!required && !isOcr && mode !== "PREVIEW" ? (
           <button type="button" onClick={cancel} className="mt-3 w-full rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50">
             Continuar sin fotografía
           </button>

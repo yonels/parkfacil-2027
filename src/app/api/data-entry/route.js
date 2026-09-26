@@ -179,7 +179,7 @@ export async function POST(request) {
   }
   if (input.action === "ENTRY") {
     const plate = formatChileanPlate(input.plate || joinChileanPlate(input.platePrefix, input.plateSuffix));
-    if (!plate) return fail("Ingresa una patente válida.", 400, { plate: "Formato requerido: CXPY93" });
+    if (!plate) return fail("Ingresa una patente válida.", 400, { plate: "Formato requerido: CXPY93", code: "INVALID_PLATE" });
     const assignedParkingId = current.actor.parkingId;
 
     // Fase 6: fotografía de patente. Orden exigido por el encargo (§7) —
@@ -228,7 +228,7 @@ export async function POST(request) {
       .eq("status", "OPEN")
       .maybeSingle();
     if (existing.error) return fail("No fue posible validar la entrada del vehículo.", 503);
-    if (existing.data) return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409);
+    if (existing.data) return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409, { code: "VEHICLE_ALREADY_INSIDE" });
 
     let uploadedPhoto = null;
     if (decodedPhoto && !decodedPhoto.discard) {
@@ -252,7 +252,7 @@ export async function POST(request) {
     const { data, error } = await current.db.from("parking_stays").insert(row).select(publicStayFields).single();
     if (error) {
       if (uploadedPhoto) await removeOrphanedPlatePhoto(current.db, uploadedPhoto.storagePath);
-      if (error.code === "23505") return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409);
+      if (error.code === "23505") return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409, { code: "VEHICLE_ALREADY_INSIDE" });
       return fail("No fue posible guardar el ingreso.", 503);
     }
 
