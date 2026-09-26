@@ -1,0 +1,14 @@
+# Targets de Next.js 16 por defecto (MODERN_BROWSERSLIST_TARGET) + Chrome 83.
+#
+# Chrome 83 = Android System WebView de la TUU PRO2 (Android 11) donde corre
+# ParkFacil POS. Sin esta línea, el runtime compartido de Next que cargan
+# todas las rutas usa sintaxis que Chrome 83 no parsea (??= y bloques
+# `static {}`) y la página no hidrata. Solo baja el nivel de sintaxis del JS y
+# agrega fallbacks equivalentes al CSS; no cambia comportamiento.
+# El CSS de Tailwind v4 (@layer, etc.) lo resuelve aparte, solo en POS,
+# src/lib/pos/legacyCss.mjs.
+chrome 111
+edge 111
+firefox 111
+safari 16.4
+chrome 83

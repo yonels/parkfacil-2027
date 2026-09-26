@@ -1,3 +1,4 @@
+import LegacyWebViewCss from "@/components/pos/LegacyWebViewCss";
 import ServiceWorkerRegistration from "@/components/pwa/ServiceWorkerRegistration";
 
 export const metadata = {
@@ -27,6 +28,7 @@ export const viewport = {
 export default function PosLayout({ children }) {
   return (
     <>
+      <LegacyWebViewCss />
       <ServiceWorkerRegistration />
       {children}
     </>
