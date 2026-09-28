@@ -50,3 +50,18 @@ test("cada estado de error tiene mensaje para el operador", () => {
   }
   assert.equal(qrExitMessage({ status: QR_EXIT_STATUS.FOUND }), "");
 });
+
+test("buscar ticket: por patente (con/sin guion, parcial), código o token; vacío = todas, recientes primero", async () => {
+  const { searchActiveStays } = await import("./qrExitCore.mjs");
+  const list = [
+    { id: "a", code: "ING-260928195506-6117", license_plate: "CXPY93", qr_token: TOKEN_A, entry_at: "2026-09-28T19:55:07Z" },
+    { id: "b", code: "ING-260928203220-B2F9", license_plate: "CXPY94", qr_token: TOKEN_B, entry_at: "2026-09-28T20:32:20Z" },
+  ];
+  assert.deepEqual(searchActiveStays(list, "").map((s) => s.id), ["b", "a"]);
+  assert.deepEqual(searchActiveStays(list, "cxpy-93").map((s) => s.id), ["a"]);
+  assert.deepEqual(searchActiveStays(list, "CXPY").map((s) => s.id), ["b", "a"]);
+  assert.deepEqual(searchActiveStays(list, "B2F9").map((s) => s.id), ["b"]);
+  assert.deepEqual(searchActiveStays(list, TOKEN_A).map((s) => s.id), ["a"]);
+  assert.deepEqual(searchActiveStays(list, "ZZZZ99"), []);
+  assert.deepEqual(searchActiveStays(null, "x"), []);
+});

@@ -14,7 +14,7 @@ import { photoToTicketRaster } from "@/lib/pos/ticketPhotoRaster.mjs";
 import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
-import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr } from "@/lib/pos/qrExitCore.mjs";
+import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } from "@/lib/pos/qrExitCore.mjs";
 import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
 import { classifyEntryFailure, entryErrorMessage, isPlateAlreadyInside, PLATE_SOURCES } from "@/lib/pos/entryPlateCore.mjs";
 import { recognizePlate, releasePlateOcr } from "@/lib/pos/plateOcr";
@@ -867,6 +867,10 @@ export default function PosTerminal() {
   const [qrBusy, setQrBusy] = useState(false);
   // APK con scanQr de stub (antiguo): se vuelve a la cámara del navegador.
   const [qrNativeUnsupported, setQrNativeUnsupported] = useState(false);
+  // BUSCAR TICKET / REIMPRIMIR TICKET: misma vista; "reprint" solo cambia el título.
+  const [buscarQuery, setBuscarQuery] = useState("");
+  const [buscarIntent, setBuscarIntent] = useState("search");
+  const [buscarLoading, setBuscarLoading] = useState(false);
 
   // CIERRE DE CAJA
   const [shiftLoading, setShiftLoading] = useState(false);
@@ -1076,6 +1080,8 @@ export default function PosTerminal() {
       setQrScanKey((value) => value + 1);
       if (shiftReadyForOperations && usesNativeQrScanner()) void startNativeQrScan();
     }
+
+    if (section === POS_VIEWS.BUSCAR) setBuscarQuery("");
 
     if (section !== POS_VIEWS.VEHICULO_DETALLE) {
       setSelectedVehicle(null);
@@ -1505,6 +1511,45 @@ export default function PosTerminal() {
       return;
     }
     setQrExitStatus({ type: "error", message: "No fue posible abrir el escáner de QR. Escribe el código del ticket." });
+  }
+
+  // BUSCAR / REIMPRIMIR TICKET: abre la vista con la lista fresca de
+  // estadías OPEN del estacionamiento (el ticket pudo emitirse en otro equipo).
+  function openBuscar(intent) {
+    setBuscarIntent(intent);
+    goToSection(POS_VIEWS.BUSCAR);
+    void refreshActiveStaysForBuscar();
+  }
+
+  async function refreshActiveStaysForBuscar() {
+    setBuscarLoading(true);
+    try {
+      const summary = await getPosVehicleSummary();
+      if (summary.status === 401) {
+        redirectToPosLogin("sesion-expirada");
+        return;
+      }
+      if (!summary.ok) return;
+      const stays = Array.isArray(summary.payload?.data?.stays) ? summary.payload.data.stays : [];
+      setActiveStays(stays);
+      setVehiclesInside(stays.length);
+    } catch {
+      // Sin red: se busca en la última lista cargada.
+    } finally {
+      setBuscarLoading(false);
+    }
+  }
+
+  // Reimprime el ticket de ENTRADA de la estadía elegida, armado con los
+  // mismos datos que el ingreso (buildEntryPrintPayload). photoBase64 "" (no
+  // null): nunca debe usarse la foto del último ingreso en otro ticket.
+  function reprintStayTicket(stay) {
+    const payload = buildEntryPrintPayload(stay, parking);
+    if (!payload) {
+      setEntryPrintStatus("No fue posible armar el ticket de este vehículo.");
+      return;
+    }
+    void printLastEntryTicket(payload, { photoBase64: "" });
   }
 
   function usesNativeQrScanner() {
@@ -2197,14 +2242,9 @@ export default function PosTerminal() {
     { label: "SALIDA DE VEHÍCULO", onSelect: () => goToSection(POS_VIEWS.SALIDA) },
     { label: "VEHÍCULOS EN EL PARKING", onSelect: () => goToSection(POS_VIEWS.VEHICULOS) },
     { label: "CÓDIGO QR", onSelect: () => goToSection(POS_VIEWS.QR) },
-    { label: "BUSCAR TICKET", onSelect: () => goToSection(POS_VIEWS.BUSCAR) },
-    {
-      label: "REIMPRIMIR TICKET",
-      onSelect: () => {
-        goToSection(POS_VIEWS.INGRESO);
-        void printLastEntryTicket(entryPrintPayload);
-      },
-    },
+    { label: "BUSCAR TICKET", onSelect: () => openBuscar("search") },
+    // Elegir qué ticket reimprimir (antes reimprimía siempre el último).
+    { label: "REIMPRIMIR TICKET", onSelect: () => openBuscar("reprint") },
     { label: "IMPRIMIR VEHÍCULOS EN EL PARKING", onSelect: () => goToSection(POS_VIEWS.IMPRIMIR_LISTADO) },
     { label: "PAGOS DEL DÍA", onSelect: () => goToSection(POS_VIEWS.PAGOS_DEL_DIA) },
     { label: "CIERRE DE CAJA", onSelect: () => goToSection(POS_VIEWS.CIERRE_CAJA) },
@@ -4089,8 +4129,75 @@ export default function PosTerminal() {
     if (currentView === POS_VIEWS.BUSCAR) {
       return (
         <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
-          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Buscar ticket</h2>
-          <p className="mt-2 text-sm font-semibold">Módulo preparado para búsqueda operacional de tickets.</p>
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">{buscarIntent === "reprint" ? "Reimprimir ticket" : "Buscar ticket"}</h2>
+          <p className="mt-2 text-sm font-semibold">
+            {buscarIntent === "reprint"
+              ? "Elige el vehículo cuyo ticket de entrada quieres reimprimir. Puedes filtrar por patente o código."
+              : "Busca un vehículo dentro por patente o código de ticket."}
+          </p>
+
+          <input
+            type="text"
+            inputMode="text"
+            autoCapitalize="characters"
+            autoComplete="off"
+            value={buscarQuery}
+            onChange={(event) => setBuscarQuery(event.target.value)}
+            placeholder="Patente o código (ej: CXPY-93)"
+            className="mt-4 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-lg font-black uppercase tracking-widest text-slate-900 focus:border-slate-500 focus:outline-none"
+          />
+
+          {entryPrintStatus ? (
+            <div className="mt-3 whitespace-pre-line rounded-2xl border border-emerald-200 bg-white p-3 text-sm font-bold text-emerald-800">{entryPrintStatus}</div>
+          ) : null}
+
+          <div className="mt-4 space-y-3">
+            {(() => {
+              const results = searchActiveStays(activeStays, buscarQuery);
+              if (buscarLoading && results.length === 0) {
+                return <p className="text-sm font-semibold text-slate-600">Cargando vehículos...</p>;
+              }
+              if (results.length === 0) {
+                return (
+                  <p className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">
+                    {buscarQuery.trim() ? "No hay vehículos dentro con esa patente o código." : "No hay vehículos dentro del estacionamiento."}
+                  </p>
+                );
+              }
+              return results.map((stay) => {
+                const entry = formatEntryDate(stay?.entry_at);
+                const minutes = Number(stay?.quote?.elapsedMinutes);
+                return (
+                  <article key={stay.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p className="text-lg font-black uppercase tracking-widest text-slate-900">{formatPosPlateInput(stay?.license_plate)}</p>
+                    <p className="mt-1 break-all font-mono text-xs font-bold text-slate-600">{stay?.code}</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-700">
+                      Entrada: {entry.date} {entry.time}
+                      {Number.isFinite(minutes) ? ` · ${minutes} min` : ""}
+                    </p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => reprintStayTicket(stay)}
+                        disabled={entryPrintBusy}
+                        className="rounded-xl bg-slate-800 px-3 py-3 text-xs font-black uppercase tracking-[0.06em] text-white hover:bg-slate-700 disabled:opacity-60"
+                      >
+                        {entryPrintBusy ? "Imprimiendo..." : "Reimprimir"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void openVehicleDetail(stay)}
+                        className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-3 text-xs font-black uppercase tracking-[0.06em] text-rose-900 hover:bg-rose-100"
+                      >
+                        Cobrar salida
+                      </button>
+                    </div>
+                  </article>
+                );
+              });
+            })()}
+          </div>
+
           <div className="mt-4">
             <button
               type="button"

@@ -50,3 +50,13 @@ test("TUU PRO2: con escáner nativo del APK se usa ese (la cámara del WebView c
   assert.match(terminal, /if \(result\.unsupported\) \{\s*setQrNativeUnsupported\(true\);/, "APK antiguo -> cámara del navegador");
   assert.match(terminal, /if \(shiftReadyForOperations && usesNativeQrScanner\(\)\) void startNativeQrScan\(\);/, "se abre solo al entrar, únicamente con turno abierto");
 });
+
+test("BUSCAR / REIMPRIMIR TICKET: elegir el vehículo; nunca imprime la foto del último ingreso en otro ticket", () => {
+  assert.match(terminal, /\{ label: "BUSCAR TICKET", onSelect: \(\) => openBuscar\("search"\) \}/);
+  assert.match(terminal, /\{ label: "REIMPRIMIR TICKET", onSelect: \(\) => openBuscar\("reprint"\) \}/);
+  assert.doesNotMatch(terminal, /Módulo preparado para búsqueda operacional de tickets/);
+  const reprint = terminal.slice(terminal.indexOf("function reprintStayTicket(stay) {"), terminal.indexOf("function usesNativeQrScanner() {"));
+  assert.match(reprint, /const payload = buildEntryPrintPayload\(stay, parking\);/);
+  assert.match(reprint, /void printLastEntryTicket\(payload, \{ photoBase64: "" \}\);/);
+  assert.match(terminal, /const results = searchActiveStays\(activeStays, buscarQuery\);/);
+});

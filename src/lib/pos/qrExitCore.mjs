@@ -45,6 +45,25 @@ export function resolveStayFromQr(stays, raw) {
   return { status: QR_EXIT_STATUS.FOUND, stay: matches[0] };
 }
 
+// BUSCAR / REIMPRIMIR TICKET: filtra las estadías OPEN por patente (con o sin
+// guion, parcial), código de ticket (parcial) o qr_token completo. Sin texto
+// devuelve todas, más recientes primero (lista para elegir cuál reimprimir).
+export function searchActiveStays(stays, query, { limit = 50 } = {}) {
+  const list = (Array.isArray(stays) ? stays : []).slice().sort((a, b) => String(b?.entry_at || "").localeCompare(String(a?.entry_at || "")));
+  const text = String(query ?? "").trim().toUpperCase();
+  if (!text) return list.slice(0, limit);
+  const compact = text.replace(/[^A-Z0-9]/g, "");
+  const token = extractStayQrToken(text);
+  return list
+    .filter((stay) => {
+      if (token) return String(stay?.qr_token || "").toLowerCase() === token;
+      const plate = String(stay?.license_plate || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+      const code = String(stay?.code || "").toUpperCase();
+      return (compact && plate.includes(compact)) || code.includes(text);
+    })
+    .slice(0, limit);
+}
+
 export function qrExitMessage(result) {
   switch (result?.status) {
     case QR_EXIT_STATUS.EMPTY:
