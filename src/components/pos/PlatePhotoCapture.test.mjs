@@ -233,3 +233,10 @@ test("al volver de segundo plano con el stream terminado, la cámara se reabre (
   assert.match(source, /setCameraRestartToken\(\(current\) => current \+ 1\);/);
   assert.match(source, /\}, \[cameraRestartToken\]\);/);
 });
+
+test("recuadro guía = mismo rectángulo del recorte, en % y sin CSS aspect-ratio (WebView 83 de la PRO2 no lo soporta)", () => {
+  assert.doesNotMatch(source, /aspectRatio/);
+  assert.match(source, /const frame = videoSize \? computePlateFrameRect\(videoSize\.width, videoSize\.height\) : null;/);
+  assert.match(source, /left: percent\(frame\.x, videoSize\.width\),\s*top: percent\(frame\.y, videoSize\.height\),\s*width: percent\(frame\.width, videoSize\.width\),\s*height: percent\(frame\.height, videoSize\.height\),/);
+  assert.match(source, /onLoadedMetadata=\{updateVideoSize\}/);
+});

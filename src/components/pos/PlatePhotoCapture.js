@@ -159,6 +159,15 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
   const torchOnRef = useRef(false);
   const [mode, setMode] = useState("LOADING"); // LOADING | LIVE | PREVIEW | FALLBACK | ERROR
   const [preview, setPreview] = useState(null); // { url, blob }
+  // Tamaño real del video: el recuadro guía se calcula con la MISMA función
+  // del recorte (computePlateFrameRect) y se posiciona en %, sin CSS
+  // aspect-ratio (no existe en el WebView 83 de la TUU PRO2).
+  const [videoSize, setVideoSize] = useState(null); // { width, height }
+
+  function updateVideoSize(event) {
+    const { videoWidth, videoHeight } = event.currentTarget;
+    if (videoWidth > 0 && videoHeight > 0) setVideoSize({ width: videoWidth, height: videoHeight });
+  }
   const [error, setError] = useState("");
   // Fase 2: motivo por el que no se pudo abrir la cámara en vivo (permiso
   // denegado vs. sin cámara), para que el operador sepa qué hacer.
@@ -514,21 +523,31 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
         {mode === "LIVE" ? (
           <div className="mt-4">
             <div className="relative overflow-hidden rounded-2xl bg-black">
-              <video ref={videoRef} autoPlay playsInline muted className="block w-full h-auto" />
+              <video ref={videoRef} autoPlay playsInline muted className="block w-full h-auto" onLoadedMetadata={updateVideoSize} onPlaying={updateVideoSize} />
 
-              {/* Marco de encuadre: proporción FIJA 2,77:1 (patente chilena
-                  360x130mm + 10% de holgura = 396x143mm) -- misma razón
-                  exacta usada para el recorte real al capturar (ver
-                  drawPlateCrop/computePlateFrameRect arriba). 88% del ancho
-                  del video, centrado: el propio tamaño del marco (más
-                  grande que la patente real) YA es el margen visual
-                  uniforme alrededor de la patente pedido en el encargo. */}
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                <div
-                  className="w-[88%] rounded-lg border-4 border-emerald-400/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
-                  style={{ aspectRatio: "396 / 143" }}
-                />
-              </div>
+              {/* Marco de encuadre: patente chilena de automóvil 360x130mm +
+                  10% de holgura = 396x143mm (2,77:1). Es EXACTAMENTE el
+                  rectángulo que se recorta al capturar (computePlateFrameRect
+                  sobre el tamaño real del video), expresado en % del video
+                  mostrado -- lo que se ve es lo que se guarda. */}
+              {(() => {
+                const frame = videoSize ? computePlateFrameRect(videoSize.width, videoSize.height) : null;
+                if (!frame) return null;
+                const percent = (value, total) => `${(value / total) * 100}%`;
+                return (
+                  <div className="pointer-events-none absolute inset-0">
+                    <div
+                      className="absolute rounded-lg border-4 border-emerald-400/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
+                      style={{
+                        left: percent(frame.x, videoSize.width),
+                        top: percent(frame.y, videoSize.height),
+                        width: percent(frame.width, videoSize.width),
+                        height: percent(frame.height, videoSize.height),
+                      }}
+                    />
+                  </div>
+                );
+              })()}
 
               {torchAvailable ? (
                 <button
