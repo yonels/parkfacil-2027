@@ -18,11 +18,18 @@ import { parseOcrPlateText } from "./entryPlateCore.mjs";
 
 export const OCR_ASSET_BASE = "/vendor/tesseract/7.0.0";
 const OCR_TIMEOUT_MS = 45000;
+// Primera carga (descarga ~6 MB + compilación WASM): en la TUU PRO2 (WebView
+// 83, CPU modesta) tarda bastante más que una lectura.
+const OCR_LOAD_TIMEOUT_MS = 120000;
 // PSM 7 = "una sola línea de texto" (el recorte ya es solo la patente).
 const PSM_SINGLE_LINE = "7";
 const PLATE_WHITELIST = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 let workerPromise = null;
+// Diagnóstico de carga (QA PRO2): última etapa informada por tesseract y
+// último error del worker, para mostrar un detalle técnico si la carga falla.
+let lastLoadStatus = "";
+let lastWorkerError = "";
 
 // Módulo WASM mínimo con una instrucción SIMD (misma técnica que
 // wasm-feature-detect): si el motor lo valida, se usa el core con SIMD
@@ -56,12 +63,33 @@ async function createPlateWorker() {
     langPath: base,
     gzip: true,
     workerBlobURL: false,
+    logger: (message) => {
+      if (!message || !message.status) return;
+      const progress = typeof message.progress === "number" ? ` ${Math.round(message.progress * 100)}%` : "";
+      lastLoadStatus = `${message.status}${progress}`;
+    },
+    errorHandler: (error) => {
+      lastWorkerError = String((error && error.message) || error || "");
+    },
   });
   await worker.setParameters({
     tessedit_char_whitelist: PLATE_WHITELIST,
     tessedit_pageseg_mode: PSM_SINGLE_LINE,
   });
   return worker;
+}
+
+// Arranca la carga del lector en segundo plano (p. ej. al abrir la cámara
+// OCR) para que esté listo cuando el operador capture. Idempotente.
+export function preloadPlateOcr() {
+  getWorker().catch(() => {});
+}
+
+function describeLoadFailure(error) {
+  const reason = error && error.message === "OCR_TIMEOUT" ? "tiempo agotado" : String((error && error.message) || error || "error desconocido");
+  const parts = [reason, `etapa: ${lastLoadStatus || "inicio"}`];
+  if (lastWorkerError && lastWorkerError !== reason) parts.push(lastWorkerError);
+  return parts.join(" · ").slice(0, 300);
 }
 
 function getWorker() {
@@ -89,9 +117,9 @@ function withTimeout(promise, ms) {
 export async function recognizePlate(imageSource) {
   let worker;
   try {
-    worker = await withTimeout(getWorker(), OCR_TIMEOUT_MS);
-  } catch {
-    return { ok: false, code: "OCR_LOAD_FAILED", proposal: null };
+    worker = await withTimeout(getWorker(), OCR_LOAD_TIMEOUT_MS);
+  } catch (error) {
+    return { ok: false, code: "OCR_LOAD_FAILED", proposal: null, detail: describeLoadFailure(error) };
   }
   return recognizePlateWithWorker(worker, imageSource);
 }

@@ -77,7 +77,7 @@ test("6/7. OCR propone la patente y NUNCA registra automáticamente", () => {
 });
 
 test("8. OCR fallido deja un mensaje claro y el ingreso manual intacto (sigue en PLATE)", () => {
-  assert.match(ocrHandler, /if \(!result\.ok\) \{\s*setEntryFailure\(result\.code\);\s*return;/);
+  assert.match(ocrHandler, /if \(!result\.ok\) \{\s*setEntryFailure\(result\.code, result\.detail \|\| ""\);\s*return;/);
   assert.doesNotMatch(ocrHandler, /setEntryStep\("CONFIRM"\)/);
 });
 

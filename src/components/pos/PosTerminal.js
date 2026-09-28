@@ -18,7 +18,7 @@ import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } f
 import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
 import { buildPaymentsDayPrintPayload } from "@/lib/pos/paymentsDayCore.mjs";
 import { classifyEntryFailure, entryErrorMessage, isPlateAlreadyInside, PLATE_SOURCES } from "@/lib/pos/entryPlateCore.mjs";
-import { recognizePlate, releasePlateOcr } from "@/lib/pos/plateOcr";
+import { preloadPlateOcr, recognizePlate, releasePlateOcr } from "@/lib/pos/plateOcr";
 import { detectLocalVoiceSupport, installLocalVoice, listenForPlate } from "@/lib/pos/plateVoice";
 
 const POS_VIEWS = {
@@ -1240,9 +1240,10 @@ export default function PosTerminal() {
     setEntryError("");
   }
 
-  function setEntryFailure(code) {
+  // detail: diagnóstico técnico opcional (p. ej. por qué no cargó el OCR).
+  function setEntryFailure(code, detail = "") {
     setEntryErrorCode(code);
-    setEntryError(entryErrorMessage(code));
+    setEntryError(detail ? `${entryErrorMessage(code)} (Detalle: ${detail})` : entryErrorMessage(code));
   }
 
   function clearEntryFailure() {
@@ -1315,7 +1316,7 @@ export default function PosTerminal() {
     try {
       const result = await recognizePlate(photo.base64);
       if (!result.ok) {
-        setEntryFailure(result.code);
+        setEntryFailure(result.code, result.detail || "");
         return;
       }
       const confidence = Number.isFinite(result.proposal?.confidence) ? ` (confianza ${Math.round(result.proposal.confidence)}%)` : "";
@@ -2624,7 +2625,7 @@ export default function PosTerminal() {
             <div className="mt-4 grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => { clearEntryFailure(); setOcrCaptureOpen(true); }}
+                onClick={() => { clearEntryFailure(); setOcrCaptureOpen(true); preloadPlateOcr(); }}
                 disabled={busy || voiceState === "LISTENING"}
                 className="min-h-16 rounded-2xl border border-sky-300 bg-sky-50 px-3 py-3 text-base font-black uppercase tracking-[0.04em] text-sky-900 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
