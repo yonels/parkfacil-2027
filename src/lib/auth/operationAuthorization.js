@@ -81,7 +81,10 @@ export async function resolvePosOperationalParking(authorization, { now = new Da
   }
 
   const parking = resolution.parkingId ? authorizedParkings.find((item) => item.id === resolution.parkingId) || null : null;
-  return { ...resolution, parking };
+  // authorizedParkings: lista server-side (empresa + asignaciones del
+  // operador) — la única contra la que se valida un parkingId elegido para
+  // iniciar un turno a pedido (nunca un id del cliente sin validar).
+  return { ...resolution, parking, authorizedParkings };
 }
 
 export function posParkingSelectionRequiredResponse() {

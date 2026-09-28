@@ -33,6 +33,7 @@ const POS_VIEWS = {
   CIERRE_CAJA: "CIERRE_CAJA",
   ESTADO_DISPOSITIVO: "ESTADO_DISPOSITIVO",
   PAGOS_DEL_DIA: "PAGOS_DEL_DIA",
+  TURNO: "TURNO",
 };
 
 const POS_PLATE_REGEX = /^[A-Z0-9]{4}-[0-9]{2}$/;
@@ -641,6 +642,20 @@ async function postStartShift(shiftId) {
   return { ok: response.ok, status: response.status, payload };
 }
 
+// Inicio de turno a pedido (sin turno programado): el servidor crea y abre el
+// turno de hoy. parkingId solo aplica con varios estacionamientos y se valida
+// server-side contra los autorizados.
+async function postStartOnDemandShift(parkingId = null) {
+  const response = await fetch("/api/pos/shift/start", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-parkfacil-portal": "terminal" },
+    cache: "no-store",
+    body: JSON.stringify(parkingId ? { onDemand: true, parkingId } : { onDemand: true }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, payload };
+}
+
 function formatCurrency(value) {
   if (!Number.isFinite(Number(value))) return "—";
   return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(Number(value));
@@ -765,6 +780,8 @@ export default function PosTerminal() {
   // autorizados), cierre de sesión en curso y datos del dispositivo.
   const [parkingSelectionRequired, setParkingSelectionRequired] = useState(false);
   const [parkingOptions, setParkingOptions] = useState([]);
+  // Estacionamientos (varios autorizados) donde se puede abrir turno a pedido.
+  const [onDemandParkings, setOnDemandParkings] = useState([]);
   const [loggingOut, setLoggingOut] = useState(false);
   const [deviceInfo, setDeviceInfo] = useState(null);
   const operationBusyRef = useRef(false);
@@ -1013,6 +1030,7 @@ export default function PosTerminal() {
       setShiftPreview(data.preview || null);
       setShiftServerNow(data.serverNow || null);
       setParkingOptions(Array.isArray(data.parkingOptions) ? data.parkingOptions : []);
+      setOnDemandParkings(Array.isArray(data.onDemandParkings) ? data.onDemandParkings : []);
     } catch {
       setShiftError("Error de red al cargar el turno del operador.");
     } finally {
@@ -1030,6 +1048,27 @@ export default function PosTerminal() {
     setShiftError("");
     try {
       const result = await postStartShift(targetShiftId);
+      if (!result.ok) {
+        if (result.status === 401) redirectToPosLogin("sesion-expirada");
+        else setShiftError(result.payload?.error || "No fue posible iniciar el turno.");
+        return;
+      }
+      await loadShiftState();
+      await loadTerminalState(true);
+    } catch {
+      setShiftError("Error de red al iniciar el turno.");
+    } finally {
+      setShiftStartBusy(false);
+    }
+  }
+
+  // Inicio de turno a pedido: mismo flujo de refresco que un turno programado.
+  async function startOnDemandShift(parkingId = null) {
+    if (shiftStartBusy) return;
+    setShiftStartBusy(true);
+    setShiftError("");
+    try {
+      const result = await postStartOnDemandShift(parkingId);
       if (!result.ok) {
         if (result.status === 401) redirectToPosLogin("sesion-expirada");
         else setShiftError(result.payload?.error || "No fue posible iniciar el turno.");
@@ -2271,6 +2310,9 @@ export default function PosTerminal() {
   }
 
   const navItems = [
+    // Primero del menú: iniciar (o ver) el turno del operador.
+    // (misma condición que shiftReadyForOperations, que se declara más abajo)
+    { label: shiftState === "OPEN" && shift?.status !== "CLOSING" ? "TURNO ACTIVO" : "INICIO DE TURNO", onSelect: () => goToSection(POS_VIEWS.TURNO) },
     { label: "INICIO", onSelect: () => goToSection(POS_VIEWS.HOME) },
     { label: "INGRESO DE VEHÍCULO", onSelect: openEntryForm },
     { label: "SALIDA DE VEHÍCULO", onSelect: () => goToSection(POS_VIEWS.SALIDA) },
@@ -2351,9 +2393,27 @@ export default function PosTerminal() {
             <p className="text-xs font-black uppercase tracking-[0.1em] text-sky-700">Selecciona estacionamiento</p>
             <p className="mt-1 font-black">Tienes más de un estacionamiento asignado.</p>
             <p className="mt-1 text-sm font-semibold">
-              {parkingOptions.length ? "Elige el turno que vas a iniciar. El estacionamiento quedará fijo hasta cerrar el turno." : "No tienes turnos programados hoy. Contacta a tu supervisor."}
+              {parkingOptions.length || onDemandParkings.length
+                ? "Elige el turno que vas a iniciar. El estacionamiento quedará fijo hasta cerrar el turno."
+                : "No tienes turnos programados hoy. Contacta a tu supervisor."}
             </p>
           </div>
+          {!parkingOptions.length && onDemandParkings.length ? (
+            <div className="mt-4 space-y-3">
+              {onDemandParkings.map((option) => (
+                <button
+                  key={option.parkingId}
+                  type="button"
+                  onClick={() => void startOnDemandShift(option.parkingId)}
+                  disabled={shiftStartBusy}
+                  className="flex min-h-16 w-full flex-col items-start justify-center rounded-2xl bg-emerald-700 px-4 py-3 text-left text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="text-base font-black uppercase tracking-[0.04em]">{shiftStartBusy ? "Iniciando..." : `Iniciar turno · ${option.parkingName || option.parkingCode}`}</span>
+                  <span className="text-xs font-semibold text-emerald-50">Código {option.parkingCode || "-"}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {parkingOptions.length ? (
             <div className="mt-4 space-y-3">
               {parkingOptions.map((option) => (
@@ -2411,6 +2471,9 @@ export default function PosTerminal() {
           <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
             Tu turno de hoy en este estacionamiento ya fue cerrado.
           </div>
+          <button type="button" onClick={() => void startOnDemandShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+            {shiftStartBusy ? "Iniciando..." : "INICIAR NUEVO TURNO"}
+          </button>
           {volverButton}
         </section>
       );
@@ -2423,7 +2486,13 @@ export default function PosTerminal() {
         {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
         <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
           No tienes un turno programado para este estacionamiento.
+          {parking ? " Puedes iniciar tu turno ahora." : ""}
         </div>
+        {parking ? (
+          <button type="button" onClick={() => void startOnDemandShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+            {shiftStartBusy ? "Iniciando..." : "INICIAR TURNO"}
+          </button>
+        ) : null}
         {volverButton}
       </section>
     );
@@ -3969,6 +4038,32 @@ export default function PosTerminal() {
     // SALIDA: búsqueda por patente, exclusiva de la salida/cobro. Nunca
     // lista automáticamente todas las permanencias abiertas — eso es
     // exclusivo de "Vehículos en el parking" (rama separada más abajo).
+    // INICIO DE TURNO (menú): sin turno abierto muestra la misma pantalla de
+    // turno que HOME (iniciar programado o a pedido); con turno abierto, su detalle.
+    if (currentView === POS_VIEWS.TURNO) {
+      const gate = renderShiftGate("Inicio de turno");
+      if (gate) return gate;
+      const opened = formatEntryDate(shift?.openedAt);
+      return (
+        <section className="rounded-3xl border border-emerald-300 bg-emerald-50 p-5 text-emerald-950 shadow-sm">
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Turno activo</h2>
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm font-semibold">
+            <p>Estacionamiento: <span className="font-black">{parking?.name || "-"}</span></p>
+            <p className="mt-1">Inicio: <span className="font-black">{opened.date} {opened.time}</span></p>
+            <p className="mt-1">Vehículos dentro: <span className="font-black">{vehiclesInside}</span></p>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600">
+              Ir al inicio
+            </button>
+            <button type="button" onClick={() => goToSection(POS_VIEWS.CIERRE_CAJA)} className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.06em] text-emerald-900 hover:bg-emerald-100">
+              Cierre de caja
+            </button>
+          </div>
+        </section>
+      );
+    }
+
     if (currentView === POS_VIEWS.SALIDA) {
       // El gate de turno aplica: requiere turno OPEN para cobrar.
       const gate = renderShiftGate("Salida de vehículo");

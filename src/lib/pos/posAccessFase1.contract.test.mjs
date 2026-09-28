@@ -74,9 +74,25 @@ test("con varios estacionamientos sin turno que los desambigüe, las APIs respon
   assert.match(POS_API_ROUTES.shift, /parkingOptions: resolved\.options/);
 });
 
-test("inicio de turno con selección: solo acepta un shiftId ofrecido por el servidor, nunca un parkingId del cliente", () => {
+test("inicio de turno con selección: solo acepta un shiftId ofrecido por el servidor, nunca un parkingId del cliente sin validar", () => {
   assert.match(POS_API_ROUTES.shiftStart, /findSelectableShift\(resolved, body\.shiftId\)/);
-  assert.doesNotMatch(POS_API_ROUTES.shiftStart, /body\.parkingId/);
+  // Turno a pedido (2026-09-28): el parkingId elegido solo vale si está en la
+  // lista autorizada calculada server-side (resolved.authorizedParkings) y ACTIVE.
+  const uses = POS_API_ROUTES.shiftStart.match(/body\.parkingId/g) || [];
+  assert.equal(uses.length, 1, "body.parkingId se lee en un único lugar");
+  assert.match(
+    POS_API_ROUTES.shiftStart,
+    /const wanted = String\(body\.parkingId \|\| ""\)\.trim\(\);\s*const target = \(resolved\.authorizedParkings \|\| \[\]\)\.find\(\(item\) => String\(item\.id\) === wanted && item\.status === "ACTIVE"\);\s*if \(!target\) \{/,
+  );
+});
+
+test("turno a pedido: solo sin turno (UNASSIGNED/CLOSED), crea el PROGRAMMED de hoy y lo abre con el mismo RPC", () => {
+  assert.match(POS_API_ROUTES.shiftStart, /const ON_DEMAND_STATES = new Set\(\["UNASSIGNED", "CLOSED"\]\);/);
+  assert.match(POS_API_ROUTES.shiftStart, /if \(onDemand && ON_DEMAND_STATES\.has\(current\.state\)\) \{/);
+  assert.match(POS_API_ROUTES.shiftStart, /const shiftId = await ensureOnDemandProgrammedShift\(authorization\.db, \{ parking, operatorId: actor\.id \}\);\s*const shift = await startPosOperatorShift\(authorization\.db, \{ shiftId, actor \}\);/);
+  const onDemand = read("./onDemandShift.js");
+  assert.match(onDemand, /if \(parking\.type !== "OFF_STREET"\)/, "On Street sigue exigiendo turno programado");
+  assert.match(onDemand, /if \(existing\.data\?\.id\) return existing\.data\.id;/, "idempotente ante doble toque");
 });
 
 test("data-entry: un parkingId del cliente que no coincide con el resuelto se rechaza (403 POS_PARKING_MISMATCH)", () => {

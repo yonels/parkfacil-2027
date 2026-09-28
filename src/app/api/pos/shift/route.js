@@ -17,7 +17,12 @@ export async function GET(request) {
     // el operador elige explícitamente cuál turno programado iniciar (ver
     // /api/pos/shift/start). Las opciones se calculan server-side.
     if (resolved.status === POS_PARKING_RESOLUTION.SELECTION_REQUIRED) {
-      return NextResponse.json({ data: { state: "PARKING_SELECTION_REQUIRED", shift: null, parking: null, parkingOptions: resolved.options, serverNow: new Date().toISOString() } }, { headers: noStore });
+      // onDemandParkings: estacionamientos Off Street autorizados donde el
+      // operador puede abrir un turno a pedido (sin turno programado).
+      const onDemandParkings = (resolved.authorizedParkings || [])
+        .filter((item) => item.status === "ACTIVE" && item.type === "OFF_STREET")
+        .map((item) => ({ parkingId: item.id, parkingName: item.name, parkingCode: item.code }));
+      return NextResponse.json({ data: { state: "PARKING_SELECTION_REQUIRED", shift: null, parking: null, parkingOptions: resolved.options, onDemandParkings, serverNow: new Date().toISOString() } }, { headers: noStore });
     }
     const parking = resolved.parking;
     if (!parking) return NextResponse.json({ data: { state: "UNASSIGNED", shift: null, parking: null } }, { headers: noStore });
