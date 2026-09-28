@@ -6,4 +6,5 @@ envíe imágenes fuera del dispositivo. Generado por `npm run vendor:tesseract`
 
 - tesseract.esm.min.js, worker.min.js — tesseract.js 7.0.0 (Apache-2.0)
 - tesseract-core-{simd-lstm,lstm}.{js,wasm} — tesseract.js-core 7.0.0 (Apache-2.0)
+  (los .js del core se transpilan a ES2019 para WebView 83 — scripts/vendor-tesseract-legacy.mjs)
 - eng.traineddata.gz — @tesseract.js-data/eng@1.0.0, 4.0.0_best_int (MIT; modelo tessdata Apache-2.0)

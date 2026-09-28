@@ -58,9 +58,13 @@ writeFileSync(
     "",
     `- tesseract.esm.min.js, worker.min.js — tesseract.js ${tesseractPkg.version} (Apache-2.0)`,
     `- tesseract-core-{simd-lstm,lstm}.{js,wasm} — tesseract.js-core ${corePkg.version} (Apache-2.0)`,
+    "  (los .js del core se transpilan a ES2019 para WebView 83 — scripts/vendor-tesseract-legacy.mjs)",
     `- eng.traineddata.gz — ${LANG_PACKAGE}, 4.0.0_best_int (MIT; modelo tessdata Apache-2.0)`,
     "",
   ].join("\n"),
 );
 
 console.log(`tesseract.js ${tesseractPkg.version} copiado a ${path.relative(root, target)}`);
+
+// TUU PRO2 (WebView 83): el core usa ??= / ||= -> transpilar a ES2019.
+execFileSync(process.execPath, [path.join(root, "scripts/vendor-tesseract-legacy.mjs"), tesseractPkg.version], { stdio: "inherit" });

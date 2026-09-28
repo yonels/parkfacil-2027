@@ -274,3 +274,34 @@ test("el loader legacy está SOLO en layouts POS y solo actúa sin cascade layer
   assert.match(loader, /url\.origin === win\.location\.origin && url\.pathname\.startsWith\("\/_next\/"\)/, "solo hojas propias");
   assert.doesNotMatch(loader, /setAttribute\([^)]*,\s*\)|link\.setAttribute|link\.disabled|\.remove\(\)/, "no toca los <link> que maneja React");
 });
+
+test("OCR vendorizado (public/vendor/tesseract): parsea en Chrome 83 — no pasa por el bundler", () => {
+  const require = createRequire(import.meta.url);
+  const acorn = require("acorn");
+  const vendorRoot = new URL("public/vendor/tesseract/", ROOT);
+  const found = [];
+  for (const version of readdirSync(vendorRoot)) {
+    const dir = new URL(`${version}/`, vendorRoot);
+    for (const file of readdirSync(dir).filter((name) => name.endsWith(".js"))) {
+      const source = readFileSync(new URL(file, dir), "utf8");
+      let ast = null;
+      for (const sourceType of ["script", "module"]) {
+        try { ast = acorn.parse(source, { ecmaVersion: "latest", sourceType }); break; } catch { ast = null; }
+      }
+      assert.ok(ast, `${file} no parsea`);
+      const visit = (node) => {
+        if (!node || typeof node.type !== "string") return;
+        if (node.type === "AssignmentExpression" && ["??=", "||=", "&&="].includes(node.operator)) found.push(`${version}/${file}: ${node.operator}`);
+        if (node.type === "StaticBlock") found.push(`${version}/${file}: static {}`);
+        if (node.type === "MethodDefinition" && node.key.type === "PrivateIdentifier") found.push(`${version}/${file}: método privado`);
+        for (const key of Object.keys(node)) {
+          const value = node[key];
+          if (Array.isArray(value)) value.forEach(visit);
+          else if (value && typeof value.type === "string") visit(value);
+        }
+      };
+      visit(ast);
+    }
+  }
+  assert.deepEqual(found, [], "ejecutar scripts/vendor-tesseract-legacy.mjs");
+});
