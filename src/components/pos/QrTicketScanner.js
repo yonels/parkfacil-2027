@@ -6,8 +6,11 @@ import { useEffect, useRef, useState } from "react";
 // getUserMedia (mismas opciones que PlatePhotoCapture). Decodifica con
 // BarcodeDetector cuando el navegador lo tiene y, si no (WebView 83 de la
 // TUU PRO2), con jsQR — cargado solo al abrir el lector.
-const SCAN_INTERVAL_MS = 250;
-const MAX_FRAME_WIDTH = 640;
+// Liviano para la TUU PRO2 (WebView 83): solo se analiza el recuadro central
+// (donde se apunta el QR), reducido a SCAN_SIZE px, cada SCAN_INTERVAL_MS.
+const SCAN_INTERVAL_MS = 400;
+const SCAN_SIZE = 400;
+const SCAN_REGION = 0.7;
 
 const CAMERA_MESSAGES = {
   PERMISSION_DENIED: "Permiso de cámara denegado. Habilítalo en el equipo o escribe el código del ticket.",
@@ -46,15 +49,16 @@ export default function QrTicketScanner({ onDetected }) {
           const codes = await detector.detect(video);
           value = codes && codes[0] ? codes[0].rawValue : null;
         } else if (jsQR) {
-          const scale = Math.min(1, MAX_FRAME_WIDTH / video.videoWidth);
-          const width = Math.round(video.videoWidth * scale);
-          const height = Math.round(video.videoHeight * scale);
-          canvas.width = width;
-          canvas.height = height;
+          const side = Math.floor(Math.min(video.videoWidth, video.videoHeight) * SCAN_REGION);
+          const size = Math.min(SCAN_SIZE, side);
+          if (canvas.width !== size) {
+            canvas.width = size;
+            canvas.height = size;
+          }
           const ctx = canvas.getContext("2d");
-          ctx.drawImage(video, 0, 0, width, height);
-          const image = ctx.getImageData(0, 0, width, height);
-          const code = jsQR(image.data, width, height, { inversionAttempts: "dontInvert" });
+          ctx.drawImage(video, (video.videoWidth - side) / 2, (video.videoHeight - side) / 2, side, side, 0, 0, size, size);
+          const image = ctx.getImageData(0, 0, size, size);
+          const code = jsQR(image.data, size, size, { inversionAttempts: "dontInvert" });
           value = code ? code.data : null;
         }
         if (value && !cancelled) {
