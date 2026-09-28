@@ -60,3 +60,11 @@ test("BUSCAR / REIMPRIMIR TICKET: elegir el vehículo; nunca imprime la foto del
   assert.match(reprint, /void printLastEntryTicket\(payload, \{ photoBase64: "" \}\);/);
   assert.match(terminal, /const results = searchActiveStays\(activeStays, buscarQuery\);/);
 });
+
+test("IMPRIMIR PAGOS DEL DÍA: imprime los mismos totales/filas que muestra la pantalla", () => {
+  const fn = terminal.slice(terminal.indexOf("async function printPaymentsDay() {"), terminal.indexOf("async function confirmListadoPrint() {"));
+  assert.match(fn, /buildPaymentsDayPrintPayload\(\{ payments: paymentsToday, totals: paymentsTodayTotals, parking \}\)/);
+  assert.match(fn, /if \(paymentsDayPrintBusy\) return;/);
+  assert.match(fn, /await executeNativePrint\(payload\)/);
+  assert.match(terminal, /onClick=\{\(\) => void printPaymentsDay\(\)\}/);
+});

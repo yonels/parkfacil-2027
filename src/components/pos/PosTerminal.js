@@ -16,6 +16,7 @@ import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
 import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } from "@/lib/pos/qrExitCore.mjs";
 import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
+import { buildPaymentsDayPrintPayload } from "@/lib/pos/paymentsDayCore.mjs";
 import { classifyEntryFailure, entryErrorMessage, isPlateAlreadyInside, PLATE_SOURCES } from "@/lib/pos/entryPlateCore.mjs";
 import { recognizePlate, releasePlateOcr } from "@/lib/pos/plateOcr";
 import { detectLocalVoiceSupport, installLocalVoice, listenForPlate } from "@/lib/pos/plateVoice";
@@ -849,6 +850,8 @@ export default function PosTerminal() {
   const [paymentsTodayTotals, setPaymentsTodayTotals] = useState(null);
   const [paymentsTodayLoading, setPaymentsTodayLoading] = useState(false);
   const [paymentsTodayError, setPaymentsTodayError] = useState("");
+  const [paymentsDayPrintBusy, setPaymentsDayPrintBusy] = useState(false);
+  const [paymentsDayPrintStatus, setPaymentsDayPrintStatus] = useState("");
   // Recuerda si el listado de vehículos (compartido por VEHÍCULOS EN EL
   // PARKING y SALIDA) se abrió con intención de consulta o de salida/pago,
   // para que VOLVER desde el detalle regrese a la pantalla de origen.
@@ -1105,6 +1108,7 @@ export default function PosTerminal() {
     }
 
     if (section === POS_VIEWS.PAGOS_DEL_DIA) {
+      setPaymentsDayPrintStatus("");
       void loadPaymentsToday();
     }
 
@@ -2075,6 +2079,36 @@ export default function PosTerminal() {
     setListadoPrintStatus("");
   }
 
+  // IMPRIMIR PAGOS DEL DÍA: imprime exactamente lo que muestra la pantalla
+  // (totales y filas de /api/pos/payments), una vez por clic.
+  async function printPaymentsDay() {
+    if (paymentsDayPrintBusy) return;
+    const payload = buildPaymentsDayPrintPayload({ payments: paymentsToday, totals: paymentsTodayTotals, parking });
+    if (!payload) {
+      setPaymentsDayPrintStatus("No hay datos del estacionamiento para imprimir el reporte.");
+      return;
+    }
+    if (!getNativePrinterBridge()) {
+      setPaymentsDayPrintStatus("Impresión disponible solo desde el dispositivo POS.");
+      return;
+    }
+    setPaymentsDayPrintBusy(true);
+    setPaymentsDayPrintStatus("Imprimiendo...");
+    try {
+      const result = await executeNativePrint(payload);
+      if (result.ok) {
+        setPaymentsDayPrintStatus("Reporte de pagos del día impreso.");
+      } else {
+        const details = [];
+        if (result.code) details.push(`Código: ${result.code}`);
+        if (result.message) details.push(`Detalle: ${result.message}`);
+        setPaymentsDayPrintStatus(["No fue posible imprimir el reporte.", ...details].join("\n"));
+      }
+    } finally {
+      setPaymentsDayPrintBusy(false);
+    }
+  }
+
   async function confirmListadoPrint() {
     const printPayload = listadoPrintPayload;
     if (!printPayload) {
@@ -2930,6 +2964,18 @@ export default function PosTerminal() {
                 <p className="mt-1 text-lg font-black text-emerald-950">{formatCurrency(paymentsTodayTotals?.totalCredit ?? 0)}</p>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={() => void printPaymentsDay()}
+              disabled={paymentsDayPrintBusy || paymentsTodayLoading}
+              className="mt-4 w-full rounded-xl bg-emerald-800 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {paymentsDayPrintBusy ? "Imprimiendo..." : "Imprimir pagos del día"}
+            </button>
+            {paymentsDayPrintStatus ? (
+              <div className="mt-3 whitespace-pre-line rounded-2xl border border-emerald-200 bg-white p-3 text-sm font-bold text-emerald-800">{paymentsDayPrintStatus}</div>
+            ) : null}
 
             <div className="mt-4 space-y-3">
               {!paymentsToday.length ? (

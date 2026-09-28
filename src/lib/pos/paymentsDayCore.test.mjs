@@ -54,3 +54,21 @@ test("PAGOS DEL DÍA: proyecta fila mínima (patente, hora, medio, monto)", () =
     paymentCode: "PAG-5678",
   });
 });
+
+test("IMPRIMIR PAGOS DEL DÍA: payload PAYMENTS_DAY con los totales/filas del servidor", async () => {
+  const { buildPaymentsDayPrintPayload } = await import("./paymentsDayCore.mjs");
+  const parking = { name: "Clínica Ramis Central", code: "PF-001", company: { business_name: "Clínica Ramis SpA" } };
+  const payments = [{ plate: "CXPY93", time: "17:10", paymentMethod: "CASH", amount: 1240, ticketNumber: "ING-1" }];
+  const totals = { totalAmount: 1240, totalCash: 1240, totalDebit: 0, totalCredit: 0, count: 1 };
+  const payload = buildPaymentsDayPrintPayload({ payments, totals, parking, now: new Date("2026-09-28T22:30:00Z") });
+  assert.equal(payload.type, "PAYMENTS_DAY");
+  assert.equal(payload.companyName, "Clínica Ramis SpA");
+  assert.equal(payload.parkingName, "Clínica Ramis Central");
+  assert.equal(payload.generatedDate, "28-09-2026");
+  assert.equal(payload.generatedTime, "19:30");
+  assert.equal(payload.totalAmount, 1240);
+  assert.equal(payload.count, 1);
+  assert.deepEqual(payload.payments[0], { plate: "CXPY93", time: "17:10", paymentMethod: "CASH", amount: 1240, ticketNumber: "ING-1" });
+  assert.equal(buildPaymentsDayPrintPayload({ payments, totals, parking: null }), null);
+  assert.equal(buildPaymentsDayPrintPayload({ payments: [], totals: null, parking }).count, 0);
+});

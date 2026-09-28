@@ -64,3 +64,35 @@ export function toDailyPaymentRow(stay, { timeZone = OPERATIONAL_TIME_ZONE } = {
     paymentCode: stay?.payment_code || "-",
   };
 }
+
+// IMPRIMIR PAGOS DEL DÍA (type PAYMENTS_DAY): mismos totales y filas que ya
+// devolvió /api/pos/payments para la pantalla — nunca un cálculo nuevo en el
+// frontend. Hora de generación en la zona operacional.
+export function buildPaymentsDayPrintPayload({ payments, totals, parking, now = new Date(), timeZone = OPERATIONAL_TIME_ZONE } = {}) {
+  if (!parking) return null;
+  const generated = toOperationalDateTimeParts(now, timeZone);
+  const companyName = String(parking?.company?.business_name || parking?.company_name || "").trim();
+  const parkingName = String(parking?.name || "").trim();
+  if (!generated || !companyName || !parkingName) return null;
+  const list = Array.isArray(payments) ? payments : [];
+  return {
+    type: "PAYMENTS_DAY",
+    companyName,
+    parkingName,
+    parkingCode: String(parking?.code || "").trim(),
+    generatedDate: generated.entryDate,
+    generatedTime: generated.entryTime,
+    count: Number.isFinite(Number(totals?.count)) ? Number(totals.count) : list.length,
+    totalAmount: Number(totals?.totalAmount) || 0,
+    totalCash: Number(totals?.totalCash) || 0,
+    totalDebit: Number(totals?.totalDebit) || 0,
+    totalCredit: Number(totals?.totalCredit) || 0,
+    payments: list.map((payment) => ({
+      plate: String(payment?.plate || "-"),
+      time: String(payment?.time || "-"),
+      paymentMethod: String(payment?.paymentMethod || "-"),
+      amount: Number(payment?.amount) || 0,
+      ticketNumber: String(payment?.ticketNumber || "-"),
+    })),
+  };
+}
