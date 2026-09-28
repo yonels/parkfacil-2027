@@ -15,6 +15,7 @@ import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayl
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
 import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr } from "@/lib/pos/qrExitCore.mjs";
+import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
 import { classifyEntryFailure, entryErrorMessage, isPlateAlreadyInside, PLATE_SOURCES } from "@/lib/pos/entryPlateCore.mjs";
 import { recognizePlate, releasePlateOcr } from "@/lib/pos/plateOcr";
 import { detectLocalVoiceSupport, installLocalVoice, listenForPlate } from "@/lib/pos/plateVoice";
@@ -864,6 +865,8 @@ export default function PosTerminal() {
   const [qrManualCode, setQrManualCode] = useState("");
   const [qrScanKey, setQrScanKey] = useState(0);
   const [qrBusy, setQrBusy] = useState(false);
+  // APK con scanQr de stub (antiguo): se vuelve a la cámara del navegador.
+  const [qrNativeUnsupported, setQrNativeUnsupported] = useState(false);
 
   // CIERRE DE CAJA
   const [shiftLoading, setShiftLoading] = useState(false);
@@ -1066,10 +1069,12 @@ export default function PosTerminal() {
     setSidebarOpen(false);
 
     if (section === POS_VIEWS.QR) {
-      // Cada entrada a Salida por QR parte con el lector nuevo y sin mensajes.
+      // Cada entrada a Salida por QR parte con el lector nuevo y sin mensajes;
+      // con escáner nativo (APK) se abre de inmediato.
       setQrExitStatus(null);
       setQrManualCode("");
       setQrScanKey((value) => value + 1);
+      if (shiftReadyForOperations && usesNativeQrScanner()) void startNativeQrScan();
     }
 
     if (section !== POS_VIEWS.VEHICULO_DETALLE) {
@@ -1480,6 +1485,30 @@ export default function PosTerminal() {
   function restartQrScan() {
     setQrExitStatus(null);
     setQrScanKey((value) => value + 1);
+  }
+
+  // TUU PRO2: el QR se lee con la cámara nativa del APK (la del WebView 83
+  // cerraba la app). El texto leído sigue el mismo camino que el lector web.
+  async function startNativeQrScan() {
+    setQrExitStatus(null);
+    const result = await scanQrWithNativeScanner(window);
+    if (result.ok) {
+      await handleQrTicket(result.value);
+      return;
+    }
+    if (result.unsupported) {
+      setQrNativeUnsupported(true);
+      return;
+    }
+    if (result.cancelled) {
+      setQrExitStatus({ type: "info", message: "Lectura cancelada. Pulsa ESCANEAR QR DEL TICKET para intentar de nuevo." });
+      return;
+    }
+    setQrExitStatus({ type: "error", message: "No fue posible abrir el escáner de QR. Escribe el código del ticket." });
+  }
+
+  function usesNativeQrScanner() {
+    return typeof window !== "undefined" && hasNativeQrScanner(window) && !qrNativeUnsupported;
   }
 
   function openPaymentModal() {
@@ -3999,12 +4028,20 @@ export default function PosTerminal() {
                 </div>
                 <button
                   type="button"
-                  onClick={restartQrScan}
+                  onClick={() => (usesNativeQrScanner() ? void startNativeQrScan() : restartQrScan())}
                   className="w-full rounded-xl bg-amber-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white hover:bg-amber-800"
                 >
-                  Leer otro QR
+                  {usesNativeQrScanner() ? "Escanear QR del ticket" : "Leer otro QR"}
                 </button>
               </div>
+            ) : usesNativeQrScanner() ? (
+              <button
+                type="button"
+                onClick={() => void startNativeQrScan()}
+                className="w-full rounded-xl bg-amber-700 px-4 py-5 text-base font-black uppercase tracking-[0.08em] text-white hover:bg-amber-800"
+              >
+                Escanear QR del ticket
+              </button>
             ) : (
               <QrTicketScanner key={qrScanKey} onDetected={(value) => void handleQrTicket(value)} />
             )}

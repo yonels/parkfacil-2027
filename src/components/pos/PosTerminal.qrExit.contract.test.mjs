@@ -42,3 +42,11 @@ test("lector compatible con WebView 83: BarcodeDetector si existe, jsQR si no; c
   assert.match(scanner, /stream\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\)/);
   assert.match(scanner, /facingMode: "environment"/);
 });
+
+test("TUU PRO2: con escáner nativo del APK se usa ese (la cámara del WebView cerraba la app)", () => {
+  assert.match(terminal, /import \{ hasNativeQrScanner, scanQrWithNativeScanner \} from "@\/lib\/pos\/nativeQrScanner\.mjs";/);
+  assert.match(qrView, /usesNativeQrScanner\(\) \? \(/);
+  assert.match(terminal, /const result = await scanQrWithNativeScanner\(window\);\s*if \(result\.ok\) \{\s*await handleQrTicket\(result\.value\);/, "mismo camino que el lector web");
+  assert.match(terminal, /if \(result\.unsupported\) \{\s*setQrNativeUnsupported\(true\);/, "APK antiguo -> cámara del navegador");
+  assert.match(terminal, /if \(shiftReadyForOperations && usesNativeQrScanner\(\)\) void startNativeQrScan\(\);/, "se abre solo al entrar, únicamente con turno abierto");
+});
