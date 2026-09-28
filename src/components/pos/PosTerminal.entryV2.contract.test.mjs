@@ -192,3 +192,11 @@ test("al salir del terminal se libera el OCR y se corta la escucha de voz", () =
   assert.match(terminal, /void releasePlateOcr\(\);/);
   assert.match(terminal, /useEffect\(\(\) => \(\) => \{\s*voiceController\?\.cancel\(\);\s*\}, \[voiceController\]\);/);
 });
+
+test("TOMAR FOTO en el paso Patente (reemplaza 'Leer con cámara'): foto de evidencia sin OCR, usada al confirmar", () => {
+  assert.doesNotMatch(entryForm, /"Leer con cámara"/);
+  assert.match(entryForm, /onClick=\{\(\) => \{ clearEntryFailure\(\); setPhotoCaptureOpen\(true\); \}\}/);
+  assert.match(entryForm, /\{entryPhoto \? "Repetir foto" : "Tomar foto"\}/);
+  assert.match(entryForm, /\{platePhotoMode !== "DISABLED" \? \(/, "sin foto configurada no se ofrece");
+  assert.match(confirmEntry, /if \(entryPhoto && platePhotoMode !== "DISABLED"\) \{\s*void submitEntry\(null, confirmedPlate\);\s*return;\s*\}/);
+});

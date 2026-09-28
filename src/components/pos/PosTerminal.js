@@ -1296,6 +1296,12 @@ export default function PosTerminal() {
     const confirmedPlate = toBackendPlate(formatted);
     setEntryConfirmedPlate(confirmedPlate);
     clearEntryFailure();
+    // Foto ya tomada en el paso Patente ("Tomar foto"): registra directo, sin
+    // volver a pedirla.
+    if (entryPhoto && platePhotoMode !== "DISABLED") {
+      void submitEntry(null, confirmedPlate);
+      return;
+    }
     if (platePhotoMode === "DISABLED") {
       void submitEntry(null, confirmedPlate);
       return;
@@ -2622,15 +2628,28 @@ export default function PosTerminal() {
               ) : null}
             </div>
 
+            {entryPhoto?.previewUrl ? (
+              <div className="mt-3 overflow-hidden rounded-2xl border border-emerald-300 bg-black">
+                {/* eslint-disable-next-line @next/next/no-img-element -- blob: local, no optimizable */}
+                <img src={entryPhoto.previewUrl} alt="Foto de la patente" className="block h-auto w-full" />
+                <p className="bg-emerald-50 px-3 py-1 text-center text-xs font-black uppercase tracking-wide text-emerald-800">Foto tomada · escribe la patente</p>
+              </div>
+            ) : null}
+
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <button
-                type="button"
-                onClick={() => { clearEntryFailure(); setOcrCaptureOpen(true); preloadPlateOcr(); }}
-                disabled={busy || voiceState === "LISTENING"}
-                className="min-h-16 rounded-2xl border border-sky-300 bg-sky-50 px-3 py-3 text-base font-black uppercase tracking-[0.04em] text-sky-900 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {ocrBusy ? "Leyendo patente..." : "Leer con cámara"}
-              </button>
+              {/* "Tomar foto": foto de evidencia con el marco de patente (sin
+                  OCR). Se usa al confirmar, sin volver a pedirla. El OCR
+                  (handleOcrCapture) queda en el código sin botón que lo abra. */}
+              {platePhotoMode !== "DISABLED" ? (
+                <button
+                  type="button"
+                  onClick={() => { clearEntryFailure(); setPhotoCaptureOpen(true); }}
+                  disabled={busy || voiceState === "LISTENING"}
+                  className="min-h-16 rounded-2xl border border-sky-300 bg-sky-50 px-3 py-3 text-base font-black uppercase tracking-[0.04em] text-sky-900 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {entryPhoto ? "Repetir foto" : "Tomar foto"}
+                </button>
+              ) : <span />}
               {voiceState === "LISTENING" ? (
                 <button
                   type="button"
