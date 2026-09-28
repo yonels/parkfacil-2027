@@ -15,7 +15,7 @@ const source = await readFile(new URL("./PlatePhotoCapture.js", import.meta.url)
 // ---- §2/§5: proporción del marco + recorte real (no solo visual) ----
 
 test("el componente reutiliza el único cálculo del marco (platePhotoFrame.mjs) -- no un número mágico paralelo", () => {
-  assert.match(source, /import \{ computePlateCropOutputSize, computePlateFrameRect \} from "@\/lib\/offStreet\/platePhotoFrame\.mjs"/);
+  assert.match(source, /import \{ computePlateCropOutputSize, computePlateFrameRect, PLATE_FRAME_ASPECT \} from "@\/lib\/offStreet\/platePhotoFrame\.mjs"/);
   assert.doesNotMatch(source, /2\.77/);
 });
 

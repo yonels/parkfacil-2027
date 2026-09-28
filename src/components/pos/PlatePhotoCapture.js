@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { computePlateCropOutputSize, computePlateFrameRect } from "@/lib/offStreet/platePhotoFrame.mjs";
+import { computePlateCropOutputSize, computePlateFrameRect, PLATE_FRAME_ASPECT } from "@/lib/offStreet/platePhotoFrame.mjs";
 import { averageLuminance, isLowLight } from "@/lib/offStreet/platePhotoLowLight.mjs";
 import { gpsRequirementMessage } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
 
@@ -532,19 +532,20 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
                   mostrado -- lo que se ve es lo que se guarda. */}
               {(() => {
                 const frame = videoSize ? computePlateFrameRect(videoSize.width, videoSize.height) : null;
-                if (!frame) return null;
                 const percent = (value, total) => `${(value / total) * 100}%`;
+                // Sin tamaño de video todavía: mismo cuadro 88% x (88/2,77)% del
+                // ancho, con padding-top (compatible con WebView 83), centrado.
+                const style = frame
+                  ? {
+                      left: percent(frame.x, videoSize.width),
+                      top: percent(frame.y, videoSize.height),
+                      width: percent(frame.width, videoSize.width),
+                      height: percent(frame.height, videoSize.height),
+                    }
+                  : { left: "6%", width: "88%", top: "50%", height: 0, paddingTop: `${88 / PLATE_FRAME_ASPECT}%`, transform: "translateY(-50%)" };
                 return (
                   <div className="pointer-events-none absolute inset-0">
-                    <div
-                      className="absolute rounded-lg border-4 border-emerald-400/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]"
-                      style={{
-                        left: percent(frame.x, videoSize.width),
-                        top: percent(frame.y, videoSize.height),
-                        width: percent(frame.width, videoSize.width),
-                        height: percent(frame.height, videoSize.height),
-                      }}
-                    />
+                    <div className="absolute rounded-lg border-4 border-emerald-400/90 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" style={style} />
                   </div>
                 );
               })()}
