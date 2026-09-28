@@ -2310,10 +2310,10 @@ export default function PosTerminal() {
   }
 
   const navItems = [
-    // Primero del menú: iniciar (o ver) el turno del operador.
+    { label: "INICIO", onSelect: () => goToSection(POS_VIEWS.HOME) },
+    // Después de INICIO: iniciar (o ver) el turno del operador.
     // (misma condición que shiftReadyForOperations, que se declara más abajo)
     { label: shiftState === "OPEN" && shift?.status !== "CLOSING" ? "TURNO ACTIVO" : "INICIO DE TURNO", onSelect: () => goToSection(POS_VIEWS.TURNO) },
-    { label: "INICIO", onSelect: () => goToSection(POS_VIEWS.HOME) },
     { label: "INGRESO DE VEHÍCULO", onSelect: openEntryForm },
     { label: "SALIDA DE VEHÍCULO", onSelect: () => goToSection(POS_VIEWS.SALIDA) },
     { label: "VEHÍCULOS EN EL PARKING", onSelect: () => goToSection(POS_VIEWS.VEHICULOS) },

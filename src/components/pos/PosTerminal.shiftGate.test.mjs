@@ -120,10 +120,10 @@ test("no se creó ninguna tabla/servicio de turnos nuevo: el gate reutiliza oper
   assert.match(terminalSource, /fetch\("\/api\/pos\/shift\/start"/);
 });
 
-test("INICIO DE TURNO: primero del menú y, sin turno programado, el operador puede iniciarlo a pedido", () => {
+test("INICIO DE TURNO: segundo del menú (después de INICIO) y, sin turno programado, el operador puede iniciarlo a pedido", () => {
   const menuStart = terminalSource.indexOf('"TURNO ACTIVO" : "INICIO DE TURNO"');
   const homeItem = terminalSource.indexOf('{ label: "INICIO", onSelect: () => goToSection(POS_VIEWS.HOME) }');
-  assert.ok(menuStart > -1 && menuStart < homeItem, "INICIO DE TURNO va antes que INICIO");
+  assert.ok(homeItem > -1 && homeItem < menuStart, "INICIO va antes que INICIO DE TURNO / TURNO ACTIVO");
   assert.match(terminalSource, /if \(currentView === POS_VIEWS\.TURNO\) \{\s*const gate = renderShiftGate\("Inicio de turno"\);/);
   assert.match(terminalSource, /onClick=\{\(\) => void startOnDemandShift\(\)\}[\s\S]{0,300}"INICIAR TURNO"/);
   assert.match(terminalSource, /onClick=\{\(\) => void startOnDemandShift\(\)\}[\s\S]{0,300}"INICIAR NUEVO TURNO"/);
