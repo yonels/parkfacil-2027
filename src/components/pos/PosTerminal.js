@@ -13,6 +13,8 @@ import { buildAgentEntryTicketPayload } from "@/lib/pos/entryTicketPayload.mjs";
 import { photoToTicketRaster } from "@/lib/pos/ticketPhotoRaster.mjs";
 import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
+import QrTicketScanner from "@/components/pos/QrTicketScanner";
+import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr } from "@/lib/pos/qrExitCore.mjs";
 import { classifyEntryFailure, entryErrorMessage, isPlateAlreadyInside, PLATE_SOURCES } from "@/lib/pos/entryPlateCore.mjs";
 import { recognizePlate, releasePlateOcr } from "@/lib/pos/plateOcr";
 import { detectLocalVoiceSupport, installLocalVoice, listenForPlate } from "@/lib/pos/plateVoice";
@@ -857,6 +859,11 @@ export default function PosTerminal() {
   const [salidaPlate, setSalidaPlate] = useState("");
   const [salidaSearchStatus, setSalidaSearchStatus] = useState(null);
   const [salidaSuggestionsOpen, setSalidaSuggestionsOpen] = useState(false);
+  // Salida por QR: lectura del QR del ticket de entrada -> cotización -> cobro.
+  const [qrExitStatus, setQrExitStatus] = useState(null);
+  const [qrManualCode, setQrManualCode] = useState("");
+  const [qrScanKey, setQrScanKey] = useState(0);
+  const [qrBusy, setQrBusy] = useState(false);
 
   // CIERRE DE CAJA
   const [shiftLoading, setShiftLoading] = useState(false);
@@ -1057,6 +1064,13 @@ export default function PosTerminal() {
   function goToSection(section) {
     setCurrentView(section);
     setSidebarOpen(false);
+
+    if (section === POS_VIEWS.QR) {
+      // Cada entrada a Salida por QR parte con el lector nuevo y sin mensajes.
+      setQrExitStatus(null);
+      setQrManualCode("");
+      setQrScanKey((value) => value + 1);
+    }
 
     if (section !== POS_VIEWS.VEHICULO_DETALLE) {
       setSelectedVehicle(null);
@@ -1392,8 +1406,9 @@ export default function PosTerminal() {
     void openVehicleDetail(stay);
   }
 
+  // Devuelve el detalle cotizado (o null) -- lo usa Salida por QR para abrir el cobro.
   async function openVehicleDetail(stay) {
-    if (!stay?.id) return;
+    if (!stay?.id) return null;
     setCurrentView(POS_VIEWS.VEHICULO_DETALLE);
     setSidebarOpen(false);
     setSelectedVehicleLoading(true);
@@ -1418,11 +1433,53 @@ export default function PosTerminal() {
 
       const detail = response.payload?.data || null;
       setSelectedVehicle(detail);
+      return detail;
     } catch {
       setSelectedVehicleError("Error de red al cotizar el vehículo.");
     } finally {
       setSelectedVehicleLoading(false);
     }
+  }
+
+  // Salida por QR: siempre con la lista fresca de estadías OPEN del servidor
+  // (el ticket pudo emitirse en otro equipo), mismo resolvedor para el QR
+  // leído y para el código escrito a mano. Con la estadía ubicada, cotiza y
+  // abre directo el cobro cuando la cotización quedó cargada.
+  async function handleQrTicket(raw) {
+    if (qrBusy) return;
+    setQrBusy(true);
+    setQrExitStatus(null);
+    try {
+      const summary = await getPosVehicleSummary();
+      if (!summary.ok) {
+        if (summary.status === 401) {
+          redirectToPosLogin("sesion-expirada");
+          return;
+        }
+        setQrExitStatus({ type: "error", message: summary.payload?.error || "No fue posible consultar los vehículos dentro." });
+        return;
+      }
+      const stays = Array.isArray(summary.payload?.data?.stays) ? summary.payload.data.stays : [];
+      setActiveStays(stays);
+      setVehiclesInside(stays.length);
+      const result = resolveStayFromQr(stays, raw);
+      if (result.status !== QR_EXIT_STATUS.FOUND) {
+        setQrExitStatus({ type: result.status === QR_EXIT_STATUS.CONFLICT ? "conflict" : "error", message: qrExitMessage(result) });
+        return;
+      }
+      setQrManualCode("");
+      const detail = await openVehicleDetail(result.stay);
+      if (detail) openPaymentModal();
+    } catch {
+      setQrExitStatus({ type: "error", message: "Error de red al buscar el ticket." });
+    } finally {
+      setQrBusy(false);
+    }
+  }
+
+  function restartQrScan() {
+    setQrExitStatus(null);
+    setQrScanKey((value) => value + 1);
   }
 
   function openPaymentModal() {
@@ -3919,10 +3976,66 @@ export default function PosTerminal() {
     }
 
     if (currentView === POS_VIEWS.QR) {
+      // Salida por QR: cobra, así que exige turno OPEN (igual que SALIDA).
+      const gate = renderShiftGate("Salida por código QR");
+      if (gate) return gate;
+
       return (
         <section className="rounded-3xl border border-amber-300 bg-amber-50 p-5 text-amber-950 shadow-sm">
-          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Código QR</h2>
-          <p className="mt-2 text-sm font-semibold">Acceso visual preparado. La lectura QR futura mostrará ticket y permitirá decisión del operador sin ejecutar salida automática.</p>
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Salida por código QR</h2>
+          <p className="mt-2 text-sm font-semibold">Lee el QR del ticket de entrada: se ubica el vehículo, se calcula el monto y se abre el cobro.</p>
+
+          <div className="mt-4">
+            {qrBusy ? (
+              <div className="rounded-2xl border border-amber-300 bg-white p-4 text-sm font-bold text-amber-900">Buscando ticket y calculando monto...</div>
+            ) : qrExitStatus ? (
+              <div className="space-y-3">
+                <div
+                  className={`rounded-2xl border p-4 text-sm font-semibold ${
+                    qrExitStatus.type === "conflict" ? "border-red-400 bg-red-50 text-red-900" : "border-amber-300 bg-white text-amber-900"
+                  }`}
+                >
+                  {qrExitStatus.message}
+                </div>
+                <button
+                  type="button"
+                  onClick={restartQrScan}
+                  className="w-full rounded-xl bg-amber-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white hover:bg-amber-800"
+                >
+                  Leer otro QR
+                </button>
+              </div>
+            ) : (
+              <QrTicketScanner key={qrScanKey} onDetected={(value) => void handleQrTicket(value)} />
+            )}
+          </div>
+
+          <form
+            className="mt-4 flex flex-col gap-3 sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleQrTicket(qrManualCode);
+            }}
+          >
+            <input
+              type="text"
+              inputMode="text"
+              autoCapitalize="characters"
+              autoComplete="off"
+              value={qrManualCode}
+              onChange={(event) => setQrManualCode(event.target.value)}
+              placeholder="Código del ticket (si el QR no se lee)"
+              className="min-w-0 flex-1 rounded-xl border border-amber-300 bg-white px-4 py-3 text-base font-bold uppercase text-amber-950 focus:border-amber-500 focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={qrBusy}
+              className="rounded-xl bg-amber-900 px-6 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-amber-800 disabled:opacity-60"
+            >
+              BUSCAR
+            </button>
+          </form>
+
           <div className="mt-4">
             <button
               type="button"
