@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Eye, EyeOff, KeyRound, Search } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import SpreadsheetTable from "@/components/ui/SpreadsheetTable";
@@ -13,12 +13,17 @@ import { authenticatedFetch } from "@/lib/supabaseBrowser";
 // mismo catálogo real (GET /api/usuarios, ya autorizado y acotado por
 // empresa en el servidor) filtrado por rol, con buscador independiente.
 // Cada resultado es clickeable y abre directamente /usuarios/[id].
-export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeholderBusqueda, backHref, backLabel }) {
+export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeholderBusqueda, backHref, backLabel, showCredentials = false }) {
   const [usuarios, setUsuarios] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busqueda, setBusqueda] = useState("");
+  const [canManageCredentials, setCanManageCredentials] = useState(false);
+  const [credentials, setCredentials] = useState({});
+  const [visibleCredentials, setVisibleCredentials] = useState({});
+  const [credentialLoadingId, setCredentialLoadingId] = useState(null);
+  const [credentialError, setCredentialError] = useState("");
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -30,12 +35,30 @@ export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeho
       if (!response.ok) throw new Error(body.error || "No fue posible cargar los usuarios.");
       setUsuarios(body.data || []);
       setEmpresas(body.companies || []);
+      setCanManageCredentials(Boolean(body.canManageCredentials));
     } catch (cause) {
       setError(cause.message);
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const generateCredential = async (usuario) => {
+    if (!window.confirm(`Se reemplazará la clave actual de ${usuario.nombreCompleto}. ¿Generar una nueva clave temporal?`)) return;
+    setCredentialError("");
+    setCredentialLoadingId(usuario.id);
+    try {
+      const response = await authenticatedFetch(`/api/usuarios/${usuario.id}/credencial`, { method: "POST" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No fue posible generar la clave temporal.");
+      setCredentials((current) => ({ ...current, [usuario.id]: body.data.temporaryPassword }));
+      setVisibleCredentials((current) => ({ ...current, [usuario.id]: true }));
+    } catch (cause) {
+      setCredentialError(cause.message);
+    } finally {
+      setCredentialLoadingId(null);
+    }
+  };
 
   useEffect(() => {
     const timer = window.setTimeout(() => cargar(), 0);
@@ -71,13 +94,22 @@ export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeho
 
   const columnas = useMemo(() => [
     { key: "usuarioAcceso", label: "Usuario de acceso", className: "font-semibold text-[#3150D8]" },
+    ...(showCredentials && canManageCredentials ? [{
+      key: "credential", label: "Clave de acceso", sortable: false, link: false,
+      render: (row) => credentials[row.id]
+        ? <span className="flex items-center gap-2 px-3 py-2">
+            <span className="font-mono">{visibleCredentials[row.id] ? credentials[row.id] : "••••••••"}</span>
+            <button type="button" aria-label={visibleCredentials[row.id] ? "Ocultar clave" : "Mostrar clave"} onClick={() => setVisibleCredentials((current) => ({ ...current, [row.id]: !current[row.id] }))} className="text-[#3150D8]">{visibleCredentials[row.id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
+          </span>
+        : <button type="button" disabled={credentialLoadingId === row.id} onClick={() => generateCredential(row)} className="inline-flex items-center gap-1 px-3 py-2 font-semibold text-[#3150D8] disabled:opacity-50"><KeyRound className="h-4 w-4" />{credentialLoadingId === row.id ? "Generando…" : "Generar clave nueva"}</button>,
+    }] : []),
     { key: "recoveryEmail", label: "Correo de recuperación", render: (row) => row.recoveryEmail || "Sin configurar" },
     { key: "nombreCompleto", label: "Nombre" },
     { key: "telefono", label: "Teléfono" },
     { key: "empresaNombre", label: "Empresa" },
     { key: "estado", label: "Estado", render: (row) => <EstadoUsuarioBadge estado={row.estado} /> },
     { key: "ultimoAcceso", label: "Último acceso" },
-  ], []);
+  ], [showCredentials, canManageCredentials, credentials, visibleCredentials, credentialLoadingId]);
 
   return (
     <AppShell title={titulo} description={descripcion}>
@@ -100,6 +132,7 @@ export default function UsuariosPorRolClient({ rol, titulo, descripcion, placeho
               {error === "SESSION_EXPIRED" ? "Tu sesión expiró. Vuelve a iniciar sesión." : error}
             </p>
           ) : null}
+          {credentialError ? <p role="alert" className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{credentialError}</p> : null}
 
           <div className="mt-6">
             {loading ? (

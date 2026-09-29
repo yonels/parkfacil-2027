@@ -13,6 +13,7 @@ export default function OperadoresPage() {
       placeholderBusqueda="Buscar operadores"
       backHref="/usuarios"
       backLabel="Volver a Usuarios"
+      showCredentials
     />
   );
 }
