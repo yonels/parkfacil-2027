@@ -3,6 +3,9 @@ import AppShell from "@/components/layout/AppShell";
 import StatCard from "@/components/ui/StatCard";
 import ModuleCard from "@/components/ui/ModuleCard";
 import StatusBadge from "@/components/ui/StatusBadge";
+import RootSearch from "@/components/home/RootSearch";
+import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
+import { ROLES } from "@/lib/auth/permissions.mjs";
 
 const modules = [
   { title: "Operación", description: "Vista general de la operación y el control diario.", icon: Building2, href: "/operacion", state: "Disponible" },
@@ -29,10 +32,17 @@ const modules = [
 
 const whatsappUrl = "https://wa.me/56966514044?text=Hola%20ParkFacil%2C%20necesito%20informaci%C3%B3n.";
 
-export default function Home() {
+export default async function Home() {
+  let context = null;
+  try {
+    context = await getCurrentServerContext();
+  } catch {
+    context = null;
+  }
   return (
     <AppShell title="Inicio" description="Acceso principal a las áreas de ParkFacil">
       <div id="centro-control" className="scroll-mt-5 space-y-6">
+        {context?.role === ROLES.PLATFORM_ADMIN && <RootSearch modules={modules.map(({ title, description, href }) => ({ title, description, href }))} />}
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard title="Estacionamientos" value="24" description="Demostración visual" icon={Building2} trend="+3% respecto a la última etapa" href="/estacionamientos" />
           <StatCard title="Operación" value="12" description="Módulo base preparado" icon={BarChart3} trend="En revisión" href="/operacion" />
