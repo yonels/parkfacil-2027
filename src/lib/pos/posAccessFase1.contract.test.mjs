@@ -261,3 +261,12 @@ test("UI táctil: navegación y acciones de cabecera con área mínima de toque"
   assert.match(posTerminal, /aria-label="Cerrar sesión"/);
   assert.doesNotMatch(posTerminal, /Versión 0\.1\.1/, "la versión visible sale de POS_FRONTEND_VERSION");
 });
+
+test("/api/pos/stays entrega el modo de foto del estacionamiento (el POS carga su estado desde aquí)", () => {
+  const stays = read("../../app/api/pos/stays/route.js");
+  assert.match(stays, /getPlatePhotoSettings\(authorization\.db, parking\.id\)\.catch\(\(\) => PLATE_PHOTO_DISABLED\)/);
+  assert.match(stays, /platePhotoSettings: \{ mode: platePhotoSettings\.plateMode, printOnTicket: platePhotoSettings\.printOnTicket, gpsMode: platePhotoSettings\.gpsMode \}/);
+  const terminal = read("../../components/pos/PosTerminal.js");
+  assert.match(terminal, /fetch\("\/api\/pos\/stays"/);
+  assert.match(terminal, /const photoSettings = summary\.payload\?\.data\?\.platePhotoSettings \|\| null;/);
+});

@@ -3,6 +3,9 @@ import { authorizeOperationRequest, operationAuthorizationError, posOperationAct
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { listOpenPosStays } from "@/lib/posStaysService";
+import { getPlatePhotoSettings } from "@/lib/offStreet/offStreetPlatePhotoSettingsRepository";
+
+const PLATE_PHOTO_DISABLED = { plateMode: "DISABLED", printOnTicket: false, gpsMode: "DISABLED" };
 
 function fail(message, status = 400, details) {
   return NextResponse.json({ error: message, details }, { status });
@@ -23,7 +26,14 @@ export async function GET(request) {
       return fail("El usuario no tiene un estacionamiento autorizado.", 404);
     }
 
-    const summary = await listOpenPosStays(authorization.db, parking.id, { now: new Date() });
+    // platePhotoSettings: el POS carga su estado desde esta ruta; sin este
+    // campo el modo de foto que configura el administrador nunca llegaba y
+    // el ingreso lo trataba siempre como DISABLED. Mismo criterio que
+    // /api/data-entry: sin fila (o ante error) -> DISABLED.
+    const [summary, platePhotoSettings] = await Promise.all([
+      listOpenPosStays(authorization.db, parking.id, { now: new Date() }),
+      getPlatePhotoSettings(authorization.db, parking.id).catch(() => PLATE_PHOTO_DISABLED),
+    ]);
 
     return NextResponse.json({
       data: {
@@ -31,6 +41,7 @@ export async function GET(request) {
         serverNow: summary.serverNow,
         stays: summary.stays,
         actor: { ...posOperationActor(authorization.context), parkingId: parking.id },
+        platePhotoSettings: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket, gpsMode: platePhotoSettings.gpsMode },
       },
     });
   } catch (error) {
