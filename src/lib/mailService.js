@@ -10,9 +10,15 @@
  * correos corporativos mediante Microsoft Graph.
  ******************************************************************/
 
+import {
+  EMAIL_DELIVERY_DISABLED_CODE,
+  emailDeliveryDisabledMessage,
+  isEmailDeliveryDisabled,
+} from "./emailDeliveryGuard.mjs";
+
  const GRAPH_SCOPE = "https://graph.microsoft.com/.default";
  const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
- 
+
  /**
   * Comprueba que las variables necesarias estén configuradas.
   */
@@ -80,6 +86,12 @@ export function obtenerConfiguracionMicrosoft() {
   * Obtiene un token OAuth 2.0 para Microsoft Graph.
   */
 export async function obtenerTokenMicrosoftGraph() {
+   // Toda llamada a Graph (envío o lectura) pide token primero: aquí se
+   // corta la salida cuando EMAIL_DELIVERY=disabled, antes de la red.
+   if (isEmailDeliveryDisabled()) {
+     throw Object.assign(new Error(emailDeliveryDisabledMessage()), { code: EMAIL_DELIVERY_DISABLED_CODE });
+   }
+
    const {
      tenantId,
      clientId,

@@ -1,3 +1,5 @@
+import { EMAIL_DELIVERY_DISABLED_CODE, emailDeliveryDisabledMessage, isEmailDeliveryDisabled } from "./emailDeliveryGuard.mjs";
+
 const GRAPH_SCOPE = "https://graph.microsoft.com/.default";
 const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
 const TOKEN_TIMEOUT_MS = 10000;
@@ -112,6 +114,10 @@ async function readGraphError(response) {
 }
 
 export async function getMicrosoftGraphAccessToken({ fetchImpl = fetch, env = process.env } = {}) {
+  // Corte explícito de salida (EMAIL_DELIVERY=disabled) antes de la red.
+  if (isEmailDeliveryDisabled(env)) {
+    throw new MicrosoftGraphSendError(emailDeliveryDisabledMessage(), 503, EMAIL_DELIVERY_DISABLED_CODE);
+  }
   const { tenantId, clientId, clientSecret } = getMicrosoftGraphConfiguration(env);
   const timeout = withTimeout(TOKEN_TIMEOUT_MS);
   try {
@@ -136,6 +142,9 @@ export async function getMicrosoftGraphAccessToken({ fetchImpl = fetch, env = pr
 }
 
 export async function sendMicrosoftGraphMail({ para, cc = [], bcc = [], asunto, html, texto = "", attachments = [], guardarEnviados = true, fetchImpl = fetch, env = process.env } = {}) {
+  if (isEmailDeliveryDisabled(env)) {
+    throw new MicrosoftGraphSendError(emailDeliveryDisabledMessage(), 503, EMAIL_DELIVERY_DISABLED_CODE);
+  }
   const { senderEmail } = getMicrosoftGraphConfiguration(env);
   const accessToken = await getMicrosoftGraphAccessToken({ fetchImpl, env });
   const payload = buildSendMailPayload({ para, cc, bcc, asunto, html, texto, attachments, guardarEnviados });
