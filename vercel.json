@@ -1,0 +1,8 @@
+{
+  "git": {
+    "deploymentEnabled": {
+      "feature/pago-liberado-fase-a": false
+    }
+  },
+  "ignoreCommand": "exit 0"
+}
