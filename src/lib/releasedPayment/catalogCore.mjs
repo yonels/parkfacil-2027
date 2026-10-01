@@ -19,13 +19,9 @@ export const RELEASED_PAYMENT_MODALITIES = Object.freeze({
 
 export const RELEASED_PAYMENT_MODALITY_CODES = Object.freeze(Object.keys(RELEASED_PAYMENT_MODALITIES));
 
-// Valores acordados (mismos que la migración 20261001090000). Solo se usan
-// si el catálogo aún no existe en la base (migración no aplicada).
-export const DEFAULT_RELEASED_PAYMENT_CATALOG = Object.freeze([
-  Object.freeze({ modality: "MONTHLY", periodMonths: 1, packagePriceUf: 2, includedSpots: 5, additionalSpotPriceUf: 0.25, availableInQuotes: false, notes: "" }),
-  Object.freeze({ modality: "SEMIANNUAL", periodMonths: 6, packagePriceUf: 11, includedSpots: 5, additionalSpotPriceUf: null, availableInQuotes: false, notes: "" }),
-  Object.freeze({ modality: "ANNUAL", periodMonths: 12, packagePriceUf: 20, includedSpots: 5, additionalSpotPriceUf: null, availableInQuotes: false, notes: "" }),
-]);
+// Sin precios en código: todos los valores viven en released_payment_catalog
+// y los edita solo Root. La migración 20261001090000 siembra valores
+// INICIALES editables; el código nunca los repite ni los completa.
 
 const MAX_UF = 10000;
 const MAX_SPOTS = 1000;
@@ -49,11 +45,11 @@ export function catalogRowFromDb(row) {
   };
 }
 
-// Orden fijo MONTHLY, SEMIANNUAL, ANNUAL; completa con los valores por
-// defecto cualquier modalidad ausente.
+// Orden fijo MONTHLY, SEMIANNUAL, ANNUAL con las filas EXISTENTES en la
+// base. Una modalidad ausente se omite: nunca se completa con precios.
 export function normalizeCatalog(rows) {
   const byModality = new Map((Array.isArray(rows) ? rows : []).filter(Boolean).map((row) => [row.modality, row]));
-  return DEFAULT_RELEASED_PAYMENT_CATALOG.map((fallback) => ({ ...fallback, ...(byModality.get(fallback.modality) || {}) }));
+  return RELEASED_PAYMENT_MODALITY_CODES.filter((code) => byModality.has(code)).map((code) => byModality.get(code));
 }
 
 // Entrada de Root (formulario/API). Devuelve { rows, errors }. Los campos

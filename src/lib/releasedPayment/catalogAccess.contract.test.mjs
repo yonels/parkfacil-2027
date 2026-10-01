@@ -34,6 +34,8 @@ test("base: service_role solo LEE el catálogo y su auditoría; nunca escribe di
 test("UI: no muestra precios hasta que la API confirma Root; ubicación Planes → Módulos adicionales", () => {
   assert.match(page, /const \[form, setForm\] = useState\(null\);/);
   assert.doesNotMatch(page, /DEFAULT_RELEASED_PAYMENT_CATALOG/);
+  assert.ok(route.includes("return NextResponse.json({ data: [], audit: [], storageReady: false"), "sin migración no se muestran precios fijos");
+  assert.ok(page.includes("{form?.length ? ("), "sin filas no se dibuja la tabla de precios");
   assert.match(plans, /\{isRoot \? \(\s*<section[\s\S]{0,200}Módulos adicionales/);
   assert.match(plans, /setIsRoot\(Boolean\(body\.permissions\?\.canCreate\)\)/);
   assert.match(plans, /href="\/tarifas\/modulos\/pago-liberado"/);

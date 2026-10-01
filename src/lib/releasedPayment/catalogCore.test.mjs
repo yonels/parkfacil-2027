@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import * as catalogCore from "./catalogCore.mjs";
 import {
-  DEFAULT_RELEASED_PAYMENT_CATALOG,
   catalogRowFromDb,
   catalogRowToDb,
   diffCatalogRow,
@@ -11,18 +11,25 @@ import {
   sanitizeCatalogInput,
 } from "./catalogCore.mjs";
 
-const byModality = (code) => DEFAULT_RELEASED_PAYMENT_CATALOG.find((row) => row.modality === code);
+// Catálogo de PRUEBA (datos del test, no precios de la aplicación): los
+// precios reales viven solo en la base y los edita Root.
+const CATALOGO_PRUEBA = [
+  { modality: "MONTHLY", periodMonths: 1, packagePriceUf: 2, includedSpots: 5, additionalSpotPriceUf: 0.25, availableInQuotes: false, notes: "" },
+  { modality: "SEMIANNUAL", periodMonths: 6, packagePriceUf: 11, includedSpots: 5, additionalSpotPriceUf: null, availableInQuotes: false, notes: "" },
+  { modality: "ANNUAL", periodMonths: 12, packagePriceUf: 20, includedSpots: 5, additionalSpotPriceUf: null, availableInQuotes: false, notes: "" },
+];
+const byModality = (code) => CATALOGO_PRUEBA.find((row) => row.modality === code);
 
-test("catálogo acordado: mensual 2 UF, semestral 11 UF, anual 20 UF, hasta 5 plazas; adicional mensual 0,25 UF; semestral/anual pendientes", () => {
-  assert.deepEqual(DEFAULT_RELEASED_PAYMENT_CATALOG.map((row) => [row.modality, row.periodMonths, row.packagePriceUf, row.includedSpots, row.additionalSpotPriceUf]), [
-    ["MONTHLY", 1, 2, 5, 0.25],
-    ["SEMIANNUAL", 6, 11, 5, null],
-    ["ANNUAL", 12, 20, 5, null],
-  ]);
-  assert.ok(DEFAULT_RELEASED_PAYMENT_CATALOG.every((row) => row.availableInQuotes === false), "no se ofrece en propuestas hasta su liberación comercial");
+test("sin precios en código: el módulo no exporta catálogo por defecto y normalizeCatalog nunca completa valores", () => {
+  assert.equal("DEFAULT_RELEASED_PAYMENT_CATALOG" in catalogCore, false);
+  const source = readFileSync(new URL("./catalogCore.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /packagePriceUf:s*d/, "ningún precio literal en el módulo");
+  assert.deepEqual(normalizeCatalog([]), []);
+  const soloAnual = normalizeCatalog([byModality("ANNUAL"), byModality("MONTHLY")]);
+  assert.deepEqual(soloAnual.map((row) => row.modality), ["MONTHLY", "ANNUAL"], "orden fijo, sin inventar la modalidad ausente");
 });
 
-test("la migración siembra exactamente los mismos valores que el catálogo por defecto", () => {
+test("la migración siembra los valores INICIALES editables (no los fija el código)", () => {
   const sql = readFileSync(new URL("../../../supabase/migrations/20261001090000_released_payment_catalog.sql", import.meta.url), "utf8");
   assert.match(sql, /\('MONTHLY', 1, 2\.00, 5, 0\.25, false\)/);
   assert.match(sql, /\('SEMIANNUAL', 6, 11\.00, 5, null, false\)/);
@@ -107,7 +114,6 @@ test("mapeo DB <-> dominio, normalización y diff para auditoría", () => {
   assert.equal(db.period_months, 1);
   assert.equal(db.additional_spot_price_uf, 0.3);
   assert.equal(db.updated_by, "u1");
-  assert.deepEqual(normalizeCatalog([]).map((item) => item.modality), ["MONTHLY", "SEMIANNUAL", "ANNUAL"]);
   assert.deepEqual(diffCatalogRow(row, { ...row, additionalSpotPriceUf: 0.3 }), ["additionalSpotPriceUf"]);
   assert.deepEqual(diffCatalogRow(row, { ...row }), []);
 });

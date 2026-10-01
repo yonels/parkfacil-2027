@@ -37,9 +37,9 @@ export async function GET(request) {
   ]);
   if (catalog.error) {
     if (STORAGE_MISSING_CODES.has(catalog.error.code)) {
-      // Migración 20261001090000 aún no aplicada: se muestran los valores
-      // acordados como referencia, sin permitir guardar.
-      return NextResponse.json({ data: normalizeCatalog([]), audit: [], storageReady: false, permissions: { canEdit: false } });
+      // Migración 20261001090000 aún no aplicada: sin catálogo no hay
+      // precios que mostrar (nunca se usan valores fijos en código).
+      return NextResponse.json({ data: [], audit: [], storageReady: false, permissions: { canEdit: false } });
     }
     console.error("[released-payment-catalog:read]", catalog.error);
     return NextResponse.json({ error: "No fue posible cargar el catálogo de Pago liberado.", code: "RELEASED_PAYMENT_READ_FAILED" }, { status: 500 });

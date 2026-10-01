@@ -117,13 +117,13 @@ export default function PagoLiberadoCatalogPage() {
         ) : null}
         {!state.storageReady ? (
           <div className="rounded-3xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
-            Migración pendiente: el catálogo aún no existe en la base. Se muestran los valores acordados como referencia; no se pueden guardar cambios hasta aplicar la migración 20261001090000.
+            Migración pendiente: el catálogo aún no existe en la base, por lo que no hay precios configurados. Aplica la migración 20261001090000 para cargar los valores iniciales editables.
           </div>
         ) : null}
         {state.error ? <div className="rounded-3xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-800">{state.error}</div> : null}
         {state.saved ? <div className="rounded-3xl border border-emerald-300 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">{state.saved}</div> : null}
 
-        {form ? (
+        {form?.length ? (
         <>
         <form onSubmit={save} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-bold text-[#041E42]">Modalidades y precios</h2>
