@@ -9,17 +9,16 @@ import { RELEASED_PAYMENT_MODALITIES, quoteReleasedPayment } from "@/lib/release
 
 // Root → Planes → Módulos adicionales → Pago liberado (Fase A).
 // Catálogo comercial del módulo: SOLO Root lo ve y lo edita (la API lo
-// exige). Cambiar estos valores no altera propuestas ni contratos ya
-// emitidos: cada uno guarda su snapshot de precios.
+// exige). Sin paquetes: precio por cupo unitario por modalidad. Cambiar
+// estos valores no altera propuestas ni contratos ya emitidos: cada uno
+// guarda su snapshot de precios.
 
 const formatUf = (value) => (value === null || value === undefined || !Number.isFinite(Number(value)) ? "—" : `${Number(value).toLocaleString("es-CL", { minimumFractionDigits: 2, maximumFractionDigits: 4 })} UF`);
 
 function toForm(rows) {
   return rows.map((row) => ({
     modality: row.modality,
-    packagePriceUf: String(row.packagePriceUf ?? ""),
-    includedSpots: String(row.includedSpots ?? ""),
-    additionalSpotPriceUf: row.additionalSpotPriceUf === null || row.additionalSpotPriceUf === undefined ? "" : String(row.additionalSpotPriceUf),
+    cupoPriceUf: row.cupoPriceUf === null || row.cupoPriceUf === undefined ? "" : String(row.cupoPriceUf),
     availableInQuotes: Boolean(row.availableInQuotes),
     notes: row.notes || "",
   }));
@@ -29,9 +28,7 @@ function fromForm(form) {
   return form.map((row) => ({
     modality: row.modality,
     periodMonths: RELEASED_PAYMENT_MODALITIES[row.modality].periodMonths,
-    packagePriceUf: Number(String(row.packagePriceUf).replace(",", ".")),
-    includedSpots: Number(row.includedSpots),
-    additionalSpotPriceUf: String(row.additionalSpotPriceUf).trim() === "" ? null : Number(String(row.additionalSpotPriceUf).replace(",", ".")),
+    cupoPriceUf: String(row.cupoPriceUf).trim() === "" ? null : Number(String(row.cupoPriceUf).replace(",", ".")),
     availableInQuotes: row.availableInQuotes,
   }));
 }
@@ -43,7 +40,7 @@ export default function PagoLiberadoCatalogPage() {
   const [state, setState] = useState({ loading: true, storageReady: true, canEdit: false, error: "", saved: "" });
   const [saving, setSaving] = useState(false);
   const [previewModality, setPreviewModality] = useState("MONTHLY");
-  const [previewSpots, setPreviewSpots] = useState("5");
+  const [previewCupos, setPreviewCupos] = useState("1");
 
   useEffect(() => {
     let active = true;
@@ -66,11 +63,17 @@ export default function PagoLiberadoCatalogPage() {
   const preview = useMemo(() => {
     if (!form) return null;
     const row = fromForm(form).find((item) => item.modality === previewModality);
-    return quoteReleasedPayment(row, { contractedSpots: Number(previewSpots) });
-  }, [form, previewModality, previewSpots]);
+    return quoteReleasedPayment(row, { contractedCupos: Number(previewCupos) });
+  }, [form, previewModality, previewCupos]);
 
   function change(index, key, value) {
-    setForm((current) => current.map((row, i) => (i === index ? { ...row, [key]: value } : row)));
+    setForm((current) => current.map((row, i) => {
+      if (i !== index) return row;
+      const next = { ...row, [key]: value };
+      // Sin precio definido no puede quedar disponible en propuestas.
+      if (key === "cupoPriceUf" && String(value).trim() === "") next.availableInQuotes = false;
+      return next;
+    }));
     setState((current) => ({ ...current, saved: "", error: "" }));
   }
 
@@ -117,7 +120,7 @@ export default function PagoLiberadoCatalogPage() {
         ) : null}
         {!state.storageReady ? (
           <div className="rounded-3xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
-            Migración pendiente: el catálogo aún no existe en la base, por lo que no hay precios configurados. Aplica la migración 20261001090000 para cargar los valores iniciales editables.
+            Migración pendiente: el catálogo aún no existe en la base, por lo que no hay precios configurados.
           </div>
         ) : null}
         {state.error ? <div className="rounded-3xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-800">{state.error}</div> : null}
@@ -128,36 +131,32 @@ export default function PagoLiberadoCatalogPage() {
         <form onSubmit={save} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-bold text-[#041E42]">Modalidades y precios</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Valores en UF netos (+ IVA) por estacionamiento. El precio de cada modalidad es el total del período; no hay renovación automática ni facturación automática. Un precio de plaza adicional vacío queda <strong>pendiente de definición</strong> y bloquea cotizar plazas adicionales en esa modalidad.
+            Valores en UF netos (+ IVA) por <strong>cupo</strong>, para el período completo de la modalidad. Cada cupo es unitario y solo limita la ocupación simultánea; no crea autorizaciones. No hay renovación ni facturación automática. Un precio vacío queda <strong>pendiente de definición</strong> y esa modalidad no se puede cotizar.
           </p>
           <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[720px] text-sm">
+            <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr>
                   <th className="px-3 py-2 text-left">Modalidad</th>
-                  <th className="px-3 py-2 text-left">Precio del período</th>
-                  <th className="px-3 py-2 text-left">Plazas simultáneas incluidas</th>
-                  <th className="px-3 py-2 text-left">Plaza adicional (por período)</th>
+                  <th className="px-3 py-2 text-left">Precio por cupo (por período)</th>
                   <th className="px-3 py-2 text-left">Disponible en propuestas</th>
                 </tr>
               </thead>
               <tbody>
                 {form.map((row, index) => {
                   const modality = RELEASED_PAYMENT_MODALITIES[row.modality];
-                  const pending = String(row.additionalSpotPriceUf).trim() === "";
+                  const pending = String(row.cupoPriceUf).trim() === "";
                   return (
                     <tr key={row.modality}>
                       <td className="px-3 py-2 font-bold text-[#041E42]">{modality.label}<span className="block text-xs font-semibold text-slate-500">{modality.periodMonths === 1 ? "1 mes" : `${modality.periodMonths} meses`}</span></td>
-                      <td className="px-3 py-2"><input aria-label={`Precio ${modality.label}`} type="number" min="0" step="0.01" value={row.packagePriceUf} onChange={(e) => change(index, "packagePriceUf", e.target.value)} disabled={!editable} className="input" /></td>
-                      <td className="px-3 py-2"><input aria-label={`Plazas incluidas ${modality.label}`} type="number" min="1" step="1" value={row.includedSpots} onChange={(e) => change(index, "includedSpots", e.target.value)} disabled={!editable} className="input" /></td>
                       <td className="px-3 py-2">
-                        <input aria-label={`Plaza adicional ${modality.label}`} type="number" min="0" step="0.01" placeholder="Pendiente" value={row.additionalSpotPriceUf} onChange={(e) => change(index, "additionalSpotPriceUf", e.target.value)} disabled={!editable} className="input" />
+                        <input aria-label={`Precio por cupo ${modality.label}`} type="number" min="0" step="0.01" placeholder="Pendiente" value={row.cupoPriceUf} onChange={(e) => change(index, "cupoPriceUf", e.target.value)} disabled={!editable} className="input" />
                         {pending ? <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">Pendiente de definición</span> : null}
                       </td>
                       <td className="px-3 py-2">
                         <label className="inline-flex items-center gap-2 font-semibold text-slate-700">
-                          <input type="checkbox" checked={row.availableInQuotes} onChange={(e) => change(index, "availableInQuotes", e.target.checked)} disabled={!editable} />
-                          {row.availableInQuotes ? "Sí" : "No (no liberado)"}
+                          <input type="checkbox" checked={row.availableInQuotes} onChange={(e) => change(index, "availableInQuotes", e.target.checked)} disabled={!editable || pending} />
+                          {row.availableInQuotes ? "Sí" : pending ? "No (sin precio)" : "No (no liberado)"}
                         </label>
                       </td>
                     </tr>
@@ -178,21 +177,20 @@ export default function PagoLiberadoCatalogPage() {
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-lg font-bold text-[#041E42]">Simulación de cotización</h2>
-          <p className="mt-1 text-sm text-slate-600">Misma regla que usarán las propuestas: precio del paquete sin prorrateo y plazas adicionales solo si su precio está definido.</p>
+          <p className="mt-1 text-sm text-slate-600">Misma regla que usarán las propuestas: cupos contratados × precio por cupo de la modalidad.</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <label className="text-sm font-semibold text-slate-600">Modalidad
               <select value={previewModality} onChange={(e) => setPreviewModality(e.target.value)} className="input mt-1">
                 {Object.values(RELEASED_PAYMENT_MODALITIES).map((item) => <option key={item.code} value={item.code}>{item.label}</option>)}
               </select>
             </label>
-            <label className="text-sm font-semibold text-slate-600">Plazas contratadas
-              <input type="number" min="1" step="1" value={previewSpots} onChange={(e) => setPreviewSpots(e.target.value)} className="input mt-1" />
+            <label className="text-sm font-semibold text-slate-600">Cupos contratados
+              <input type="number" min="1" step="1" value={previewCupos} onChange={(e) => setPreviewCupos(e.target.value)} className="input mt-1" />
             </label>
           </div>
           {preview?.ok ? (
             <dl className="mt-4 grid gap-2 rounded-2xl bg-slate-50 p-4 text-sm sm:grid-cols-2">
-              <div><dt className="font-semibold text-slate-500">Paquete ({preview.quote.includedSpots} plazas incluidas)</dt><dd className="font-bold">{formatUf(preview.quote.packagePriceUf)} + IVA</dd></div>
-              <div><dt className="font-semibold text-slate-500">Plazas adicionales</dt><dd className="font-bold">{preview.quote.additionalSpots} × {formatUf(preview.quote.additionalSpotPriceUf)} = {formatUf(preview.quote.additionalTotalUf)}</dd></div>
+              <div><dt className="font-semibold text-slate-500">Cupos × precio por cupo</dt><dd className="font-bold">{preview.quote.contractedCupos} × {formatUf(preview.quote.cupoPriceUf)}</dd></div>
               <div><dt className="font-semibold text-slate-500">Total del período ({preview.quote.modalityLabel.toLowerCase()})</dt><dd className="text-lg font-black text-[#041E42]">{formatUf(preview.quote.totalPeriodUf)} + IVA</dd></div>
               <div><dt className="font-semibold text-slate-500">Equivalente mensual (solo referencia)</dt><dd className="font-bold">{formatUf(preview.quote.monthlyEquivalentUf)}</dd></div>
             </dl>

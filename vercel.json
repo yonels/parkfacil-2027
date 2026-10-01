@@ -1,7 +1,8 @@
 {
   "git": {
     "deploymentEnabled": {
-      "feature/pago-liberado-fase-a": false
+      "feature/pago-liberado-fase-a": false,
+      "revision/pago-liberado-precio-por-cupo": false
     }
   },
   "ignoreCommand": "exit 0"

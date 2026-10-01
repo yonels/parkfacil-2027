@@ -9,6 +9,7 @@ const route = read("../../app/api/planes/modulos/pago-liberado/route.js");
 const page = read("../../app/tarifas/modulos/pago-liberado/page.js");
 const plans = read("../../app/tarifas/page.js");
 const migration = read("../../../supabase/migrations/20261001090000_released_payment_catalog.sql");
+const migracionCupo = read("../../../supabase/migrations/20261001110000_released_payment_unit_cupo.sql");
 
 test("API: GET y PATCH exigen Root (platform_admin); nunca un permiso de empresa", () => {
   assert.match(route, /authorizeRemainingRequest\(request, PERMISSIONS\.PLATFORM_GLOBAL\)/);
@@ -39,4 +40,13 @@ test("UI: no muestra precios hasta que la API confirma Root; ubicación Planes �
   assert.match(plans, /\{isRoot \? \(\s*<section[\s\S]{0,200}Módulos adicionales/);
   assert.match(plans, /setIsRoot\(Boolean\(body\.permissions\?\.canCreate\)\)/);
   assert.match(plans, /href="\/tarifas\/modulos\/pago-liberado"/);
+});
+
+test("migración sin paquetes: la RPC sigue siendo solo Root, atómica, auditada y solo para service_role", () => {
+  assert.match(migracionCupo, /if actor_role is distinct from 'platform_admin' then\s*raise exception 'RELEASED_PAYMENT_FORBIDDEN'/);
+  assert.ok(migracionCupo.includes("raise exception 'RELEASED_PAYMENT_PRICE_REQUIRED'"));
+  assert.ok(migracionCupo.includes("insert into public.released_payment_catalog_audit"));
+  assert.ok(migracionCupo.includes("revoke all on function public.update_released_payment_catalog(uuid, jsonb) from public, anon, authenticated;"));
+  assert.ok(migracionCupo.includes("grant execute on function public.update_released_payment_catalog(uuid, jsonb) to service_role;"));
+  assert.doesNotMatch(migracionCupo, /create policy/i);
 });
