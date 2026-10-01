@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, Search } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -51,6 +52,8 @@ export default function TarifasPage() {
   const [conImplementacion, setConImplementacion] = useState("Todos");
   const [customizado, setCustomizado] = useState("Todos");
   const [empresas, setEmpresas] = useState([]);
+  // Módulos adicionales (Pago liberado): catálogo exclusivo de Root.
+  const [isRoot, setIsRoot] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -58,6 +61,7 @@ export default function TarifasPage() {
       if (!response.ok) return null;
       const body = await response.json();
       if (active && Array.isArray(body.data)) setTarifas([...body.data, ...demoTarifas]);
+      if (active) setIsRoot(Boolean(body.permissions?.canCreate));
     }).catch(() => {});
     authenticatedFetch("/api/empresas", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return null;
@@ -136,6 +140,20 @@ export default function TarifasPage() {
           <TarifaResumen title="Planes por transacción" value={resumen.porTransaccion} description="Cobro transaccional" tone="warning" />
           <TarifaResumen title="Planes personalizados" value={resumen.personalizados} description="A medida" tone="neutral" />
         </section>
+
+        {isRoot ? (
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-bold text-[#041E42]">Módulos adicionales</h2>
+            <p className="mt-1 text-sm text-slate-600">Módulos que se cotizan y contratan aparte del servicio base. Solo ParkFacil Root administra su catálogo.</p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <Link href="/tarifas/modulos/pago-liberado" className="group rounded-2xl border border-slate-200 p-4 hover:border-[#3150D8] hover:bg-[#F5F9FF]">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Off Street</p>
+                <p className="mt-1 flex items-center justify-between text-base font-bold text-[#041E42]">Pago liberado <ArrowRight className="h-4 w-4 text-[#3150D8]" /></p>
+                <p className="mt-1 text-sm text-slate-600">Salida sin cobro para vehículos autorizados, con cupos simultáneos. Mensual, semestral o anual por estacionamiento.</p>
+              </Link>
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
