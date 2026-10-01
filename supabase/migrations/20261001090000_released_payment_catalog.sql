@@ -63,6 +63,11 @@ on conflict (modality) do nothing;
 alter table public.released_payment_catalog enable row level security;
 alter table public.released_payment_catalog_audit enable row level security;
 
+-- Lectura server-side (API Root de 2027 y catálogo del CRM, ambos con
+-- service role). Sin escritura directa: solo vía la RPC de abajo.
+grant select on public.released_payment_catalog to service_role;
+grant select on public.released_payment_catalog_audit to service_role;
+
 -- Actualización atómica del catálogo + auditoría, solo Root (re-verificado
 -- en la base: app_metadata.role = platform_admin). Solo service_role puede
 -- ejecutarla (la API la llama después de autorizar la sesión).

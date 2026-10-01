@@ -25,6 +25,12 @@ test("API: valida en el servidor y guarda vía RPC atómica (re-verifica Root en
   assert.match(migration, /insert into public\.released_payment_catalog_audit/);
 });
 
+test("base: service_role solo LEE el catálogo y su auditoría; nunca escribe directo", () => {
+  assert.match(migration, /grant select on public\.released_payment_catalog to service_role;/);
+  assert.match(migration, /grant select on public\.released_payment_catalog_audit to service_role;/);
+  assert.doesNotMatch(migration, /grant\s+[a-z, ]*\b(insert|update|delete)\b[a-z, ]*\bon\s+(table\s+)?public\.released_payment_catalog/i);
+});
+
 test("UI: no muestra precios hasta que la API confirma Root; ubicación Planes → Módulos adicionales", () => {
   assert.match(page, /const \[form, setForm\] = useState\(null\);/);
   assert.doesNotMatch(page, /DEFAULT_RELEASED_PAYMENT_CATALOG/);
