@@ -149,7 +149,7 @@ export default function TarifasPage() {
               <Link href="/tarifas/modulos/pago-liberado" className="group rounded-2xl border border-slate-200 p-4 hover:border-[#3150D8] hover:bg-[#F5F9FF]">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Off Street</p>
                 <p className="mt-1 flex items-center justify-between text-base font-bold text-[#041E42]">Pago liberado <ArrowRight className="h-4 w-4 text-[#3150D8]" /></p>
-                <p className="mt-1 text-sm text-slate-600">Salida sin cobro para vehículos autorizados, con cupos simultáneos. Mensual, semestral o anual por estacionamiento.</p>
+                <p className="mt-1 text-sm text-slate-600">Estacionamiento liberado para patentes autorizadas, con cupos simultáneos. El precio del módulo se define en cada propuesta.</p>
               </Link>
             </div>
           </section>

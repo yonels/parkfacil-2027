@@ -9,6 +9,16 @@ const route = read("../../app/api/planes/modulos/pago-liberado/route.js");
 const page = read("../../app/tarifas/modulos/pago-liberado/page.js");
 const plans = read("../../app/tarifas/page.js");
 const migration = read("../../../supabase/migrations/20261001090000_released_payment_catalog.sql");
+const migracionPrecioAbierto = read("../../../supabase/migrations/20261002090000_released_payment_open_price.sql");
+
+test("precio abierto: la RPC sigue siendo solo Root, atómica, auditada y solo para service_role; sin precios", () => {
+  assert.match(migracionPrecioAbierto, /if actor_role is distinct from 'platform_admin' then\s*raise exception 'RELEASED_PAYMENT_FORBIDDEN'/);
+  assert.ok(migracionPrecioAbierto.includes("insert into public.released_payment_catalog_audit"));
+  assert.ok(migracionPrecioAbierto.includes("revoke all on function public.update_released_payment_catalog(uuid, jsonb) from public, anon, authenticated;"));
+  assert.ok(migracionPrecioAbierto.includes("grant execute on function public.update_released_payment_catalog(uuid, jsonb) to service_role;"));
+  const rpc = migracionPrecioAbierto.slice(migracionPrecioAbierto.indexOf("create or replace function"));
+  assert.doesNotMatch(rpc, /price|precio|spots|cupo/i, "la RPC no maneja precios ni cupos");
+});
 
 test("API: GET y PATCH exigen Root (platform_admin); nunca un permiso de empresa", () => {
   assert.match(route, /authorizeRemainingRequest\(request, PERMISSIONS\.PLATFORM_GLOBAL\)/);
