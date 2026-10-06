@@ -1,6 +1,7 @@
 "use client";
 
 import PosPlateInput from "@/components/pos/PosPlateInput";
+import PosHomeVehicles from "@/components/pos/PosHomeVehicles";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LoaderCircle, LogOut, Menu, RefreshCw, X } from "lucide-react";
@@ -2562,6 +2563,14 @@ export default function PosTerminal() {
             CÓDIGO QR
           </button>
         </div>
+        <PosHomeVehicles
+          key={parking?.id || "no-parking"}
+          stays={activeStays}
+          capacity={parking?.configuredCapacity}
+          onSelect={(stay) => { setVehicleListOrigin(POS_VIEWS.HOME); void openVehicleDetail(stay); }}
+          formatEntry={formatEntryDate}
+          formatPlate={formatTicketPlate}
+        />
       </section>
     );
   }

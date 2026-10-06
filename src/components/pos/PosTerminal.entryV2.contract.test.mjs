@@ -39,8 +39,13 @@ test("1/2. manual: CONTINUAR valida el formato y solo PROPONE (nunca registra)",
 });
 
 test("3. el input normaliza mientras se escribe (mismas reglas que Fase 0/1)", () => {
-  assert.match(entryForm, /setEntryPlate\(formatPosPlateInput\(event\.target\.value\)\)/);
-  assert.match(entryForm, /autoCapitalize="characters"/);
+  // The split keyboard input delegates normalization to the same parent
+  // callback; it replaced the single input in the adaptive POS update.
+  assert.match(entryForm, /<PosPlateInput/);
+  assert.match(entryForm, /setEntryPlate\(formatPosPlateInput\(value\)\)/);
+  const plateInput = read("./PosPlateInput.js");
+  assert.match(plateInput, /autoCapitalize="characters"/);
+  assert.match(plateInput, /inputMode="numeric"/);
 });
 
 test("4. confirmación obligatoria: submitEntry rechaza toda patente que no haya sido CONFIRMADA", () => {

@@ -4,6 +4,7 @@ import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { listOpenPosStays } from "@/lib/posStaysService";
 import { getPlatePhotoSettings } from "@/lib/offStreet/offStreetPlatePhotoSettingsRepository";
+import { configuredParkingCapacity } from "@/lib/pos/homeVehicles.mjs";
 
 const PLATE_PHOTO_DISABLED = { plateMode: "DISABLED", printOnTicket: false, gpsMode: "DISABLED" };
 
@@ -30,14 +31,22 @@ export async function GET(request) {
     // campo el modo de foto que configura el administrador nunca llegaba y
     // el ingreso lo trataba siempre como DISABLED. Mismo criterio que
     // /api/data-entry: sin fila (o ante error) -> DISABLED.
-    const [summary, platePhotoSettings] = await Promise.all([
+    const [summary, platePhotoSettings, capacity] = await Promise.all([
       listOpenPosStays(authorization.db, parking.id, { now: new Date() }),
       getPlatePhotoSettings(authorization.db, parking.id).catch(() => PLATE_PHOTO_DISABLED),
+      // Same active zones used by the Off Street configurator. Query only
+      // the operational parking already resolved by authorization above.
+      (async () => {
+        try {
+          const { data, error } = await authorization.db.from("parking_zones").select("capacity").eq("parking_id", parking.id).eq("status", "ACTIVE");
+          return error ? null : configuredParkingCapacity(data);
+        } catch { return null; }
+      })(),
     ]);
 
     return NextResponse.json({
       data: {
-        parking: summary.parking || parking,
+        parking: { ...(summary.parking || parking), configuredCapacity: capacity },
         serverNow: summary.serverNow,
         stays: summary.stays,
         actor: { ...posOperationActor(authorization.context), parkingId: parking.id },
