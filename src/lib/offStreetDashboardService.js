@@ -45,7 +45,7 @@ async function fetchMovementRows(db, parkingIds, dateFrom, dateTo) {
 function emptyOverview(dateFrom, dateTo) {
   return {
     operations: { ingresosDia: 0, salidasDia: 0, vehiculosDentro: 0, ticketsAbiertos: 0 },
-    revenue: { summary: { totalAmount: 0, cashAmount: 0, cardAmount: 0, count: 0, averageTicket: 0 }, dailySeries: [], cashDifference: { totalDifference: 0, closuresWithDifference: 0 } },
+    revenue: { summary: { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0 }, dailySeries: [], cashDifference: { totalDifference: 0, closuresWithDifference: 0 } },
     shifts: { openShiftsCount: 0, closuresInPeriod: 0 },
     dailyMovements: [],
     cancelledEntries: 0,

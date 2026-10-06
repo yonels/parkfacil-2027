@@ -38,6 +38,7 @@ export async function GET(request, { params }) {
         serverNow: detail.serverNow,
         stay: detail.stay,
         quote: detail.quote,
+        cardTypeCaptureAvailable: detail.cardTypeCaptureAvailable === true,
         actor: { ...posOperationActor(authorization.context), parkingId: parking.id },
       },
     });

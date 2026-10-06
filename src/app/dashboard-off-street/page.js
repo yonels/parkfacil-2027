@@ -41,7 +41,7 @@ const PERIODS = [
 
 const EMPTY_DATA = {
   operations: { ingresosDia: 0, salidasDia: 0, vehiculosDentro: 0, ticketsAbiertos: 0 },
-  revenue: { summary: { totalAmount: 0, cashAmount: 0, cardAmount: 0, count: 0, averageTicket: 0 }, dailySeries: [], cashDifference: { totalDifference: 0, closuresWithDifference: 0 } },
+  revenue: { summary: { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0 }, dailySeries: [], cashDifference: { totalDifference: 0, closuresWithDifference: 0 } },
   shifts: { openShiftsCount: 0, closuresInPeriod: 0 },
   dailyMovements: [],
   occupancy: { capacity: 0, insideCount: 0, available: null, occupancyPercentage: null, capacityKnown: false },
@@ -117,7 +117,7 @@ function DashboardContent() {
   const reportTargets = {
     "Capacidad": reportHref("ocupacion", {}, true), "Vehículos dentro": reportHref("estacionados", {}, true), "Disponibles": reportHref("ocupacion", {}, true), "% Ocupación": reportHref("ocupacion", {}, true),
     "Ingresos": reportHref("movimientos", { movement: "entries" }), "Salidas": reportHref("movimientos", { movement: "exits" }), "Ingresos anulados": reportHref("movimientos", { status: "CANCELLED", movement: "entries" }),
-    "Total recaudado": reportHref("recaudacion"), "Efectivo": reportHref("recaudacion", { paymentMethod: "CASH" }), "Tarjeta": reportHref("recaudacion", { paymentMethod: "CARD" }), "Transacciones": reportHref("recaudacion"), "Ticket promedio": reportHref("recaudacion"),
+    "Total recaudado": reportHref("recaudacion"), "Efectivo": reportHref("recaudacion", { paymentMethod: "CASH" }), "Crédito": reportHref("recaudacion", { paymentMethod: "CREDIT" }), "Débito": reportHref("recaudacion", { paymentMethod: "DEBIT" }), "Tarjeta sin clasificar": reportHref("recaudacion", { paymentMethod: "CARD_UNCLASSIFIED" }), "Transacciones": reportHref("recaudacion"), "Ticket promedio": reportHref("recaudacion"),
     "Turnos abiertos": reportHref("turnos", { status: "OPEN", current: "true" }, true), "Cierres del período": reportHref("cierres"), "Diferencias de caja": reportHref("cierres", { differences: "true" }), "Cierres con diferencia": reportHref("cierres", { differences: "true" }),
   };
   const maxRevenue = Math.max(1, ...revenue.dailySeries.map((item) => item.amount));
@@ -173,16 +173,18 @@ function DashboardContent() {
         {/* C. RECAUDACIÓN -- responde al período seleccionado */}
         <section>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Recaudación · período seleccionado ({data.dateFrom} — {data.dateTo})</p>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={Landmark} color="text-[#3150D8]" label="Total recaudado" value={money(revenue.summary.totalAmount)} description="Ver pagos confirmados" />
             <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={Banknote} color="text-emerald-700" label="Efectivo" value={money(revenue.summary.cashAmount)} description={`${revenue.summary.totalAmount ? Math.round((revenue.summary.cashAmount / revenue.summary.totalAmount) * 100) : 0}%`} />
-            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={CreditCard} color="text-sky-700" label="Tarjeta" value={money(revenue.summary.cardAmount)} description={`${revenue.summary.totalAmount ? Math.round((revenue.summary.cardAmount / revenue.summary.totalAmount) * 100) : 0}%`} />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={CreditCard} color="text-sky-700" label="Crédito" value={money(revenue.summary.creditAmount)} description={`${revenue.summary.totalAmount ? Math.round((revenue.summary.creditAmount / revenue.summary.totalAmount) * 100) : 0}%`} />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={CreditCard} color="text-indigo-700" label="Débito" value={money(revenue.summary.debitAmount)} description={`${revenue.summary.totalAmount ? Math.round((revenue.summary.debitAmount / revenue.summary.totalAmount) * 100) : 0}%`} />
+            {Number(revenue.summary.unclassifiedCardAmount) > 0 ? <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={CreditCard} color="text-slate-600" label="Tarjeta sin clasificar" value={money(revenue.summary.unclassifiedCardAmount)} description="Pagos sin tipo de tarjeta registrado" /> : null}
             <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={ReceiptText} color="text-amber-700" label="Transacciones" value={number(revenue.summary.count)} description="Ver pagos confirmados" />
             <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={TrendingUp} color="text-[#041E42]" label="Ticket promedio" value={money(revenue.summary.averageTicket)} description="Total / transacciones" />
           </div>
         </section>
 
-        <p className="text-xs text-slate-500">Tarjeta incluye débito y crédito: el registro actual todavía no conserva su separación.</p>
+        <p className="text-xs text-slate-500">Crédito y Débito se separan según el tipo registrado en cada pago. Los pagos sin ese dato se muestran como Tarjeta sin clasificar.</p>
 
         {/* D. TURNOS Y CAJA -- turnos abiertos es "ahora"; cierres/diferencias responden al período */}
         <section>

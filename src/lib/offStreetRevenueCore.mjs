@@ -5,7 +5,8 @@
 // de esquema DB -> forma de UI, cálculo de resumen y validación de filtros,
 // separado de offStreetRevenueService.js (que sí toca la base de datos).
 import { OPERATIONAL_TIME_ZONE, toOperationalDateTimeParts } from "./dataEntry.mjs";
-import { addDaysToIsoDate, normalizePagination, operationalDateToIso, REPORT_PAYMENT_METHODS } from "./pos/activityReportCore.mjs";
+import { addDaysToIsoDate, normalizePagination, operationalDateToIso } from "./pos/activityReportCore.mjs";
+import { REVENUE_METHODS, classifiedPaymentMethod, summarizeCardTypes, closureCardTypes } from "./paymentCardType.mjs";
 import { paymentMethodLabel } from "./offStreetOperationsCore.mjs";
 
 // "Recaudación" = pagos confirmados reales. parking_stays.status='CANCELLED'
@@ -15,7 +16,7 @@ import { paymentMethodLabel } from "./offStreetOperationsCore.mjs";
 // OFF_STREET queda siempre en 0 por construcción). Por eso las transacciones
 // de esta pantalla son exclusivamente status='PAID' -- no existe un filtro
 // de "estado" real y no fabricado dentro de ese universo.
-export const REVENUE_PAYMENT_METHODS = REPORT_PAYMENT_METHODS;
+export const REVENUE_PAYMENT_METHODS = REVENUE_METHODS;
 
 export function isValidIsoDate(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -51,7 +52,7 @@ export function toRevenueTransactionRow(stay, { timeZone = OPERATIONAL_TIME_ZONE
     time: exitParts?.entryTime || "-",
     operator: stay?.exit_operator_name || "-",
     shiftLabel,
-    paymentMethod: stay?.payment_method || null,
+    paymentMethod: classifiedPaymentMethod(stay),
     amount: Number(stay?.total_amount) || 0,
     paymentCode: stay?.payment_code || "-",
     status: stay?.status || null,
@@ -78,6 +79,7 @@ export function summarizeRevenueRows(rows) {
     totalAmount,
     cashAmount,
     cardAmount,
+    ...summarizeCardTypes(list),
     count,
     averageTicket: count > 0 ? Math.round(totalAmount / count) : 0,
   };
@@ -128,6 +130,7 @@ export function summarizeCashDifferences(closures) {
 // del operador -- no los necesita.
 export function toRevenueClosureRow(row) {
   return {
+    ...closureCardTypes(row),
     id: row?.id || null,
     shiftId: row?.shift_id || null,
     folio: row?.folio || null,

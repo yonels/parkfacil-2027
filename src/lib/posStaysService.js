@@ -1,3 +1,4 @@
+import { readCardTypedQuery } from "./paymentCardType.mjs";
 import { quoteParkingStay, quoteParkingStayById } from "./parkingStayQuoteService.js";
 import { filterPaidStaysForOperationalDay, summarizeDailyPayments, toDailyPaymentRow } from "./pos/paymentsDayCore.mjs";
 import {
@@ -61,13 +62,13 @@ export async function listOpenPosStays(db, parkingId, options = {}) {
 }
 
 async function loadRecentPaidStays(db, parkingId, since) {
-  const { data, error } = await db
+  const { data, error } = await readCardTypedQuery((typed) => db
     .from("parking_stays")
-    .select(stayFields)
+    .select(typed ? `${stayFields},payment_card_type` : stayFields)
     .eq("parking_id", parkingId)
     .eq("status", "PAID")
     .gte("exit_at", since.toISOString())
-    .order("exit_at", { ascending: false });
+    .order("exit_at", { ascending: false }));
   if (error) throw error;
   return data || [];
 }
@@ -100,13 +101,13 @@ export async function quoteOpenPosStay(db, parkingId, stayId, options = {}) {
   const parking = await loadParking(db, parkingId);
   if (!parking) return { parking: null, serverNow: toIsoTimestamp(now), stay: null, quote: null };
 
-  const { data: stay, error } = await db
+  const { data: stay, error, cardTypeSupported } = await readCardTypedQuery((typed) => db
     .from("parking_stays")
-    .select(stayFields)
+    .select(typed ? `${stayFields},payment_card_type` : stayFields)
     .eq("parking_id", parkingId)
     .eq("id", stayId)
     .eq("status", "OPEN")
-    .maybeSingle();
+    .maybeSingle());
 
   if (error) throw error;
   if (!stay) return { parking, serverNow: toIsoTimestamp(now), stay: null, quote: null };
@@ -115,6 +116,7 @@ export async function quoteOpenPosStay(db, parkingId, stayId, options = {}) {
   const quote = quoted?.quote || quoted || null;
   return {
     parking,
+    cardTypeCaptureAvailable: cardTypeSupported,
     serverNow: toIsoTimestamp(now),
     stay: { ...stay, serverNow: toIsoTimestamp(now) },
     quote: { ...quote, calculatedAt: toIsoTimestamp(now) },
@@ -321,7 +323,7 @@ export async function getOperationStayById(db, scopedParkings, stayId) {
   const parkingIds = parkings.map((parking) => parking.id);
   if (!parkingIds.length || !stayId) return null;
 
-  const { data: stay, error } = await db.from("parking_stays").select(stayDetailFields).eq("id", stayId).in("parking_id", parkingIds).maybeSingle();
+  const { data: stay, error } = await readCardTypedQuery((typed) => db.from("parking_stays").select(typed ? `${stayDetailFields},payment_card_type` : stayDetailFields).eq("id", stayId).in("parking_id", parkingIds).maybeSingle());
   if (error) throw error;
   if (!stay) return null;
 

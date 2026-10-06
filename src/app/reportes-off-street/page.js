@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { paymentMethodDisplay } from "@/lib/paymentCardType.mjs";
 import { ArrowLeft } from "lucide-react";
 import OffStreetSpreadsheet from "@/components/reports/OffStreetSpreadsheet";
 import AppShell from "@/components/layout/AppShell";
@@ -15,9 +16,7 @@ function number(value) {
   return new Intl.NumberFormat("es-CL").format(value || 0);
 }
 function paymentMethodLabel(method) {
-  if (method === "CASH") return "Efectivo";
-  if (method === "CARD") return "Tarjeta";
-  return "—";
+  return paymentMethodDisplay(method);
 }
 function statusLabel(status) {
   const labels = { OPEN: "Abierto", PAID: "Pagado", CANCELLED: "Anulado", PROGRAMMED: "Programado", CLOSING: "En cierre", CLOSED: "Cerrado" };
@@ -178,7 +177,7 @@ function ReportesOffStreetContent() {
     if (tab === "recaudacion") return [["date", "Fecha"], ["time", "Hora"], ["ticket", "Ticket"], ["plate", "Patente"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["operator", "Operador"], ["shiftLabel", "Turno"], ["paymentMethod", "Medio de pago"], ["amount", "Monto"]];
     if (tab === "movimientos") return [["ticket", "Ticket"], ["plate", "Patente"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["entryDate", "Fecha ingreso"], ["entryTime", "Hora ingreso"], ["exitDate", "Fecha salida"], ["exitTime", "Hora salida"], ["entryOperator", "Operador ingreso"], ["exitOperator", "Operador salida"], ["status", "Estado"], ["minutes", "Permanencia (min)"]];
     if (tab === "estacionados") return [["ticket", "Ticket"], ["plate", "Patente"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["entryDate", "Fecha ingreso"], ["entryTime", "Hora ingreso"], ["elapsedMinutes", "Tiempo transcurrido (min)"], ["entryOperator", "Operador de ingreso"], ["origin", "Origen"]];
-    if (tab === "cierres") return [["folio", "Folio"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["operator", "Operador"], ["shiftDate", "Turno"], ["openedAt", "Inicio"], ["closedAt", "Cierre"], ["confirmedPaymentsCount", "Pagos confirmados"], ["cashAmount", "Efectivo"], ["cardAmount", "Tarjeta"], ["grossAmount", "Total"], ["declaredCashAmount", "Efectivo declarado"], ["cashDifference", "Diferencia"], ["differenceObservation", "Observación"], ["pendingVehiclesCount", "Vehículos pendientes"]];
+    if (tab === "cierres") return [["folio", "Folio"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["operator", "Operador"], ["shiftDate", "Turno"], ["openedAt", "Inicio"], ["closedAt", "Cierre"], ["confirmedPaymentsCount", "Pagos confirmados"], ["cashAmount", "Efectivo"], ["creditAmount", "Crédito"], ["debitAmount", "Débito"], ["unclassifiedCardAmount", "Tarjeta sin clasificar"], ["grossAmount", "Total"], ["declaredCashAmount", "Efectivo declarado"], ["cashDifference", "Diferencia"], ["differenceObservation", "Observación"], ["pendingVehiclesCount", "Vehículos pendientes"]];
     if (tab === "turnos") return [["operator", "Operador"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["shiftDate", "Turno"], ["openedDate", "Inicio"], ["closedDate", "Cierre"], ["status", "Estado"], ["entryCount", "Operaciones"], ["revenueAmount", "Recaudación del turno"]];
     return [["parkingName", "Estacionamiento"], ["companyName", "Empresa"], ["capacity", "Capacidad"], ["insideCount", "Vehículos dentro"], ["available", "Disponibles"], ["occupancyPercentage", "% Ocupación"]];
   }, [tab]);
@@ -198,8 +197,8 @@ function ReportesOffStreetContent() {
   const gridColumns = useMemo(() => columns.map(([key, label]) => ({
     key, label,
     value: (row) => key === "openedDate" ? `${row.openedDate || ""} ${row.openedTime || ""}` : key === "closedDate" ? row.closedDate ? `${row.closedDate} ${row.closedTime || ""}` : "Sin cierre" : key === "paymentMethod" ? paymentMethodLabel(row[key]) : key === "status" ? statusLabel(row[key]) : row[key],
-    format: (value) => ["amount", "cashAmount", "cardAmount", "grossAmount", "declaredCashAmount", "cashDifference", "revenueAmount"].includes(key) ? (value == null ? "—" : money(value)) : String(value ?? "—"),
-    total: ["amount", "cashAmount", "cardAmount", "grossAmount", "declaredCashAmount", "cashDifference", "revenueAmount"].includes(key),
+    format: (value) => ["amount", "cashAmount", "cardAmount", "creditAmount", "debitAmount", "unclassifiedCardAmount", "grossAmount", "declaredCashAmount", "cashDifference", "revenueAmount"].includes(key) ? (value == null ? "—" : money(value)) : String(value ?? "—"),
+    total: ["amount", "cashAmount", "cardAmount", "creditAmount", "debitAmount", "unclassifiedCardAmount", "grossAmount", "declaredCashAmount", "cashDifference", "revenueAmount"].includes(key),
     groupable: ["operator", "entryOperator", "exitOperator", "parkingName", "companyName", "date", "entryDate", "exitDate", "paymentMethod", "status", "shiftDate"].includes(key),
   })), [columns]);
   const parkingLabel = parkings.find((item) => item.id === parking || item.code === parking)?.name || (parking ? "Estacionamiento seleccionado" : "Todos los estacionamientos autorizados");
@@ -236,7 +235,7 @@ function ReportesOffStreetContent() {
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Operador</span><select value={operatorId} onChange={(e) => setOperatorId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todos</option>{operatorOptions.map((u) => <option key={u.id} value={u.id}>{u.nombreCompleto}</option>)}</select></label>
           )}
           {tab === "recaudacion" && (
-            <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Medio de pago</span><select value={method} onChange={(e) => setMethod(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todos</option><option value="CASH">Efectivo</option><option value="CARD">Tarjeta</option></select></label>
+            <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Medio de pago</span><select value={method} onChange={(e) => setMethod(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todos</option><option value="CASH">Efectivo</option><option value="CREDIT">Crédito</option><option value="DEBIT">Débito</option><option value="CARD_UNCLASSIFIED">Tarjeta sin clasificar</option><option value="CARD">Todas las tarjetas</option></select></label>
           )}
           {(tab === "movimientos") && (
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Estado</span><select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todos</option><option value="OPEN">Abierto</option><option value="PAID">Pagado</option><option value="CANCELLED">Anulado</option></select></label>

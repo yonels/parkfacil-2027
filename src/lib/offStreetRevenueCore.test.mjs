@@ -12,13 +12,13 @@ import {
   validateRevenueFilters,
 } from "./offStreetRevenueCore.mjs";
 
-test("REVENUE_PAYMENT_METHODS reutiliza exactamente REPORT_PAYMENT_METHODS (CASH/CARD reales, sin inventar débito/crédito)", () => {
-  assert.deepEqual(REVENUE_PAYMENT_METHODS, ["CASH", "CARD"]);
+test("REVENUE_PAYMENT_METHODS incluye tipos explícitos y filtros compatibles", () => {
+  assert.deepEqual(REVENUE_PAYMENT_METHODS, ["CASH", "CARD", "CREDIT", "DEBIT", "CARD_UNCLASSIFIED"]);
 });
 
 test("paymentMethodLabel es el mismo helper real reutilizado de offStreetOperationsCore (Fase 1), no una copia", () => {
   assert.equal(paymentMethodLabel("CASH"), "Efectivo");
-  assert.equal(paymentMethodLabel("CARD"), "Tarjeta");
+  assert.equal(paymentMethodLabel("CARD"), "Tarjeta sin clasificar");
   assert.equal(paymentMethodLabel(null), "—");
 });
 
@@ -26,7 +26,7 @@ test("validateRevenueFilters rechaza fechas y medios de pago fuera del modelo re
   assert.equal(validateRevenueFilters({}).ok, true);
   assert.equal(validateRevenueFilters({ dateFrom: "2026-07-01", dateTo: "2026-06-01" }).ok, false);
   assert.equal(validateRevenueFilters({ dateFrom: "01-07-2026" }).ok, false);
-  assert.equal(validateRevenueFilters({ paymentMethod: "DEBIT" }).ok, false);
+  assert.equal(validateRevenueFilters({ paymentMethod: "DEBIT" }).ok, true);
   assert.equal(validateRevenueFilters({ paymentMethod: "CASH" }).ok, true);
 });
 
@@ -48,7 +48,7 @@ test("toRevenueTransactionRow mapea la fila real PAID a la forma de UI, con turn
   assert.equal(row.status, "PAID");
 });
 
-test("summarizeRevenueRows: total/efectivo/tarjeta/cantidad/ticket promedio calculados correctamente, sin inventar débito", () => {
+test("summarizeRevenueRows: total/efectivo/tarjeta/cantidad/ticket promedio calculados correctamente, con históricos sin clasificar", () => {
   const summary = summarizeRevenueRows([
     { payment_method: "CASH", total_amount: 1000 },
     { payment_method: "CARD", total_amount: 2000 },
@@ -62,8 +62,8 @@ test("summarizeRevenueRows: total/efectivo/tarjeta/cantidad/ticket promedio calc
 });
 
 test("summarizeRevenueRows con lista vacía nunca lanza ni infla números", () => {
-  assert.deepEqual(summarizeRevenueRows([]), { totalAmount: 0, cashAmount: 0, cardAmount: 0, count: 0, averageTicket: 0 });
-  assert.deepEqual(summarizeRevenueRows(undefined), { totalAmount: 0, cashAmount: 0, cardAmount: 0, count: 0, averageTicket: 0 });
+  assert.deepEqual(summarizeRevenueRows([]), { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0 });
+  assert.deepEqual(summarizeRevenueRows(undefined), { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0 });
 });
 
 test("buildDailyRevenueSeries incluye todos los días del rango (incluso recaudación 0), en orden ascendente", () => {

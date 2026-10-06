@@ -1,3 +1,4 @@
+import { canCaptureCardType, validatePaymentCardType } from "@/lib/paymentCardType.mjs";
 import { NextResponse } from "next/server";
 import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
 import { buildPosQuoteSnapshot, quoteParkingStay, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
@@ -318,6 +319,12 @@ export async function POST(request) {
       return NextResponse.json({ data: { stay, parking, quote: quoteWithSnapshot } });
     }
     if (!['CASH','CARD'].includes(input.paymentMethod)) return fail("Selecciona contado o tarjeta.");
+    let paymentCardType;
+    try { paymentCardType = validatePaymentCardType(input.paymentMethod, input.paymentCardType); }
+    catch { return fail("El tipo de tarjeta no es válido.", 400, { code: "INVALID_PAYMENT_CARD_TYPE" }); }
+    if (paymentCardType && !(await canCaptureCardType(current.db, stay.parking_id))) {
+      return fail("Falta habilitar el registro de Crédito y Débito.", 503, { code: "CARD_TYPE_SCHEMA_UNAVAILABLE" });
+    }
     const quoteSnapshot = input.quoteSnapshot || null;
     const quoteSecret = process.env.POS_QUOTE_HMAC_SECRET;
     const quoteExpiresAt = quoteSnapshot?.expiresAt ? new Date(quoteSnapshot.expiresAt) : null;
@@ -370,6 +377,7 @@ export async function POST(request) {
       if (redeemError || !redeemed) return fail("El cupón ya fue utilizado o dejó de estar disponible.", 409);
     }
     const update = { status: "PAID", exit_at: exitAt, exit_operator_id: current.actor.id, exit_operator_name: current.actor.name, payment_shift_id: isPosRequest ? posShift.id : null, elapsed_minutes: confirmedQuote.elapsedMinutes, rate_id: confirmedQuote.rate.id, rate_name: confirmedQuote.rate.name, billing_mode: confirmedQuote.rate.billingMode, subtotal_amount: confirmedQuote.subtotal, discount_amount: confirmedQuote.discount, coupon_id: confirmedQuote.coupon?.id || null, coupon_code: confirmedQuote.coupon?.code || null, net_amount: confirmedQuote.net, tax_amount: confirmedQuote.tax, total_amount: confirmedQuote.total, payment_method: input.paymentMethod, payment_code: paymentCode, updated_at: exitAt };
+    if (paymentCardType) update.payment_card_type = paymentCardType;
     const { data, error } = await current.db.from("parking_stays").update(update).eq("id", stay.id).eq("status", "OPEN").select(publicStayFields).single();
     if (error) {
       if (confirmedQuote.coupon) {
@@ -378,7 +386,7 @@ export async function POST(request) {
       const shiftConflict = String(error.message || "").includes("PAYMENT_SHIFT_NOT_OPEN");
       return fail(shiftConflict ? "El turno dejó de estar abierto antes de confirmar el pago. Actualiza el POS." : "No fue posible cerrar y pagar la estadía.", shiftConflict ? 409 : 503);
     }
-    return NextResponse.json({ data: { stay: data, parking, quote: { ...confirmedQuote, paymentCode } } });
+    return NextResponse.json({ data: { stay: { ...data, payment_card_type: paymentCardType }, parking, quote: { ...confirmedQuote, paymentCode } } });
   }
   return fail("Acción operacional no reconocida.");
 }

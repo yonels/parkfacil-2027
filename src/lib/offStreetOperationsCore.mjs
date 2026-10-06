@@ -1,3 +1,4 @@
+import { paymentMethodDisplay } from "./paymentCardType.mjs";
 // Lógica pura (sin acceso a base de datos) para /operacion y /operacion/[id]
 // -- reemplazo real de src/data/operacion.mjs (demo). Mismo patrón que
 // src/lib/pos/activityReportCore.mjs (probado con node --test sin
@@ -25,13 +26,9 @@ export function originLabel(source) {
   return labels[source] || source || "—";
 }
 
-// parking_stays.payment_method solo distingue CASH/CARD (igual que
-// activityReportCore.mjs / modelo-dashboard) -- nunca se inventa una
-// distinción débito/crédito que el backend no tiene.
+// Base CASH/CARD remains compatible; classified report rows add CREDIT/DEBIT.
 export function paymentMethodLabel(method) {
-  if (method === "CASH") return "Efectivo";
-  if (method === "CARD") return "Tarjeta";
-  return "—";
+  return paymentMethodDisplay(method);
 }
 
 // Campo de fecha real usado para el filtro de movimiento del día

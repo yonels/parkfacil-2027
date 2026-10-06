@@ -500,7 +500,7 @@ test("SIN TECHO SILENCIOSO: superar el tope máximo real rechaza explícitamente
 test("ESTADO VACÍO: empresa/parking/período sin pagos ni cierres devuelve ceros reales, nunca restos de otra consulta", async () => {
   const db = createMockDb({ stays: [], closures: [] });
   const overview = await getRevenueOverview(db, CO1_PARKINGS, { dateFrom: "2026-01-01", dateTo: "2026-01-02" });
-  assert.deepEqual(overview.summary, { totalAmount: 0, cashAmount: 0, cardAmount: 0, count: 0, averageTicket: 0 });
+  assert.deepEqual(overview.summary, { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0 });
   assert.ok(overview.dailySeries.every((day) => day.amount === 0));
   assert.equal(overview.cashDifference.totalDifference, 0);
 
@@ -528,4 +528,13 @@ test("las rutas /api/recaudacion reutilizan authorizeOperationRequest + REPORTS_
   assert.match(closuresRoute, /authorizeOperationRequest\(request, PERMISSIONS\.REPORTS_READ\)/);
   assert.match(closuresRoute, /searchRevenueClosures\(authorization\.db, scopedParkings,/);
   assert.doesNotMatch(closuresRoute, /PERMISSIONS\.OPERATIONS_USE/);
+});
+
+test('Crédito/Débito y tarjetas históricas filtran sin cruzar empresa ni estacionamiento', async()=>{
+ const stays=[...['CREDIT','DEBIT',null].map((type,i)=>({id:`typed-${i}`,parking_id:'p-centro',status:'PAID',payment_method:'CARD',payment_card_type:type,total_amount:100*(i+1),exit_at:'2026-07-24T15:00:00.000Z'})),{id:'foreign',parking_id:'p-otra-empresa',status:'PAID',payment_method:'CARD',payment_card_type:'CREDIT',total_amount:900,exit_at:'2026-07-24T15:00:00.000Z'}];
+ const db=createMockDb({stays});const filters={dateFrom:'2026-07-24',dateTo:'2026-07-24'};
+ for(const [method,expected] of [['CREDIT',100],['DEBIT',200],['CARD_UNCLASSIFIED',300],['CARD',600]]){
+ const overview=await getRevenueOverview(db,CO1_PARKINGS,{...filters,paymentMethod:method});assert.equal(overview.summary.totalAmount,expected);
+ const results=await searchRevenueTransactions(db,CO1_PARKINGS,{...filters,paymentMethod:method});assert.equal(results.rows.reduce((sum,r)=>sum+r.amount,0),expected);
+ }
 });

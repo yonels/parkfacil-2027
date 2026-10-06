@@ -18,10 +18,11 @@ import {
   toRevenueClosureRow,
   toRevenueTransactionRow,
 } from "./offStreetRevenueCore.mjs";
+import { readCardTypedQuery, matchesRevenueMethod } from "./paymentCardType.mjs";
 import { AuthorizationError } from "./auth/contextCore.mjs";
 
 const stayFields = "id,code,license_plate,parking_id,status,exit_at,exit_operator_id,exit_operator_name,payment_method,payment_code,total_amount,payment_shift_id";
-const closureFields = "id,shift_id,folio,parking_id,parking_name,company_name,operator_id,operator_name,shift_date,actual_start_at,actual_close_at,paid_vehicles_count,cancelled_vehicles_count,pending_vehicles_count,cash_amount,card_amount,collected_amount,declared_cash_amount,cash_difference,difference_observation,closure_status,confirmed_by,confirmed_at";
+const closureFields = "id,shift_id,folio,parking_id,parking_name,company_name,operator_id,operator_name,shift_date,actual_start_at,actual_close_at,paid_vehicles_count,cancelled_vehicles_count,pending_vehicles_count,cash_amount,card_amount,payments_snapshot,collected_amount,declared_cash_amount,cash_difference,difference_observation,closure_status,confirmed_by,confirmed_at";
 
 // Auditoría previa (§11/§12): un .limit(1000)/.limit(20000) simple es un
 // techo SILENCIOSO -- si el período filtrado supera ese tope, filas válidas
@@ -107,9 +108,9 @@ export function resolveQueryParkingIds(parkings, { parkingId, companyId } = {}) 
 // libre) es exclusivo de la tabla -- nunca se pasa aquí desde el resumen, a
 // propósito (ver getRevenueOverview).
 function buildPaidStaysQueryFactory(db, queryParkingIds, { paymentMethod, operatorId, query, dateFrom, dateTo }) {
-  return () => {
-    let q = db.from("parking_stays").select(stayFields).in("parking_id", queryParkingIds).eq("status", "PAID");
-    if (paymentMethod) q = q.eq("payment_method", paymentMethod);
+  return (typed = true) => {
+    let q = db.from("parking_stays").select(typed ? `${stayFields},payment_card_type` : stayFields).in("parking_id", queryParkingIds).eq("status", "PAID");
+    if (paymentMethod) q = q.eq("payment_method", paymentMethod === "CASH" ? "CASH" : "CARD");
     if (operatorId) q = q.eq("exit_operator_id", operatorId);
     if (query) q = q.or(`license_plate.ilike.%${query}%,code.ilike.%${query}%,payment_code.ilike.%${query}%`);
     // Margen de ±1 día en UTC (mismo criterio que /operacion, Fase 1) para no
@@ -122,8 +123,9 @@ function buildPaidStaysQueryFactory(db, queryParkingIds, { paymentMethod, operat
 }
 
 async function fetchExactPaidStays(db, queryParkingIds, filters) {
-  const widened = await fetchAllMatchingRows(buildPaidStaysQueryFactory(db, queryParkingIds, filters));
-  return filterRowsByExactOperationalDateRange(widened, "exit_at", filters.dateFrom, filters.dateTo);
+  const query = buildPaidStaysQueryFactory(db, queryParkingIds, filters);
+  const widened = await fetchAllMatchingRows(() => ({ range: (from, to) => readCardTypedQuery((typed) => query(typed).range(from, to)) }));
+  return filterRowsByExactOperationalDateRange(widened, "exit_at", filters.dateFrom, filters.dateTo).filter((row) => matchesRevenueMethod(row, filters.paymentMethod));
 }
 
 // Consulta real de transacciones (§4): estadías PAID -- únicas filas que

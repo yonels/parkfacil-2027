@@ -167,7 +167,7 @@ test('el botón REINTENTAR nunca se muestra en el estado CHARGED_NOT_REGISTERED'
 // ---- 10) La salida se registra con paymentMethod CARD, reutilizando el mismo recibo/impresión que EFECTIVO ----
 
 test('el registro de salida con tarjeta usa paymentMethod: "CARD" y arma el recibo con paymentMethod "CARD"', () => {
-  assert.match(terminalSource, /body: JSON\.stringify\(\{ action: "EXIT", stayId: selectedVehicle\.stay\.id, paymentMethod: "CARD", quoteSnapshot \}\)/);
+  assert.match(terminalSource, /body: JSON\.stringify\(\{ action: "EXIT", stayId: selectedVehicle\.stay\.id, paymentMethod: "CARD", paymentCardType, quoteSnapshot \}\)/);
   assert.match(terminalSource, /buildPaymentReceiptPayload\(stay, quote, parkingResponse, "CARD"\)/);
 });
 
@@ -182,4 +182,10 @@ test("la integración TUU no referencia Sunmi en ningún punto (bridge independi
   const fnEnd = terminalSource.indexOf("async function executeNativePrint(payload) {");
   const tuuBlock = terminalSource.slice(fnStart, fnEnd);
   assert.doesNotMatch(tuuBlock, /[Ss]unmi/);
+});
+
+test('el POS comprueba disponibilidad de clasificación antes de invocar TUU',()=>{
+ const handler=terminalSource.slice(terminalSource.indexOf('async function handleCardPaymentSelection'));
+ assert.ok(handler.indexOf('selectedVehicle.cardTypeCaptureAvailable !== true')<handler.indexOf('buildTuuPaymentPayload'));
+ assert.match(handler,/const paymentCardType = tuuMethod === TUU_METHOD.CREDIT \? "CREDIT" : tuuMethod === TUU_METHOD.DEBIT \? "DEBIT" : null/);
 });

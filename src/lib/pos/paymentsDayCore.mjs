@@ -1,9 +1,9 @@
+import { classifiedPaymentMethod, summarizeCardTypes } from "../paymentCardType.mjs";
 import { OPERATIONAL_TIME_ZONE, toOperationalDateTimeParts } from "../dataEntry.mjs";
 
-// Métodos de pago que hoy existen en parking_stays.payment_method. No hay
-// distinción entre débito y crédito en el esquema actual (solo CASH/CARD),
-// así que esos totales se exponen siempre en 0 en vez de inventar un reparto:
-// ver summarizeDailyPayments.
+// Los métodos base siguen siendo CASH/CARD; payment_card_type conserva
+// CREDIT/DEBIT desde su habilitación. Los históricos sin tipo permanecen
+// sin clasificar.
 const CASH_METHOD = "CASH";
 
 // Filtra estadías PAID cuyo exit_at cae dentro del día operacional
@@ -23,10 +23,7 @@ export function filterPaidStaysForOperationalDay(stays, { now = new Date(), time
 }
 
 // Calcula los totales del día a partir de estadías PAID ya filtradas.
-// totalDebit/totalCredit quedan siempre en 0: el esquema actual no distingue
-// débito de crédito dentro de CARD, y la instrucción explícita es no
-// inventar ese reparto — cuando exista esa distinción en el backend, esta
-// función es el único lugar a actualizar.
+// Solo usa el tipo persistido; no se infiere a partir del monto o la tarjeta.
 export function summarizeDailyPayments(stays) {
   const list = Array.isArray(stays) ? stays : [];
 
@@ -41,11 +38,13 @@ export function summarizeDailyPayments(stays) {
     }
   }
 
+  const cards = summarizeCardTypes(list);
   return {
     totalAmount,
     totalCash,
-    totalDebit: 0,
-    totalCredit: 0,
+    totalDebit: cards.debitAmount,
+    totalCredit: cards.creditAmount,
+    totalUnclassifiedCard: cards.unclassifiedCardAmount,
     count: list.length,
   };
 }
@@ -58,7 +57,7 @@ export function toDailyPaymentRow(stay, { timeZone = OPERATIONAL_TIME_ZONE } = {
     id: stay?.id || null,
     plate: stay?.license_plate || "-",
     time: exitParts?.entryTime || "-",
-    paymentMethod: stay?.payment_method || "-",
+    paymentMethod: classifiedPaymentMethod(stay) || "-",
     amount: Number(stay?.total_amount) || 0,
     ticketNumber: stay?.code || "-",
     paymentCode: stay?.payment_code || "-",

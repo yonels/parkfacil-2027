@@ -1,5 +1,6 @@
 "use client";
 
+import { classifiedPaymentMethod, paymentMethodDisplay } from "@/lib/paymentCardType.mjs";
 import PosPlateInput from "@/components/pos/PosPlateInput";
 import PosHomeVehicles from "@/components/pos/PosHomeVehicles";
 
@@ -161,7 +162,7 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod 
     netAmount: breakdown.netAmount,
     vatAmount: breakdown.vatAmount,
     amount: breakdown.totalAmount,
-    paymentMethod,
+    paymentMethod: classifiedPaymentMethod(stay) || paymentMethod,
     paymentId: String(stay?.payment_code || "").trim(),
   };
 
@@ -714,9 +715,7 @@ function formatMinuteCount(quote) {
 }
 
 function formatPaymentMethodLabel(method) {
-  if (method === "CASH") return "EFECTIVO";
-  if (method === "CARD") return "TARJETA";
-  return method || "-";
+  return paymentMethodDisplay(method).toUpperCase();
 }
 
 // POS Entry/Exit — Fase 1 (sesión y navegación). Toda salida hacia el login
@@ -1706,7 +1705,7 @@ export default function PosTerminal() {
       setPaymentResult({
         plate: stay?.license_plate || selectedVehicle.stay.license_plate,
         total: amount,
-        paymentMethod: payload?.data?.stay?.payment_method || "CASH",
+        paymentMethod: classifiedPaymentMethod(stay) || "CASH",
       });
       const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse);
       setReceiptPrintPayload(receiptPayload);
@@ -1791,6 +1790,12 @@ export default function PosTerminal() {
         return;
       }
 
+      if (selectedVehicle.cardTypeCaptureAvailable !== true) {
+        setPaymentStep("MENU");
+        setPaymentMessage("Falta habilitar el registro de Crédito y Débito. No se inició ningún cobro.");
+        return;
+      }
+      const paymentCardType = tuuMethod === TUU_METHOD.CREDIT ? "CREDIT" : tuuMethod === TUU_METHOD.DEBIT ? "DEBIT" : null;
       const amount = normalizeQuoteView(selectedVehicle.quote)?.total;
       if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
         console.error("[pos:tuu:status]", { status: "ERROR", reason: "invalid_amount" });
@@ -1863,7 +1868,7 @@ export default function PosTerminal() {
             "x-parkfacil-portal": "terminal",
           },
           cache: "no-store",
-          body: JSON.stringify({ action: "EXIT", stayId: selectedVehicle.stay.id, paymentMethod: "CARD", quoteSnapshot }),
+          body: JSON.stringify({ action: "EXIT", stayId: selectedVehicle.stay.id, paymentMethod: "CARD", paymentCardType, quoteSnapshot }),
         });
       } catch {
         console.error("[pos:tuu:status]", { status: "CHARGED_NOT_REGISTERED", reason: "network_error" });
@@ -1889,7 +1894,7 @@ export default function PosTerminal() {
       setPaymentResult({
         plate: stay?.license_plate || selectedVehicle.stay.license_plate,
         total: confirmedAmount,
-        paymentMethod: payload?.data?.stay?.payment_method || "CARD",
+        paymentMethod: classifiedPaymentMethod(stay) || "CARD",
       });
       const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse, "CARD");
       setReceiptPrintPayload(receiptPayload);
@@ -3047,6 +3052,7 @@ export default function PosTerminal() {
                 <p className="text-[10px] font-black uppercase tracking-[0.08em] text-emerald-700">Total crédito</p>
                 <p className="mt-1 text-lg font-black text-emerald-950">{formatCurrency(paymentsTodayTotals?.totalCredit ?? 0)}</p>
               </div>
+              {Number(paymentsTodayTotals?.totalUnclassifiedCard) > 0 ? <div className="rounded-2xl border border-slate-200 bg-white p-3"><p className="text-[10px] font-black uppercase text-slate-600">Tarjeta sin clasificar</p><p className="mt-1 text-lg font-black">{formatCurrency(paymentsTodayTotals.totalUnclassifiedCard)}</p></div> : null}
             </div>
 
             <button

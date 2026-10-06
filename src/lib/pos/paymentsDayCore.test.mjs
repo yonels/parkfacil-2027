@@ -27,11 +27,11 @@ test("PAGOS DEL DÍA: totales se calculan solo desde CASH; débito/crédito no s
     { total_amount: 1200, payment_method: "CARD" }, // no distinguible como débito/crédito hoy
   ];
   const totals = summarizeDailyPayments(stays);
-  assert.deepEqual(totals, { totalAmount: 6700, totalCash: 5500, totalDebit: 0, totalCredit: 0, count: 3 });
+  assert.deepEqual(totals, { totalAmount: 6700, totalCash: 5500, totalDebit: 0, totalCredit: 0, totalUnclassifiedCard: 1200, count: 3 });
 });
 
 test("PAGOS DEL DÍA: totales en cero cuando no hay pagos", () => {
-  assert.deepEqual(summarizeDailyPayments([]), { totalAmount: 0, totalCash: 0, totalDebit: 0, totalCredit: 0, count: 0 });
+  assert.deepEqual(summarizeDailyPayments([]), { totalAmount: 0, totalCash: 0, totalDebit: 0, totalCredit: 0, totalUnclassifiedCard: 0, count: 0 });
 });
 
 test("PAGOS DEL DÍA: proyecta fila mínima (patente, hora, medio, monto)", () => {

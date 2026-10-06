@@ -1,5 +1,7 @@
 "use client";
 
+import { paymentMethodDisplay } from "@/lib/paymentCardType.mjs";
+
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDown,
@@ -39,12 +41,9 @@ function money(value) {
   return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(value || 0);
 }
 
-// parking_stays.payment_method solo distingue CASH/CARD (mismo modelo real
-// que /operacion, Fase 1) -- nunca se inventa débito/crédito.
+// The displayed method includes the explicitly persisted card type.
 function paymentMethodLabel(method) {
-  if (method === "CASH") return "Efectivo";
-  if (method === "CARD") return "Tarjeta";
-  return "—";
+  return paymentMethodDisplay(method);
 }
 
 const transactionColumns = [
@@ -325,10 +324,12 @@ export default function RecaudacionPage() {
           {[
             { id: "total", label: "Total recaudado", value: money(resumen.totalAmount), description: "Periodo seleccionado", icon: Landmark, color: "text-[#3150D8]", onClick: () => { setMethod(""); setPage(1); } },
             { id: "cash", label: "Efectivo", value: money(resumen.cashAmount), description: `${resumen.totalAmount ? Math.round((resumen.cashAmount / resumen.totalAmount) * 100) : 0}% de la recaudación`, icon: Banknote, color: "text-emerald-700", onClick: () => { setMethod("CASH"); setPage(1); } },
-            { id: "cards", label: "Tarjeta", value: money(resumen.cardAmount), description: `${resumen.totalAmount ? Math.round((resumen.cardAmount / resumen.totalAmount) * 100) : 0}% de la recaudación`, icon: CreditCard, color: "text-sky-700", onClick: () => { setMethod("CARD"); setPage(1); } },
+            { id: "credit", label: "Crédito", value: money(resumen.creditAmount), description: "Pagos con crédito", icon: CreditCard, color: "text-sky-700", onClick: () => { setMethod("CREDIT"); setPage(1); } },
+            { id: "debit", label: "Débito", value: money(resumen.debitAmount), description: "Pagos con débito", icon: CreditCard, color: "text-indigo-700", onClick: () => { setMethod("DEBIT"); setPage(1); } },
+            ...(Number(resumen.unclassifiedCardAmount) > 0 ? [{ id: "unclassified", label: "Tarjeta sin clasificar", value: money(resumen.unclassifiedCardAmount), description: "Sin tipo registrado", icon: CreditCard, color: "text-slate-600", onClick: () => { setMethod("CARD_UNCLASSIFIED"); setPage(1); } }] : []),
             { id: "count", label: "Transacciones", value: String(resumen.count), description: `Ticket promedio: ${money(resumen.averageTicket)}`, icon: ReceiptText, color: "text-amber-700", onClick: () => { setMethod(""); setPage(1); } },
           ].map(({ id, label, value, description, icon: Icon, color, onClick }) => (
-            <button key={id} type="button" onClick={onClick} className={`flex items-center gap-4 rounded-3xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md ${(id === "cash" && method === "CASH") || (id === "cards" && method === "CARD") ? "border-[#3150D8] ring-2 ring-[#3150D8]/15" : "border-slate-200"}`}>
+            <button key={id} type="button" onClick={onClick} className={`flex items-center gap-4 rounded-3xl border bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md ${(id === "cash" && method === "CASH") || (id === "credit" && method === "CREDIT") || (id === "debit" && method === "DEBIT") || (id === "unclassified" && method === "CARD_UNCLASSIFIED") ? "border-[#3150D8] ring-2 ring-[#3150D8]/15" : "border-slate-200"}`}>
               <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-slate-50"><Icon className={`h-5 w-5 ${color}`} /></span><span><span className="block text-xs font-semibold text-slate-500">{label}</span><span className="mt-1 block text-xl font-bold text-[#041E42]">{value}</span><span className="mt-1 block text-xs text-slate-500">{description}</span></span>
             </button>
           ))}
@@ -355,7 +356,9 @@ export default function RecaudacionPage() {
             <div className="space-y-3 p-4">
               {[
                 { key: "CASH", label: "Efectivo", amount: resumen.cashAmount, icon: Banknote, color: "bg-emerald-500" },
-                { key: "CARD", label: "Tarjeta", amount: resumen.cardAmount, icon: CreditCard, color: "bg-[#3150D8]" },
+                { key: "CREDIT", label: "Crédito", amount: resumen.creditAmount, icon: CreditCard, color: "bg-[#3150D8]" },
+                { key: "DEBIT", label: "Débito", amount: resumen.debitAmount, icon: CreditCard, color: "bg-indigo-500" },
+                ...(Number(resumen.unclassifiedCardAmount) > 0 ? [{ key: "CARD_UNCLASSIFIED", label: "Tarjeta sin clasificar", amount: resumen.unclassifiedCardAmount, icon: CreditCard, color: "bg-slate-500" }] : []),
               ].map((item) => (
                 <div key={item.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex items-center justify-between gap-3">
@@ -368,7 +371,7 @@ export default function RecaudacionPage() {
               <div className="rounded-2xl bg-[#EEF4FF] p-3 text-xs text-slate-600">
                 <b className="text-[#041E42]">Diferencias de caja del período:</b> {money(cashDifference.totalDifference)} en {cashDifference.closuresWithDifference} cierre(s) con diferencia.
               </div>
-              <p className="px-1 text-[11px] leading-5 text-slate-500">parking_stays.payment_method solo distingue Efectivo/Tarjeta hoy -- no existe una distinción real entre débito y crédito en el esquema actual.</p>
+              <p className="px-1 text-[11px] leading-5 text-slate-500">Los pagos sin tipo de tarjeta registrado se conservan como Tarjeta sin clasificar.</p>
             </div>
           </section>
         </div>
@@ -380,7 +383,7 @@ export default function RecaudacionPage() {
         </section>
 
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 xl:flex-row xl:items-center xl:justify-between"><div className="flex items-center gap-3"><FileSpreadsheet className="h-5 w-5 text-[#3150D8]" /><div><h2 className="font-bold text-[#041E42]">Transacciones</h2><p className="text-xs text-slate-500">{total} resultados · pagos confirmados (parking_stays) · los KPIs superiores reflejan estos mismos filtros, salvo la búsqueda de texto</p></div></div><div className="flex flex-wrap gap-2"><label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3"><Search className="h-4 w-4 text-[#3150D8]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Patente, ticket o código de pago" className="w-56 py-2.5 text-sm outline-none" /></label><select value={method} onChange={(event) => { setMethod(event.target.value); setPage(1); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Todos los medios</option><option value="CASH">Efectivo</option><option value="CARD">Tarjeta</option></select>{operatorOptions.length > 0 && (<select value={operatorId} onChange={(event) => { setOperatorId(event.target.value); setPage(1); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Todos los operadores</option>{operatorOptions.map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select>)}<button type="button" onClick={exportCsv} disabled={exporting} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Download className="h-4 w-4" />{exporting ? "Exportando…" : "Exportar CSV (resultado filtrado completo)"}</button></div></div>
+          <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 xl:flex-row xl:items-center xl:justify-between"><div className="flex items-center gap-3"><FileSpreadsheet className="h-5 w-5 text-[#3150D8]" /><div><h2 className="font-bold text-[#041E42]">Transacciones</h2><p className="text-xs text-slate-500">{total} resultados · pagos confirmados (parking_stays) · los KPIs superiores reflejan estos mismos filtros, salvo la búsqueda de texto</p></div></div><div className="flex flex-wrap gap-2"><label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3"><Search className="h-4 w-4 text-[#3150D8]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Patente, ticket o código de pago" className="w-56 py-2.5 text-sm outline-none" /></label><select value={method} onChange={(event) => { setMethod(event.target.value); setPage(1); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Todos los medios</option><option value="CASH">Efectivo</option><option value="CREDIT">Crédito</option><option value="DEBIT">Débito</option><option value="CARD_UNCLASSIFIED">Tarjeta sin clasificar</option><option value="CARD">Todas las tarjetas</option></select>{operatorOptions.length > 0 && (<select value={operatorId} onChange={(event) => { setOperatorId(event.target.value); setPage(1); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Todos los operadores</option>{operatorOptions.map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select>)}<button type="button" onClick={exportCsv} disabled={exporting} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Download className="h-4 w-4" />{exporting ? "Exportando…" : "Exportar CSV (resultado filtrado completo)"}</button></div></div>
           {exportError ? <p className="mx-5 mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{exportError}</p> : null}
           <div className="overflow-x-auto"><table className="w-full min-w-[1350px] text-left text-sm"><thead className="bg-[#041E42] text-white"><tr>{transactionColumns.map(([key, label]) => <th key={key} className="p-0"><button type="button" onClick={() => orderBy(key)} className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left font-semibold hover:bg-white/10">{label}{sort.key === key ? (sort.direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />) : null}</button></th>)}<th className="px-4 py-3">Detalle</th></tr></thead><tbody>{sortedRows.map((item) => <tr key={item.id} className="border-b border-slate-100 last:border-b-0 even:bg-slate-50 hover:bg-[#EEF4FF]" onClick={() => setSelected(item)}>{transactionColumns.map(([key]) => <td key={key} className={`cursor-pointer px-4 py-3 ${key === "amount" ? "text-right font-bold" : ""}`}>{key === "amount" ? money(item[key]) : key === "status" ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Pagado</span> : item[key]}</td>)}<td className="px-4 py-3"><button type="button" className="inline-flex items-center gap-1 text-xs font-bold text-[#3150D8]"><Eye className="h-4 w-4" />Ver</button></td></tr>)}{!sortedRows.length ? <tr><td colSpan={transactionColumns.length + 1} className="px-4 py-8 text-center text-slate-500">{loading ? "Cargando…" : "No hay transacciones para estos filtros."}</td></tr> : null}</tbody></table></div>
           {totalPages > 1 && (

@@ -25,7 +25,7 @@ test("originLabel y paymentMethodLabel cubren los valores reales de entry_source
   assert.equal(originLabel("POS"), "POS");
   assert.equal(originLabel(null), "—");
   assert.equal(paymentMethodLabel("CASH"), "Efectivo");
-  assert.equal(paymentMethodLabel("CARD"), "Tarjeta");
+  assert.equal(paymentMethodLabel("CARD"), "Tarjeta sin clasificar");
   assert.equal(paymentMethodLabel(null), "—");
 });
 
