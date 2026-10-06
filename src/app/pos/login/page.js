@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { ParkingSquare, ScanLine } from "lucide-react";
 
+import PosViewport from "@/components/pos/PosViewport";
 import LoginForm from "@/components/auth/LoginForm";
 
 export const metadata = {
@@ -22,7 +23,8 @@ export default async function PosLoginPage({ searchParams }) {
   const reasonMessage = POS_LOGIN_REASONS[String(params.motivo || "")] || "";
 
   return (
-    <main className="grid min-h-screen bg-slate-50 lg:grid-cols-[1.1fr_0.9fr]">
+    <main className="pos-login grid min-h-screen bg-slate-50 lg:grid-cols-[1.1fr_0.9fr]">
+      <PosViewport />
       <section
         className="relative hidden overflow-hidden p-12 text-white lg:flex lg:flex-col lg:justify-between"
         style={{
@@ -62,9 +64,9 @@ export default async function PosLoginPage({ searchParams }) {
         <p className="relative z-10 text-sm text-white/65">ParkFacil 2027 · POS seguro</p>
       </section>
 
-      <section className="flex items-center justify-center px-5 py-10 sm:px-10">
+      <section className="pos-login-content flex items-center justify-center px-5 py-10 sm:px-10">
         <div
-          className="relative w-full max-w-md overflow-hidden rounded-3xl border p-7 shadow-2xl sm:p-10"
+          className="pos-login-card relative w-full max-w-md overflow-hidden rounded-3xl border p-7 shadow-2xl sm:p-10"
           style={{
             backgroundImage: "linear-gradient(to bottom right, #607D8B, #455A64, #37474F)",
             boxShadow: "0 25px 50px -12px rgba(38,50,56,0.35)",
@@ -87,7 +89,7 @@ export default async function PosLoginPage({ searchParams }) {
               <p className="font-bold text-white">ParkFacil POS</p>
             </div>
 
-            <div className="mt-8 flex items-center gap-3 lg:mt-0">
+            <div className="pos-login-heading mt-8 flex items-center gap-3 lg:mt-0">
               <span className="grid h-11 w-11 place-items-center rounded-2xl bg-white/10 text-white">
                 <ScanLine className="h-5 w-5" />
               </span>
@@ -95,7 +97,7 @@ export default async function PosLoginPage({ searchParams }) {
               <p className="text-sm font-bold uppercase tracking-[0.2em] text-white/85">Acceso Operador</p>
             </div>
 
-            <h2 className="mt-4 text-3xl font-bold text-white">ParkFacil POS - Acceso Operador</h2>
+            <h2 className="pos-login-title mt-4 text-3xl font-bold text-white">Iniciar sesión</h2>
 
             <p className="mt-2 text-sm leading-6 text-white/80">
               Esta pantalla es exclusiva para operadores POS.

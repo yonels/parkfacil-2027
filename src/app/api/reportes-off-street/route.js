@@ -31,15 +31,17 @@ export async function GET(request) {
     const dateFrom = url.searchParams.get("dateFrom") || null;
     const dateTo = url.searchParams.get("dateTo") || null;
     const status = url.searchParams.get("status") || null;
+    const movement = url.searchParams.get("movement") || null;
+    const activeOnly = url.searchParams.get("current") === "true";
     const operatorId = url.searchParams.get("operatorId") || null;
     const query = url.searchParams.get("query") || null;
     const page = url.searchParams.get("page");
     const pageSize = url.searchParams.get("pageSize");
     const all = url.searchParams.get("all") === "true";
 
-    const validation = validateReportsFilters({ type, dateFrom, dateTo, status });
+    const validation = validateReportsFilters({ type, dateFrom, dateTo, status, movement });
     if (!validation.ok) return fail(validation.message, 400, { code: "INVALID_FILTERS" });
-    if (all && type !== "occupancy" && !dateFrom && !dateTo) {
+    if (all && !["occupancy", "parked"].includes(type) && !(type === "shifts" && ["OPEN", "CLOSING"].includes(status)) && !dateFrom && !dateTo) {
       return fail("Selecciona un rango de fechas antes de exportar todo el resultado.", 400, { code: "EXPORT_REQUIRES_DATE_RANGE" });
     }
 
@@ -50,8 +52,8 @@ export async function GET(request) {
       const forcedStatus = type === "parked" ? "OPEN" : status;
       const [result, summary] = await Promise.all([
         searchMovementsReport(authorization.db, scopedParkings, {
-          status: forcedStatus, movement: type === "parked" ? "entries" : null,
-          dateFrom, dateTo, operatorId, query, parkingId, companyId, all,
+          status: forcedStatus, movement: type === "parked" ? "open" : movement,
+          dateFrom: type === "parked" ? null : dateFrom, dateTo: type === "parked" ? null : dateTo, operatorId, query, parkingId, companyId, all,
           page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined,
         }),
         getMovementsSummary(authorization.db, scopedParkings, { parkingId, companyId }),
@@ -61,7 +63,7 @@ export async function GET(request) {
 
     if (type === "shifts") {
       const result = await searchShiftsReport(authorization.db, scopedParkings, {
-        status, operatorId, dateFrom, dateTo, parkingId, companyId, all,
+        status, activeOnly, operatorId, dateFrom, dateTo, parkingId, companyId, all,
         page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined,
       });
       return NextResponse.json({ data: { rows: result.rows, total: result.total, page: result.page, pageSize: result.pageSize, actor } });

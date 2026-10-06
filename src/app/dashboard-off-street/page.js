@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { OPERATIONAL_TIME_ZONE } from "@/lib/dataEntry.mjs";
+import { operationalTodayIso } from "@/lib/offStreetDashboardCore.mjs";
 import {
   ArrowLeft,
   Banknote,
@@ -30,8 +33,10 @@ function number(value) {
 
 const PERIODS = [
   { id: "today", label: "Hoy" },
+  { id: "yesterday", label: "Ayer" },
   { id: "7d", label: "7 días" },
   { id: "month", label: "Mes actual" },
+  { id: "custom", label: "Personalizado" },
 ];
 
 const EMPTY_DATA = {
@@ -47,9 +52,16 @@ const EMPTY_DATA = {
 };
 
 export default function DashboardOffStreetPage() {
-  const [company, setCompany] = useState("");
-  const [parking, setParking] = useState("");
-  const [period, setPeriod] = useState("today");
+  return <Suspense fallback={<p>Cargando resumen…</p>}><DashboardContent /></Suspense>;
+}
+
+function DashboardContent() {
+  const searchParams = useSearchParams();
+  const [company, setCompany] = useState(searchParams.get("companyId") || "");
+  const [parking, setParking] = useState(searchParams.get("parkingId") || "");
+  const [period, setPeriod] = useState(PERIODS.some((item) => item.id === searchParams.get("period")) ? searchParams.get("period") : "today");
+  const [from, setFrom] = useState(searchParams.get("dateFrom") || operationalTodayIso());
+  const [to, setTo] = useState(searchParams.get("dateTo") || operationalTodayIso());
 
   const [data, setData] = useState(EMPTY_DATA);
   const [loading, setLoading] = useState(true);
@@ -64,8 +76,10 @@ export default function DashboardOffStreetPage() {
         const params = new URLSearchParams();
         if (company) params.set("companyId", company);
         if (parking) params.set("parkingId", parking);
-        params.set("period", period);
+        if (period === "custom") { params.set("dateFrom", from); params.set("dateTo", to); }
+        else params.set("period", period);
 
+        if (period === "custom" && (!from || !to || from > to)) throw new Error("Selecciona fechas válidas: desde no puede superar hasta.");
         const response = await fetch(`/api/dashboard-off-street?${params.toString()}`);
         const payload = await response.json().catch(() => null);
         if (cancelled) return;
@@ -75,22 +89,37 @@ export default function DashboardOffStreetPage() {
           return;
         }
         setData({ ...EMPTY_DATA, ...payload?.data });
-      } catch {
-        if (!cancelled) { setError("No fue posible conectar con el servidor. Intenta nuevamente."); setData(EMPTY_DATA); }
+      } catch (cause) {
+        if (!cancelled) { setError(cause.message.startsWith("Selecciona") ? cause.message : "No fue posible conectar con el servidor. Intenta nuevamente."); setData(EMPTY_DATA); }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     void load();
     return () => { cancelled = true; };
-  }, [company, parking, period]);
+  }, [company, parking, period, from, to]);
 
   const parkingOptions = useMemo(
     () => (company ? data.parkings.filter((item) => item.companyId === company) : data.parkings),
     [company, data.parkings],
   );
 
-  const { operations, revenue, shifts, dailyMovements, occupancy } = data;
+  const { revenue, shifts, dailyMovements, occupancy } = data;
+  const periodEntries = dailyMovements.reduce((sum, day) => sum + day.entries, 0);
+  const periodExits = dailyMovements.reduce((sum, day) => sum + day.exits, 0);
+  function reportHref(tab, extra = {}, current = false) {
+    const params = new URLSearchParams({ tab, ...extra });
+    if (company) params.set("companyId", company);
+    if (parking) params.set("parkingId", parking);
+    if (!current) { params.set("dateFrom", data.dateFrom); params.set("dateTo", data.dateTo); }
+    return `/reportes-off-street?${params.toString()}`;
+  }
+  const reportTargets = {
+    "Capacidad": reportHref("ocupacion", {}, true), "Vehículos dentro": reportHref("estacionados", {}, true), "Disponibles": reportHref("ocupacion", {}, true), "% Ocupación": reportHref("ocupacion", {}, true),
+    "Ingresos": reportHref("movimientos", { movement: "entries" }), "Salidas": reportHref("movimientos", { movement: "exits" }), "Ingresos anulados": reportHref("movimientos", { status: "CANCELLED", movement: "entries" }),
+    "Total recaudado": reportHref("recaudacion"), "Efectivo": reportHref("recaudacion", { paymentMethod: "CASH" }), "Tarjeta": reportHref("recaudacion", { paymentMethod: "CARD" }), "Transacciones": reportHref("recaudacion"), "Ticket promedio": reportHref("recaudacion"),
+    "Turnos abiertos": reportHref("turnos", { status: "OPEN", current: "true" }, true), "Cierres del período": reportHref("cierres"), "Diferencias de caja": reportHref("cierres", { differences: "true" }), "Cierres con diferencia": reportHref("cierres", { differences: "true" }),
+  };
   const maxRevenue = Math.max(1, ...revenue.dailySeries.map((item) => item.amount));
   const maxMovements = Math.max(1, ...dailyMovements.map((item) => Math.max(item.entries, item.exits)));
 
@@ -101,7 +130,7 @@ export default function DashboardOffStreetPage() {
           <div>
             <p className="text-sm font-semibold text-cyan-200">Off Street</p>
             <h1 className="mt-2 text-3xl font-semibold">Dashboard</h1>
-            <p className="mt-2 text-sm text-slate-300">Datos reales de parking_stays, shift_closures y estructura de niveles/zonas -- exclusivamente estacionamientos Off Street.</p>
+            <p className="mt-2 text-sm text-slate-300">Consulta tu operación, recaudación y caja. Selecciona una tarjeta para ver el detalle.</p>
           </div>
           <Link href="/" className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"><ArrowLeft className="h-4 w-4" />Volver</Link>
         </header>
@@ -117,27 +146,27 @@ export default function DashboardOffStreetPage() {
           <span className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-100 px-4 py-2.5 text-xs font-semibold text-slate-500"><CalendarDays className="h-4 w-4" />{loading ? "Actualizando…" : `${data.dateFrom} — ${data.dateTo}`}</span>
         </section>
 
+        {period === "custom" ? <div className="flex flex-wrap gap-3"><label className="text-sm">Desde <input className="rounded-xl border border-slate-200 bg-white p-2" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label><label className="text-sm">Hasta <input className="rounded-xl border border-slate-200 bg-white p-2" type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label></div> : null}
+        <p className="text-xs text-slate-500">Zona horaria: {OPERATIONAL_TIME_ZONE} · Ocupación actual y actividad del período se muestran por separado.</p>
         {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
 
         {/* A. OCUPACIÓN -- no depende del período (siempre "ahora") */}
         <section>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Ocupación actual · no depende del período seleccionado</p>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <KpiTile icon={ParkingSquare} color="text-[#3150D8]" label="Capacidad" value={occupancy.capacityKnown ? number(occupancy.capacity) : "No informada"} description="Niveles y zonas activas" />
-            <KpiTile icon={CarFront} color="text-amber-700" label="Vehículos dentro" value={number(occupancy.insideCount)} description="parking_stays abiertas" />
-            <KpiTile icon={CheckCircle2} color="text-emerald-700" label="Disponibles" value={occupancy.capacityKnown ? number(occupancy.available) : "—"} description={occupancy.capacityKnown ? "Capacidad - dentro" : "Sin capacidad declarada"} />
-            <KpiTile icon={Gauge} color="text-sky-700" label="% Ocupación" value={occupancy.capacityKnown ? `${occupancy.occupancyPercentage}%` : "—"} description={occupancy.capacityKnown ? "Dentro / capacidad" : "No disponible"} />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={ParkingSquare} color="text-[#3150D8]" label="Capacidad" value={occupancy.capacityKnown ? number(occupancy.capacity) : "No informada"} description="Niveles y zonas activas" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={CarFront} color="text-amber-700" label="Vehículos dentro" value={number(occupancy.insideCount)} description="Todos los ingresos aún abiertos" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={CheckCircle2} color="text-emerald-700" label="Disponibles" value={occupancy.capacityKnown ? number(occupancy.available) : "—"} description={occupancy.capacityKnown ? "Capacidad - dentro" : "Sin capacidad declarada"} />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={Gauge} color="text-sky-700" label="% Ocupación" value={occupancy.capacityKnown ? `${occupancy.occupancyPercentage}%` : "—"} description={occupancy.capacityKnown ? "Dentro / capacidad" : "No disponible"} />
           </div>
         </section>
 
-        {/* B. OPERACIÓN DE HOY -- siempre "hoy", independiente del período */}
         <section>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Operación de hoy · independiente del período seleccionado</p>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <KpiTile icon={CarFront} color="text-[#3150D8]" label="Ingresos del día" value={number(operations.ingresosDia)} description="Estadías con ingreso hoy" />
-            <KpiTile icon={LogOut} color="text-emerald-700" label="Salidas del día" value={number(operations.salidasDia)} description="Estadías pagadas hoy" />
-            <KpiTile icon={ParkingSquare} color="text-amber-700" label="Vehículos dentro" value={number(operations.vehiculosDentro)} description="Estado Abierto" />
-            <KpiTile icon={ReceiptText} color="text-sky-700" label="Tickets abiertos" value={number(operations.ticketsAbiertos)} description="Mismo dato que vehículos dentro" />
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Actividad del período · {data.dateFrom} — {data.dateTo}</p>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={CarFront} color="text-[#3150D8]" label="Ingresos" value={number(periodEntries)} description="Ingresaron durante el período" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={LogOut} color="text-emerald-700" label="Salidas" value={number(periodExits)} description="Salieron durante el período" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={ReceiptText} color="text-amber-700" label="Ingresos anulados" value={number(data.cancelledEntries || 0)} description="Ingresados en el período, actualmente anulados" />
           </div>
         </section>
 
@@ -145,22 +174,24 @@ export default function DashboardOffStreetPage() {
         <section>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Recaudación · período seleccionado ({data.dateFrom} — {data.dateTo})</p>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <KpiTile icon={Landmark} color="text-[#3150D8]" label="Total recaudado" value={money(revenue.summary.totalAmount)} description="Pagos confirmados" />
-            <KpiTile icon={Banknote} color="text-emerald-700" label="Efectivo" value={money(revenue.summary.cashAmount)} description={`${revenue.summary.totalAmount ? Math.round((revenue.summary.cashAmount / revenue.summary.totalAmount) * 100) : 0}%`} />
-            <KpiTile icon={CreditCard} color="text-sky-700" label="Tarjeta" value={money(revenue.summary.cardAmount)} description={`${revenue.summary.totalAmount ? Math.round((revenue.summary.cardAmount / revenue.summary.totalAmount) * 100) : 0}%`} />
-            <KpiTile icon={ReceiptText} color="text-amber-700" label="Transacciones" value={number(revenue.summary.count)} description="Pagos confirmados" />
-            <KpiTile icon={TrendingUp} color="text-[#041E42]" label="Ticket promedio" value={money(revenue.summary.averageTicket)} description="Total / transacciones" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={Landmark} color="text-[#3150D8]" label="Total recaudado" value={money(revenue.summary.totalAmount)} description="Ver pagos confirmados" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={Banknote} color="text-emerald-700" label="Efectivo" value={money(revenue.summary.cashAmount)} description={`${revenue.summary.totalAmount ? Math.round((revenue.summary.cashAmount / revenue.summary.totalAmount) * 100) : 0}%`} />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={CreditCard} color="text-sky-700" label="Tarjeta" value={money(revenue.summary.cardAmount)} description={`${revenue.summary.totalAmount ? Math.round((revenue.summary.cardAmount / revenue.summary.totalAmount) * 100) : 0}%`} />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={ReceiptText} color="text-amber-700" label="Transacciones" value={number(revenue.summary.count)} description="Ver pagos confirmados" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={TrendingUp} color="text-[#041E42]" label="Ticket promedio" value={money(revenue.summary.averageTicket)} description="Total / transacciones" />
           </div>
         </section>
+
+        <p className="text-xs text-slate-500">Tarjeta incluye débito y crédito: el registro actual todavía no conserva su separación.</p>
 
         {/* D. TURNOS Y CAJA -- turnos abiertos es "ahora"; cierres/diferencias responden al período */}
         <section>
           <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Turnos y caja · turnos abiertos es “ahora”, cierres y diferencias son del período</p>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <KpiTile icon={Clock3} color="text-[#3150D8]" label="Turnos abiertos" value={number(shifts.openShiftsCount)} description="operator_shifts OPEN/CLOSING" />
-            <KpiTile icon={Wallet} color="text-emerald-700" label="Cierres del período" value={number(shifts.closuresInPeriod)} description="shift_closures reales" />
-            <KpiTile icon={CircleAlert} color={revenue.cashDifference.totalDifference < 0 ? "text-rose-700" : "text-emerald-700"} label="Diferencias de caja" value={money(revenue.cashDifference.totalDifference)} description="Acumulado del período" />
-            <KpiTile icon={CircleAlert} color="text-amber-700" label="Cierres con diferencia" value={number(revenue.cashDifference.closuresWithDifference)} description="cash_difference ≠ 0" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={Clock3} color="text-[#3150D8]" label="Turnos abiertos" value={number(shifts.openShiftsCount)} description="Operadores con turno activo" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={Wallet} color="text-emerald-700" label="Cierres del período" value={number(shifts.closuresInPeriod)} description="Cierres registrados" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={CircleAlert} color={revenue.cashDifference.totalDifference < 0 ? "text-rose-700" : "text-emerald-700"} label="Diferencias de caja" value={money(revenue.cashDifference.totalDifference)} description="Acumulado del período" />
+            <KpiTile targets={reportTargets} unavailable={loading || Boolean(error)} icon={CircleAlert} color="text-amber-700" label="Cierres con diferencia" value={number(revenue.cashDifference.closuresWithDifference)} description="Diferencias declaradas" />
           </div>
         </section>
 
@@ -204,15 +235,17 @@ export default function DashboardOffStreetPage() {
   );
 }
 
-function KpiTile({ icon: Icon, color, label, value, description }) {
+function KpiTile({ icon: Icon, color, label, value, description, targets, unavailable }) {
+  const href = !unavailable ? targets[label] : undefined;
+  const Container = href ? Link : "div";
   return (
-    <div className="flex items-center gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <Container href={href} className={`flex items-center gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ${href ? "transition hover:border-[#3150D8] hover:shadow-md focus-visible:outline-2 focus-visible:outline-[#3150D8]" : ""}`}>
       <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-slate-50"><Icon className={`h-5 w-5 ${color}`} /></span>
       <span className="min-w-0">
         <span className="block text-xs font-semibold text-slate-500">{label}</span>
-        <span className="mt-1 block truncate text-xl font-bold text-[#041E42]">{value}</span>
+        <span className="mt-1 block truncate text-xl font-bold text-[#041E42]">{unavailable ? "—" : value}</span>
         <span className="mt-1 block text-xs text-slate-500">{description}</span>
       </span>
-    </div>
+    </Container>
   );
 }

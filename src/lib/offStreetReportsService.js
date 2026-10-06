@@ -91,7 +91,7 @@ export async function getMovementsSummary(db, scopedParkings, options = {}) {
 // N+1: una sola consulta de parking_stays por lote, filtrada por los
 // shiftIds de la página actual).
 export async function searchShiftsReport(db, scopedParkings, options = {}) {
-  const { status = null, operatorId = null, dateFrom = null, dateTo = null, parkingId = null, companyId = null, page, pageSize, all = false } = options;
+  const { status = null, activeOnly = false, operatorId = null, dateFrom = null, dateTo = null, parkingId = null, companyId = null, page, pageSize, all = false } = options;
   const { page: safePage, pageSize: safeSize, offset } = normalizePagination({ page, pageSize });
 
   const parkings = offStreetParkings(scopedParkings);
@@ -109,7 +109,8 @@ export async function searchShiftsReport(db, scopedParkings, options = {}) {
 
   const queryFactory = () => {
     let q = db.from("operator_shifts").select(shiftFields).in("parking_id", queryParkingIds);
-    if (status) q = q.eq("status", status);
+    if (activeOnly) q = q.in("status", ["OPEN", "CLOSING"]);
+    if (status && !activeOnly) q = q.eq("status", status);
     if (operatorId) q = q.eq("operator_id", operatorId);
     if (effectiveDateFrom) q = q.gte("shift_date", effectiveDateFrom);
     if (effectiveDateTo) q = q.lte("shift_date", effectiveDateTo);

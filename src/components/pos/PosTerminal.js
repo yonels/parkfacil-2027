@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LoaderCircle, LogOut, Menu, RefreshCw, X } from "lucide-react";
 
+import PosViewport from "@/components/pos/PosViewport";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { splitChileTaxFromTotal, toOperationalDateTimeParts } from "@/lib/dataEntry.mjs";
 import { ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
@@ -2522,7 +2523,7 @@ export default function PosTerminal() {
 
         {homeShiftGate ? <div className="mb-4">{homeShiftGate}</div> : null}
 
-        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+        <div className="pos-home-actions grid grid-cols-2 gap-3 sm:gap-4">
           <button
             type="button"
             onClick={openEntryForm}
@@ -4535,7 +4536,8 @@ export default function PosTerminal() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-slate-100 text-slate-900">
+    <main className="pos-terminal min-h-screen bg-slate-100 text-slate-900">
+      <PosViewport />
       {paymentModalOpen ? renderPaymentModal() : null}
 
       {photoCaptureOpen ? (
@@ -4588,7 +4590,7 @@ export default function PosTerminal() {
         </div>
       ) : null}
 
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl">
+      <div className="pos-terminal-shell mx-auto flex min-h-screen w-full max-w-7xl">
         <aside className="hidden w-80 shrink-0 border-r border-slate-300 bg-white p-4 shadow-sm lg:block">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">ParkFacil POS</p>
           <h2 className="mt-2 text-xl font-black text-slate-800">Navegación</h2>
@@ -4607,8 +4609,8 @@ export default function PosTerminal() {
           <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Versión {POS_FRONTEND_VERSION}</p>
         </aside>
 
-        <section className="min-w-0 flex-1 p-3 sm:p-4 md:p-6">
-          <div className="rounded-3xl border border-slate-300 bg-white p-4 shadow-xl sm:p-5">
+        <section className="pos-terminal-content min-w-0 flex-1 p-3 sm:p-4 md:p-6">
+          <div className="pos-terminal-card rounded-3xl border border-slate-300 bg-white p-4 shadow-xl sm:p-5">
             <header className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">ParkFacil POS</p>
@@ -4649,8 +4651,8 @@ export default function PosTerminal() {
                 {error}
               </div>
             ) : (
-              <div className="mt-5 space-y-4">
-                <div className="grid gap-3 sm:grid-cols-3">
+              <div className="pos-terminal-body mt-5 space-y-4">
+                <div className="pos-terminal-context grid gap-3 sm:grid-cols-3">
                   <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Operador</p>
                     <p className="mt-1 break-words text-sm font-bold text-slate-800">{formatOperatorDisplayName(context)}</p>

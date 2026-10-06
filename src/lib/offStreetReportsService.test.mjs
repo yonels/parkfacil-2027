@@ -97,6 +97,23 @@ const MEMBERS = [{ user_id: "op-ana", full_name: "Ana Pérez" }, { user_id: "op-
 
 const NOW = new Date("2026-07-24T18:00:00.000Z");
 
+test("salidas del período incluyen ingresos antiguos y abiertos actuales no tienen fecha mínima implícita", async () => {
+  const oldPaid = { ...STAYS[1], id: "old-paid", entry_at: "2026-06-01T12:00:00Z" };
+  const oldOpen = { ...STAYS[0], id: "old-open", entry_at: "2026-05-01T12:00:00Z" };
+  const db = createMockDb({ stays: [oldPaid, oldOpen] });
+  const exits = await searchMovementsReport(db, CO1_PARKINGS, { movement: "exits", dateFrom: "2026-07-24", dateTo: "2026-07-24", all: true, now: NOW });
+  assert.deepEqual(exits.rows.map((row) => row.id), ["old-paid"]);
+  const open = await searchMovementsReport(db, CO1_PARKINGS, { status: "OPEN", all: true, now: NOW });
+  assert.deepEqual(open.rows.map((row) => row.id), ["old-open"]);
+});
+
+test("turnos actualmente activos incluye OPEN y CLOSING de días previos, excluye CLOSED", async () => {
+  const closing = { ...SHIFTS[0], id: "closing", status: "CLOSING", shift_date: "2026-07-20" };
+  const db = createMockDb({ shifts: [...SHIFTS, closing], members: MEMBERS });
+  const result = await searchShiftsReport(db, CO1_PARKINGS, { activeOnly: true, status: "OPEN", all: true, now: NOW });
+  assert.deepEqual(result.rows.map((row) => row.id).sort(), ["closing", "shift-1"]);
+});
+
 test("MOVIMIENTOS: mapea con toOperationRow real (Fase 1), incluye elapsedMinutes, nunca incluye On Street", async () => {
   const db = createMockDb({ stays: STAYS });
   const result = await searchMovementsReport(db, CO1_PARKINGS, { dateFrom: "2026-07-01", dateTo: "2026-07-31", now: NOW });

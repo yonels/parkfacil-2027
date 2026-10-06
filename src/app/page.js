@@ -88,7 +88,7 @@ export default async function Home() {
   // Un solo producto habilitado: redirección server-side, sin pasar por la
   // grilla genérica ni por ningún estado intermedio en el cliente.
   if (isClientRole && enabledProducts.length === 1) {
-    redirect(enabledProducts[0] === "ON_STREET" ? "/on-street-qr" : "/estacionamientos");
+    redirect(enabledProducts[0] === "ON_STREET" ? "/on-street-qr" : context.role === ROLES.COMPANY_ADMIN ? "/dashboard-off-street" : "/estacionamientos");
   }
 
   return (

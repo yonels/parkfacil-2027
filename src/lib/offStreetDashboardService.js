@@ -9,7 +9,7 @@
 // capacidad completa.
 import { fetchAllMatchingRows, getRevenueOverview, offStreetParkings, resolveQueryParkingIds, searchRevenueClosures } from "./offStreetRevenueService.js";
 import { getOperationsSummary } from "./posStaysService.js";
-import { addDaysToIsoDate } from "./pos/activityReportCore.mjs";
+import { filterRowsByExactOperationalDateRange, addDaysToIsoDate } from "./pos/activityReportCore.mjs";
 import { buildDailyMovementsSeries, computeOccupancy, resolveDashboardRange } from "./offStreetDashboardCore.mjs";
 
 // Misma definición real de "turno actualmente abierto" que ya usa
@@ -36,7 +36,7 @@ async function fetchMovementRows(db, parkingIds, dateFrom, dateTo) {
   if (!parkingIds.length) return [];
   const from = `${addDaysToIsoDate(dateFrom, -1)}T00:00:00.000Z`;
   const to = `${addDaysToIsoDate(dateTo, 1)}T23:59:59.999Z`;
-  const queryFactory = () => db.from("parking_stays").select("entry_at,exit_at").in("parking_id", parkingIds)
+  const queryFactory = () => db.from("parking_stays").select("entry_at,exit_at,status").in("parking_id", parkingIds)
     .or(`and(entry_at.gte.${from},entry_at.lte.${to}),and(exit_at.gte.${from},exit_at.lte.${to})`)
     .order("entry_at", { ascending: false });
   return fetchAllMatchingRows(queryFactory);
@@ -48,6 +48,7 @@ function emptyOverview(dateFrom, dateTo) {
     revenue: { summary: { totalAmount: 0, cashAmount: 0, cardAmount: 0, count: 0, averageTicket: 0 }, dailySeries: [], cashDifference: { totalDifference: 0, closuresWithDifference: 0 } },
     shifts: { openShiftsCount: 0, closuresInPeriod: 0 },
     dailyMovements: [],
+    cancelledEntries: 0,
     occupancy: computeOccupancy({ capacity: 0, insideCount: 0 }),
     dateFrom,
     dateTo,
@@ -67,7 +68,7 @@ export async function getOffStreetDashboardOverview(db, scopedParkings, options 
   const range = resolveDashboardRange({ period, dateFrom, dateTo, now });
   const { candidateParkings, queryParkingIds } = resolveQueryParkingIds(parkings, { parkingId, companyId });
 
-  const parkingOptions = candidateParkings.map((parking) => ({ id: parking.id, code: parking.code, name: parking.name, companyId: parking.companyId, companyName: parking.companyName }));
+  const parkingOptions = parkings.map((parking) => ({ id: parking.id, code: parking.code, name: parking.name, companyId: parking.companyId, companyName: parking.companyName }));
   const companies = [...new Map(parkings.filter((p) => p.companyId).map((p) => [p.companyId, { id: p.companyId, name: p.companyName || "Empresa asociada" }])).values()];
 
   if (!queryParkingIds.length) {
@@ -100,6 +101,7 @@ export async function getOffStreetDashboardOverview(db, scopedParkings, options 
     revenue: { summary: revenue.summary, dailySeries: revenue.dailySeries, cashDifference: revenue.cashDifference },
     shifts: { openShiftsCount, closuresInPeriod: closuresPage.total },
     dailyMovements,
+    cancelledEntries: filterRowsByExactOperationalDateRange(movementRows, "entry_at", range.dateFrom, range.dateTo).filter((row) => row.status === "CANCELLED").length,
     occupancy,
     dateFrom: range.dateFrom,
     dateTo: range.dateTo,

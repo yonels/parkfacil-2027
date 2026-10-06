@@ -8,7 +8,7 @@
 import { OPERATIONAL_TIME_ZONE, toOperationalDateTimeParts } from "./dataEntry.mjs";
 import { addDaysToIsoDate, operationalDateToIso } from "./pos/activityReportCore.mjs";
 
-export const DASHBOARD_PERIODS = Object.freeze(["today", "7d", "month"]);
+export const DASHBOARD_PERIODS = Object.freeze(["today", "yesterday", "7d", "month"]);
 
 export function isValidIsoDate(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -38,6 +38,7 @@ export function resolveDashboardRange({ period, dateFrom, dateTo, now = new Date
     return { dateFrom: dateFrom || today, dateTo: dateTo || today };
   }
   const today = operationalTodayIso(now);
+  if (period === "yesterday") return { dateFrom: addDaysToIsoDate(today, -1), dateTo: addDaysToIsoDate(today, -1) };
   if (period === "7d") return { dateFrom: addDaysToIsoDate(today, -6), dateTo: today };
   if (period === "month") return { dateFrom: `${today.slice(0, 7)}-01`, dateTo: today };
   return { dateFrom: today, dateTo: today }; // "today" (default)

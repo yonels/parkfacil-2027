@@ -3,7 +3,8 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Download, FileSpreadsheet } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import OffStreetSpreadsheet from "@/components/reports/OffStreetSpreadsheet";
 import AppShell from "@/components/layout/AppShell";
 import { OPERATIONAL_TIME_ZONE } from "@/lib/dataEntry.mjs";
 
@@ -21,28 +22,6 @@ function paymentMethodLabel(method) {
 function statusLabel(status) {
   const labels = { OPEN: "Abierto", PAID: "Pagado", CANCELLED: "Anulado", PROGRAMMED: "Programado", CLOSING: "En cierre", CLOSED: "Cerrado" };
   return labels[status] || status || "—";
-}
-
-// CSV real (§8): protección contra CSV injection (=,+,-,@) y BOM UTF-8 --
-// misma lógica que el backend (offStreetReportsCore.mjs), reimplementada
-// mínimamente en cliente porque el CSV se arma en el navegador a partir de
-// la respuesta JSON ya completa (all=true), sin una segunda ruta de
-// formateo server-side.
-function sanitizeCsvCell(value) {
-  const text = String(value ?? "");
-  if (/^[=+\-@]/.test(text)) return `'${text}`;
-  return text;
-}
-function downloadCsv(headers, rows, filename) {
-  const escape = (value) => `"${sanitizeCsvCell(value).replaceAll('"', '""')}"`;
-  const lines = [headers.map(escape).join(";"), ...rows.map((row) => row.map(escape).join(";"))];
-  const csv = `﻿${lines.join("\r\n")}`;
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
 }
 
 const TABS = [
@@ -78,28 +57,33 @@ function ReportesOffStreetContent() {
   const rawTab = searchParams.get("tab");
   const tab = TAB_IDS.has(rawTab) ? rawTab : "recaudacion";
 
-  const [company, setCompany] = useState("");
-  const [parking, setParking] = useState("");
-  const [from, setFrom] = useState(monthStartIsoSantiago());
-  const [to, setTo] = useState(todayIsoSantiago());
+  const [company, setCompany] = useState(searchParams.get("companyId") || "");
+  const [parking, setParking] = useState(searchParams.get("parkingId") || "");
+  const [from, setFrom] = useState(searchParams.get("dateFrom") || monthStartIsoSantiago());
+  const [to, setTo] = useState(searchParams.get("dateTo") || todayIsoSantiago());
   const [operatorId, setOperatorId] = useState("");
-  const [status, setStatus] = useState("");
-  const [method, setMethod] = useState("");
+  const [status, setStatus] = useState(searchParams.get("status") || "");
+  const [method, setMethod] = useState(searchParams.get("paymentMethod") || "");
   const [query, setQuery] = useState("");
 
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
-  const [resumen, setResumen] = useState(null);
+
   const [parkings, setParkings] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [operators, setOperators] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [exporting, setExporting] = useState(false);
+  const [actorId, setActorId] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [movement, setMovement] = useState(searchParams.get("movement") || "entries");
+  const currentShifts = tab === "turnos" && searchParams.get("current") === "true";
 
   function setTab(nextTab) {
+    setSelected(null);
     setStatus(""); // el filtro "Estado" no es comparable entre pestañas (movimientos vs turnos)
     const params = new URLSearchParams(searchParams.toString());
+    for (const key of ["status", "current", "differences", "movement"]) params.delete(key);
     params.set("tab", nextTab);
     router.push(`/reportes-off-street?${params.toString()}`);
   }
@@ -138,18 +122,21 @@ function ReportesOffStreetContent() {
     let cancelled = false;
     async function load() {
       setLoading(true);
+      setRows([]);
+      setTotal(0);
       setError("");
       try {
         const params = new URLSearchParams();
         if (company) params.set("companyId", company);
         if (parking) params.set("parkingId", parking);
-        if (tab !== "ocupacion") { params.set("dateFrom", from); params.set("dateTo", to); }
-        params.set("pageSize", "50");
+        if (!["ocupacion", "estacionados"].includes(tab) && !currentShifts) { params.set("dateFrom", from); params.set("dateTo", to); }
+        params.set("all", "true");
+        if (currentShifts) params.set("current", "true");
 
         let url;
         if (tab === "recaudacion") { if (method) params.set("paymentMethod", method); if (operatorId) params.set("operatorId", operatorId); if (query) params.set("query", query); url = `/api/recaudacion?${params.toString()}`; }
         else if (tab === "cierres") { if (operatorId) params.set("operatorId", operatorId); url = `/api/recaudacion/cierres?${params.toString()}`; }
-        else if (tab === "movimientos") { params.set("type", "movements"); if (status) params.set("status", status); if (operatorId) params.set("operatorId", operatorId); if (query) params.set("query", query); url = `/api/reportes-off-street?${params.toString()}`; }
+        else if (tab === "movimientos") { params.set("type", "movements"); params.set("movement", movement); if (status) params.set("status", status); if (operatorId) params.set("operatorId", operatorId); if (query) params.set("query", query); url = `/api/reportes-off-street?${params.toString()}`; }
         else if (tab === "estacionados") { params.set("type", "parked"); if (query) params.set("query", query); url = `/api/reportes-off-street?${params.toString()}`; }
         else if (tab === "turnos") { params.set("type", "shifts"); if (status) params.set("status", status); if (operatorId) params.set("operatorId", operatorId); url = `/api/reportes-off-street?${params.toString()}`; }
         else { params.set("type", "occupancy"); url = `/api/reportes-off-street?${params.toString()}`; }
@@ -158,24 +145,27 @@ function ReportesOffStreetContent() {
         const payload = await response.json().catch(() => null);
         if (cancelled) return;
         if (!response.ok) {
-          setRows([]); setTotal(0); setResumen(null);
+          setRows([]); setTotal(0);
           setError(payload?.error || "No fue posible consultar el reporte.");
           return;
         }
-        setRows(Array.isArray(payload?.data?.rows) ? payload.data.rows : []);
-        setTotal(Number(payload?.data?.total) || 0);
-        setResumen(payload?.data?.resumen || null);
-        if (Array.isArray(payload?.data?.parkings)) setParkings(payload.data.parkings);
-        if (Array.isArray(payload?.data?.companies)) setCompanies(payload.data.companies);
+        const resultRows = Array.isArray(payload?.data?.rows) ? payload.data.rows : [];
+        const visibleRows = tab === "cierres" && searchParams.get("differences") === "true" ? resultRows.filter((row) => Number(row.cashDifference) !== 0) : resultRows;
+        setRows(visibleRows);
+        setActorId(payload?.data?.actor?.id || "");
+        setTotal(visibleRows.length);
+
+
+
       } catch {
-        if (!cancelled) { setRows([]); setTotal(0); setResumen(null); setError("No fue posible conectar con el servidor."); }
+        if (!cancelled) { setRows([]); setTotal(0); setError("No fue posible conectar con el servidor."); }
       } finally {
         if (!cancelled) setLoading(false);
       }
     }
     void load();
     return () => { cancelled = true; };
-  }, [tab, company, parking, from, to, operatorId, status, method, query]);
+  }, [tab, company, parking, from, to, operatorId, status, method, query, movement, currentShifts, searchParams]);
 
   const parkingOptions = useMemo(() => (company ? parkings.filter((p) => p.companyId === company) : parkings), [company, parkings]);
   const operatorOptions = useMemo(() => operators.filter((user) => {
@@ -199,40 +189,21 @@ function ReportesOffStreetContent() {
     if (key === "status") return statusLabel(row.status);
     if (key === "capacity" || key === "insideCount" || key === "available") return row[key] == null ? "No informada" : number(row[key]);
     if (key === "occupancyPercentage") return row[key] == null ? "—" : `${row[key]}%`;
-    if (key === "openedAt") return row.openedDate ? `${row.openedDate} ${row.openedTime}` : "—";
-    if (key === "closedAt") return row.closedDate ? `${row.closedDate} ${row.closedTime}` : "Sin cierre";
+    if (key === "openedDate") return row.openedDate ? `${row.openedDate} ${row.openedTime}` : "—";
+    if (key === "closedDate") return row.closedDate ? `${row.closedDate} ${row.closedTime}` : "Sin cierre";
     return row[key] ?? "—";
   }
 
-  const exportCsv = async () => {
-    setExporting(true);
-    setError("");
-    try {
-      const params = new URLSearchParams();
-      if (company) params.set("companyId", company);
-      if (parking) params.set("parkingId", parking);
-      if (tab !== "ocupacion") { params.set("dateFrom", from); params.set("dateTo", to); }
-      params.set("all", "true");
 
-      let url;
-      if (tab === "recaudacion") { if (method) params.set("paymentMethod", method); if (operatorId) params.set("operatorId", operatorId); if (query) params.set("query", query); url = `/api/recaudacion?${params.toString()}`; }
-      else if (tab === "cierres") { if (operatorId) params.set("operatorId", operatorId); url = `/api/recaudacion/cierres?${params.toString()}`; }
-      else if (tab === "movimientos") { params.set("type", "movements"); if (status) params.set("status", status); if (operatorId) params.set("operatorId", operatorId); if (query) params.set("query", query); url = `/api/reportes-off-street?${params.toString()}`; }
-      else if (tab === "estacionados") { params.set("type", "parked"); url = `/api/reportes-off-street?${params.toString()}`; }
-      else if (tab === "turnos") { params.set("type", "shifts"); if (status) params.set("status", status); if (operatorId) params.set("operatorId", operatorId); url = `/api/reportes-off-street?${params.toString()}`; }
-      else { params.set("type", "occupancy"); url = `/api/reportes-off-street?${params.toString()}`; }
-
-      const response = await fetch(url);
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) { setError(payload?.error || "No fue posible exportar el reporte."); return; }
-      const exportRows = Array.isArray(payload?.data?.rows) ? payload.data.rows : [];
-      downloadCsv(columns.map(([, label]) => label), exportRows.map((row) => columns.map(([key]) => cellValue(row, key))), `reporte-${tab}-${from}-${to}.csv`);
-    } catch {
-      setError("No fue posible conectar con el servidor para exportar.");
-    } finally {
-      setExporting(false);
-    }
-  };
+  const gridColumns = useMemo(() => columns.map(([key, label]) => ({
+    key, label,
+    value: (row) => key === "openedDate" ? `${row.openedDate || ""} ${row.openedTime || ""}` : key === "closedDate" ? row.closedDate ? `${row.closedDate} ${row.closedTime || ""}` : "Sin cierre" : key === "paymentMethod" ? paymentMethodLabel(row[key]) : key === "status" ? statusLabel(row[key]) : row[key],
+    format: (value) => ["amount", "cashAmount", "cardAmount", "grossAmount", "declaredCashAmount", "cashDifference", "revenueAmount"].includes(key) ? (value == null ? "—" : money(value)) : String(value ?? "—"),
+    total: ["amount", "cashAmount", "cardAmount", "grossAmount", "declaredCashAmount", "cashDifference", "revenueAmount"].includes(key),
+    groupable: ["operator", "entryOperator", "exitOperator", "parkingName", "companyName", "date", "entryDate", "exitDate", "paymentMethod", "status", "shiftDate"].includes(key),
+  })), [columns]);
+  const parkingLabel = parkings.find((item) => item.id === parking || item.code === parking)?.name || (parking ? "Estacionamiento seleccionado" : "Todos los estacionamientos autorizados");
+  const reportContext = `${total} registros · ${parkingLabel} · ${["ocupacion", "estacionados"].includes(tab) || currentShifts ? "Estado actual" : `${from} al ${to}`} · ${tab === "movimientos" ? movement === "exits" ? "Fecha de salida" : "Fecha de ingreso" : tab === "recaudacion" ? "Fecha del pago" : ""} · America/Santiago`;
 
   return (
     <AppShell title="Reportes Off Street" description="Reportes reales de operación, recaudación, cierres y ocupación">
@@ -243,7 +214,7 @@ function ReportesOffStreetContent() {
             <h1 className="mt-2 text-3xl font-semibold">Reportes</h1>
             <p className="mt-2 text-sm text-slate-300">Datos reales, exclusivamente estacionamientos Off Street.</p>
           </div>
-          <Link href="/" className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"><ArrowLeft className="h-4 w-4" />Volver</Link>
+          <Link href={`/dashboard-off-street?${new URLSearchParams({ companyId: company, parkingId: parking, period: "custom", dateFrom: from, dateTo: to })}`} className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"><ArrowLeft className="h-4 w-4" />Volver al resumen</Link>
         </header>
 
         <div className="flex flex-wrap gap-2 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">
@@ -257,7 +228,7 @@ function ReportesOffStreetContent() {
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Empresa</span><select value={company} onChange={(e) => { setCompany(e.target.value); setParking(""); setOperatorId(""); }} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todas</option>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
           )}
           <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Estacionamiento</span><select value={parking} onChange={(e) => { setParking(e.target.value); setOperatorId(""); }} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todos</option>{parkingOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-          {tab !== "ocupacion" && (<>
+          {!["ocupacion", "estacionados"].includes(tab) && !currentShifts && (<>
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Fecha desde</span><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]" /></label>
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Fecha hasta</span><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]" /></label>
           </>)}
@@ -270,7 +241,7 @@ function ReportesOffStreetContent() {
           {(tab === "movimientos") && (
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Estado</span><select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todos</option><option value="OPEN">Abierto</option><option value="PAID">Pagado</option><option value="CANCELLED">Anulado</option></select></label>
           )}
-          {tab === "turnos" && (
+          {tab === "turnos" && !currentShifts && (
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Estado del turno</span><select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todos</option><option value="PROGRAMMED">Programado</option><option value="OPEN">Abierto</option><option value="CLOSING">En cierre</option><option value="CLOSED">Cerrado</option><option value="CANCELLED">Anulado</option></select></label>
           )}
           {(tab === "recaudacion" || tab === "movimientos" || tab === "estacionados") && (
@@ -278,53 +249,12 @@ function ReportesOffStreetContent() {
           )}
         </section>
 
+        {tab === "movimientos" ? <label className="block text-sm">Filtrar fechas por <select value={movement} onChange={(event) => setMovement(event.target.value)} className="ml-2 rounded-xl border border-slate-200 bg-white px-3 py-2"><option value="entries">Ingreso</option><option value="exits">Salida</option></select></label> : null}
         {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
 
-        {resumen ? (
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {"totalAmount" in resumen ? <>
-              <KpiTile label="Total recaudado" value={money(resumen.totalAmount)} />
-              <KpiTile label="Efectivo" value={money(resumen.cashAmount)} />
-              <KpiTile label="Tarjeta" value={money(resumen.cardAmount)} />
-              <KpiTile label="Ticket promedio" value={money(resumen.averageTicket)} />
-            </> : <>
-              <KpiTile label="Ingresos" value={number(resumen.ingresosDia)} />
-              <KpiTile label="Salidas" value={number(resumen.salidasDia)} />
-              <KpiTile label="Vehículos dentro" value={number(resumen.vehiculosDentro)} />
-              <KpiTile label="Tickets abiertos" value={number(resumen.ticketsAbiertos)} />
-            </>}
-          </section>
-        ) : null}
-
-        <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
-            <div className="flex items-center gap-3"><FileSpreadsheet className="h-5 w-5 text-[#3150D8]" /><p className="text-sm text-slate-500">{total} resultados</p></div>
-            <button type="button" onClick={exportCsv} disabled={exporting} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Download className="h-4 w-4" />{exporting ? "Exportando…" : "Exportar CSV (resultado filtrado completo)"}</button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[1100px] text-left text-sm">
-              <thead className="bg-[#041E42] text-white"><tr>{columns.map(([key, label]) => <th key={key} className="px-4 py-3 font-semibold">{label}</th>)}</tr></thead>
-              <tbody>
-                {rows.map((row, index) => (
-                  <tr key={row.id || index} className="border-b border-slate-100 last:border-b-0 even:bg-slate-50">
-                    {columns.map(([key]) => <td key={key} className="px-4 py-3">{cellValue(row, key)}</td>)}
-                  </tr>
-                ))}
-                {!rows.length ? <tr><td colSpan={columns.length} className="px-4 py-10 text-center text-slate-500">{loading ? "Cargando…" : "Sin resultados"}</td></tr> : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <OffStreetSpreadsheet key={tab} rows={rows} columns={gridColumns} storageKey={`parkfacil:offstreet:${actorId || "pending"}:${tab}`} title={TABS.find((item) => item.id === tab)?.label || "Reporte"} context={reportContext} loading={loading} disabled={Boolean(error)} onOpen={(row) => setSelected(row)} />
+        {selected ? <section role="dialog" aria-modal="true" aria-label="Detalle del registro" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"><div className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-6"><div className="flex items-center justify-between"><h2 className="text-xl font-semibold">Detalle del registro</h2><button type="button" className="rounded border px-3 py-2" onClick={() => setSelected(null)}>Cerrar</button></div><dl className="mt-4 grid gap-4 sm:grid-cols-2">{columns.map(([key, label]) => <div key={key}><dt className="text-xs text-slate-500">{label}</dt><dd className="font-semibold">{cellValue(selected, key)}</dd></div>)}</dl>{["movimientos", "estacionados", "recaudacion"].includes(tab) && selected.id ? <Link className="mt-5 inline-block text-[#3150D8] underline" href={`/operacion/${selected.id}`}>Abrir ficha del ticket</Link> : null}</div></section> : null}
       </div>
     </AppShell>
-  );
-}
-
-function KpiTile({ label, value }) {
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-semibold text-slate-500">{label}</p>
-      <p className="mt-1 text-xl font-bold text-[#041E42]">{value}</p>
-    </div>
   );
 }

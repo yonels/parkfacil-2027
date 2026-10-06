@@ -10,6 +10,13 @@ import {
   validateReportsFilters,
 } from "./offStreetReportsCore.mjs";
 
+test("estados de estadía y turno se validan por separado", () => {
+  assert.equal(validateReportsFilters({ type: "movements", status: "PAID", movement: "exits" }).ok, true);
+  assert.equal(validateReportsFilters({ type: "shifts", status: "PAID" }).ok, false);
+  assert.equal(validateReportsFilters({ type: "movements", status: "CLOSED" }).ok, false);
+  assert.equal(validateReportsFilters({ type: "shifts", status: "CLOSING" }).ok, true);
+});
+
 test("validateReportsFilters rechaza type/fechas/estado fuera del modelo real", () => {
   assert.equal(validateReportsFilters({}).ok, true);
   assert.equal(validateReportsFilters({ type: "movements" }).ok, true);

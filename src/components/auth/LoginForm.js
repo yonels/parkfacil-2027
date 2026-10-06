@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
-import { getSafeDestination } from "@/lib/auth/loginDestination.mjs";
+import { getSafeDestination, getProductLoginDestination } from "@/lib/auth/loginDestination.mjs";
 import { buildTechnicalEmail } from "@/lib/auth/accessUsernameDomain.mjs";
 import Link from "next/link";
+import { getPosCredentialClient } from "@/lib/auth/posCredentials.mjs";
 
 // Portales cuyas cuentas iniciales pueden tener un "usuario de acceso"
 // generado (sin @) en vez de un correo real -- Root e Inspector siempre
@@ -37,6 +38,37 @@ export default function LoginForm({
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  const [rememberCredentials, setRememberCredentials] = useState(false);
+  const [credentialClient, setCredentialClient] = useState(null);
+  const [credentialNotice, setCredentialNotice] = useState("");
+  const editedCredentials = useRef(false);
+  useEffect(() => {
+    if (tipoAcceso !== "terminal") return;
+    const client = getPosCredentialClient(window.ParkFacilCredentials);
+    if (!client) return;
+    let active = true;
+    client("read").then((saved) => {
+      if (!active) return;
+      setCredentialClient(() => client);
+      if (editedCredentials.current || !saved) return;
+      setEmail(saved.username || "");
+      setPassword(saved.password || "");
+      setRememberCredentials(true);
+    }).catch(() => { if (active) { setCredentialClient(() => client); setCredentialNotice("No se pudieron recuperar los datos guardados. Puedes ingresar manualmente."); } });
+    return () => { active = false; };
+  }, [tipoAcceso]);
+
+  async function forgetCredentials() {
+    try {
+      await credentialClient("forget");
+      editedCredentials.current = true;
+      setRememberCredentials(false);
+      setEmail("");
+      setPassword("");
+      setCredentialNotice("Datos guardados eliminados de este POS.");
+    } catch (error) { setCredentialNotice(error.message); }
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -86,9 +118,19 @@ export default function LoginForm({
       // productos, o sin ninguno, se conserva "/" (selector/estado sin
       // productos, ver Home).
       const enabledProducts = Array.isArray(sessionPayload.data?.enabledProducts) ? sessionPayload.data.enabledProducts : [];
-      const singleProductDestination = tipoAcceso === "cliente" && destination === "/" && enabledProducts.length === 1
-        ? (enabledProducts[0] === "ON_STREET" ? "/on-street-qr" : "/estacionamientos")
-        : destination;
+      const singleProductDestination = getProductLoginDestination({
+        portal: tipoAcceso, destination, enabledProducts, role: sessionPayload.data?.role,
+      });
+      if (tipoAcceso === "terminal" && credentialClient) {
+        try {
+          if (rememberCredentials) await credentialClient("save", { username: typedValue, password });
+          else await credentialClient("forget");
+        } catch (storageError) {
+          await supabase.auth.signOut();
+          await fetch("/api/auth/session", { method: "DELETE" });
+          throw new Error(storageError.message);
+        }
+      }
       router.replace(singleProductDestination);
     } catch (authError) {
       setError(
@@ -112,7 +154,7 @@ export default function LoginForm({
             autoComplete={PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) ? "username" : "email"}
             required
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            onChange={(event) => { editedCredentials.current = true; setEmail(event.target.value); }}
             placeholder={PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) ? "pfadmin7f3k o nombre@empresa.cl" : "nombre@empresa.cl"}
             className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-white placeholder:text-white/70 outline-none"
           />
@@ -128,7 +170,7 @@ export default function LoginForm({
             autoComplete="current-password"
             required
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            onChange={(event) => { editedCredentials.current = true; setPassword(event.target.value); }}
             placeholder="Ingresa tu contraseña"
             className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-white placeholder:text-white/70 outline-none"
           />
@@ -137,6 +179,17 @@ export default function LoginForm({
           </button>
         </span>
       </label>
+
+      {tipoAcceso === "terminal" && credentialClient ? (
+        <div className="space-y-2 text-sm">
+          <label className="flex min-h-11 items-center gap-2">
+            <input type="checkbox" checked={rememberCredentials} disabled={submitting} onChange={(event) => setRememberCredentials(event.target.checked)} />
+            Recordar usuario y contraseña en este POS
+          </label>
+          <button type="button" disabled={submitting} onClick={() => void forgetCredentials()} className="min-h-11 underline">Olvidar datos guardados</button>
+        </div>
+      ) : null}
+      {credentialNotice ? <p role="status" className="text-sm text-white">{credentialNotice}</p> : null}
 
       <div className="-mt-1 flex justify-end">
   <Link

@@ -5,6 +5,7 @@
 // Solo aporta lo que todavía no existe: validación de pestaña/filtros,
 // protección CSV, y el mapeo de turnos/ocupación (dominios sin cubrir en
 // Fase 1-3).
+import { OPERATION_STATUSES, OPERATION_MOVEMENTS } from "./offStreetOperationsCore.mjs";
 import { OPERATIONAL_TIME_ZONE, toOperationalDateTimeParts } from "./dataEntry.mjs";
 import { computeOccupancy } from "./offStreetDashboardCore.mjs";
 
@@ -18,15 +19,17 @@ export function isValidIsoDate(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-export function validateReportsFilters({ type, dateFrom, dateTo, status } = {}) {
+export function validateReportsFilters({ type, dateFrom, dateTo, status, movement } = {}) {
   if (type && !REPORT_TABS.includes(type)) {
     return { ok: false, message: `type debe ser una de: ${REPORT_TABS.join(", ")}.` };
   }
   if (dateFrom && !isValidIsoDate(dateFrom)) return { ok: false, message: "dateFrom debe tener formato AAAA-MM-DD." };
   if (dateTo && !isValidIsoDate(dateTo)) return { ok: false, message: "dateTo debe tener formato AAAA-MM-DD." };
   if (dateFrom && dateTo && dateFrom > dateTo) return { ok: false, message: "dateFrom no puede ser posterior a dateTo." };
-  if (status && !SHIFT_STATUSES.includes(status)) {
-    return { ok: false, message: `status debe ser una de: ${SHIFT_STATUSES.join(", ")}.` };
+  const statuses = type === "shifts" ? SHIFT_STATUSES : OPERATION_STATUSES;
+  if (movement && !OPERATION_MOVEMENTS.includes(movement)) return { ok: false, message: "Movimiento inválido." };
+  if (status && !statuses.includes(status)) {
+    return { ok: false, message: `status debe ser una de: ${statuses.join(", ")}.` };
   }
   return { ok: true, message: "" };
 }
