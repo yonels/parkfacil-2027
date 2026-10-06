@@ -25,6 +25,8 @@ Antes de actualizar el POS: recuperar fuentes 0.3.11, aplicar el cambio nativo c
 
 147 pruebas automáticas pasan: reportes/recaudación/tablero, filtros y totales, fechas, aislamiento/permisos, destino post-login y protocolo de credenciales. ESLint sin errores; aviso preexistente por imagen de evidencia en PosTerminal. Build web webpack verificado.
 
+Prueba visual con el código compilado y sesiones/datos simulados: login y pantalla inicial operativa caben sin desplazamiento horizontal y con botones dentro de la altura disponible en 320×568, 360×640 y 480×800. Autocompletado y olvido comprobados mediante canal nativo simulado; esto no valida el Keystore Android ni el POS físico.
+
 La compilación Android y el uso del Keystore no se consideran aprobados hasta validar la base actual y completar el build. No se ha instalado ni probado una nueva APK en hardware. No se han realizado pagos TUU reales ni modificado datos o credenciales de usuarios.
 
 Publicación autorizada: rama QA release/qr-onstreet-1.0. Producción main fuera de este cierre de pruebas.

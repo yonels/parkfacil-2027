@@ -115,7 +115,8 @@ table tbody tr:hover { background: #fff2cc !important; }
 @media (max-width: 600px) {
   .pos-login-content { padding: 12px; align-items: flex-start; }
   .pos-login-card { padding: 16px; border-radius: 16px; }
-  .pos-login-heading { margin-top: 12px; }
+  .pos-login-heading { display: none; }
+  .pos-login-title + p { display: none; }
   .pos-login-title { margin-top: 12px; font-size: 24px; }
   .pos-login .login-form { margin-top: 16px; }
   .pos-login .login-form > * + * { margin-top: 12px; }
@@ -124,13 +125,14 @@ table tbody tr:hover { background: #fff2cc !important; }
   .pos-terminal-card { padding: 10px; border-radius: 16px; }
   .pos-terminal-card > header { gap: 8px; padding-bottom: 8px; }
   .pos-terminal-card > header > div:first-child { min-width: 0; }
-  .pos-terminal-card > header h1 { margin-top: 2px; font-size: 18px; }
+  .pos-terminal-card > header h1 { margin-top: 2px; font-size: 16px; line-height: 22px; }
   .pos-terminal-card > header > div:first-child > p:last-child { display: none; }
   .pos-terminal-card > header > div:last-child { flex-shrink: 0; }
   .pos-terminal-body { margin-top: 10px; }
   .pos-terminal-body > * + * { margin-top: 10px; }
   .pos-terminal-context { gap: 6px; grid-template-columns: 1fr 1fr; }
   .pos-terminal-context > article { padding: 8px; min-width: 0; overflow-wrap: anywhere; }
+  .pos-terminal-context > article > p:first-child { font-size: 10px; line-height: 14px; letter-spacing: 0; }
   .pos-terminal-context > article:first-child p:last-child { display: none; }
   .pos-home-actions { gap: 8px; }
   .pos-home-actions > button { min-height: 64px; height: clamp(64px, calc(var(--pos-viewport-height, 100vh) * .14), 100px); padding: 8px; font-size: 15px; overflow-wrap: anywhere; }
