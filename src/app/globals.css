@@ -139,3 +139,23 @@ table tbody tr:hover { background: #fff2cc !important; }
   .pos-terminal-card > p:last-child { margin-top: 8px; font-size: 9px; }
   .pos-terminal input, .pos-terminal select { max-width: 100%; min-width: 0; }
 }
+
+/* POS surfaces fill the measured available screen; forms may scroll with the IME. */
+@media (max-width: 600px) {
+  .pos-login-content { padding: 0; align-items: stretch; }
+  .pos-login-card { max-width: none; min-height: var(--pos-viewport-height, 100vh); border-radius: 0; display: flex; flex-direction: column; }
+  .pos-login-card > div:last-child { flex: 1; display: flex; flex-direction: column; }
+  .pos-login .login-form { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+  .pos-terminal-content { display: flex; flex-direction: column; }
+  .pos-terminal-home { min-height: calc(var(--pos-viewport-height, 100vh) - 12px); display: flex; flex-direction: column; }
+  .pos-terminal-home .pos-terminal-body { flex: 1; display: flex; flex-direction: column; }
+  .pos-home-panel { flex: 1; display: flex; flex-direction: column; }
+  .pos-home-actions { flex: 1; grid-template-rows: repeat(2, minmax(64px, 1fr)); }
+  .pos-home-actions > button { height: auto; min-height: 64px; }
+}
+
+@media (max-width: 600px) { .pos-login .login-form > * { margin-top: 0 !important; margin-bottom: 0 !important; } }
+@media (max-width: 600px) {
+  .pos-terminal-home .pos-terminal-body { gap: 10px; }
+  .pos-terminal-home .pos-terminal-body > * { margin-top: 0 !important; margin-bottom: 0 !important; }
+}

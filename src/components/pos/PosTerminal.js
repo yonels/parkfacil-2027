@@ -1,5 +1,7 @@
 "use client";
 
+import PosPlateInput from "@/components/pos/PosPlateInput";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LoaderCircle, LogOut, Menu, RefreshCw, X } from "lucide-react";
 
@@ -2514,7 +2516,7 @@ export default function PosTerminal() {
     const homeShiftGate = renderShiftGate("Inicio de turno", { hideVolver: true });
 
     return (
-      <section className="mx-auto w-full max-w-4xl">
+      <section className="pos-home-panel mx-auto w-full max-w-4xl">
         {shiftReadyForOperations ? (
           <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-emerald-800">
             <span className="h-2 w-2 rounded-full bg-emerald-500" /> Turno activo
@@ -2599,27 +2601,10 @@ export default function PosTerminal() {
 
         {entryStep === "PLATE" ? (
           <div className="mt-5">
-            <label className="block">
-              <span className="mb-2 block text-sm font-bold text-slate-700">Patente</span>
-              <input
-                value={entryPlate}
-                onChange={(event) => {
-                  setEntryPlate(formatPosPlateInput(event.target.value));
-                  if (entryError) clearEntryFailure();
-                }}
-                inputMode="text"
-                autoCapitalize="characters"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                autoFocus
-                placeholder="CXPY-93"
-                maxLength={7}
-                disabled={busy}
-                aria-invalid={entryErrorCode === "INVALID_PLATE"}
-                className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-2xl font-black tracking-[0.16em] text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-emerald-500 disabled:opacity-60"
-              />
-            </label>
+            <PosPlateInput value={entryPlate} onChange={(value) => {
+              setEntryPlate(formatPosPlateInput(value));
+              if (entryError) clearEntryFailure();
+            }} disabled={busy} invalid={entryErrorCode === "INVALID_PLATE"} />
             <div className="mt-2 flex items-center justify-between gap-3">
               <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Formato: CXPY-93 o AB-1234</p>
               {entryPlate ? (
@@ -4610,7 +4595,7 @@ export default function PosTerminal() {
         </aside>
 
         <section className="pos-terminal-content min-w-0 flex-1 p-3 sm:p-4 md:p-6">
-          <div className="pos-terminal-card rounded-3xl border border-slate-300 bg-white p-4 shadow-xl sm:p-5">
+          <div className={`pos-terminal-card ${currentView === POS_VIEWS.HOME ? "pos-terminal-home" : ""} rounded-3xl border border-slate-300 bg-white p-4 shadow-xl sm:p-5`}>
             <header className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">ParkFacil POS</p>
