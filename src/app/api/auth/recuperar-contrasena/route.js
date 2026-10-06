@@ -1,11 +1,10 @@
+import { recoveryReadiness, resolveRecoveryRequest } from "@/lib/passwordRecoveryReadiness.mjs";
 import { NextResponse } from "next/server";
 
 import { enviarCorreoMicrosoft } from "@/lib/mailService";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import {
   RESPUESTA_ERROR,
-  construirRedirectTo,
-  detectarPortal,
   esEntornoLocal,
   procesarRecuperacionContrasena,
   resolverCanalEntregaRecuperacion,
@@ -39,14 +38,15 @@ export async function POST(request) {
     // Nota: el header x-parkfacil-portal SOLO tiene efecto cuando el
     // host es localhost/127.0.0.1 (ver detectarPortal). No permite
     // suplantar el portal en producción.
-    const portal = detectarPortal({ host, portalPrueba });
+    const body = await request.json().catch(() => ({}));
+    const resolved = resolveRecoveryRequest({ host, portalPrueba, requestedPortal: body?.portal });
+    const portal = resolved.portal;
     // origin real de la solicitud (protocolo+host+puerto tal cual llegó,
     // p. ej. "http://localhost:3000") -- solo se usa cuando local=true,
     // para que el enlace de recuperación apunte exactamente al servidor
     // dev que realmente está sirviendo la solicitud, sin un puerto
     // hardcodeado que pudiera no coincidir.
-    const origin = local ? new URL(request.url).origin : null;
-    const redirectTo = construirRedirectTo(portal, { local, origin });
+    const redirectTo = local ? `${new URL(request.url).origin}/nueva-contrasena` : resolved.redirectTo;
 
     diagnostico("Entorno detectado:", host);
     diagnostico("Portal identificado:", portal);
@@ -77,8 +77,13 @@ export async function POST(request) {
 
     diagnostico("Canal de entrega:", canalEntrega);
 
-    const body = await request.json().catch(() => ({}));
-
+    if (!local) {
+      const readiness = recoveryReadiness();
+      if (!readiness.ok) {
+        console.error("[access:recovery:failed]", { code: "RECOVERY_CONFIGURATION_INVALID", problems: readiness.problems });
+        return NextResponse.json({ ok: false, mensaje: RESPUESTA_ERROR }, { status: 503 });
+      }
+    }
     const supabase = getSupabaseAdminClient();
 
     const resultado = await procesarRecuperacionContrasena({
@@ -91,6 +96,7 @@ export async function POST(request) {
       diagnosticar: diagnostico,
     });
 
+    if (!resultado.ok) console.error("[access:recovery:failed]", { code: "RECOVERY_REQUEST_FAILED", status: resultado.status });
     return NextResponse.json(
       {
         ok: resultado.ok,

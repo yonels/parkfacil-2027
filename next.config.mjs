@@ -1,3 +1,5 @@
+import { recoveryReadiness } from "./src/lib/passwordRecoveryReadiness.mjs";
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   /* config options here */
@@ -10,4 +12,10 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default function configureNext(phase) {
+  if (process.env.VERCEL === "1" && phase === "phase-production-build") {
+    const result = recoveryReadiness();
+    if (!result.ok) throw new Error(`[access-readiness] BLOCKED: ${result.problems.join(", ")}`);
+  }
+  return nextConfig;
+}

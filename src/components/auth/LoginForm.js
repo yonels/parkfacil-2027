@@ -193,7 +193,7 @@ export default function LoginForm({
 
       <div className="-mt-1 flex justify-end">
   <Link
-    href="/recuperar-contrasena"
+    href={`/recuperar-contrasena?portal=${tipoAcceso === "root" ? "root" : "cliente"}`}
     className="text-sm font-semibold text-white underline decoration-white/50 underline-offset-4 transition hover:text-white/85 hover:decoration-white"
   >
     Recuperar contraseña

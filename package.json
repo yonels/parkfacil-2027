@@ -15,7 +15,10 @@
     "start": "next start",
     "lint": "eslint",
     "bootstrap:root": "node scripts/bootstrap-root-local.mjs",
-    "vendor:tesseract": "node scripts/vendor-tesseract.mjs"
+    "vendor:tesseract": "node scripts/vendor-tesseract.mjs",
+    "prebuild": "node scripts/check-recovery-readiness.mjs --vercel-only",
+    "check:access": "node scripts/check-recovery-readiness.mjs",
+    "check:access-release": "node scripts/verify-access-release.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.0",

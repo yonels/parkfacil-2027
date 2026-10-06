@@ -22,7 +22,7 @@ export default function RecuperarContrasenaPage() {
     setEnviando(true);
 
     try {
-      const portalLocal = window.location.hostname.startsWith("cliente.") ? "cliente" : "root";
+      const portalLocal = new URLSearchParams(window.location.search).get("portal") === "root" || window.location.hostname.startsWith("root.") ? "root" : "cliente";
       const respuesta = await fetch(
         "/api/auth/recuperar-contrasena",
         {
@@ -36,6 +36,7 @@ export default function RecuperarContrasenaPage() {
           },
           body: JSON.stringify({
             loginIdentifier: loginIdentifier.trim(),
+            portal: portalLocal,
           }),
         }
       );
