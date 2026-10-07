@@ -16,7 +16,7 @@ import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
 import { buildPrintableEntryPayload, entryPhotoRequirementMessage, resolvePlatePhotoPrintDecision } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
 import { buildAgentEntryTicketPayload } from "@/lib/pos/entryTicketPayload.mjs";
 import { photoToTicketRaster } from "@/lib/pos/ticketPhotoRaster.mjs";
-import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
+import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, isValidTuuSequenceNumber, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
 import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } from "@/lib/pos/qrExitCore.mjs";
@@ -1859,6 +1859,12 @@ export default function PosTerminal() {
       setCardPaymentStatus("APPROVED");
       setCardPaymentMessage("Pago aprobado. Registrando salida...");
 
+      // sequenceNumber de TUU: se guarda en la estadía para conciliar. Si no
+      // vino o no tiene 12 dígitos, la salida se registra igual (el cobro ya
+      // es real) y la referencia queda solo en el log.
+      const tuuReference = isValidTuuSequenceNumber(tuuResult?.transactionId) ? tuuResult.transactionId : null;
+      const tuuReferenceText = tuuReference ? ` Referencia TUU: ${tuuReference}.` : "";
+
       let response;
       try {
         response = await fetch("/api/data-entry", {
@@ -1868,12 +1874,19 @@ export default function PosTerminal() {
             "x-parkfacil-portal": "terminal",
           },
           cache: "no-store",
-          body: JSON.stringify({ action: "EXIT", stayId: selectedVehicle.stay.id, paymentMethod: "CARD", paymentCardType, quoteSnapshot }),
+          body: JSON.stringify({
+            action: "EXIT",
+            stayId: selectedVehicle.stay.id,
+            paymentMethod: "CARD",
+            paymentCardType,
+            quoteSnapshot,
+            cardPayment: tuuReference ? { provider: "TUU", reference: tuuReference } : null,
+          }),
         });
       } catch {
         console.error("[pos:tuu:status]", { status: "CHARGED_NOT_REGISTERED", reason: "network_error" });
         setCardPaymentStatus("CHARGED_NOT_REGISTERED");
-        setCardPaymentMessage("El pago fue aprobado por TUU pero hubo un error de red al registrar la salida. Contacta a soporte antes de reintentar.");
+        setCardPaymentMessage(`El pago fue aprobado por TUU pero hubo un error de red al registrar la salida. Contacta a soporte antes de reintentar.${tuuReferenceText}`);
         return;
       }
 
@@ -1882,7 +1895,7 @@ export default function PosTerminal() {
         console.error("[pos:tuu:status]", { status: "CHARGED_NOT_REGISTERED", reason: payload?.error || "backend_error" });
         setCardPaymentStatus("CHARGED_NOT_REGISTERED");
         setCardPaymentMessage(
-          `El pago fue aprobado por TUU pero no se pudo registrar la salida (${payload?.error || "error desconocido"}). Contacta a soporte antes de reintentar.`
+          `El pago fue aprobado por TUU pero no se pudo registrar la salida (${payload?.error || "error desconocido"}). Contacta a soporte antes de reintentar.${tuuReferenceText}`
         );
         return;
       }

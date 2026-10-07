@@ -167,8 +167,20 @@ test('el botón REINTENTAR nunca se muestra en el estado CHARGED_NOT_REGISTERED'
 // ---- 10) La salida se registra con paymentMethod CARD, reutilizando el mismo recibo/impresión que EFECTIVO ----
 
 test('el registro de salida con tarjeta usa paymentMethod: "CARD" y arma el recibo con paymentMethod "CARD"', () => {
-  assert.match(terminalSource, /body: JSON\.stringify\(\{ action: "EXIT", stayId: selectedVehicle\.stay\.id, paymentMethod: "CARD", paymentCardType, quoteSnapshot \}\)/);
+  assert.match(terminalSource, /action: "EXIT",\s*\n\s*stayId: selectedVehicle\.stay\.id,\s*\n\s*paymentMethod: "CARD",\s*\n\s*paymentCardType,\s*\n\s*quoteSnapshot,/);
   assert.match(terminalSource, /buildPaymentReceiptPayload\(stay, quote, parkingResponse, "CARD"\)/);
+});
+
+// ---- 10b) SOL-2026-10-07-002: el sequenceNumber de TUU viaja con la salida y se informa si no se registra ----
+
+test("la salida con tarjeta envía cardPayment TUU solo con un sequenceNumber válido", () => {
+  assert.match(terminalSource, /const tuuReference = isValidTuuSequenceNumber\(tuuResult\?\.transactionId\) \? tuuResult\.transactionId : null;/);
+  assert.match(terminalSource, /cardPayment: tuuReference \? \{ provider: "TUU", reference: tuuReference \} : null,/);
+});
+
+test("CHARGED_NOT_REGISTERED muestra la referencia TUU para conciliar", () => {
+  const occurrences = terminalSource.match(/Contacta a soporte antes de reintentar\.\$\{tuuReferenceText\}/g) || [];
+  assert.equal(occurrences.length, 2);
 });
 
 test("buildPaymentReceiptPayload(..., paymentMethod = \"CASH\") mantiene el comportamiento anterior para EFECTIVO (mismo default)", () => {

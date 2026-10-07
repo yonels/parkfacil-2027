@@ -1,4 +1,5 @@
 import { canCaptureCardType, validatePaymentCardType } from "@/lib/paymentCardType.mjs";
+import { canStoreCardPaymentReference, validateCardPaymentReference } from "@/lib/pos/cardPaymentReference.mjs";
 import { NextResponse } from "next/server";
 import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
 import { buildPosQuoteSnapshot, quoteParkingStay, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
@@ -325,6 +326,20 @@ export async function POST(request) {
     if (paymentCardType && !(await canCaptureCardType(current.db, stay.parking_id))) {
       return fail("Falta habilitar el registro de Crédito y Débito.", 503, { code: "CARD_TYPE_SCHEMA_UNAVAILABLE" });
     }
+    // Referencia TUU (sequenceNumber) del cobro ya realizado: opcional; si la
+    // columna aún no existe, la salida se registra sin ella.
+    let cardPaymentReference;
+    try { cardPaymentReference = validateCardPaymentReference(input.paymentMethod, input.cardPayment); }
+    catch { return fail("La referencia del pago con tarjeta no es válida.", 400, { code: "CARD_PAYMENT_REFERENCE_INVALID" }); }
+    if (cardPaymentReference) {
+      let referenceStorable = false;
+      try { referenceStorable = await canStoreCardPaymentReference(current.db); }
+      catch { return fail("No fue posible cerrar y pagar la estadía.", 503); }
+      if (!referenceStorable) {
+        console.warn("[data-entry:card-reference]", { status: "SCHEMA_UNAVAILABLE", provider: cardPaymentReference.provider, reference: cardPaymentReference.reference });
+        cardPaymentReference = null;
+      }
+    }
     const quoteSnapshot = input.quoteSnapshot || null;
     const quoteSecret = process.env.POS_QUOTE_HMAC_SECRET;
     const quoteExpiresAt = quoteSnapshot?.expiresAt ? new Date(quoteSnapshot.expiresAt) : null;
@@ -378,6 +393,10 @@ export async function POST(request) {
     }
     const update = { status: "PAID", exit_at: exitAt, exit_operator_id: current.actor.id, exit_operator_name: current.actor.name, payment_shift_id: isPosRequest ? posShift.id : null, elapsed_minutes: confirmedQuote.elapsedMinutes, rate_id: confirmedQuote.rate.id, rate_name: confirmedQuote.rate.name, billing_mode: confirmedQuote.rate.billingMode, subtotal_amount: confirmedQuote.subtotal, discount_amount: confirmedQuote.discount, coupon_id: confirmedQuote.coupon?.id || null, coupon_code: confirmedQuote.coupon?.code || null, net_amount: confirmedQuote.net, tax_amount: confirmedQuote.tax, total_amount: confirmedQuote.total, payment_method: input.paymentMethod, payment_code: paymentCode, updated_at: exitAt };
     if (paymentCardType) update.payment_card_type = paymentCardType;
+    if (cardPaymentReference) {
+      update.card_payment_provider = cardPaymentReference.provider;
+      update.card_payment_reference = cardPaymentReference.reference;
+    }
     const { data, error } = await current.db.from("parking_stays").update(update).eq("id", stay.id).eq("status", "OPEN").select(publicStayFields).single();
     if (error) {
       if (confirmedQuote.coupon) {

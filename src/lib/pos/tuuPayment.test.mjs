@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TUU_METHOD, buildTuuPaymentPayload, isValidTuuMethod, parseTuuResult } from "./tuuPayment.mjs";
+import {
+  TUU_METHOD,
+  buildTuuPaymentPayload,
+  classifyTuuTransactionResult,
+  isValidTuuMethod,
+  isValidTuuSequenceNumber,
+  parseTuuResult,
+} from "./tuuPayment.mjs";
 
 test("TUU: isValidTuuMethod solo acepta CREDIT(1)/DEBIT(2)", () => {
   assert.equal(isValidTuuMethod(TUU_METHOD.CREDIT), true);
@@ -62,12 +69,12 @@ test("TUU: parseTuuResult normaliza una respuesta aprobada real del bridge", () 
     responseMessage: null,
     paymentMethod: null,
     voucher: null,
-    rawResponse: "{\"sequenceNumber\":\"SEQ123\"}",
+    rawResponse: "{\"transactionStatus\":true,\"sequenceNumber\":\"000012345678\"}",
   });
   const result = parseTuuResult(raw);
   assert.equal(result.success, true);
   assert.equal(result.cancelled, false);
-  assert.equal(result.transactionId, "SEQ123");
+  assert.equal(result.transactionId, "000012345678");
   assert.equal(result.authorizationCode, null);
 });
 
@@ -104,6 +111,67 @@ test("TUU: parseTuuResult nunca lanza con JSON inválido o vacío", () => {
 });
 
 test("TUU: parseTuuResult acepta un objeto ya parseado (no solo string)", () => {
-  const result = parseTuuResult({ success: true, cancelled: false });
+  const result = parseTuuResult({ success: true, cancelled: false, rawResponse: { transactionStatus: true, sequenceNumber: "000000000001" } });
   assert.equal(result.success, true);
+  assert.equal(result.transactionId, "000000000001");
+});
+
+test("TUU: RESULT_OK con transactionStatus=false (rechazo bancario) nunca es aprobado", () => {
+  // APK anterior: marcaba success=true para todo RESULT_OK sin errorCode.
+  const raw = JSON.stringify({
+    success: true,
+    cancelled: false,
+    transactionId: "000012345678",
+    rawResponse: JSON.stringify({ transactionStatus: false, sequenceNumber: "000012345678" }),
+  });
+  const result = parseTuuResult(raw);
+  assert.equal(result.success, false);
+  assert.equal(result.cancelled, false);
+  assert.equal(result.responseMessage, "Transacción rechazada.");
+});
+
+test("TUU: sin rawResponse (sin transactionResult) nunca es aprobado aunque el bridge diga success", () => {
+  const result = parseTuuResult({ success: true, cancelled: false, transactionId: "000012345678" });
+  assert.equal(result.success, false);
+  assert.equal(result.transactionId, null);
+});
+
+test("TUU: errorCode alfanumérico (I-01) se conserva como texto", () => {
+  const raw = JSON.stringify({
+    success: false,
+    cancelled: false,
+    responseCode: "0",
+    rawResponse: JSON.stringify({ errorCode: "I-01", errorMessage: "customFields: campos requeridos" }),
+  });
+  const result = parseTuuResult(raw);
+  assert.equal(result.success, false);
+  assert.equal(result.cancelled, false);
+  assert.equal(result.responseCode, "I-01");
+  assert.equal(result.responseMessage, "customFields: campos requeridos");
+});
+
+test("TUU: errorCode 10 es cancelación del usuario; otro errorCode es rechazo", () => {
+  const cancelled = parseTuuResult({ success: false, cancelled: false, rawResponse: JSON.stringify({ errorCode: 10, errorMessage: "Cancelada" }) });
+  assert.equal(cancelled.cancelled, true);
+  assert.equal(cancelled.responseCode, "10");
+
+  // El APK anterior marcaba cancelado todo RESULT_CANCELED sin errorCode y
+  // rechazo con errorCode; ahora decide el código documentado.
+  const declined = parseTuuResult({ success: false, cancelled: true, rawResponse: JSON.stringify({ errorCode: 9, errorMessage: "Error en proceso de pago" }) });
+  assert.equal(declined.cancelled, false);
+  assert.equal(declined.responseCode, "9");
+});
+
+test("TUU: errorCodeOnApp/errorMessageOnApp se usan solo como respaldo", () => {
+  const tuu = classifyTuuTransactionResult({ errorCode: 14, errorMessage: "", errorCodeOnApp: "ICE-14", errorMessageOnApp: "Sin internet" });
+  assert.equal(tuu.errorCode, "14");
+  assert.equal(tuu.errorMessage, "Sin internet");
+  assert.equal(classifyTuuTransactionResult("no-json"), null);
+});
+
+test("TUU: sequenceNumber válido = 12 dígitos", () => {
+  assert.equal(isValidTuuSequenceNumber("000012345678"), true);
+  assert.equal(isValidTuuSequenceNumber("12345"), false);
+  assert.equal(isValidTuuSequenceNumber("00001234567a"), false);
+  assert.equal(isValidTuuSequenceNumber(123456789012), false);
 });
