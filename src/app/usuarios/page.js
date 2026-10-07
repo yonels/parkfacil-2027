@@ -61,6 +61,7 @@ export default function UsuariosPage() {
   const [createDraft, setCreateDraft] = useState({
     fullName: "",
     email: "",
+    recoveryEmail: "",
     phone: "",
     role: "operator",
     companyId: "",
@@ -108,6 +109,7 @@ export default function UsuariosPage() {
       ...current,
       fullName: "",
       email: "",
+      recoveryEmail: "",
       phone: "",
       role: "operator",
       companyId: current.companyId || empresas[0]?.id || "",
@@ -131,7 +133,10 @@ export default function UsuariosPage() {
         body: JSON.stringify(createDraft),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No fue posible crear el usuario.");
+      if (!response.ok) {
+        const details = Object.values(body.details || {}).filter((value) => typeof value === "string");
+        throw new Error(details.length ? details.join(" ") : body.error || "No fue posible crear el usuario.");
+      }
 
       if (body.data?.id) {
         setUsuarios((current) => [
@@ -485,6 +490,11 @@ export default function UsuariosPage() {
                   <label className="space-y-1.5 text-sm text-slate-700">
                     <span>Correo</span>
                     <input type="email" value={createDraft.email} onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
+                  </label>
+                  <label className="space-y-1.5 text-sm text-slate-700">
+                    <span>Correo de recuperación</span>
+                    <input type="email" autoComplete="email" value={createDraft.recoveryEmail} onChange={(event) => setCreateDraft((current) => ({ ...current, recoveryEmail: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
+                    <p className="text-xs text-slate-500">A este correo se enviarán las instrucciones para recuperar la contraseña. Puede ser distinto del usuario de acceso.</p>
                   </label>
                   <label className="space-y-1.5 text-sm text-slate-700">
                     <span>Telefono</span>
