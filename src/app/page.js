@@ -6,6 +6,7 @@ import StatusBadge from "@/components/ui/StatusBadge";
 import RootSearch from "@/components/home/RootSearch";
 import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
 import { ROLES } from "@/lib/auth/permissions.mjs";
+import { redirect } from "next/navigation";
 
 const modules = [
   { title: "Operación", description: "Vista general de la operación y el control diario.", icon: Building2, href: "/operacion", state: "Disponible" },
@@ -39,6 +40,7 @@ export default async function Home() {
   } catch {
     context = null;
   }
+  if (context?.portal === "client" && context.role === ROLES.COMPANY_ADMIN) redirect("/dashboard-off-street");
   return (
     <AppShell title="Inicio" description="Acceso principal a las áreas de ParkFacil">
       <div id="centro-control" className="scroll-mt-5 space-y-6">

@@ -8,6 +8,14 @@ const membership = {
   company: { id: "company-from-database", status: "active", relationship_type: "client", trade_name: "Cliente A" },
 };
 
+test("portal cliente exige administrador y mantiene operador en terminal", async () => {
+  const operator = { ...membership, role: "operator", pos_only: true };
+  await rejectsCode(() => resolveAuthenticatedContext({ user: clientUser, portal: "client", loadMembership: async () => operator }), "CLIENT_ADMIN_REQUIRED");
+  const terminal = await resolveAuthenticatedContext({ user: clientUser, portal: "terminal", loadMembership: async () => operator });
+  assert.equal(terminal.role, "operator");
+  await rejectsCode(() => resolveAuthenticatedContext({ user: clientUser, portal: "client", loadMembership: async () => ({ ...membership, pos_only: true }) }), "CLIENT_ADMIN_REQUIRED");
+});
+
 async function rejectsCode(action, code) {
   await assert.rejects(action, (error) => error instanceof AuthorizationError && error.code === code && error.status === 403);
 }

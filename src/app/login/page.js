@@ -193,7 +193,7 @@ export default async function LoginPage({ searchParams }) {
                 <div className="mt-8 h-72 animate-pulse rounded-2xl bg-white/10" />
               }
             >
-              <LoginForm tipoAcceso={configuracion.tipo} />
+              <LoginForm tipoAcceso={configuracion.tipo} defaultDestination={tipoAcceso === "cliente" ? "/dashboard-off-street" : "/"} />
             </Suspense>
           </div>
         </div>

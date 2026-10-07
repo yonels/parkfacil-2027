@@ -27,6 +27,9 @@ export async function resolveAuthenticatedContext({ user, portal, loadMembership
     throw new AuthorizationError("ROLE_FORBIDDEN", 403, "El rol de la membresía no está autorizado.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
   }
   if (!["client", "terminal"].includes(portal)) throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al Portal Cliente o Terminal.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
+  if (portal === "client" && (membership.role !== ROLES.COMPANY_ADMIN || membership.pos_only)) {
+    throw new AuthorizationError("CLIENT_ADMIN_REQUIRED", 403, "Este acceso es exclusivo del administrador de tu empresa. Los operadores deben ingresar al POS.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
+  }
   if (portal === "terminal" && !hasPermission(membership.role, PERMISSIONS.OPERATIONS_USE)) {
     throw new AuthorizationError("PERMISSION_FORBIDDEN", 403, "Esta cuenta no tiene permiso para operar el Terminal.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
   }

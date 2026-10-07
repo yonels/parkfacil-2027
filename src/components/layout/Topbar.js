@@ -7,6 +7,7 @@ import Breadcrumbs from "@/components/layout/Breadcrumbs";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 
 const roleLabels = {
+  company_admin: "Administrador de empresa",
   platform_admin: "Administrador de plataforma",
   organization_admin: "Administrador de organización",
   admin: "Administrador",
@@ -81,7 +82,7 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
           </div>
         </div>
       </div>
-      <div className="mx-auto mt-4 w-full max-w-7xl overflow-hidden rounded-2xl border border-[#5271E8] bg-[#3150D8] shadow-sm">
+      {userContext?.portal !== "client" && <div className="mx-auto mt-4 w-full max-w-7xl overflow-hidden rounded-2xl border border-[#5271E8] bg-[#3150D8] shadow-sm">
         <NextImage
           key={bannerSourceIndex}
           src={BANNER_SOURCES[bannerSourceIndex]}
@@ -96,7 +97,7 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
             setBannerSourceIndex((current) => Math.min(current + 1, BANNER_SOURCES.length - 1));
           }}
         />
-      </div>
+      </div>}
     </header>
   );
 }

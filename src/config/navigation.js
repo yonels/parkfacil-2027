@@ -86,3 +86,14 @@ export const navigationItems = [
   { href: null, label: "Integraciones", icon: Plug2, future: true },
   { href: "/documentos", label: "Documentación", icon: BookOpen },
 ];
+
+export function navigationForContext(context) {
+  if (context?.portal !== "client" || context.role !== "company_admin") return navigationItems;
+  const clientPaths = {
+    "Inicio": "/dashboard-off-street", "Dashboard": "/dashboard-off-street",
+    "Estacionamientos": "/estacionamientos", "Usuarios": "/usuarios", "Turnos": "/reportes-off-street?tab=turnos",
+    "Recaudación": "/reportes-off-street?tab=recaudacion", "Medios de Pago": "/reportes-off-street?tab=recaudacion",
+    "Reportes": "/reportes-off-street",
+  };
+  return navigationItems.filter((item) => clientPaths[item.label]).map((item) => ({ ...item, href: clientPaths[item.label] }));
+}
