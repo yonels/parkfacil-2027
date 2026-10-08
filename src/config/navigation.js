@@ -9,6 +9,8 @@ export const navigationItems = [
   // terminal directamente (PORTAL_FORBIDDEN se mantiene intacto). Ver
   // src/lib/auth/operatorAccessUrl.mjs y src/app/acceso-operador/page.js.
   { href: "/data-entry", label: "Data Entry", icon: ScanLine, platformAdminGateway: true },
+  { href: "/estacionamientos?tipo=OFF_STREET", label: "Off Street", icon: ParkingSquare, rootOnly: true },
+  { href: "/estacionamientos?tipo=ON_STREET", label: "On Street", icon: ParkingSquare, rootOnly: true },
   { href: "/operacion", label: "Operación", icon: ParkingSquare },
   { href: "/turnos", label: "Turnos", icon: Clock3 },
   { href: "/estacionamientos", label: "Estacionamientos", icon: ShieldCheck },
@@ -88,7 +90,9 @@ export const navigationItems = [
 ];
 
 export function navigationForContext(context) {
-  if (context?.portal !== "client" || context.role !== "company_admin") return navigationItems;
+  if (context?.portal !== "client" || context.role !== "company_admin") {
+    return navigationItems.filter((item) => !item.rootOnly || (context?.portal === "root" && context.role === "platform_admin"));
+  }
   const clientPaths = {
     "Inicio": "/dashboard-off-street", "Dashboard": "/dashboard-off-street",
     "Estacionamientos": "/estacionamientos", "Usuarios": "/usuarios", "Turnos": "/reportes-off-street?tab=turnos",
