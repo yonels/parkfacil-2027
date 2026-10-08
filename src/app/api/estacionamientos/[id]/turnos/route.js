@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { loadShiftPresentations } from "@/lib/shiftPresentationRepository";
 import { operationalError, validationError } from "@/lib/parkingApi";
 import { canOpenShift, SHIFT_STATES } from "@/lib/parkingOperations.mjs";
 import { authorizeOperationRequest, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
@@ -122,7 +123,7 @@ export async function GET(request, { params }) {
     if (authorization.context.role === ROLES.OPERATOR) query = query.eq("operator_id", authorization.context.userId);
     const result = await query;
     if (result.error) throw result.error;
-    return NextResponse.json({ data: result.data });
+    return NextResponse.json({ data: await loadShiftPresentations(authorization.db, parking, result.data || []) });
   } catch (error) {
     const denied = operationAuthorizationError(request, authorization?.context, error);
     return denied || operationalError(error, undefined, request, authorization?.context);
@@ -183,7 +184,8 @@ export async function POST(request, { params }) {
     };
     const result = await db.from("operator_shifts").insert(row).select("*").single();
     if (result.error) throw result.error;
-    return NextResponse.json({ data: result.data }, { status: 201 });
+    const [created] = await loadShiftPresentations(db, parking, [result.data]);
+    return NextResponse.json({ data: created }, { status: 201 });
   } catch (error) {
     const denied = operationAuthorizationError(request, authorization?.context, error);
     return denied || operationalError(error, "No fue posible crear el turno.", request, authorization?.context);
