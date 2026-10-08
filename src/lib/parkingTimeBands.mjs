@@ -382,10 +382,10 @@ export function buildChargeBreakdown(charge, { rateId = null, timeZone = TIME_BA
 }
 
 // Resumen de una línea para el comprobante actual (etapa 1, sin APK nueva).
+// Nunca usa la palabra "tramo": en la Ley 20.967 "tramo vencido" es otra
+// modalidad, y las franjas son minuto efectivo con precio según la hora.
 export function summarizeChargeBreakdown(breakdown) {
   if (!breakdown?.passes?.length) return "";
-  const capped = breakdown.passes.filter((pass) => pass.capApplied).length;
-  const bandCount = breakdown.passes.length;
-  const base = `Por franjas · ${bandCount} ${bandCount === 1 ? "tramo" : "tramos"}`;
-  return capped ? `${base} · tope aplicado (${capped})` : base;
+  const base = "Minuto efectivo según horario";
+  return breakdown.passes.some((pass) => pass.capApplied) ? `${base} · tope aplicado` : base;
 }

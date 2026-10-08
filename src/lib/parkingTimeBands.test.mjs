@@ -249,7 +249,11 @@ test("desglose compacto y resumen para el comprobante", () => {
   assert.equal(breakdown.amount, 13600);
   assert.equal(breakdown.capApplied, true);
   assert.equal(breakdown.passes.length, 3);
-  assert.equal(summarizeChargeBreakdown(breakdown), "Por franjas · 3 tramos · tope aplicado (1)");
+  assert.equal(summarizeChargeBreakdown(breakdown), "Minuto efectivo según horario · tope aplicado");
+  const noCap = buildChargeBreakdown(charge(at("2026-10-12", "09:00"), at("2026-10-12", "10:00")));
+  assert.equal(summarizeChargeBreakdown(noCap), "Minuto efectivo según horario");
+  // La Ley 20.967 llama "tramo" a otra modalidad (tramo vencido): nunca debe aparecer.
+  assert.doesNotMatch(summarizeChargeBreakdown(breakdown), /tramo/i);
   assert.equal(buildChargeBreakdown({ valid: false }), null);
   assert.equal(summarizeChargeBreakdown(null), "");
 });
