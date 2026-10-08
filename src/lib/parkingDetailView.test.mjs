@@ -7,8 +7,8 @@ const onStreetParking = { code: "AAA", type: "ON_STREET" };
 const offStreetParking = { code: "PC-001", type: "OFF_STREET" };
 
 test("orden exacto de las secciones del detalle", () => {
-  assert.deepEqual(PARKING_DETAIL_TAB_KEYS, ["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "infraestructura"]);
-  assert.deepEqual(parkingDetailTabs(onStreetParking).map((tab) => tab.key), ["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "infraestructura"]);
+  assert.deepEqual(PARKING_DETAIL_TAB_KEYS, ["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "turnos", "infraestructura"]);
+  assert.deepEqual(parkingDetailTabs(onStreetParking).map((tab) => tab.key), ["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "turnos", "infraestructura"]);
 });
 
 test("Plazas Contratadas es accesible como pestaña de primer nivel", () => {
@@ -28,12 +28,12 @@ test("Tarifas es accesible como pestaña de primer nivel en ambas modalidades", 
 
 test("Crear sector/área/nivel aparece únicamente cuando la pestaña activa es Estructura", () => {
   assert.equal(headerActionForTab("estructura"), "estructura");
-  for (const tab of ["resumen", "plazas-contratadas", "tarifas", "operadores", "infraestructura"]) assert.notEqual(headerActionForTab(tab), "estructura");
+  for (const tab of ["resumen", "plazas-contratadas", "tarifas", "operadores", "turnos", "infraestructura"]) assert.notEqual(headerActionForTab(tab), "estructura");
 });
 
 test("Nueva tarifa aparece únicamente cuando la pestaña activa es Tarifas", () => {
   assert.equal(headerActionForTab("tarifas"), "tarifas");
-  for (const tab of ["resumen", "plazas-contratadas", "estructura", "operadores", "infraestructura"]) assert.notEqual(headerActionForTab(tab), "tarifas");
+  for (const tab of ["resumen", "plazas-contratadas", "estructura", "operadores", "turnos", "infraestructura"]) assert.notEqual(headerActionForTab(tab), "tarifas");
 });
 
 test("Operadores e Infraestructura no exponen una acción contextual inventada", () => {

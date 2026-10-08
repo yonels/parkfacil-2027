@@ -2,7 +2,7 @@
 // encabezado y comparación de capacidad vs. plazas contratadas), separada de la capa
 // visual para poder probarla sin depender de React/Next.
 
-export const PARKING_DETAIL_TAB_KEYS = Object.freeze(["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "infraestructura"]);
+export const PARKING_DETAIL_TAB_KEYS = Object.freeze(["resumen", "plazas-contratadas", "estructura", "tarifas", "operadores", "turnos", "infraestructura"]);
 
 const BASE_TABS = Object.freeze([
   { key: "resumen", label: "Resumen" },
@@ -10,6 +10,7 @@ const BASE_TABS = Object.freeze([
   { key: "estructura", label: null },
   { key: "tarifas", label: "Tarifas" },
   { key: "operadores", label: "Operadores" },
+  { key: "turnos", label: "Turnos" },
   { key: "infraestructura", label: "Infraestructura" },
 ]);
 
