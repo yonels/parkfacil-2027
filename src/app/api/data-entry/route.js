@@ -1,5 +1,8 @@
 import { canCaptureCardType, validatePaymentCardType } from "@/lib/paymentCardType.mjs";
 import { canStoreCardPaymentReference, validateCardPaymentReference } from "@/lib/pos/cardPaymentReference.mjs";
+import { canRevertUnpaidMark, sanitizeUnpaidNotes } from "@/lib/parkingDebtsCore.mjs";
+import { buildDebtNoticeForPlate, getPendingUnpaidStay, listPendingUnpaidStaysForShift, markStayUnpaid, revertStayUnpaid } from "@/lib/parkingDebtsRepository";
+import { getDebtNoticeEnabled } from "@/lib/offStreet/debtNoticeSettingsRepository";
 import { NextResponse } from "next/server";
 import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
 import { buildPosQuoteSnapshot, quoteParkingStay, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
@@ -156,6 +159,17 @@ export async function GET(request) {
   if (!parking) return fail("El estacionamiento asignado no está activo o no existe.", 409);
   const operationalStorageMissing = ["42P01", "PGRST204", "PGRST205"].includes(stayError?.code);
   if (stayError && !operationalStorageMissing) return fail("No fue posible cargar los vehículos estacionados.", 503);
+  // Salidas sin pago marcadas en el turno abierto del operador (SOL-2026-10-08-003):
+  // el POS las lista con su monto en curso y permite revertir una marca errónea.
+  let unpaidPending = [];
+  if (String(request.headers.get("x-parkfacil-portal") || "").toLowerCase() === "terminal" && !operationalStorageMissing) {
+    try {
+      const shift = await requireOpenPosShift(current.db, current.actor);
+      if (shift) unpaidPending = await listPendingUnpaidStaysForShift(current.db, shift.id);
+    } catch (unpaidError) {
+      console.error("[data-entry:GET:unpaid-pending]", { code: unpaidError?.code, message: unpaidError?.message });
+    }
+  }
   return NextResponse.json({
     data: {
       parking,
@@ -164,8 +178,39 @@ export async function GET(request) {
       warning: operationalStorageMissing ? "El almacenamiento operacional todavía no está activado; la asignación sí fue cargada." : null,
       actor: { name: current.actor.name, role: current.actor.role, parkingId: current.actor.parkingId },
       platePhotoSettings: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket, gpsMode: platePhotoSettings.gpsMode },
+      unpaidPending,
     },
   });
+}
+
+// Aviso de deuda pendiente al ingresar una patente (D6, D7): deudas de la
+// patente en cualquier estacionamiento de la empresa, solo si el
+// estacionamiento de ingreso tiene el aviso activo. Nunca hace fallar el ingreso.
+async function entryDebtNotice(db, parking, plate) {
+  try {
+    if (!(await getDebtNoticeEnabled(db, parking.id))) return null;
+    const { data: companyParkings, error } = await db.from("parkings").select("id").eq("company_id", parking.companyId);
+    if (error) throw error;
+    return await buildDebtNoticeForPlate(db, { companyId: parking.companyId, plate, parkingIds: (companyParkings || []).map((row) => row.id) });
+  } catch (noticeError) {
+    console.error("[data-entry:ENTRY:debt-notice]", { code: noticeError?.code, message: noticeError?.message });
+    return null;
+  }
+}
+
+const UNPAID_ERROR_MESSAGES = {
+  UNPAID_SHIFT_NOT_OPEN: "El turno ya no está abierto. Actualiza el POS.",
+  UNPAID_SHIFT_OPERATOR_MISMATCH: "La marca debe hacerla el operador del turno abierto.",
+  UNPAID_SHIFT_PARKING_MISMATCH: "El turno no corresponde a este estacionamiento.",
+  UNPAID_REVERT_SHIFT_NOT_OPEN: "Solo puedes revertir la marca mientras el turno siga abierto.",
+};
+function unpaidErrorResponse(error, fallback) {
+  const message = String(error?.message || "");
+  const code = Object.keys(UNPAID_ERROR_MESSAGES).find((key) => message.includes(key));
+  if (code) return fail(UNPAID_ERROR_MESSAGES[code], 409, { code });
+  if (error?.code === "23505") return fail("La patente ya tiene otro ingreso abierto en este estacionamiento.", 409, { code: "VEHICLE_ALREADY_INSIDE" });
+  console.error("[data-entry:unpaid]", { code: error?.code, message });
+  return fail(fallback, 503);
 }
 
 export async function POST(request) {
@@ -289,10 +334,12 @@ export async function POST(request) {
     }
 
     const { data: parking } = await current.db.from("parkings").select(ticketParkingFields).eq("id", assignedParkingId).single();
+    const debtNotice = await entryDebtNotice(current.db, current.parking, plate);
     return NextResponse.json({
       data: {
         stay: data,
         parking,
+        debtNotice,
         platePhoto: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket, hasPhoto: photoLinked, linkFailed: photoLinkFailed },
       },
     }, { status: 201 });
@@ -393,6 +440,8 @@ export async function POST(request) {
     }
     const update = { status: "PAID", exit_at: exitAt, exit_operator_id: current.actor.id, exit_operator_name: current.actor.name, payment_shift_id: isPosRequest ? posShift.id : null, elapsed_minutes: confirmedQuote.elapsedMinutes, rate_id: confirmedQuote.rate.id, rate_name: confirmedQuote.rate.name, billing_mode: confirmedQuote.rate.billingMode, subtotal_amount: confirmedQuote.subtotal, discount_amount: confirmedQuote.discount, coupon_id: confirmedQuote.coupon?.id || null, coupon_code: confirmedQuote.coupon?.code || null, net_amount: confirmedQuote.net, tax_amount: confirmedQuote.tax, total_amount: confirmedQuote.total, payment_method: input.paymentMethod, payment_code: paymentCode, updated_at: exitAt };
     if (paymentCardType) update.payment_card_type = paymentCardType;
+    // Desglose por franja: solo el que viene firmado (cotización V2).
+    if (quoteSnapshot.version === "POS_STAY_QUOTE_V2" && quoteSnapshot.chargeBreakdown) update.charge_breakdown = quoteSnapshot.chargeBreakdown;
     if (cardPaymentReference) {
       update.card_payment_provider = cardPaymentReference.provider;
       update.card_payment_reference = cardPaymentReference.reference;
@@ -406,6 +455,37 @@ export async function POST(request) {
       return fail(shiftConflict ? "El turno dejó de estar abierto antes de confirmar el pago. Actualiza el POS." : "No fue posible cerrar y pagar la estadía.", shiftConflict ? 409 : 503);
     }
     return NextResponse.json({ data: { stay: { ...data, payment_card_type: paymentCardType }, parking, quote: { ...confirmedQuote, paymentCode } } });
+  }
+  if (input.action === "UNPAID_EXIT") {
+    // "Se retiró sin pagar" (D8, D12, D15): solo desde el POS con turno abierto.
+    // El cupo se libera y el contador sigue hasta el cierre del turno.
+    if (!isPosRequest || !posShift) return fail("Debes iniciar un turno en el POS para registrar una salida sin pago.", 409, { code: "OPEN_SHIFT_REQUIRED" });
+    const stay = await findOpenStay(current.db, input, current.actor.parkingId);
+    if (!stay) return fail("No existe una estadía abierta para el vehículo.", 404);
+    let marked;
+    try {
+      marked = await markStayUnpaid(current.db, { stayId: stay.id, parkingId: current.actor.parkingId, actor: current.actor, shiftId: posShift.id, notes: sanitizeUnpaidNotes(input.notes) });
+    } catch (error) {
+      return unpaidErrorResponse(error, "No fue posible registrar la salida sin pago.");
+    }
+    if (!marked) return fail("La estadía cambió mientras se registraba. Actualiza el POS.", 409, { code: "STAY_CHANGED" });
+    return NextResponse.json({ data: { stay: marked } });
+  }
+  if (input.action === "UNPAID_REVERT") {
+    if (!isPosRequest || !posShift) return fail("Debes tener el turno abierto para revertir la marca.", 409, { code: "OPEN_SHIFT_REQUIRED" });
+    const pending = await getPendingUnpaidStay(current.db, { stayId: input.stayId, parkingId: current.actor.parkingId });
+    if (!pending) return fail("No existe una salida sin pago pendiente para revertir.", 404);
+    if (!canRevertUnpaidMark({ stay: pending, actorId: current.actor.id, isAdmin: current.actor.role !== ROLES.OPERATOR })) {
+      return fail("Solo quien registró la salida sin pago puede revertirla.", 403, { code: "UNPAID_REVERT_FORBIDDEN" });
+    }
+    let reverted;
+    try {
+      reverted = await revertStayUnpaid(current.db, { stayId: pending.id, parkingId: current.actor.parkingId });
+    } catch (error) {
+      return unpaidErrorResponse(error, "No fue posible revertir la salida sin pago.");
+    }
+    if (!reverted) return fail("La estadía cambió mientras se revertía. Actualiza el POS.", 409, { code: "STAY_CHANGED" });
+    return NextResponse.json({ data: { stay: reverted } });
   }
   return fail("Acción operacional no reconocida.");
 }

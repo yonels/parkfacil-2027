@@ -19,6 +19,8 @@ import { photoToTicketRaster } from "@/lib/pos/ticketPhotoRaster.mjs";
 import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, isValidTuuSequenceNumber, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
+import { ChargeBreakdownList, ClosedUnpaidExitsSummary, DebtNoticeBanner, UnpaidExitAction, UnpaidExitsReview } from "@/components/pos/PosUnpaidExit";
+import { summarizeChargeBreakdown } from "@/lib/parkingTimeBands.mjs";
 import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } from "@/lib/pos/qrExitCore.mjs";
 import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
 import { buildPaymentsDayPrintPayload } from "@/lib/pos/paymentsDayCore.mjs";
@@ -158,7 +160,9 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod 
     exitDate: exitDateTime.entryDate,
     exitTime: exitDateTime.entryTime,
     minutes: Number.isFinite(Number(quote?.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
-    rateDescription: String(quote?.rate?.name || stay?.rate_name || "").trim(),
+    // SOL-2026-10-08-003: con franjas horarias se agrega un resumen del
+    // desglose en la misma línea "Tarifa" (el formato impreso es fijo en la APK).
+    rateDescription: [String(quote?.rate?.name || stay?.rate_name || "").trim(), summarizeChargeBreakdown(quote?.snapshot?.chargeBreakdown)].filter(Boolean).join(" · "),
     netAmount: breakdown.netAmount,
     vatAmount: breakdown.vatAmount,
     amount: breakdown.totalAmount,
@@ -797,6 +801,9 @@ export default function PosTerminal() {
   const [vehiclesInside, setVehiclesInside] = useState(0);
   const [activeStays, setActiveStays] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
+  // SOL-2026-10-08-003: confirmación de "se retiró sin pagar" y resumen del cierre.
+  const [unpaidFlash, setUnpaidFlash] = useState("");
+  const [closedUnpaidExits, setClosedUnpaidExits] = useState(null);
   const [selectedVehicleLoading, setSelectedVehicleLoading] = useState(false);
   const [selectedVehicleError, setSelectedVehicleError] = useState("");
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -2044,6 +2051,7 @@ export default function PosTerminal() {
       }
 
       const closure = result.payload?.data?.closure || null;
+      setClosedUnpaidExits(result.payload?.data?.unpaidExits || null);
       setShiftClosure(closure);
       setShiftClosed(true);
       setShift((current) => (current ? { ...current, status: "CLOSED", closedAt: closure?.shiftClosedAt || current.closedAt } : current));
@@ -2295,7 +2303,7 @@ export default function PosTerminal() {
       if (ocrPhoto?.previewUrl && ocrPhoto !== entryPhoto) URL.revokeObjectURL(ocrPhoto.previewUrl);
       setOcrPhoto(null);
       setEntryStep("PLATE");
-      setEntrySuccess(stay ? { stay, parking: parkingResponse } : null);
+      setEntrySuccess(stay ? { stay, parking: parkingResponse, debtNotice: payload?.data?.debtNotice || null } : null);
       const printPayload = buildEntryPrintPayload(stay, parkingResponse);
       setEntryPrintPayload(printPayload);
       // Los bytes de la foto ya están en el cliente (recién comprimidos) --
@@ -2845,6 +2853,7 @@ export default function PosTerminal() {
     if (entrySuccess) {
       return (
         <article className="rounded-3xl border border-emerald-300 bg-emerald-50 p-5 text-emerald-950 shadow-sm">
+          <DebtNoticeBanner notice={entrySuccess.debtNotice} />
           <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Ingreso registrado</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div>
@@ -3363,6 +3372,7 @@ export default function PosTerminal() {
 
         {renderClosureTotals(closure)}
         {renderPendingVehiclesList(closure.pendingVehiclesSnapshot)}
+        <ClosedUnpaidExitsSummary summary={closedUnpaidExits} />
 
         {closurePrintPrompt ? (
           renderShiftPrintPrompt()
@@ -3406,6 +3416,11 @@ export default function PosTerminal() {
       <div className="mt-4 space-y-4">
         {renderClosureTotals(displayTotals)}
         {renderPendingVehiclesList(preview.pendingVehicles)}
+        <UnpaidExitsReview
+          rows={preview.unpaidExits}
+          onSessionExpired={() => redirectToPosLogin("sesion-expirada")}
+          onChanged={() => { void loadShiftState(); void loadTerminalState(true); }}
+        />
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <label className="block text-sm font-bold text-slate-700">
@@ -3807,6 +3822,7 @@ export default function PosTerminal() {
             <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">Tarifa aplicada</p>
             <p className="mt-1 font-bold text-rose-900">{tariffName}</p>
           </div>
+          <ChargeBreakdownList breakdown={hasPayableQuote ? quote?.snapshot?.chargeBreakdown : null} />
           <div>
             <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">TOTAL A PAGAR</p>
             {detailBreakdown ? (
@@ -3847,6 +3863,18 @@ export default function PosTerminal() {
           <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
             {hasPayableQuote ? "Preparado para seleccionar medio de pago." : "No existe una tarifa activa para esta estadía."}
           </div>
+          <UnpaidExitAction
+            stay={stay}
+            disabled={selectedVehicleLoading || !stay?.id}
+            onSessionExpired={() => redirectToPosLogin("sesion-expirada")}
+            onDone={() => {
+              setUnpaidFlash(`Salida sin pago registrada: ${stay?.license_plate || ""}. El cupo quedó libre; el monto se calculará al cierre del turno.`);
+              setSelectedVehicle(null);
+              goToSection(vehicleListOrigin);
+              void loadTerminalState(true);
+              void loadShiftState();
+            }}
+          />
           <button
             type="button"
             onClick={() => goToSection(vehicleListOrigin)}
@@ -4551,6 +4579,12 @@ export default function PosTerminal() {
   return (
     <main className="pos-terminal min-h-screen bg-slate-100 text-slate-900">
       <PosViewport />
+      {unpaidFlash ? (
+        <div className="mx-3 mt-3 flex items-start justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="status" data-testid="pos-unpaid-flash">
+          <span>{unpaidFlash}</span>
+          <button type="button" onClick={() => setUnpaidFlash("")} aria-label="Cerrar aviso" className="font-black">×</button>
+        </div>
+      ) : null}
       {paymentModalOpen ? renderPaymentModal() : null}
 
       {photoCaptureOpen ? (

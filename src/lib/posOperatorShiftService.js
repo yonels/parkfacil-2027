@@ -1,4 +1,5 @@
 import "server-only";
+import { listPendingUnpaidStaysForShift } from "./parkingDebtsRepository.js";
 import { classifyPosShift } from "./posOperatorShiftCore.mjs";
 
 const shiftFields = "id,operator_id,parking_id,assignment_id,sector_id,street_id,shift_date,scheduled_start,scheduled_end,opened_at,closed_at,status,opened_by,closed_by,device_id,notes";
@@ -95,6 +96,10 @@ export async function startPosOperatorShift(db, { shiftId, actor }) {
 }
 
 export async function loadOperatorShiftPreview(db, shift) {
+  const unpaidPending = await listPendingUnpaidStaysForShift(db, shift.id).catch((error) => {
+    console.error("[pos-shift:preview:unpaid]", { code: error?.code, message: error?.message });
+    return [];
+  });
   const [payments, pending] = await Promise.all([
     db.from("parking_stays").select("id,code,license_plate,exit_at,payment_method,total_amount,exit_operator_id,parking_id,status,payment_shift_id")
       .eq("payment_shift_id", shift.id).eq("parking_id", shift.parkingId).eq("status", "PAID").order("exit_at"),
@@ -118,6 +123,11 @@ export async function loadOperatorShiftPreview(db, shift) {
     paymentsSnapshot: rows.map((row) => ({ stayId: row.id, plate: row.license_plate, ticket: row.code, exitAt: row.exit_at, paymentMethod: row.payment_method, amount: Number(row.total_amount || 0), operatorId: row.exit_operator_id })),
     pendingVehiclesCount: (pending.data || []).length,
     pendingVehicles: (pending.data || []).map((row) => ({ stayId: row.id, plate: row.license_plate, ticket: row.code, entryAt: row.entry_at })),
+    // Se retiraron sin pagar (SOL-2026-10-08-003): no son ingreso; su monto se
+    // congela con la hora de cierre del turno y queda como deuda.
+    unpaidExitsCount: unpaidPending.length,
+    unpaidExitsAmountSoFar: unpaidPending.reduce((sum, row) => sum + Number(row.amountSoFar || 0), 0),
+    unpaidExits: unpaidPending,
   };
 }
 

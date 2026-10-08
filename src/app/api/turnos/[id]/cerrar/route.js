@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { closeShiftTransaction, getShiftContext, mapClosure } from "@/lib/shiftClosureRepository";
+import { finalizeUnpaidStaysAfterClose } from "@/lib/parkingDebtsRepository";
 import { OPERATIONAL_SOURCE_ERROR, sanitizeClosureInput, ShiftClosureError } from "@/lib/shiftClosure.mjs";
 import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalShift } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
@@ -36,6 +37,7 @@ export async function POST(request, { params }) {
     await requireOperationalShift(authorization.db, authorization.context, authorization.scope, id);
     const input = sanitizeClosureInput(await request.json());
     const closure = mapClosure(await closeShiftTransaction(id, operationActor(authorization.context), input));
+    await finalizeUnpaidStaysAfterClose(authorization.db, id);
     return NextResponse.json({ data: { turno: { id: closure.shiftId, status: "CLOSED", closedAt: closure.actualCloseAt }, cierre: closure, asignacion: { id: closure.assignmentId, numberFrom: closure.numberFrom, numberTo: closure.numberTo, assignedSpaces: closure.assignedSpaces }, resumenOperacional: { collectedAmount: closure.collectedAmount, paidVehicles: closure.paidVehicles, pendingVehicles: closure.pendingVehicles, cancelledVehicles: closure.cancelledVehicles } } });
   } catch (error) { return failure(request, authorization, error); }
 }

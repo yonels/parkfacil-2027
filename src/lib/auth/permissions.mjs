@@ -141,7 +141,9 @@ const ROOT_ONLY_PREFIXES = [
 // ofrezca un enlace que la API rechazaría. NO se le concede REPORTS_READ ni
 // OPERATIONS_USE a operator; esto es únicamente visibilidad/enrutamiento, el
 // permiso real no cambia.
-const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion"];
+// "/deudas" (SOL-2026-10-08-003): deudas por vehículos que se retiraron sin
+// pagar; la API exige además rol administrador (canManageDebts).
+const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion", "/deudas"];
 
 // Prefijos de ruta que exigen un producto habilitado (Portal Cliente/
 // Terminal no aplica -- Root nunca pasa por aquí, ver canAccessPath). El
@@ -149,6 +151,7 @@ const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr", "/dashboard-off-st
 // hereda el mismo requisito que su raíz por matchesPrefix.
 const PRODUCT_PREFIXES = [
   { prefix: "/estacionamientos", product: PRODUCTS.OFF_STREET },
+  { prefix: "/deudas", product: PRODUCTS.OFF_STREET },
   { prefix: "/on-street-qr", product: PRODUCTS.ON_STREET },
 ];
 

@@ -61,7 +61,7 @@ export const navigationItems = [
     // primer ítem del árbol, mismo lugar que ocupa "Dashboard" en On Street
     // (/on-street-qr). No reemplaza /modelo-dashboard (Dashboard General de
     // Plataforma, fuera de este alcance) ni mezcla datos On Street.
-    activePrefix: ["/dashboard-off-street", "/reportes-off-street", "/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo"],
+    activePrefix: ["/dashboard-off-street", "/reportes-off-street", "/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/deudas", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo"],
     children: [
       { href: "/dashboard-off-street", label: "Dashboard", icon: BarChart3 },
       {
@@ -102,6 +102,7 @@ export const navigationItems = [
         children: [
           { href: "/recaudacion", label: "Pagos", icon: Wallet },
           { href: "/recaudacion#medios-de-pago", label: "Medios de Pago", icon: WalletCards },
+          { href: "/deudas", label: "Deudas pendientes", icon: WalletCards },
         ],
       },
       { href: "/abonados", label: "Abonados y Credenciales", icon: KeyRound },

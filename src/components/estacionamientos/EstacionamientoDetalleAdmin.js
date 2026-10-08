@@ -64,6 +64,8 @@ export default function EstacionamientoDetalleAdmin({ parking, structure, compan
   // Street (otro flujo operacional, sin POS de barrera con este ENTRY).
   if (!onStreet) {
     headerActions.push(<Link key="foto-patente" href={`/estacionamientos/${parking.code}/configuracion/foto-patente`} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#3150D8] hover:text-[#3150D8]"><Camera className="h-4 w-4" /> Fotografía de patente</Link>);
+    // SOL-2026-10-08-003: aviso de deuda pendiente al ingresar una patente.
+    headerActions.push(<Link key="aviso-deuda" href={`/estacionamientos/${parking.code}/configuracion/aviso-deuda`} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#3150D8] hover:text-[#3150D8]">Aviso de deuda</Link>);
   }
   const contextualAction = headerActionForTab(activeTab);
   if (contextualAction === "estructura") {

@@ -3,6 +3,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { resolveStayQuoteAvailability, splitChileTaxFromTotal } from "./dataEntry.mjs";
 import { calculateScheduledParkingCharge, selectActiveRate } from "./parkingRates.mjs";
 import { listParkingRates } from "./parkingRatesRepository.js";
+import { listHolidayDatesForStay } from "./parkingHolidaysRepository.js";
+import { buildChargeBreakdown } from "./parkingTimeBands.mjs";
 import { signWebpayQuoteEvidence } from "./webpayQuoteEvidence.mjs";
 
 const POS_QUOTE_TTL_SECONDS = 120;
@@ -19,7 +21,15 @@ function textHex(value) {
   return Buffer.from(String(value || ""), "utf8").toString("hex");
 }
 
+// V2 (SOL-2026-10-08-003): agrega el desglose por franja firmado. Una cotización
+// sin desglose (tarifas clásicas) sigue firmándose exactamente como V1.
 function canonicalizePosQuoteSnapshot(snapshot) {
+  const v1 = canonicalizePosQuoteSnapshotV1(snapshot);
+  if (snapshot.version !== "POS_STAY_QUOTE_V2") return v1;
+  return `POS_STAY_QUOTE_V2|${v1}|${textHex(JSON.stringify(snapshot.chargeBreakdown ?? null))}`;
+}
+
+function canonicalizePosQuoteSnapshotV1(snapshot) {
   return [
     "POS_STAY_QUOTE_V1",
     String(snapshot.stayId).toLowerCase(),
@@ -63,8 +73,9 @@ export function verifyPosQuoteSnapshot(snapshot, signature, secret) {
 export function buildPosQuoteSnapshot({ stay, quote, calculatedAt = new Date() }) {
   const signedAt = calculatedAt instanceof Date ? calculatedAt : new Date(calculatedAt);
   const expiresAt = new Date(signedAt.getTime() + POS_QUOTE_TTL_MS);
+  const chargeBreakdown = quote?.breakdown || null;
   const snapshot = {
-    version: "POS_STAY_QUOTE_V1",
+    version: chargeBreakdown ? "POS_STAY_QUOTE_V2" : "POS_STAY_QUOTE_V1",
     stayId: stay.id,
     stayCode: stay.code,
     parkingId: stay.parking_id,
@@ -86,6 +97,7 @@ export function buildPosQuoteSnapshot({ stay, quote, calculatedAt = new Date() }
     couponCode: quote?.coupon?.code || null,
     couponBenefitType: quote?.coupon?.benefitType || null,
     couponBenefitValue: Number.isFinite(Number(quote?.coupon?.value)) ? Number(quote.coupon.value) : null,
+    ...(chargeBreakdown ? { chargeBreakdown } : {}),
   };
 
   return {
@@ -140,14 +152,18 @@ export async function quoteParkingStay(db, stay, options = {}) {
   const effectiveRate = coupon?.benefit_type === "FREE_MINUTES"
     ? { ...rate, freePeriodSeconds: Number(rate.freePeriodSeconds || 0) + Number(coupon.benefit_value) * 60 }
     : rate;
+  // Feriados del cliente: solo afectan tarifas por franja horaria.
+  const chargeOptions = rate.timeBandsEnabled
+    ? { holidays: await listHolidayDatesForStay(db, parking.company_id, stay.entry_at, now) }
+    : {};
 
-  const availability = resolveStayQuoteAvailability(effectiveRate, stay.entry_at, now);
+  const availability = resolveStayQuoteAvailability(effectiveRate, stay.entry_at, now, chargeOptions);
   if (availability.blocked) {
     return { ...availability, rate };
   }
 
   const { charge } = availability;
-  const baseCharge = calculateScheduledParkingCharge(rate, stay.entry_at, now);
+  const baseCharge = calculateScheduledParkingCharge(rate, stay.entry_at, now, chargeOptions);
   const subtotal = Math.max(0, baseCharge.amount);
 
   let discount = Math.max(0, subtotal - charge.amount);
@@ -169,6 +185,7 @@ export async function quoteParkingStay(db, stay, options = {}) {
     elapsedMinutes: availability.elapsedMinutes,
     rate,
     charge,
+    breakdown: rate.timeBandsEnabled ? buildChargeBreakdown(baseCharge, { rateId: rate.id }) : null,
     coupon: coupon
       ? {
         id: coupon.id,

@@ -145,3 +145,36 @@ test("la firma POS puede generarse con un secreto estable y no depende del clien
   assert.equal(signature.length, 64);
   assert.equal(verifyPosQuoteSnapshot(snapshot, signature, TEST_POS_QUOTE_HMAC_SECRET), true);
 });
+
+// ---- SOL-2026-10-08-003: cotización V2 con desglose por franja firmado ----
+
+const BAND_QUOTE_STAY = { id: "stay-band", code: "ING-B", parking_id: "parking-1", updated_at: "2026-10-12T19:00:00.000Z", rate_id: null, rate_name: null, billing_mode: null };
+const BAND_QUOTE = {
+  elapsedMinutes: 960, subtotal: 13600, discount: 0, net: 11429, tax: 2171, total: 13600,
+  rate: { id: "rate-band", name: "Hábil por franjas", billingMode: "EFFECTIVE_MINUTE", currency: "CLP", updatedAt: "2026-10-01T00:00:00.000Z" },
+  breakdown: { version: 1, kind: "TIME_BANDS", passes: [{ label: "Noche", minutes: 840, grossAmount: 16800, capAmount: 10000, capApplied: true, amount: 10000 }] },
+};
+
+test("cotización con franjas se firma como V2 e incluye el desglose", () => {
+  const snapshot = buildPosQuoteSnapshot({ stay: BAND_QUOTE_STAY, quote: BAND_QUOTE, calculatedAt: new Date("2026-10-13T11:00:00.000Z") });
+  assert.equal(snapshot.version, "POS_STAY_QUOTE_V2");
+  assert.deepEqual(snapshot.chargeBreakdown, BAND_QUOTE.breakdown);
+  assert.equal(verifyPosQuoteSnapshot(snapshot, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), true);
+});
+
+test("alterar el desglose firmado o bajar la versión invalida la cotización V2", () => {
+  const snapshot = buildPosQuoteSnapshot({ stay: BAND_QUOTE_STAY, quote: BAND_QUOTE, calculatedAt: new Date("2026-10-13T11:00:00.000Z") });
+  const tampered = { ...snapshot, chargeBreakdown: { ...snapshot.chargeBreakdown, passes: [] } };
+  assert.equal(verifyPosQuoteSnapshot(tampered, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), false);
+  const downgraded = { ...snapshot, version: "POS_STAY_QUOTE_V1" };
+  assert.equal(verifyPosQuoteSnapshot(downgraded, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), false);
+});
+
+test("una cotización sin franjas sigue siendo V1 y se firma igual que antes", () => {
+  const { breakdown: _ignored, ...classicQuote } = BAND_QUOTE;
+  const snapshot = buildPosQuoteSnapshot({ stay: BAND_QUOTE_STAY, quote: classicQuote, calculatedAt: new Date("2026-10-13T11:00:00.000Z") });
+  assert.equal(snapshot.version, "POS_STAY_QUOTE_V1");
+  assert.equal("chargeBreakdown" in snapshot, false);
+  const { signature, ...unsigned } = snapshot;
+  assert.equal(signature, signPosQuoteSnapshot(unsigned, process.env.POS_QUOTE_HMAC_SECRET));
+});

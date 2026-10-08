@@ -106,11 +106,14 @@ export function movementLabel(type) {
 // { blocked, reason, elapsedSeconds, elapsedMinutes, charge? } con la permanencia ya
 // calculada, para que el llamador (API de Data Entry) siga mostrando el vehículo, el
 // ticket y la permanencia aunque el cálculo/cobro quede bloqueado.
-export function resolveStayQuoteAvailability(rate, entryAt, now = new Date()) {
+//
+// options.holidays: feriados del cliente (YYYY-MM-DD), necesarios para tarifas por
+// franja horaria (SOL-2026-10-08-003).
+export function resolveStayQuoteAvailability(rate, entryAt, now = new Date(), options = {}) {
   const elapsedSeconds = Math.max(0, Math.floor((now.getTime() - new Date(entryAt).getTime()) / 1000));
   const elapsedMinutes = Math.max(0, Math.floor(elapsedSeconds / 60));
   if (!rate) return { blocked: true, reason: "ACTIVE_RATE_NOT_FOUND", elapsedSeconds, elapsedMinutes };
-  const charge = calculateScheduledParkingCharge(rate, entryAt, now);
+  const charge = calculateScheduledParkingCharge(rate, entryAt, now, options);
   if (!charge.valid || charge.requiresDailyPolicy) return { blocked: true, reason: "RATE_REQUIRES_REVIEW", elapsedSeconds, elapsedMinutes, charge };
   return { blocked: false, elapsedSeconds, elapsedMinutes, charge };
 }

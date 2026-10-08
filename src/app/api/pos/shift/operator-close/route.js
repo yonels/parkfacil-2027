@@ -3,6 +3,7 @@ import { authorizeOperationRequest, operationAuthorizationError, posOperationAct
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { closePosOperatorShift, getPosOperatorShiftState, loadOperatorShiftPreview } from "@/lib/posOperatorShiftService";
+import { finalizeUnpaidStaysAfterClose, summarizeUnpaidExitsForShift } from "@/lib/parkingDebtsRepository";
 import { validatePosClosureInput } from "@/lib/posOperatorShiftCore.mjs";
 
 const knownErrors = {
@@ -39,7 +40,10 @@ export async function POST(request) {
       return NextResponse.json({ error, code: validated.code }, { status });
     }
     const closure = await closePosOperatorShift(authorization.db, { shiftId: current.shift.id, actor, notes: body.notes, declaredCashAmount: validated.declaredCashAmount, differenceObservation: validated.differenceObservation });
-    return NextResponse.json({ data: { closure, parking, actor } });
+    // Salidas sin pago del turno (D15): su hora de salida es la del cierre.
+    await finalizeUnpaidStaysAfterClose(authorization.db, current.shift.id);
+    const unpaidExits = await summarizeUnpaidExitsForShift(authorization.db, current.shift.id).catch(() => null);
+    return NextResponse.json({ data: { closure, parking, actor, unpaidExits } });
   } catch (error) {
     const denied = operationAuthorizationError(request, authorization?.context, error);
     return denied || failure(error);

@@ -14,7 +14,7 @@ export async function POST(request, { params }) {
     const { id, rateId } = await params;
     const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_MANAGE); if (auth.response) return auth.response;
     const input = sanitizeRateInput(await request.json());
-    const errors = validateRateInput(input);
+    const errors = validateRateInput(input, { parkingType: auth.parking.type });
     if (Object.keys(errors).length) return validationError(errors);
     if (input.areaId) {
       const areaTable = auth.parking.type === "OFF_STREET" ? "parking_levels" : "parking_sectors";
