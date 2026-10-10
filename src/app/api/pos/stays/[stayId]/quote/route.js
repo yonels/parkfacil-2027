@@ -23,7 +23,7 @@ export async function GET(request, { params }) {
     }
     // Defensa adicional antes de exponer datos de una estadía: el
     // estacionamiento resuelto se revalida contra el scope de la sesión.
-    const parking = await requireOperationalParking(authorization.db, authorization.context, authorization.scope, resolved.parkingId);
+    const parking = await requireOperationalParking(authorization.db, authorization.context, resolved.parkingScope || authorization.scope, resolved.parkingId);
 
     const { stayId } = await params;
     const detail = await quoteOpenPosStay(authorization.db, parking.id, stayId, { now: new Date() });

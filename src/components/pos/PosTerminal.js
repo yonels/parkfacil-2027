@@ -789,6 +789,17 @@ export default function PosTerminal() {
   const [parkingOptions, setParkingOptions] = useState([]);
   // Estacionamientos (varios autorizados) donde se puede abrir turno a pedido.
   const [onDemandParkings, setOnDemandParkings] = useState([]);
+  // Selector Off Street: pulldown con los Off Street activos de la empresa,
+  // estacionamiento del último cierre (para consultarlo/reimprimirlo cuando
+  // ya no hay estacionamiento activo) y aviso de turno restaurado al volver
+  // a ingresar con un turno abierto.
+  const [offStreetParkings, setOffStreetParkings] = useState([]);
+  const [selectedOffStreetParkingId, setSelectedOffStreetParkingId] = useState("");
+  const [offStreetSelectionError, setOffStreetSelectionError] = useState("");
+  const [lastClosedParking, setLastClosedParking] = useState(null);
+  // null = sin turno abierto; true = turno abierto restaurado al ingresar;
+  // false = turno iniciado en esta misma sesión (no se avisa).
+  const [shiftRestoredNotice, setShiftRestoredNotice] = useState(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [deviceInfo, setDeviceInfo] = useState(null);
   const operationBusyRef = useRef(false);
@@ -1041,6 +1052,18 @@ export default function PosTerminal() {
       setShiftServerNow(data.serverNow || null);
       setParkingOptions(Array.isArray(data.parkingOptions) ? data.parkingOptions : []);
       setOnDemandParkings(Array.isArray(data.onDemandParkings) ? data.onDemandParkings : []);
+      const offStreet = Array.isArray(data.offStreetParkings) ? data.offStreetParkings : [];
+      setOffStreetParkings(offStreet);
+      setSelectedOffStreetParkingId((current) => (offStreet.some((option) => option.parkingId === current) ? current : ""));
+      // Sin estacionamiento activo (selector) el último cierre de hoy sigue
+      // disponible para consulta y reimpresión.
+      if (data.state === "PARKING_SELECTION_REQUIRED" && data.lastClosure?.closure) {
+        setShift(data.lastClosure.shift || null);
+        setShiftClosed(true);
+        setShiftClosure(data.lastClosure.closure);
+        setLastClosedParking(data.lastClosure.parking || null);
+      }
+      setShiftRestoredNotice((current) => (data.state === "OPEN" ? (current === null ? true : current) : null));
     } catch {
       setShiftError("Error de red al cargar el turno del operador.");
     } finally {
@@ -1063,6 +1086,7 @@ export default function PosTerminal() {
         else setShiftError(result.payload?.error || "No fue posible iniciar el turno.");
         return;
       }
+      setShiftRestoredNotice(false);
       await loadShiftState();
       await loadTerminalState(true);
     } catch {
@@ -1070,6 +1094,18 @@ export default function PosTerminal() {
     } finally {
       setShiftStartBusy(false);
     }
+  }
+
+  // Selector Off Street: inicia el turno en el estacionamiento elegido en el
+  // pulldown. El servidor valida el id contra los Off Street activos de la
+  // empresa y rechaza si ya existe otro turno abierto.
+  function startSelectedOffStreetShift() {
+    if (!selectedOffStreetParkingId) {
+      setOffStreetSelectionError("Elige un estacionamiento para iniciar el turno.");
+      return;
+    }
+    setOffStreetSelectionError("");
+    void startOnDemandShift(selectedOffStreetParkingId);
   }
 
   // Inicio de turno a pedido: mismo flujo de refresco que un turno programado.
@@ -1084,6 +1120,7 @@ export default function PosTerminal() {
         else setShiftError(result.payload?.error || "No fue posible iniciar el turno.");
         return;
       }
+      setShiftRestoredNotice(false);
       await loadShiftState();
       await loadTerminalState(true);
     } catch {
@@ -2064,6 +2101,11 @@ export default function PosTerminal() {
       ));
       setClosureReceiptStatus("");
       setClosurePrintPrompt(true);
+      // Tras el cierre ya no hay turno abierto: el estado del turno vuelve al
+      // servidor (selector si hay varios Off Street). Se conserva el
+      // estacionamiento del cierre para el resumen y la reimpresión.
+      setLastClosedParking(parking);
+      void loadShiftState();
       void loadTerminalState(true);
     } catch {
       setCloseError("Error de red al cerrar el turno.");
@@ -2131,7 +2173,7 @@ export default function PosTerminal() {
   function reprintShiftClosure() {
     const payload = buildShiftClosureReceiptPayload(
       shiftClosure,
-      parking,
+      parking || lastClosedParking,
       context?.membership?.fullName || context?.email,
       context?.email
     );
@@ -2422,6 +2464,71 @@ export default function PosTerminal() {
     // explícitamente qué turno programado iniciar. Las opciones vienen del
     // servidor (solo estacionamientos autorizados de su empresa); una vez
     // iniciado, el turno abierto fija el estacionamiento para toda la sesión.
+    if (shiftState === "PARKING_SELECTION_REQUIRED" && offStreetParkings.length) {
+      // Selector Off Street: pulldown con todos los Off Street activos de la
+      // empresa (no depende de las asignaciones del operador). parkingOptions
+      // solo trae aquí turnos On Street programados hoy, que se inician igual
+      // que antes.
+      const selectedOffStreet = offStreetParkings.find((option) => option.parkingId === selectedOffStreetParkingId) || null;
+      return (
+        <section className="rounded-3xl border border-sky-300 bg-white p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sky-950">
+            <p className="text-xs font-black uppercase tracking-[0.1em] text-sky-700">Seleccione estacionamiento</p>
+            <p className="mt-1 text-sm font-semibold">Elige dónde vas a operar. El estacionamiento quedará fijo hasta que hagas el cierre de caja.</p>
+          </div>
+          <label htmlFor="pos-offstreet-parking" className="mt-4 block text-xs font-black uppercase tracking-[0.08em] text-slate-600">Estacionamiento</label>
+          <select
+            id="pos-offstreet-parking"
+            value={selectedOffStreetParkingId}
+            onChange={(event) => { setSelectedOffStreetParkingId(event.target.value); setOffStreetSelectionError(""); }}
+            disabled={shiftStartBusy}
+            className="mt-1 min-h-14 w-full rounded-2xl border border-slate-400 bg-white px-3 py-3 text-base font-bold text-slate-900 disabled:opacity-60"
+          >
+            <option value="">Elige un estacionamiento</option>
+            {offStreetParkings.map((option) => (
+              <option key={option.parkingId} value={option.parkingId}>
+                {option.parkingName || option.parkingCode}{option.parkingName && option.parkingCode ? ` · ${option.parkingCode}` : ""}
+              </option>
+            ))}
+          </select>
+          {selectedOffStreet ? (
+            <div className="mt-3 rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm font-semibold text-emerald-950">
+              <p>Vas a operar en <span className="font-black">{selectedOffStreet.parkingName || selectedOffStreet.parkingCode}</span>.</p>
+              {selectedOffStreet.parkingAddress ? <p className="mt-1 text-xs text-emerald-900">{selectedOffStreet.parkingAddress}</p> : null}
+            </div>
+          ) : null}
+          {offStreetSelectionError ? <p role="alert" className="mt-3 text-sm font-bold text-rose-700">{offStreetSelectionError}</p> : null}
+          <button type="button" onClick={startSelectedOffStreetShift} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+            {shiftStartBusy ? "Iniciando..." : "INICIAR TURNO"}
+          </button>
+          {parkingOptions.length ? (
+            <div className="mt-4 space-y-3">
+              <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-600">Turnos programados</p>
+              {parkingOptions.map((option) => (
+                <button
+                  key={option.shiftId}
+                  type="button"
+                  onClick={() => void startProgrammedShift(option.shiftId)}
+                  disabled={shiftStartBusy}
+                  className="flex min-h-16 w-full flex-col items-start justify-center rounded-2xl bg-emerald-700 px-4 py-3 text-left text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="text-base font-black uppercase tracking-[0.04em]">{shiftStartBusy ? "Iniciando..." : `Iniciar turno · ${option.parkingName || option.parkingCode}`}</span>
+                  <span className="text-xs font-semibold text-emerald-50">Código {option.parkingCode || "-"} · Horario {option.scheduledStart || "-"}–{option.scheduledEnd || "-"}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {shiftClosed && shiftClosure && currentView !== POS_VIEWS.CIERRE_CAJA ? (
+            <button type="button" onClick={() => goToSection(POS_VIEWS.CIERRE_CAJA)} className="mt-4 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100">
+              Ver último cierre de caja
+            </button>
+          ) : null}
+          {volverButton}
+        </section>
+      );
+    }
+
     if (shiftState === "PARKING_SELECTION_REQUIRED") {
       return (
         <section className="rounded-3xl border border-sky-300 bg-white p-5 text-slate-800 shadow-sm">
@@ -2547,6 +2654,12 @@ export default function PosTerminal() {
         {shiftReadyForOperations ? (
           <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-emerald-800">
             <span className="h-2 w-2 rounded-full bg-emerald-500" /> Turno activo
+          </div>
+        ) : null}
+
+        {shiftReadyForOperations && shiftRestoredNotice === true && parking?.name ? (
+          <div role="status" className="mb-3 rounded-2xl border border-sky-300 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-950">
+            Tienes un turno abierto en <span className="font-black">{parking.name}</span>.
           </div>
         ) : null}
 
@@ -3522,9 +3635,14 @@ export default function PosTerminal() {
       );
     }
 
-    if (shiftState === "PARKING_SELECTION_REQUIRED") {
+    // Selector Off Street: sin estacionamiento activo, el último cierre de
+    // hoy se sigue mostrando (con REIMPRIMIR CIERRE); al continuar se vuelve
+    // al selector.
+    const showsLastClosure = shiftState === "PARKING_SELECTION_REQUIRED" && shiftClosed && Boolean(shiftClosure) && Boolean(shift);
+    if (shiftState === "PARKING_SELECTION_REQUIRED" && !showsLastClosure) {
       return renderShiftGate("Cierre de caja");
     }
+    const closureParking = parking || lastClosedParking;
 
     if (shiftState === "UNASSIGNED" || !shift) {
       return (
@@ -3580,11 +3698,11 @@ export default function PosTerminal() {
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Estacionamiento</p>
-            <p className="mt-1 text-sm font-bold text-slate-800">{parking?.name || "-"}</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{closureParking?.name || "-"}</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Código</p>
-            <p className="mt-1 text-sm font-bold text-slate-800">{parking?.code || "-"}</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{closureParking?.code || "-"}</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Turno</p>
@@ -3612,7 +3730,7 @@ export default function PosTerminal() {
             onClick={() => goToSection(POS_VIEWS.HOME)}
             className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
           >
-            Volver
+            {showsLastClosure ? "Continuar" : "Volver"}
           </button>
         </div>
       </section>

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
-import { findSelectableShift, POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
+import { findSelectableOffStreetParking, findSelectableShift, POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { ensureOnDemandProgrammedShift, OnDemandShiftError } from "@/lib/pos/onDemandShift";
 import { getPosOperatorShiftState, startPosOperatorShift } from "@/lib/posOperatorShiftService";
 
@@ -58,7 +58,12 @@ export async function POST(request) {
       }
       if (onDemand) {
         const wanted = String(body.parkingId || "").trim();
-        const target = (resolved.authorizedParkings || []).find((item) => String(item.id) === wanted && item.status === "ACTIVE");
+        // Selector Off Street: el estacionamiento elegido debe estar en el
+        // pulldown calculado server-side (Off Street activos de la empresa).
+        // Fuera de ese flujo se conserva la validación por asignación.
+        const target = (resolved.offStreetOptions || []).length
+          ? (resolved.selectableParkings || []).find((item) => String(item.id) === wanted && Boolean(findSelectableOffStreetParking(resolved, wanted)))
+          : (resolved.authorizedParkings || []).find((item) => String(item.id) === wanted && item.status === "ACTIVE");
         if (!target) {
           return NextResponse.json({ error: "Selecciona un estacionamiento autorizado para iniciar el turno.", code: "PARKING_SELECTION_REQUIRED" }, { status: 409 });
         }

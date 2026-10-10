@@ -50,7 +50,22 @@ async function validatePosOperatorScope(context) {
   if (assignmentResult.error) {
     throw new AuthorizationError("PARKING_ASSIGNMENT_LOOKUP_FAILED", 500, "No fue posible validar la asignación de estacionamiento.");
   }
-  if (!assignmentResult.data?.length) {
+  if (assignmentResult.data?.length) return;
+
+  // Selector Off Street (SOL-2026-10-10-001): sin asignación previa el
+  // operador igual puede operar si su empresa tiene al menos un
+  // estacionamiento Off Street activo (lo elige en el POS).
+  const offStreetResult = await db
+    .from("parkings")
+    .select("id")
+    .eq("company_id", context.companyId)
+    .eq("type", "OFF_STREET")
+    .eq("status", "ACTIVE")
+    .limit(1);
+  if (offStreetResult.error) {
+    throw new AuthorizationError("PARKING_ASSIGNMENT_LOOKUP_FAILED", 500, "No fue posible validar la asignación de estacionamiento.");
+  }
+  if (!offStreetResult.data?.length) {
     throw new AuthorizationError("PARKING_ASSIGNMENT_REQUIRED", 403, "No tiene un estacionamiento asignado para operar.");
   }
 }

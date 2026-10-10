@@ -78,11 +78,13 @@ test("inicio de turno con selección: solo acepta un shiftId ofrecido por el ser
   assert.match(POS_API_ROUTES.shiftStart, /findSelectableShift\(resolved, body\.shiftId\)/);
   // Turno a pedido (2026-09-28): el parkingId elegido solo vale si está en la
   // lista autorizada calculada server-side (resolved.authorizedParkings) y ACTIVE.
+  // Selector Off Street (SOL-2026-10-10-001): con pulldown, solo vale si está
+  // entre los Off Street activos de la empresa calculados server-side.
   const uses = POS_API_ROUTES.shiftStart.match(/body\.parkingId/g) || [];
   assert.equal(uses.length, 1, "body.parkingId se lee en un único lugar");
   assert.match(
     POS_API_ROUTES.shiftStart,
-    /const wanted = String\(body\.parkingId \|\| ""\)\.trim\(\);\s*const target = \(resolved\.authorizedParkings \|\| \[\]\)\.find\(\(item\) => String\(item\.id\) === wanted && item\.status === "ACTIVE"\);\s*if \(!target\) \{/,
+    /const target = \(resolved\.offStreetOptions \|\| \[\]\)\.length\s*\? \(resolved\.selectableParkings \|\| \[\]\)\.find\(\(item\) => String\(item\.id\) === wanted && Boolean\(findSelectableOffStreetParking\(resolved, wanted\)\)\)\s*: \(resolved\.authorizedParkings \|\| \[\]\)\.find\(\(item\) => String\(item\.id\) === wanted && item\.status === "ACTIVE"\);\s*if \(!target\) \{/,
   );
 });
 
@@ -269,4 +271,52 @@ test("/api/pos/stays entrega el modo de foto del estacionamiento (el POS carga s
   const terminal = read("../../components/pos/PosTerminal.js");
   assert.match(terminal, /fetch\("\/api\/pos\/stays"/);
   assert.match(terminal, /const photoSettings = summary\.payload\?\.data\?\.platePhotoSettings \|\| null;/);
+});
+
+// ---------------------------------------------------------------------------
+// Selector Off Street (SOL-2026-10-10-001)
+// ---------------------------------------------------------------------------
+
+test("selector Off Street: la lista de la empresa solo se consulta en el portal Terminal y con companyId", () => {
+  assert.match(operationAuthorization, /const offStreetFlow = context\.portal === "terminal" && Boolean\(context\.companyId\);/);
+  assert.match(operationAuthorization, /offStreetFlow \? listParkings\(db, \{ companyId: context\.companyId, parkingIds: null \}\) : Promise\.resolve\(null\)/);
+  assert.match(operationAuthorization, /item\.type === "OFF_STREET" && item\.companyId === context\.companyId/);
+});
+
+test("selector Off Street: authorizeOperationRequest sigue acotando el scope a las asignaciones (la web del operador no se amplía)", () => {
+  const fn = operationAuthorization.slice(operationAuthorization.indexOf("export async function authorizeOperationRequest"), operationAuthorization.indexOf("export async function requireOperationalParking"));
+  assert.match(fn, /scope: parkingQueryScope\(authorization\.context, assigned \|\| \[\]\)/);
+  assert.doesNotMatch(fn, /offStreet|companyId: /);
+});
+
+test("selector Off Street: el scope de revalidación de un Off Street no asignado es ese único estacionamiento de la empresa", () => {
+  assert.match(operationAuthorization, /\? \{ companyId: context\.companyId, parkingIds: \[parking\.id\] \}\s*: scope;/);
+  assert.match(POS_API_ROUTES.quote, /requireOperationalParking\(authorization\.db, authorization\.context, resolved\.parkingScope \|\| authorization\.scope, resolved\.parkingId\)/);
+  assert.match(POS_API_ROUTES.dataEntry, /parkingScope = resolved\.parkingScope \|\| authorization\.scope;/);
+  assert.match(POS_API_ROUTES.dataEntry, /requireOperationalParking\(authorization\.db, authorization\.context, parkingScope, parkingId\)/);
+});
+
+test("selector Off Street: GET /api/pos/shift entrega el pulldown y el último cierre para reimpresión", () => {
+  assert.match(POS_API_ROUTES.shift, /const offStreetParkings = resolved\.offStreetOptions \|\| \[\];/);
+  assert.match(POS_API_ROUTES.shift, /\.eq\("id", resolved\.lastClosedShift\.id\)\.eq\("operator_id", authorization\.context\.userId\)\.eq\("status", "CLOSED"\)/);
+  assert.match(POS_API_ROUTES.shift, /parkingOptions: resolved\.options, onDemandParkings, offStreetParkings, lastClosure,/);
+});
+
+test("selector Off Street: el login POS acepta operador sin asignación solo si su empresa tiene un Off Street activo", () => {
+  const session = read("../../app/api/auth/session/route.js");
+  assert.match(session, /if \(assignmentResult\.data\?\.length\) return;/);
+  assert.match(session, /\.eq\("company_id", context\.companyId\)\s*\.eq\("type", "OFF_STREET"\)\s*\.eq\("status", "ACTIVE"\)/);
+  assert.match(session, /if \(!offStreetResult\.data\?\.length\) \{\s*throw new AuthorizationError\("PARKING_ASSIGNMENT_REQUIRED", 403/);
+});
+
+test("selector Off Street: el POS muestra pulldown, aviso de turno restaurado y conserva REIMPRIMIR CIERRE", () => {
+  assert.match(posTerminal, /<select\s+id="pos-offstreet-parking"/);
+  assert.match(posTerminal, /Seleccione estacionamiento/);
+  assert.match(posTerminal, /void startOnDemandShift\(selectedOffStreetParkingId\);/);
+  assert.match(posTerminal, /Tienes un turno abierto en <span className="font-black">\{parking\.name\}<\/span>\./);
+  assert.match(posTerminal, /const showsLastClosure = shiftState === "PARKING_SELECTION_REQUIRED" && shiftClosed && Boolean\(shiftClosure\) && Boolean\(shift\);/);
+  assert.match(posTerminal, /shiftClosure,\s*parking \|\| lastClosedParking,/);
+  assert.match(posTerminal, /REIMPRIMIR CIERRE/);
+  // El selector heredado (turnos programados / On Street) no se elimina.
+  assert.match(posTerminal, /\{!parkingOptions\.length && onDemandParkings\.length \? \(/);
 });

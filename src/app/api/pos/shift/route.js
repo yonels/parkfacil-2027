@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
-import { getOperatorClosureByShift, getPosOperatorShiftState, loadOperatorShiftPreview } from "@/lib/posOperatorShiftService";
+import { getOperatorClosureByShift, getPosOperatorShiftState, loadOperatorShiftPreview, mapOperatorShift } from "@/lib/posOperatorShiftService";
 
 const noStore = { "Cache-Control": "no-store" };
 function fail(message, status, code) { return NextResponse.json({ error: message, code }, { status, headers: noStore }); }
@@ -22,7 +22,20 @@ export async function GET(request) {
       const onDemandParkings = (resolved.authorizedParkings || [])
         .filter((item) => item.status === "ACTIVE" && item.type === "OFF_STREET")
         .map((item) => ({ parkingId: item.id, parkingName: item.name, parkingCode: item.code }));
-      return NextResponse.json({ data: { state: "PARKING_SELECTION_REQUIRED", shift: null, parking: null, parkingOptions: resolved.options, onDemandParkings, serverNow: new Date().toISOString() } }, { headers: noStore });
+      // Selector Off Street: offStreetParkings es el pulldown (todos los Off
+      // Street activos de la empresa). lastClosure conserva la consulta y
+      // reimpresión del último cierre de hoy, que ya no fija el estacionamiento.
+      const offStreetParkings = resolved.offStreetOptions || [];
+      let lastClosure = null;
+      if (offStreetParkings.length && resolved.lastClosedShift) {
+        const closedRow = await authorization.db.from("operator_shifts").select("*")
+          .eq("id", resolved.lastClosedShift.id).eq("operator_id", authorization.context.userId).eq("status", "CLOSED").maybeSingle();
+        if (closedRow.error) throw closedRow.error;
+        const closedParking = closedRow.data ? (resolved.knownParkings || []).find((item) => item.id === closedRow.data.parking_id) || null : null;
+        const closure = closedParking ? await getOperatorClosureByShift(authorization.db, closedRow.data.id) : null;
+        if (closure) lastClosure = { shift: mapOperatorShift(closedRow.data), closure, parking: closedParking };
+      }
+      return NextResponse.json({ data: { state: "PARKING_SELECTION_REQUIRED", shift: null, parking: null, parkingOptions: resolved.options, onDemandParkings, offStreetParkings, lastClosure, serverNow: new Date().toISOString() } }, { headers: noStore });
     }
     const parking = resolved.parking;
     if (!parking) return NextResponse.json({ data: { state: "UNASSIGNED", shift: null, parking: null } }, { headers: noStore });

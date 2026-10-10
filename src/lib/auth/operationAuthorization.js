@@ -54,12 +54,21 @@ const POS_RESOLUTION_SHIFT_FIELDS = "id,operator_id,parking_id,shift_date,schedu
 export async function resolvePosOperationalParking(authorization, { now = new Date() } = {}) {
   const { db, context, scope } = authorization;
   if (context?.role !== ROLES.OPERATOR) {
-    return { status: POS_PARKING_RESOLUTION.UNASSIGNED, parkingId: null, parking: null, options: [] };
+    return { status: POS_PARKING_RESOLUTION.UNASSIGNED, parkingId: null, parking: null, options: [], offStreetOptions: [] };
   }
 
+  // Selector Off Street (SOL-2026-10-10-001): SOLO en el portal Terminal
+  // (POS) el operador puede elegir cualquier estacionamiento Off Street de
+  // su empresa, esté o no asignado a él. Nunca sin companyId (un scope sin
+  // empresa listaría estacionamientos de todas). Fuera del POS (operador en
+  // la Web Cliente) la resolución sigue acotada a sus asignaciones, y
+  // `authorization.scope` no se modifica en ningún caso.
+  const offStreetFlow = context.portal === "terminal" && Boolean(context.companyId);
+
   const today = chileOperationalDate(now);
-  const [authorizedParkings, openResult, todayResult] = await Promise.all([
+  const [authorizedParkings, companyParkings, openResult, todayResult] = await Promise.all([
     listParkings(db, scope),
+    offStreetFlow ? listParkings(db, { companyId: context.companyId, parkingIds: null }) : Promise.resolve(null),
     db.from("operator_shifts").select(POS_RESOLUTION_SHIFT_FIELDS)
       .eq("operator_id", context.userId).in("status", ["OPEN", "CLOSING"]).limit(1).maybeSingle(),
     db.from("operator_shifts").select(POS_RESOLUTION_SHIFT_FIELDS)
@@ -68,23 +77,43 @@ export async function resolvePosOperationalParking(authorization, { now = new Da
   if (openResult.error) throw openResult.error;
   if (todayResult.error) throw todayResult.error;
 
+  const offStreetParkings = offStreetFlow
+    ? companyParkings.filter((item) => item.type === "OFF_STREET" && item.companyId === context.companyId)
+    : null;
   const todayShifts = todayResult.data || [];
+  const closedShifts = todayShifts.filter((shift) => shift.status === "CLOSED");
   const resolution = resolvePosParking({
     authorizedParkings,
     openShift: openResult.data || null,
     programmedShifts: todayShifts.filter((shift) => shift.status === "PROGRAMMED"),
-    closedShifts: todayShifts.filter((shift) => shift.status === "CLOSED"),
+    closedShifts,
+    offStreetParkings,
   });
 
   if (resolution.status === POS_PARKING_RESOLUTION.SHIFT_PARKING_FORBIDDEN) {
     throw new AuthorizationError("POS_SHIFT_PARKING_FORBIDDEN", 403, "Tu turno abierto corresponde a un estacionamiento que ya no tienes autorizado. Contacta a tu supervisor.", context);
   }
 
-  const parking = resolution.parkingId ? authorizedParkings.find((item) => item.id === resolution.parkingId) || null : null;
+  const knownParkings = [...authorizedParkings, ...(offStreetParkings || []).filter((item) => !authorizedParkings.some((known) => known.id === item.id))];
+  const parking = resolution.parkingId ? knownParkings.find((item) => item.id === resolution.parkingId) || null : null;
+  // parkingScope: scope con el que las rutas POS revalidan el estacionamiento
+  // resuelto. Para un Off Street no asignado es ese único estacionamiento de
+  // la empresa del operador (nunca más amplio que eso).
+  const parkingScope = parking && offStreetFlow && !authorizedParkings.some((item) => item.id === parking.id)
+    ? { companyId: context.companyId, parkingIds: [parking.id] }
+    : scope;
   // authorizedParkings: lista server-side (empresa + asignaciones del
-  // operador) — la única contra la que se valida un parkingId elegido para
-  // iniciar un turno a pedido (nunca un id del cliente sin validar).
-  return { ...resolution, parking, authorizedParkings };
+  // operador). selectableParkings: los Off Street activos del pulldown — la
+  // única lista contra la que se valida un parkingId elegido para iniciar un
+  // turno a pedido (nunca un id del cliente sin validar).
+  const selectableIds = new Set((resolution.offStreetOptions || []).map((option) => option.parkingId));
+  const selectableParkings = knownParkings.filter((item) => selectableIds.has(String(item.id)));
+  // Último turno cerrado hoy (ya no fija el estacionamiento en el flujo Off
+  // Street): se entrega para conservar la consulta/reimpresión del cierre.
+  const lastClosedShift = closedShifts
+    .filter((shift) => knownParkings.some((item) => item.id === shift.parking_id))
+    .sort((a, b) => String(b?.closed_at || "").localeCompare(String(a?.closed_at || "")))[0] || null;
+  return { ...resolution, parking, authorizedParkings, selectableParkings, parkingScope, offStreetFlow, lastClosedShift, knownParkings };
 }
 
 export function posParkingSelectionRequiredResponse() {

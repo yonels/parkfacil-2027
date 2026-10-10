@@ -88,6 +88,9 @@ async function context(request, requestedParkingId = null) {
   authorization = await authorizeOperationRequest(request, PERMISSIONS.OPERATIONS_USE);
   if (authorization.response) return { response: authorization.response };
   let parkingId = requestedParkingId;
+  // Scope con el que se revalida el estacionamiento; solo el POS lo acota al
+  // Off Street resuelto para su turno (ver resolvePosOperationalParking).
+  let parkingScope = authorization.scope;
   const isTerminalRequest = String(request.headers.get("x-parkfacil-portal") || "").toLowerCase() === "terminal";
   // POS Entry/Exit — Fase 1: operadores y cualquier solicitud del terminal
   // resuelven el estacionamiento con la MISMA regla que /api/pos/* (turno
@@ -103,6 +106,7 @@ async function context(request, requestedParkingId = null) {
       return { response: fail("El estacionamiento solicitado no corresponde a tu sesión POS.", 403, { code: "POS_PARKING_MISMATCH" }) };
     }
     parkingId = resolved.parkingId;
+    parkingScope = resolved.parkingScope || authorization.scope;
   }
   if (!parkingId && !isTerminalRequest && authorization.context.role !== ROLES.OPERATOR) {
     let query = authorization.db.from("parkings").select("id").eq("status", "ACTIVE").order("code").limit(1);
@@ -112,7 +116,7 @@ async function context(request, requestedParkingId = null) {
     parkingId = result.data?.[0]?.id || null;
   }
   if (!parkingId) return { response: fail("El usuario no tiene un estacionamiento autorizado.", 404) };
-  const parking = await requireOperationalParking(authorization.db, authorization.context, authorization.scope, parkingId);
+  const parking = await requireOperationalParking(authorization.db, authorization.context, parkingScope, parkingId);
   return { ...authorization, actor: { ...posOperationActor(authorization.context), parkingId: parking.id }, parking };
   } catch (error) {
     const denied = operationAuthorizationError(request, authorization?.context, error);
