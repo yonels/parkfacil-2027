@@ -8,5 +8,11 @@
       "path": "/api/internal/on-street-payments/reconcile",
       "schedule": "*/2 * * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "feature/pago-liberado-catalogo-prod": false,
+      "feature/pago-liberado-etapa2": false
+    }
+  }
 }
