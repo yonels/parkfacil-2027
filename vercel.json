@@ -1,0 +1,7 @@
+{
+  "git": {
+    "deploymentEnabled": {
+      "feature/pago-liberado-catalogo-prod": false
+    }
+  }
+}
