@@ -1,4 +1,4 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText } from "lucide-react";
+import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, BadgeCheck } from "lucide-react";
 
 export const navigationItems = [
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
@@ -52,6 +52,9 @@ export const navigationItems = [
   { href: "/modelo-gestion-modulos", label: "Gestión de módulos", icon: SlidersHorizontal },
   { href: "/contratos", label: "Contratos", icon: Handshake },
   { href: "/abonados", label: "Abonados y Credenciales", icon: KeyRound },
+  // Pago liberado (SOL-2026-10-16-003): Root contrata y activa; el administrador
+  // gestiona cupos, tarifas, autorizaciones y pagos. Oculto al operador.
+  { href: "/pago-liberado", label: "Pago liberado", icon: BadgeCheck },
   {
     href: "/administracion-tarifas",
     label: "Tarifas",
