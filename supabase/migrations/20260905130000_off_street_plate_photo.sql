@@ -1,3 +1,7 @@
+-- Corrección SOL-2026-10-16-003 (paso 2.2, 2026-10-18): company_id es text,
+-- igual que public.companies.id (la versión anterior declaraba uuid y fallaba
+-- fuera de QA, donde se aplicó una copia corregida). Nunca aplicada en producción.
+
 -- Off Street — Fase 6: captura fotográfica de patente (configurable) +
 -- impresión en ticket.
 --
@@ -28,7 +32,7 @@
 -- ------------------------------------------------------------------
 create table if not exists public.parking_offstreet_settings (
   parking_id uuid primary key references public.parkings(id) on delete cascade,
-  company_id uuid not null references public.companies(id) on delete cascade,
+  company_id text not null references public.companies(id) on delete cascade,
   plate_photo_mode text not null default 'DISABLED' check (plate_photo_mode in ('DISABLED', 'OPTIONAL', 'REQUIRED')),
   print_plate_photo_on_ticket boolean not null default false,
   -- Retención de evidencia (§11 del encargo): el valor se guarda desde ya
@@ -68,7 +72,7 @@ on conflict (id) do nothing;
 
 create table if not exists public.parking_stay_evidence (
   id uuid primary key default gen_random_uuid(),
-  company_id uuid not null references public.companies(id) on delete cascade,
+  company_id text not null references public.companies(id) on delete cascade,
   parking_id uuid not null references public.parkings(id) on delete cascade,
   parking_stay_id uuid not null references public.parking_stays(id) on delete cascade,
   type text not null check (type in ('PLATE_ENTRY_PHOTO')),
