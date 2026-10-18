@@ -6,6 +6,7 @@ import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
 import { authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { PERMISSIONS, PRODUCTS, ROLES } from "@/lib/auth/permissions.mjs";
 import { authorizationFromDb } from "./authorizationCore.mjs";
+import { regularizationFromDb } from "./regularizationCore.mjs";
 import { authorizationPaymentStatus, PAYMENT_STATUS, paymentFromDb } from "./paymentCore.mjs";
 import { tariffFromDb } from "./tariffCore.mjs";
 import { contractFromDb, moduleFromDb, MODULE_STATUS_LABELS, resolveModuleStatus } from "./releasedStayCore.mjs";
@@ -178,6 +179,13 @@ const RPC_MESSAGES = {
   RELEASED_PAYMENT_PAYMENT_AMOUNT_MISMATCH: [409, "No se aceptan pagos parciales: el monto debe ser el total acordado de la autorización."],
   RELEASED_PAYMENT_PAYMENT_NOT_FOUND: [404, "No se encontró el pago."],
   RELEASED_PAYMENT_PAYMENT_ALREADY_VOIDED: [409, "El pago ya fue anulado."],
+  RELEASED_PAYMENT_REGULARIZATION_ACTION_INVALID: [400, "Selecciona una acción de regularización válida."],
+  RELEASED_PAYMENT_STAY_NOT_FOUND: [404, "No se encontró la estadía."],
+  RELEASED_PAYMENT_STAY_NOT_RELEASED: [409, "La estadía no tiene el beneficio de Pago liberado."],
+  RELEASED_PAYMENT_STAY_NOT_OPEN: [409, "La estadía ya no está abierta. Actualiza la pantalla."],
+  RELEASED_PAYMENT_BENEFIT_ALREADY_VOIDED: [409, "El beneficio de esta estadía ya fue anulado."],
+  RELEASED_PAYMENT_EXIT_AT_INVALID: [400, "La salida debe ser posterior al ingreso y no puede ser futura."],
+  CARD_PAYMENT_ATTEMPT_ACTIVE: [409, "La estadía tiene un cobro con tarjeta en curso en el POS. Espera a que termine."],
 };
 
 export function rpcErrorCode(error) {
@@ -194,6 +202,21 @@ export function rpcFailure(error, fallback) {
   }
   console.error("[released-payment]", error?.code, error?.message);
   return fail(fallback, 500, { code: "RELEASED_PAYMENT_FAILED" });
+}
+
+// Regularizaciones de estadías liberadas (Etapa 3). Si la base aún no tiene la
+// migración 20261018150000, se devuelve una lista vacía para no bloquear el
+// resto del módulo.
+export async function loadRegularizations(db, parkingId, { fromIso = null, toIso = null, limit = 500 } = {}) {
+  let query = db.from("released_payment_stay_regularizations").select("*").eq("parking_id", parkingId);
+  if (fromIso) query = query.gte("created_at", fromIso);
+  if (toIso) query = query.lt("created_at", toIso);
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
+  if (error) {
+    if (STORAGE_MISSING.has(error.code)) return [];
+    throw error;
+  }
+  return (data || []).map(regularizationFromDb);
 }
 
 export function storageMissing(error) {
