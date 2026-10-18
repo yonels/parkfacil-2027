@@ -1,7 +1,10 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { authorizeRemainingRequest } from "@/lib/auth/remainingAuthorization";
-import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
+import { requireProduct } from "@/lib/auth/apiAuthorizationCore.mjs";
+import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
+import { authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
+import { PERMISSIONS, PRODUCTS, ROLES } from "@/lib/auth/permissions.mjs";
 import { authorizationFromDb } from "./authorizationCore.mjs";
 import { paymentFromDb } from "./paymentCore.mjs";
 import { tariffFromDb } from "./tariffCore.mjs";
@@ -34,6 +37,15 @@ export async function authorizeReleasedPayment(request, mode) {
   if (mode === "root" && !isRoot) return { response: fail("Solo ParkFacil Root puede contratar, activar o desactivar Pago liberado.", 403, { code: "RELEASED_PAYMENT_FORBIDDEN" }) };
   if (mode === "admin" && !isAdmin) return { response: fail("Solo el administrador del estacionamiento gestiona las autorizaciones de Pago liberado.", 403, { code: "RELEASED_PAYMENT_FORBIDDEN" }) };
   if (mode === "read" && !isRoot && !isAdmin) return { response: fail("No tienes acceso a Pago liberado.", 403, { code: "RELEASED_PAYMENT_FORBIDDEN" }) };
+  // La empresa debe tener contratado Off Street (Root no está sujeto).
+  if (!isRoot) {
+    try {
+      requireProduct(context, PRODUCTS.OFF_STREET);
+    } catch (error) {
+      if (error instanceof AuthorizationError) return { response: authorizationErrorResponse(request, error, context) };
+      throw error;
+    }
+  }
   return { context, db, isRoot, isAdmin, actor: { id: context.userId, companyId: context.companyId } };
 }
 
