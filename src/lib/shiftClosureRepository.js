@@ -1,19 +1,26 @@
 import "server-only";
+import { loadShiftPresentations } from "./shiftPresentationRepository";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 
 const db = () => getSupabaseAdminClient();
 export async function getShiftContext(shiftId) {
-  const shiftResult=await db().from("operator_shifts").select("*").eq("id",shiftId).single();
-  if(shiftResult.error)throw shiftResult.error;const shift=shiftResult.data;
-  const [assignmentResult,parkingResult,sectorResult,streetResult]=await Promise.all([
-    db().from("operator_assignments").select("*").eq("id",shift.assignment_id).single(),
-    db().from("parkings").select("*").eq("id",shift.parking_id).single(),
-    db().from("parking_sectors").select("id,code,name").eq("id",shift.sector_id).single(),
-    db().from("parking_streets").select("*").eq("id",shift.street_id).single(),
-  ]);
-  for(const result of [assignmentResult,parkingResult,sectorResult,streetResult])if(result.error)throw result.error;
-  const a=assignmentResult.data,p=parkingResult.data,s=sectorResult.data,street=streetResult.data;
-  return {shift:{id:shift.id,operatorId:shift.operator_id,date:shift.shift_date,openedAt:shift.opened_at,scheduledStart:shift.scheduled_start,status:shift.status},assignment:{id:a.id,parkingId:a.parking_id,sectorId:a.sector_id,streetId:a.street_id,numberFrom:a.number_from,numberTo:a.number_to,assignedSpaces:a.max_vehicles,startTime:a.start_time,endTime:a.end_time},parking:{id:p.id,name:p.name,companyName:p.company_name||p.company_id},sector:{id:s.id,name:`Sector ${s.code} - ${s.name}`},street:{id:street.id,name:street.name}};
+  const client = db();
+  const shiftResult = await client.from("operator_shifts").select("*").eq("id",shiftId).single();
+  if (shiftResult.error) throw shiftResult.error;
+  const row = shiftResult.data;
+  const parkingResult = await client.from("parkings").select("*").eq("id",row.parking_id).single();
+  if (parkingResult.error) throw parkingResult.error;
+  const parking = parkingResult.data;
+  const [resolved] = await loadShiftPresentations(client, parking, [row]);
+  const a = resolved.assignment;
+  return {
+    shift: { id: row.id, operatorId: row.operator_id, parkingId: row.parking_id, date: row.shift_date, openedAt: row.opened_at, scheduledStart: row.scheduled_start, status: row.status },
+    operator: { id: row.operator_id, name: resolved.presentation.operatorName },
+    presentation: resolved.presentation,
+    assignment: a ? { id:a.id, numberFrom:a.number_from, numberTo:a.number_to, assignedSpaces:a.max_vehicles } : null,
+    parking: { id:parking.id, type:parking.type, name:parking.name, companyName:parking.company_name || parking.company_id },
+    sector: resolved.sector || null, street: resolved.street || null,
+  };
 }
 export async function closeShiftTransaction(shiftId,actor,input){
   const {data,error}=await db().rpc("close_operator_shift",{p_shift_id:shiftId,p_actor_id:actor.id,p_actor_name:actor.name,p_actor_is_admin:actor.isAdmin,p_notes:input.observations});

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpDown, Check, Copy, Eye, GripVertical, KeyRound, Pencil, Plus, Save, Search, Trash2, X } from "lucide-react";
+import { ArrowUpDown, Check, Copy, Eye, EyeOff, GripVertical, KeyRound, Pencil, Plus, Save, Search, Trash2, X } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -45,6 +45,7 @@ export default function UsuariosPage() {
   const [canManageCredentials, setCanManageCredentials] = useState(false);
   const [canSetDirectPassword, setCanSetDirectPassword] = useState(false);
   const [temporaryCredentials, setTemporaryCredentials] = useState({});
+  const [revealedCredentials, setRevealedCredentials] = useState({});
   const [credentialLoadingId, setCredentialLoadingId] = useState(null);
   const [credentialError, setCredentialError] = useState("");
   const [copiedCredentialId, setCopiedCredentialId] = useState(null);
@@ -60,6 +61,7 @@ export default function UsuariosPage() {
   const [createDraft, setCreateDraft] = useState({
     fullName: "",
     email: "",
+    recoveryEmail: "",
     phone: "",
     role: "operator",
     companyId: "",
@@ -67,16 +69,16 @@ export default function UsuariosPage() {
   });
   const tableColumns = useMemo(() => [
     { key: "nombreCompleto", label: "Nombre", sortable: true },
-    { key: "correo", label: "Usuario", sortable: true },
+    { key: "correo", label: "Usuario de acceso", sortable: true },
+    ...(canManageCredentials ? [{ key: "credential", label: "Clave de acceso", sortable: false }] : []),
     { key: "telefono", label: "Teléfono", sortable: true },
     { key: "empresaId", label: "Empresa", sortable: true },
     { key: "perfilPrincipal", label: "Perfil", sortable: true },
     { key: "estado", label: "Estado", sortable: true },
     { key: "estacionamientos", label: "Estacionamientos", sortable: true },
     { key: "ultimoAcceso", label: "Último acceso", sortable: true },
-    ...(canManageCredentials ? [{ key: "credential", label: "Clave de acceso", sortable: false }] : []),
   ], [canManageCredentials]);
-  const { orderedColumns: orderedTableColumns, getHeaderProps } = useReorderableColumns(tableColumns, "usuarios-catalogo");
+  const { orderedColumns: orderedTableColumns, getHeaderProps } = useReorderableColumns(tableColumns, "usuarios-catalogo-clave-v2");
 
   const loadUsers = useCallback(async () => {
     const response = await authenticatedFetch("/api/usuarios", { cache: "no-store" });
@@ -107,6 +109,7 @@ export default function UsuariosPage() {
       ...current,
       fullName: "",
       email: "",
+      recoveryEmail: "",
       phone: "",
       role: "operator",
       companyId: current.companyId || empresas[0]?.id || "",
@@ -130,7 +133,10 @@ export default function UsuariosPage() {
         body: JSON.stringify(createDraft),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "No fue posible crear el usuario.");
+      if (!response.ok) {
+        const details = Object.values(body.details || {}).filter((value) => typeof value === "string");
+        throw new Error(details.length ? details.join(" ") : body.error || "No fue posible crear el usuario.");
+      }
 
       if (body.data?.id) {
         setUsuarios((current) => [
@@ -143,6 +149,7 @@ export default function UsuariosPage() {
 
       if (body.credential?.userId) {
         setTemporaryCredentials((current) => ({ ...current, [body.credential.userId]: body.credential }));
+        setRevealedCredentials((current) => ({ ...current, [body.credential.userId]: false }));
         window.alert(`Usuario creado: ${body.credential.username}\nClave temporal: ${body.credential.temporaryPassword}`);
       }
       setCreateOpen(false);
@@ -217,6 +224,7 @@ export default function UsuariosPage() {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || "No fue posible generar la clave temporal.");
       setTemporaryCredentials((current) => ({ ...current, [usuario.id]: body.data }));
+      setRevealedCredentials((current) => ({ ...current, [usuario.id]: false }));
       setUsuarios((current) => current.map((item) => (
         item.id === usuario.id ? { ...item, debeCambiarClave: true } : item
       )));
@@ -272,6 +280,7 @@ export default function UsuariosPage() {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "No fue posible cambiar la clave.");
       setTemporaryCredentials((current) => ({ ...current, [passwordUser.id]: body.data }));
+      setRevealedCredentials((current) => ({ ...current, [passwordUser.id]: false }));
       setUsuarios((current) => current.map((item) => (
         item.id === passwordUser.id ? { ...item, debeCambiarClave: body.data.mustChangePassword } : item
       )));
@@ -411,7 +420,12 @@ export default function UsuariosPage() {
                         <td key="credential" className="min-w-64 border-r border-slate-200 px-3 py-2.5">
                           {temporaryCredentials[usuario.id] ? (
                             <div className="space-y-2">
-                              <code className="block rounded-lg bg-amber-50 px-2 py-1.5 text-xs font-bold text-amber-900">{temporaryCredentials[usuario.id].temporaryPassword}</code>
+                              <div className="flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1.5">
+                                <code className="min-w-0 flex-1 text-xs font-bold text-amber-900">{revealedCredentials[usuario.id] ? temporaryCredentials[usuario.id].temporaryPassword : "••••••••••••"}</code>
+                                <button type="button" onClick={() => setRevealedCredentials((current) => ({ ...current, [usuario.id]: !current[usuario.id] }))} aria-label={revealedCredentials[usuario.id] ? `Ocultar clave de ${usuario.nombreCompleto}` : `Mostrar clave de ${usuario.nombreCompleto}`} className="text-amber-800">
+                                  {revealedCredentials[usuario.id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                </button>
+                              </div>
                               <button type="button" onClick={() => copyCredential(usuario)} className="inline-flex items-center gap-1 text-xs font-bold text-[#3150D8]">
                                 {copiedCredentialId === usuario.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                                 {copiedCredentialId === usuario.id ? "Copiado" : "Copiar usuario y clave"}
@@ -421,7 +435,7 @@ export default function UsuariosPage() {
                             </div>
                           ) : (
                             <div className="space-y-1.5">
-                              <p className="text-xs text-slate-500">{row.debeCambiarClave ? "Clave temporal pendiente de cambio" : "Clave protegida"}</p>
+                              <p className="text-xs text-slate-500">Clave actual no disponible. Puedes reemplazarla.</p>
                               <button type="button" onClick={() => generateTemporaryCredential(usuario)} disabled={credentialLoadingId === usuario.id} className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-2 text-xs font-bold text-amber-800 disabled:opacity-60">
                                 <KeyRound className="h-3.5 w-3.5" />{credentialLoadingId === usuario.id ? "Generando..." : "Generar clave temporal"}
                               </button>
@@ -476,6 +490,11 @@ export default function UsuariosPage() {
                   <label className="space-y-1.5 text-sm text-slate-700">
                     <span>Correo</span>
                     <input type="email" value={createDraft.email} onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
+                  </label>
+                  <label className="space-y-1.5 text-sm text-slate-700">
+                    <span>Correo de recuperación</span>
+                    <input type="email" autoComplete="email" value={createDraft.recoveryEmail} onChange={(event) => setCreateDraft((current) => ({ ...current, recoveryEmail: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
+                    <p className="text-xs text-slate-500">A este correo se enviarán las instrucciones para recuperar la contraseña. Puede ser distinto del usuario de acceso.</p>
                   </label>
                   <label className="space-y-1.5 text-sm text-slate-700">
                     <span>Telefono</span>

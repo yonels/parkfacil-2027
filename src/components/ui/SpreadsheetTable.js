@@ -63,7 +63,7 @@ export default function SpreadsheetTable({ columns, rows, emptyMessage = "No hay
                 const cellClass = `border border-slate-200 p-0 text-slate-700 ${column.nowrap === false ? "" : "whitespace-nowrap"} ${column.className || ""}`;
                 return (
                   <td key={column.key} className={cellClass}>
-                    {rowHref
+                    {rowHref && column.link !== false
                       ? <Link href={rowHref(row)} className="block min-h-10 px-3 py-2 transition hover:bg-[#EEF4FF] hover:text-[#3150D8]">{content}</Link>
                       : <span className="block min-h-10 px-3 py-2">{content}</span>}
                   </td>
