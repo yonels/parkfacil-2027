@@ -122,7 +122,8 @@ test("platePhotoMode DISABLED nunca muestra PlatePhotoCapture (entryPhoto queda 
 // ---- 10/11) OPTIONAL sin foto imprime normal; REQUIRED respeta 6A ----
 
 test("el gate de envío solo bloquea en REQUIRED sin foto -- OPTIONAL/DISABLED nunca bloquean", () => {
-  assert.match(terminalSource, /if \(platePhotoMode === "REQUIRED" && !entryPhoto\) \{/);
+  assert.match(terminalSource, /const effectivePhotoMode = releasedForEntry\?\.released \? "REQUIRED" : platePhotoMode;/);
+  assert.match(terminalSource, /if \(effectivePhotoMode === "REQUIRED" && !entryPhoto\) \{/);
 });
 
 // ---- 12) Navegador sin ParkFacilDevice -> comportamiento seguro (agente PC / texto) ----

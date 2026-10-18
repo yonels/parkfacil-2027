@@ -6,6 +6,8 @@ import { listParkingRates } from "./parkingRatesRepository.js";
 import { listHolidayDatesForStay } from "./parkingHolidaysRepository.js";
 import { buildChargeBreakdown } from "./parkingTimeBands.mjs";
 import { signWebpayQuoteEvidence } from "./webpayQuoteEvidence.mjs";
+import { quoteUncoveredIntervals } from "./releasedPayment/releasedChargeCore.mjs";
+import { releasedStayCoverage } from "./releasedPayment/releasedStayCore.mjs";
 
 const POS_QUOTE_TTL_SECONDS = 120;
 const POS_QUOTE_TTL_MS = POS_QUOTE_TTL_SECONDS * 1000;
@@ -198,6 +200,69 @@ export async function quoteParkingStay(db, stay, options = {}) {
   };
 }
 
+// Off Street — Pago liberado (Etapa 2): estadía liberada. Solo se cobra el
+// tiempo NO cubierto según las condiciones congeladas al ingreso (snapshot):
+// cada intervalo no cubierto por separado, con la tarifa vigente del
+// estacionamiento y sus franjas horarias y topes (P8a, 2026-10-18). Sin tiempo
+// cobrable no se requiere tarifa ni cobro. Cupones no aplican.
+export async function quoteReleasedParkingStay(db, stay, releasedSnapshot, options = {}) {
+  const now = options.now instanceof Date ? options.now : new Date();
+  const coverage = releasedStayCoverage(releasedSnapshot, stay.entry_at, now);
+  const elapsedMinutes = Math.floor(coverage.elapsedSeconds / 60);
+  const released = {
+    elapsedSeconds: coverage.elapsedSeconds,
+    coveredSeconds: coverage.coveredSeconds,
+    chargeableSeconds: coverage.chargeableSeconds,
+    coveredMinutes: Math.floor(coverage.coveredSeconds / 60),
+    chargeableMinutes: Math.floor(coverage.chargeableSeconds / 60),
+  };
+  if (!coverage.uncovered.length) {
+    return { blocked: false, net: 0, tax: 0, total: 0, taxRate: 0.19, subtotal: 0, discount: 0, elapsedSeconds: coverage.elapsedSeconds, elapsedMinutes, rate: null, charge: null, coupon: null, breakdown: null, released: { ...released, intervals: [] } };
+  }
+  const rate = await getActiveRate(db, stay.parking_id, now);
+  if (!rate) return { blocked: true, reason: "ACTIVE_RATE_NOT_FOUND", elapsedSeconds: coverage.elapsedSeconds, elapsedMinutes, released };
+  let holidays = [];
+  if (rate.timeBandsEnabled) {
+    const { data: parking } = await db.from("parkings").select("company_id").eq("id", stay.parking_id).maybeSingle();
+    if (!parking) throw new Error("PARKING_NOT_FOUND");
+    holidays = await listHolidayDatesForStay(db, parking.company_id, stay.entry_at, now);
+  }
+  const charge = quoteUncoveredIntervals({ rate, intervals: coverage.uncovered, holidays });
+  if (!charge.valid) {
+    return { blocked: true, reason: charge.reason, elapsedSeconds: coverage.elapsedSeconds, elapsedMinutes, rate, charge, released };
+  }
+  const subtotal = charge.amount;
+  return {
+    blocked: false,
+    ...splitChileTaxFromTotal(subtotal),
+    subtotal,
+    discount: 0,
+    elapsedSeconds: coverage.elapsedSeconds,
+    elapsedMinutes,
+    rate,
+    charge: { valid: true, amount: subtotal, chargeableSeconds: charge.chargedSeconds, chargedMinutes: Math.floor(charge.chargedSeconds / 60) },
+    coupon: null,
+    // Desglose firmado en la cotización POS (V2): intervalos no cubiertos.
+    breakdown: { version: 1, kind: "RELEASED_PAYMENT", rateId: rate.id, coveredMinutes: released.coveredMinutes, chargeableMinutes: released.chargeableMinutes, amount: subtotal, intervals: charge.intervals },
+    released: { ...released, intervals: charge.intervals },
+  };
+}
+
+// Snapshot de Pago liberado de una estadía (null si no es liberada).
+export async function loadReleasedStaySnapshot(db, stayId) {
+  const { data, error } = await db.from("parking_stays").select("released_payment_authorization_id,released_payment_snapshot").eq("id", stayId).maybeSingle();
+  if (error) throw error;
+  return data?.released_payment_authorization_id ? data.released_payment_snapshot : null;
+}
+
+// Snapshots de las estadías liberadas abiertas de un estacionamiento
+// (id -> snapshot).
+export async function loadOpenReleasedSnapshots(db, parkingId) {
+  const { data, error } = await db.from("parking_stays").select("id,released_payment_snapshot").eq("parking_id", parkingId).eq("status", "OPEN").not("released_payment_authorization_id", "is", null);
+  if (error) throw error;
+  return new Map((data || []).map((row) => [row.id, row.released_payment_snapshot]));
+}
+
 function resolveBillableMinutes(quote) {
   if (!quote || quote.blocked) return null;
 
@@ -234,6 +299,8 @@ export function toPagueAquiQuote({ stay, parkingName, quote, calculatedAt = new 
     status: payable ? "QUOTE_READY" : "QUOTE_BLOCKED",
     payable,
     blockedReason: payable ? null : mapBlockedReason(quote?.reason),
+    // Pago liberado: minutos cubiertos y cobrables (solo estadías liberadas).
+    released: quote?.released ? { coveredMinutes: quote.released.coveredMinutes, chargeableMinutes: quote.released.chargeableMinutes } : null,
   };
 }
 
@@ -260,7 +327,15 @@ export async function quoteParkingStayById(db, stayId, options = {}) {
     .maybeSingle();
 
   const calculatedAt = options.now instanceof Date ? options.now : new Date();
-  const quote = await quoteParkingStay(db, stay, { ...options, now: calculatedAt });
+  const releasedSnapshot = await loadReleasedStaySnapshot(db, stay.id);
+  let quote = releasedSnapshot
+    ? await quoteReleasedParkingStay(db, stay, releasedSnapshot, { now: calculatedAt })
+    : await quoteParkingStay(db, stay, { ...options, now: calculatedAt });
+  // Patente liberada sin tiempo cobrable: no hay nada que pagar; la salida
+  // se registra en el POS sin cobro.
+  if (releasedSnapshot && !quote.blocked && quote.total === 0) {
+    quote = { blocked: true, reason: "RELEASED_NO_CHARGE", elapsedSeconds: quote.elapsedSeconds, elapsedMinutes: quote.elapsedMinutes, released: quote.released };
+  }
   const publicQuote = toPagueAquiQuote({
     stay,
     parkingName: parking?.name || "Estacionamiento",

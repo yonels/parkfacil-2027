@@ -5,7 +5,10 @@ import { buildDebtNoticeForPlate, getPendingUnpaidStay, listPendingUnpaidStaysFo
 import { getDebtNoticeEnabled } from "@/lib/offStreet/debtNoticeSettingsRepository";
 import { NextResponse } from "next/server";
 import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
-import { buildPosQuoteSnapshot, quoteParkingStay, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
+import { buildPosQuoteSnapshot, loadReleasedStaySnapshot, quoteParkingStay, quoteReleasedParkingStay, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
+import { describeAuthorization } from "@/lib/releasedPayment/authorizationCore.mjs";
+import { ENTRY_DECISION, evaluateReleasedEntry } from "@/lib/releasedPayment/releasedStayCore.mjs";
+import { loadModuleStates, loadPlateAuthorizations, rpcErrorCode, storageMissing } from "@/lib/releasedPayment/releasedPaymentServer";
 import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, requireOperationalParking, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { isRequestedParkingConsistent, POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
@@ -137,6 +140,46 @@ async function findOpenStay(db, input, assignedParkingId) {
   return data;
 }
 
+// Off Street — Pago liberado (Etapa 2): decisión de ingreso con beneficio
+// para una patente en el estacionamiento del operador. El operador solo
+// aplica la regla: no edita autorizaciones ni precios. Sin la migración del
+// módulo, ninguna patente es liberada (el flujo normal no cambia).
+async function releasedEntryDecision(db, parkingId, plate, now = new Date()) {
+  try {
+    const authorizations = await loadPlateAuthorizations(db, parkingId, plate);
+    if (!authorizations.length) return { decision: ENTRY_DECISION.NOT_AUTHORIZED };
+    const state = (await loadModuleStates(db, [parkingId], now)).get(parkingId);
+    return { ...evaluateReleasedEntry({ module: state?.module, contract: state?.contract, authorizations, openReleasedStays: state?.openReleasedStays || 0, now }), contract: state?.contract || null };
+  } catch (error) {
+    if (storageMissing(error) || ["42703", "PGRST204"].includes(error?.code)) return { decision: ENTRY_DECISION.NOT_AUTHORIZED };
+    throw error;
+  }
+}
+
+function releasedCheckPayload(plate, result) {
+  const eligible = result.decision === ENTRY_DECISION.ELIGIBLE;
+  return {
+    plate,
+    decision: result.decision,
+    released: eligible,
+    photoRequired: eligible,
+    message: eligible ? "PATENTE LIBERADA: foto obligatoria; ocupa un cupo liberado." : result.message || null,
+    spots: result.spots || null,
+    authorization: eligible ? { description: describeAuthorization(result.authorization), beneficiaryName: result.authorization.beneficiaryName || "" } : null,
+  };
+}
+
+const RELEASED_ENTRY_ERRORS = {
+  RELEASED_PAYMENT_NO_SPOTS: "Sin cupos liberados disponibles. Vuelve a validar la patente.",
+  RELEASED_PAYMENT_STAY_DUPLICATE: "Este vehículo ya tiene una estadía abierta.",
+  RELEASED_PAYMENT_MODULE_DISABLED: "Módulo desactivado: vuelve a validar la patente.",
+  RELEASED_PAYMENT_CONTRACT_CHANGED: "La contratación cambió: vuelve a validar la patente.",
+  RELEASED_PAYMENT_CONTRACT_NOT_CURRENT: "La contratación no está vigente: vuelve a validar la patente.",
+  RELEASED_PAYMENT_AUTHORIZATION_INVALID: "La autorización cambió: vuelve a validar la patente.",
+  RELEASED_PAYMENT_AUTHORIZATION_NOT_CURRENT: "La autorización no aplica hoy: vuelve a validar la patente.",
+  RELEASED_PAYMENT_AUTHORIZATION_UNPAID: "La autorización tiene el pago pendiente: vuelve a validar la patente.",
+};
+
 async function requireOpenPosShift(db, actor) {
   const { data, error } = await db.from("operator_shifts").select("id,operator_id,parking_id,status")
     .eq("operator_id", actor.id).eq("parking_id", actor.parkingId).eq("status", "OPEN").limit(1).maybeSingle();
@@ -225,8 +268,14 @@ export async function POST(request) {
   const current = await context(request); if (current.response) return current.response;
   const isPosRequest = String(request.headers.get("x-parkfacil-portal") || "").toLowerCase() === "terminal";
   const posShift = isPosRequest ? await requireOpenPosShift(current.db, current.actor) : null;
-  if (isPosRequest && !posShift && (input.action === "ENTRY" || input.action === "EXIT")) {
+  if (isPosRequest && !posShift && ["ENTRY", "EXIT", "RELEASED_EXIT"].includes(input.action)) {
     return fail("Debes iniciar un turno antes de realizar esta operación en el POS.", 409, { code: "OPEN_SHIFT_REQUIRED" });
+  }
+  if (input.action === "RELEASED_CHECK") {
+    const plate = formatChileanPlate(input.plate || joinChileanPlate(input.platePrefix, input.plateSuffix));
+    if (!plate) return fail("Ingresa una patente válida.", 400, { plate: "Formato requerido: CXPY93", code: "INVALID_PLATE" });
+    const result = await releasedEntryDecision(current.db, current.actor.parkingId, plate);
+    return NextResponse.json({ data: releasedCheckPayload(plate, result) });
   }
   if (input.action === "ENTRY") {
     const plate = formatChileanPlate(input.plate || joinChileanPlate(input.platePrefix, input.plateSuffix));
@@ -240,7 +289,15 @@ export async function POST(request) {
     // todavía no existe en este ambiente (migración pendiente), se asume
     // DISABLED -- el ENTRY nunca debe romperse por esto (§12: compatibilidad
     // 100% cuando la función está desactivada).
-    const platePhotoSettings = await getPlatePhotoSettings(current.db, assignedParkingId).catch(() => ({ plateMode: "DISABLED", printOnTicket: false, gpsMode: "DISABLED" }));
+    const basePlatePhotoSettings = await getPlatePhotoSettings(current.db, assignedParkingId).catch(() => ({ plateMode: "DISABLED", printOnTicket: false, gpsMode: "DISABLED" }));
+    // Pago liberado: una patente liberada exige foto nueva en cada ingreso,
+    // aunque el estacionamiento tenga la foto desactivada u opcional.
+    const releasedEntry = await releasedEntryDecision(current.db, assignedParkingId, plate);
+    const releasedEligible = releasedEntry.decision === ENTRY_DECISION.ELIGIBLE;
+    if (input.expectReleased === true && !releasedEligible) {
+      return fail(releasedEntry.message || "La patente ya no califica como liberada. Vuelve a validarla.", 409, { code: "RELEASED_PAYMENT_CHANGED", releasedPayment: releasedCheckPayload(plate, releasedEntry) });
+    }
+    const platePhotoSettings = releasedEligible ? { ...basePlatePhotoSettings, plateMode: "REQUIRED" } : basePlatePhotoSettings;
     const decodedPhoto = decodePlatePhotoInput(input);
     if (decodedPhoto?.error) return fail("La fotografía enviada no es válida.", 400, { code: decodedPhoto.error });
     if (!canCompleteEntry(platePhotoSettings.plateMode, Boolean(decodedPhoto))) {
@@ -300,9 +357,34 @@ export async function POST(request) {
     }
 
     const row = { code: code("ING"), parking_id: assignedParkingId, license_plate: plate, entry_operator_id: current.actor.id, entry_operator_name: current.actor.name, entry_source: isPosRequest ? "POS" : "WEB", entry_shift_id: isPosRequest ? posShift.id : null };
-    const { data, error } = await current.db.from("parking_stays").insert(row).select(publicStayFields).single();
+    let data;
+    let error;
+    if (releasedEligible) {
+      // Pago, vigencia, cupo, módulo y duplicados se re-verifican en la base
+      // con bloqueo por estacionamiento (dos ingresos simultáneos nunca
+      // superan los cupos del cliente).
+      const registered = await current.db.rpc("released_payment_register_entry", {
+        p_parking_id: assignedParkingId,
+        p_authorization_id: releasedEntry.authorization.id,
+        p_contract_id: releasedEntry.contract.id,
+        p_snapshot: releasedEntry.snapshot,
+        p_stay: row,
+      });
+      error = registered.error;
+      if (!error) {
+        const reloaded = await current.db.from("parking_stays").select(publicStayFields).eq("id", registered.data.id).single();
+        data = reloaded.data;
+        error = reloaded.error;
+      }
+    } else {
+      ({ data, error } = await current.db.from("parking_stays").insert(row).select(publicStayFields).single());
+    }
     if (error) {
       if (uploadedPhoto) await removeOrphanedPlatePhoto(current.db, uploadedPhoto.storagePath);
+      const releasedCode = releasedEligible ? rpcErrorCode(error) : null;
+      if (releasedCode && RELEASED_ENTRY_ERRORS[releasedCode]) {
+        return fail(RELEASED_ENTRY_ERRORS[releasedCode], 409, { code: releasedCode === "RELEASED_PAYMENT_STAY_DUPLICATE" ? "VEHICLE_ALREADY_INSIDE" : "RELEASED_PAYMENT_CHANGED", releasedCode });
+      }
       if (error.code === "23505") return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409, { code: "VEHICLE_ALREADY_INSIDE" });
       return fail("No fue posible guardar el ingreso.", 503);
     }
@@ -345,6 +427,9 @@ export async function POST(request) {
         parking,
         debtNotice,
         platePhoto: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket, hasPhoto: photoLinked, linkFailed: photoLinkFailed },
+        releasedPayment: releasedEligible
+          ? { applied: true, label: "PAGO LIBERADO", authorization: releasedCheckPayload(plate, releasedEntry).authorization, spots: { used: (releasedEntry.spots?.used || 0) + 1, total: releasedEntry.spots?.total || null } }
+          : releasedEntry.decision !== ENTRY_DECISION.NOT_AUTHORIZED ? { applied: false, message: releasedEntry.message || null } : null,
       },
     }, { status: 201 });
   }
@@ -352,7 +437,9 @@ export async function POST(request) {
     const stay = await findOpenStay(current.db, input, current.actor.parkingId);
     if (!stay) return fail("No existe una estadía abierta para el vehículo.", 404);
     const now = new Date();
-    let quote; try { quote = await quoteParkingStay(current.db, stay, { couponToken: input.couponToken, now }); } catch (error) {
+    const releasedSnapshot = await loadReleasedStaySnapshot(current.db, stay.id);
+    if (releasedSnapshot && input.couponToken) return fail("Los cupones no aplican a patentes liberadas.", 409, { code: "RELEASED_PAYMENT_NO_COUPON" });
+    let quote; try { quote = releasedSnapshot ? await quoteReleasedParkingStay(current.db, stay, releasedSnapshot, { now }) : await quoteParkingStay(current.db, stay, { couponToken: input.couponToken, now }); } catch (error) {
       const messages = { PARKING_NOT_FOUND: "El estacionamiento no existe.", COUPON_NOT_FOUND: "El cupón no existe.", COUPON_ALREADY_USED: "El cupón ya fue utilizado.", COUPON_WRONG_COMPANY: "El cupón no corresponde a este estacionamiento.", COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.", COUPON_EXPIRED: "El cupón está vencido." };
       return fail(messages[error.message] || "No fue posible calcular la tarifa.", 409);
     }
@@ -363,6 +450,12 @@ export async function POST(request) {
     if (quote.blocked) {
       if (input.action === "EXIT") return fail("No existe una tarifa activa. No es posible calcular el cobro. Contacte al administrador.", 409);
       return NextResponse.json({ data: { stay, parking, quote } });
+    }
+    // Patente liberada sin tiempo cobrable: no hay cobro; la salida se
+    // registra con RELEASED_EXIT (libera el cupo).
+    if (releasedSnapshot && quote.total === 0) {
+      if (input.action === "EXIT") return fail("Patente liberada sin excedente: registra la salida sin cobro.", 409, { code: "RELEASED_EXIT_REQUIRED" });
+      return NextResponse.json({ data: { stay, parking, quote: { ...quote, releasedExit: true } } });
     }
     if (input.action === "QUOTE") {
       const quoteWithSnapshot = isPosRequest && !quote.blocked
@@ -444,6 +537,11 @@ export async function POST(request) {
     }
     const update = { status: "PAID", exit_at: exitAt, exit_operator_id: current.actor.id, exit_operator_name: current.actor.name, payment_shift_id: isPosRequest ? posShift.id : null, elapsed_minutes: confirmedQuote.elapsedMinutes, rate_id: confirmedQuote.rate.id, rate_name: confirmedQuote.rate.name, billing_mode: confirmedQuote.rate.billingMode, subtotal_amount: confirmedQuote.subtotal, discount_amount: confirmedQuote.discount, coupon_id: confirmedQuote.coupon?.id || null, coupon_code: confirmedQuote.coupon?.code || null, net_amount: confirmedQuote.net, tax_amount: confirmedQuote.tax, total_amount: confirmedQuote.total, payment_method: input.paymentMethod, payment_code: paymentCode, updated_at: exitAt };
     if (paymentCardType) update.payment_card_type = paymentCardType;
+    // Pago liberado: tiempo cubierto y cobrado (el monto viene firmado).
+    if (releasedSnapshot && quote.released) {
+      update.released_covered_seconds = quote.released.coveredSeconds;
+      update.released_chargeable_seconds = quote.released.chargeableSeconds;
+    }
     // Desglose por franja: solo el que viene firmado (cotización V2).
     if (quoteSnapshot.version === "POS_STAY_QUOTE_V2" && quoteSnapshot.chargeBreakdown) update.charge_breakdown = quoteSnapshot.chargeBreakdown;
     if (cardPaymentReference) {
@@ -460,6 +558,33 @@ export async function POST(request) {
     }
     return NextResponse.json({ data: { stay: { ...data, payment_card_type: paymentCardType }, parking, quote: { ...confirmedQuote, paymentCode } } });
   }
+  // Pago liberado: salida sin cobro (todo el tiempo cubierto). Libera el cupo.
+  if (input.action === "RELEASED_EXIT") {
+    const stay = await findOpenStay(current.db, input, current.actor.parkingId);
+    if (!stay) return fail("No existe una estadía abierta para el vehículo.", 404);
+    const now = new Date();
+    const releasedSnapshot = await loadReleasedStaySnapshot(current.db, stay.id);
+    if (!releasedSnapshot) return fail("La estadía no corresponde a una patente liberada.", 409, { code: "NOT_RELEASED_STAY" });
+    const quote = await quoteReleasedParkingStay(current.db, stay, releasedSnapshot, { now });
+    if (quote.blocked || quote.total > 0) {
+      return fail("La estadía tiene tiempo fuera de la autorización: corresponde cobrar el excedente con la tarifa del estacionamiento.", 409, { code: "RELEASED_EXCESS_DUE" });
+    }
+    const exitAt = now.toISOString(); const paymentCode = code("LIB");
+    const update = {
+      status: "PAID", exit_at: exitAt, exit_operator_id: current.actor.id, exit_operator_name: current.actor.name,
+      payment_shift_id: isPosRequest ? posShift.id : null, elapsed_minutes: quote.elapsedMinutes,
+      subtotal_amount: 0, discount_amount: 0, net_amount: 0, tax_amount: 0, total_amount: 0, payment_method: null,
+      payment_code: paymentCode, released_covered_seconds: quote.released.coveredSeconds, released_chargeable_seconds: 0, updated_at: exitAt,
+    };
+    const { data, error } = await current.db.from("parking_stays").update(update).eq("id", stay.id).eq("status", "OPEN").select(publicStayFields).single();
+    if (error) {
+      const shiftConflict = String(error.message || "").includes("PAYMENT_SHIFT_NOT_OPEN");
+      return fail(shiftConflict ? "El turno dejó de estar abierto antes de registrar la salida. Actualiza el POS." : "No fue posible registrar la salida.", shiftConflict ? 409 : 503);
+    }
+    const { data: parking } = await current.db.from("parkings").select(ticketParkingFields).eq("id", stay.parking_id).single();
+    return NextResponse.json({ data: { stay: data, parking, quote: { ...quote, paymentCode, releasedExit: true } } });
+  }
+
   if (input.action === "UNPAID_EXIT") {
     // "Se retiró sin pagar" (D8, D12, D15): solo desde el POS con turno abierto.
     // El cupo se libera y el contador sigue hasta el cierre del turno.

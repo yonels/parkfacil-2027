@@ -110,7 +110,7 @@ test("la validación server-side requireOpenPosShift sigue intacta y rechaza ENT
   assert.match(dataEntryRouteSource, /requireOpenPosShift\(current\.db, current\.actor\)/);
   assert.match(
     dataEntryRouteSource,
-    /if \(isPosRequest && !posShift && \(input\.action === "ENTRY" \|\| input\.action === "EXIT"\)\) \{\s*\n\s*return fail\("Debes iniciar un turno antes de realizar esta operación en el POS\.", 409, \{ code: "OPEN_SHIFT_REQUIRED" \}\);/,
+    /if \(isPosRequest && !posShift && \["ENTRY", "EXIT", "RELEASED_EXIT"\]\.includes\(input\.action\)\) \{\s*\n\s*return fail\("Debes iniciar un turno antes de realizar esta operación en el POS\.", 409, \{ code: "OPEN_SHIFT_REQUIRED" \}\);/,
   );
 });
 

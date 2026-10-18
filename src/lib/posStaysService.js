@@ -1,5 +1,5 @@
 import { readCardTypedQuery } from "./paymentCardType.mjs";
-import { quoteParkingStay, quoteParkingStayById } from "./parkingStayQuoteService.js";
+import { loadOpenReleasedSnapshots, quoteParkingStay, quoteParkingStayById, quoteReleasedParkingStay } from "./parkingStayQuoteService.js";
 import { filterPaidStaysForOperationalDay, summarizeDailyPayments, toDailyPaymentRow } from "./pos/paymentsDayCore.mjs";
 import {
   addDaysToIsoDate,
@@ -52,11 +52,18 @@ export async function listOpenPosStays(db, parkingId, options = {}) {
   if (!parking) return { parking: null, serverNow: toIsoTimestamp(now), stays: [] };
 
   const stays = await loadOpenStays(db, parkingId);
-  const listedStays = await Promise.all(stays.map(async (stay) => ({
-    ...stay,
-    serverNow: toIsoTimestamp(now),
-    quote: await quoteFn(db, stay, { now }),
-  })));
+  // Pago liberado: las patentes liberadas se cotizan con las condiciones
+  // congeladas al ingreso (solo el tiempo no cubierto).
+  const releasedSnapshots = options.quoteFn ? new Map() : await loadOpenReleasedSnapshots(db, parkingId);
+  const listedStays = await Promise.all(stays.map(async (stay) => {
+    const releasedSnapshot = releasedSnapshots.get(stay.id) || null;
+    return {
+      ...stay,
+      serverNow: toIsoTimestamp(now),
+      releasedPayment: Boolean(releasedSnapshot),
+      quote: releasedSnapshot ? await quoteReleasedParkingStay(db, stay, releasedSnapshot, { now }) : await quoteFn(db, stay, { now }),
+    };
+  }));
 
   return { parking, serverNow: toIsoTimestamp(now), stays: listedStays };
 }

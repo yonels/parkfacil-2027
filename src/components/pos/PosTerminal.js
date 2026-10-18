@@ -680,12 +680,21 @@ function formatCurrency(value) {
 // en cada lugar que lee la cotización.
 function normalizeQuoteView(quote) {
   if (!quote) return null;
+  // Pago liberado: minutos liberados/cobrables y salida sin cobro (total 0).
+  const released = quote.released
+    ? {
+      coveredMinutes: Number(quote.released.coveredMinutes ?? Math.floor(Number(quote.released.coveredSeconds || 0) / 60)),
+      chargeableMinutes: Number(quote.released.chargeableMinutes ?? Math.floor(Number(quote.released.chargeableSeconds || 0) / 60)),
+    }
+    : null;
   if ("payable" in quote || "amount" in quote) {
     return {
       payable: Boolean(quote.payable),
       total: Number.isFinite(Number(quote.amount)) ? Number(quote.amount) : null,
       rateName: quote.rateName || null,
       elapsedMinutes: Number.isFinite(Number(quote.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
+      released,
+      releasedNoCharge: quote.blockedReason === "RELEASED_NO_CHARGE",
     };
   }
   return {
@@ -693,6 +702,8 @@ function normalizeQuoteView(quote) {
     total: Number.isFinite(Number(quote.total)) ? Number(quote.total) : null,
     rateName: quote.rate?.name || null,
     elapsedMinutes: Number.isFinite(Number(quote.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
+    released,
+    releasedNoCharge: Boolean(released) && !quote.blocked && Number(quote.total) === 0,
   };
 }
 
@@ -879,6 +890,12 @@ export default function PosTerminal() {
   // solicita ubicación por esta funcionalidad si viene DISABLED.
   const [platePhotoGpsMode, setPlatePhotoGpsMode] = useState("DISABLED");
   const [entryPhoto, setEntryPhoto] = useState(null);
+  // Pago liberado: resultado de RELEASED_CHECK para la patente confirmada.
+  // Una patente liberada exige foto nueva aunque el estacionamiento tenga la
+  // foto desactivada u opcional. CONFIRMAR pasa el resultado recién
+  // obtenido a submitEntry para no depender de un estado aún sin actualizar.
+  const [entryReleased, setEntryReleased] = useState(null);
+  const [releasedExitBusy, setReleasedExitBusy] = useState(false);
   const [photoCaptureOpen, setPhotoCaptureOpen] = useState(false);
   const [entryPhotoForPrint, setEntryPhotoForPrint] = useState(null);
   const [receiptPrintPayload, setReceiptPrintPayload] = useState(null);
@@ -1232,7 +1249,12 @@ export default function PosTerminal() {
 
   // Fase 2: estado de la captura V2 limpio (se usa al abrir y al cerrar el
   // formulario). Libera los object URLs de las imágenes temporales.
+  function setEntryReleasedState(value) {
+    setEntryReleased(value);
+  }
+
   function resetEntryCapture() {
+    setEntryReleasedState(null);
     voiceController?.cancel();
     setVoiceController(null);
     if (ocrPhoto?.previewUrl) URL.revokeObjectURL(ocrPhoto.previewUrl);
@@ -1301,6 +1323,7 @@ export default function PosTerminal() {
   // Toda patente propuesta (manual, OCR o voz) pasa SIEMPRE por la
   // confirmación explícita del operador. Nunca registra.
   function proposeEntryPlate(plate, source, notice = "") {
+    setEntryReleasedState(null);
     setEntryConfirmedPlate("");
     setEntryPlate(formatPosPlateInput(plate));
     setEntryPlateSource(source);
@@ -1323,6 +1346,7 @@ export default function PosTerminal() {
   // CORREGIR: vuelve al campo con la patente propuesta para editarla; nada
   // se registra. Desde aquí la patente pasa a ser manual.
   function correctEntryPlate() {
+    setEntryReleasedState(null);
     setEntryConfirmedPlate("");
     setEntryPlateSource(PLATE_SOURCES.MANUAL);
     setEntryProposalNotice("");
@@ -1332,7 +1356,27 @@ export default function PosTerminal() {
 
   // CONFIRMAR: fija la patente confirmada. Con foto DISABLED registra de
   // inmediato; si no, pasa al paso de fotografía (REQUIRED u OPTIONAL).
-  function confirmEntryPlate() {
+  async function checkReleasedPlate(plate) {
+    try {
+      const response = await fetch("/api/data-entry", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-parkfacil-portal": "terminal" },
+        cache: "no-store",
+        body: JSON.stringify({ action: "RELEASED_CHECK", plate }),
+      });
+      if (response.status === 401) {
+        redirectToPosLogin("sesion-expirada");
+        return null;
+      }
+      const payload = await response.json().catch(() => ({}));
+      return response.ok ? payload?.data || null : null;
+    } catch {
+      // Sin respuesta: el servidor vuelve a evaluar la patente al registrar.
+      return null;
+    }
+  }
+
+  async function confirmEntryPlate() {
     if (entrySubmitting || entrySubmitLockRef.current) return;
     const formatted = formatPosPlateInput(entryPlate);
     if (!POS_PLATE_REGEX.test(formatted)) {
@@ -1341,16 +1385,34 @@ export default function PosTerminal() {
       return;
     }
     const confirmedPlate = toBackendPlate(formatted);
-    setEntryConfirmedPlate(confirmedPlate);
     clearEntryFailure();
+    // Pago liberado: la patente se valida al confirmar. Si tiene
+    // autorización pero el beneficio no aplica (módulo desactivado, sin
+    // vigencia o sin cupo), el operador lo ve y confirma de nuevo para
+    // ingresar con cobro normal.
+    const previous = entryReleased;
+    let released = previous?.plate === confirmedPlate ? previous : null;
+    if (!released) {
+      entrySubmitLockRef.current = true;
+      setEntrySubmitting(true);
+      released = await checkReleasedPlate(confirmedPlate);
+      entrySubmitLockRef.current = false;
+      setEntrySubmitting(false);
+      setEntryReleasedState(released ? { ...released, plate: confirmedPlate, acknowledged: false } : null);
+      if (released && !released.released && released.decision !== "NOT_AUTHORIZED") return;
+    } else if (!released.released && released.decision !== "NOT_AUTHORIZED" && !released.acknowledged) {
+      setEntryReleasedState({ ...released, acknowledged: true });
+    }
+    setEntryConfirmedPlate(confirmedPlate);
+    const photoMode = released?.released ? "REQUIRED" : platePhotoMode;
     // Foto ya tomada en el paso Patente ("Tomar foto"): registra directo, sin
     // volver a pedirla.
-    if (entryPhoto && platePhotoMode !== "DISABLED") {
-      void submitEntry(null, confirmedPlate);
+    if (entryPhoto && photoMode !== "DISABLED") {
+      void submitEntry(null, confirmedPlate, released);
       return;
     }
-    if (platePhotoMode === "DISABLED") {
-      void submitEntry(null, confirmedPlate);
+    if (photoMode === "DISABLED") {
+      void submitEntry(null, confirmedPlate, released);
       return;
     }
     setEntryStep("PHOTO");
@@ -1687,6 +1749,43 @@ export default function PosTerminal() {
       setPaymentMessage(`${reasonPrefix} Nuevo total: ${formatCurrency(refreshedAmount)}. Confirma nuevamente para cobrar.`);
     } else {
       setPaymentMessage("La cotización venció y no se pudo actualizar automáticamente. Vuelve a abrir el detalle del vehículo.");
+    }
+  }
+
+  // Pago liberado: salida sin excedente ($0). El servidor recalcula con las
+  // condiciones congeladas al ingreso; si hubiera excedente, lo rechaza y el
+  // operador cobra con PAGAR.
+  async function registerReleasedExit() {
+    const stay = selectedVehicle?.stay;
+    if (!stay?.id || releasedExitBusy) return;
+    setReleasedExitBusy(true);
+    setSelectedVehicleError("");
+    try {
+      const response = await fetch("/api/data-entry", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-parkfacil-portal": "terminal" },
+        cache: "no-store",
+        body: JSON.stringify({ action: "RELEASED_EXIT", stayId: stay.id }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        redirectToPosLogin("sesion-expirada");
+        return;
+      }
+      if (!response.ok) {
+        setSelectedVehicleError(payload?.error || "No fue posible registrar la salida.");
+        if (payload?.details?.code === "RELEASED_EXCESS_DUE") void openVehicleDetail(stay);
+        return;
+      }
+      setSelectedVehicle(null);
+      setVehiclesInside((current) => Math.max(0, current - 1));
+      setCurrentView(POS_VIEWS.HOME);
+      void loadTerminalState(true);
+      void loadPaymentsToday();
+    } catch {
+      setSelectedVehicleError("Error de red al registrar la salida.");
+    } finally {
+      setReleasedExitBusy(false);
     }
   }
 
@@ -2261,7 +2360,7 @@ export default function PosTerminal() {
     }
   }
 
-  async function submitEntry(event, confirmedPlateOverride = null) {
+  async function submitEntry(event, confirmedPlateOverride = null, releasedOverride = undefined) {
     event?.preventDefault?.();
     // Fase 2: doble toque / respuesta lenta -> nunca un segundo POST.
     if (entrySubmitLockRef.current) return;
@@ -2282,9 +2381,12 @@ export default function PosTerminal() {
     }
     // Gate de UX (regla real la vuelve a exigir /api/data-entry): en modo
     // REQUIRED no se ni siquiera intenta enviar sin fotografía ya capturada.
-    if (platePhotoMode === "REQUIRED" && !entryPhoto) {
+    const releasedForEntry = releasedOverride !== undefined ? releasedOverride : entryReleased?.plate === confirmedPlate ? entryReleased : null;
+    const effectivePhotoMode = releasedForEntry?.released ? "REQUIRED" : platePhotoMode;
+    if (effectivePhotoMode === "REQUIRED" && !entryPhoto) {
       setEntryErrorCode("PLATE_PHOTO_REQUIRED");
-      setEntryError(entryPhotoRequirementMessage(platePhotoMode));
+      setEntryError(releasedForEntry?.released ? "Patente liberada: la foto de la patente es obligatoria en cada ingreso." : entryPhotoRequirementMessage(platePhotoMode));
+      setEntryStep("PHOTO");
       return;
     }
 
@@ -2309,6 +2411,7 @@ export default function PosTerminal() {
           plate,
           source: "POS",
           deviceInfo,
+          expectReleased: Boolean(releasedForEntry?.released),
           ...(entryPhoto
             ? {
                 platePhotoBase64: entryPhoto.base64,
@@ -2332,6 +2435,17 @@ export default function PosTerminal() {
         }
         // Fase 2: cada rechazo con su mensaje y acción (un 409 de vehículo
         // ya ingresado nunca se muestra como error genérico).
+        if (payload?.details?.code === "RELEASED_PAYMENT_CHANGED") {
+          // La condición cambió entre la validación y el registro (cupo,
+          // vigencia, módulo): se muestra el nuevo estado y se vuelve a
+          // confirmar.
+          const fresh = payload?.details?.releasedPayment || null;
+          setEntryReleasedState(fresh ? { ...fresh, plate, acknowledged: false } : null);
+          setEntryStep("CONFIRM");
+          setEntryErrorCode("RELEASED_PAYMENT_CHANGED");
+          setEntryError(payload?.error || "La patente cambió de condición. Vuelve a confirmar.");
+          return;
+        }
         const failureCode = classifyEntryFailure(response.status, payload);
         setEntryErrorCode(failureCode);
         setEntryError(failureCode === "UNEXPECTED" && payload?.error ? payload.error : entryErrorMessage(failureCode));
@@ -2347,6 +2461,13 @@ export default function PosTerminal() {
       setEntryStep("PLATE");
       setEntrySuccess(stay ? { stay, parking: parkingResponse, debtNotice: payload?.data?.debtNotice || null } : null);
       const printPayload = buildEntryPrintPayload(stay, parkingResponse);
+      // Ticket "PAGO LIBERADO": leyenda para el agente de impresión y el
+      // bridge nativo (cada impresora la muestra si la soporta).
+      if (printPayload && payload?.data?.releasedPayment?.applied) {
+        printPayload.ticketLabel = "PAGO LIBERADO";
+        if (printPayload.agentTicket) printPayload.agentTicket = { ...printPayload.agentTicket, ticketLabel: "PAGO LIBERADO" };
+      }
+      setEntryReleasedState(null);
       setEntryPrintPayload(printPayload);
       // Los bytes de la foto ya están en el cliente (recién comprimidos) --
       // se conservan para poder incluirlos al imprimir/reimprimir el
@@ -2825,6 +2946,21 @@ export default function PosTerminal() {
             </p>
             <p className="mt-2 text-4xl font-black tracking-[0.18em] text-slate-900">{displayPlate}</p>
             <p className="mt-2 text-xs font-bold uppercase tracking-wide text-slate-500">{sourceLabel}</p>
+            {entryReleased?.released ? (
+              <div className="mt-3 rounded-xl border-2 border-emerald-500 bg-emerald-50 px-3 py-2 text-left text-sm font-semibold text-emerald-950" role="status">
+                <p className="text-base font-black uppercase tracking-wide">Patente liberada</p>
+                <p>Foto obligatoria · ocupa un cupo liberado{entryReleased.spots?.total ? ` (${entryReleased.spots.used} de ${entryReleased.spots.total} en uso)` : ""}.</p>
+                {entryReleased.authorization?.beneficiaryName ? <p>Beneficiario: {entryReleased.authorization.beneficiaryName}</p> : null}
+                {entryReleased.authorization?.description ? <p className="text-xs">{entryReleased.authorization.description}</p> : null}
+                <p className="text-xs">Fuera del horario autorizado se cobra la tarifa normal.</p>
+              </div>
+            ) : entryReleased && entryReleased.decision !== "NOT_AUTHORIZED" ? (
+              <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-left text-sm font-semibold text-amber-950" role="alert">
+                <p className="font-black uppercase tracking-wide">Pago liberado no aplica</p>
+                <p>{entryReleased.message}</p>
+                <p className="text-xs">Presiona CONFIRMAR para ingresar con cobro normal.</p>
+              </div>
+            ) : null}
             {entryProposalNotice && entryStep === "CONFIRM" ? (
               <p className={`mt-3 rounded-xl px-3 py-2 text-sm font-semibold ${entryPlateSource !== PLATE_SOURCES.MANUAL && entryProposalNotice === entryErrorMessage("OCR_LOW_CONFIDENCE") ? "bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-700"}`}>
                 {entryProposalNotice}
@@ -2843,11 +2979,11 @@ export default function PosTerminal() {
           </div>
         ) : null}
 
-        {entryStep === "PHOTO" && platePhotoMode !== "DISABLED" ? (
+        {entryStep === "PHOTO" && (platePhotoMode !== "DISABLED" || entryReleased?.released) ? (
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm font-bold text-slate-700">
-                Fotografía de patente {platePhotoMode === "REQUIRED" ? "(obligatoria)" : "(opcional)"}
+                Fotografía de patente {platePhotoMode === "REQUIRED" || entryReleased?.released ? "(obligatoria)" : "(opcional)"}
               </span>
               {entryPhoto ? <span className="text-xs font-black uppercase text-emerald-600">Lista</span> : null}
             </div>
@@ -2935,10 +3071,10 @@ export default function PosTerminal() {
             <>
               <button
                 type="submit"
-                disabled={entrySubmitting || alreadyInside || (platePhotoMode === "REQUIRED" && !entryPhoto)}
+                disabled={entrySubmitting || alreadyInside || ((platePhotoMode === "REQUIRED" || entryReleased?.released) && !entryPhoto)}
                 className="min-h-16 rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {entrySubmitting ? "Registrando..." : entryPhoto || platePhotoMode === "REQUIRED" ? "REGISTRAR INGRESO" : "REGISTRAR SIN FOTO"}
+                {entrySubmitting ? "Registrando..." : entryPhoto || platePhotoMode === "REQUIRED" || entryReleased?.released ? "REGISTRAR INGRESO" : "REGISTRAR SIN FOTO"}
               </button>
               <button
                 type="button"
@@ -3098,7 +3234,7 @@ export default function PosTerminal() {
                     aria-label={`Abrir detalle de ${stay?.license_plate || "vehículo"}`}
                     className="cursor-pointer bg-white transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-inset"
                   >
-                    <td className="px-3 py-3 font-black text-rose-950">{stay?.license_plate || "-"}</td>
+                    <td className="px-3 py-3 font-black text-rose-950">{stay?.license_plate || "-"}{stay?.releasedPayment ? <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-black uppercase text-white">Liberada</span> : null}</td>
                     <td className="px-3 py-3 font-semibold text-rose-900">{entry.time}</td>
                     <td className="px-3 py-3 font-semibold text-rose-900">{formatMinuteCount(stay?.quote)}</td>
                     <td className="px-3 py-3 font-black text-rose-950">{formatQuoteAmount(stay?.quote)}</td>
@@ -3123,6 +3259,7 @@ export default function PosTerminal() {
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">Patente</p>
                     <p className="mt-1 text-xl font-black text-rose-950">{stay?.license_plate || "-"}</p>
+                    {stay?.releasedPayment ? <span className="mt-1 inline-block rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-black uppercase text-white">Liberada</span> : null}
                   </div>
                   <div className="text-right">
                     <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">Monto</p>
@@ -3915,6 +4052,8 @@ export default function PosTerminal() {
     // Mismo desglose Neto/IVA que ya usa el modal de pago (getTaxBreakdown
     // sobre el TOTAL que ya calculó el backend, nunca recalculado aparte).
     const detailBreakdown = hasPayableQuote ? getTaxBreakdown(quoteView.total) : null;
+    const releasedView = quoteView?.released || null;
+    const releasedNoCharge = Boolean(quoteView?.releasedNoCharge);
 
     return (
       <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-950 shadow-sm">
@@ -3936,9 +4075,16 @@ export default function PosTerminal() {
             <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">Tiempo consumido</p>
             <p className="mt-1 font-bold text-rose-900">{formatMinuteCount(quote)} minutos</p>
           </div>
+          {releasedView ? (
+            <div className="rounded-2xl border-2 border-emerald-500 bg-emerald-50 p-3 text-sm font-semibold text-emerald-950">
+              <p className="text-base font-black uppercase tracking-wide">Patente liberada</p>
+              <p>Tiempo liberado: {releasedView.coveredMinutes} min · fuera de la autorización: {releasedView.chargeableMinutes} min.</p>
+              <p className="text-xs">{releasedNoCharge ? "Sin excedente: la salida no tiene cobro y libera el cupo." : "Se cobra solo el tiempo fuera de la autorización, con la tarifa del estacionamiento."}</p>
+            </div>
+          ) : null}
           <div>
             <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">Tarifa aplicada</p>
-            <p className="mt-1 font-bold text-rose-900">{tariffName}</p>
+            <p className="mt-1 font-bold text-rose-900">{releasedNoCharge ? "Pago liberado" : tariffName}</p>
           </div>
           <ChargeBreakdownList breakdown={hasPayableQuote ? quote?.snapshot?.chargeBreakdown : null} />
           <div>
@@ -3959,7 +4105,7 @@ export default function PosTerminal() {
                 </div>
               </div>
             ) : (
-              <p className="mt-1 text-3xl font-black text-rose-950">{amount}</p>
+              <p className="mt-1 text-3xl font-black text-rose-950">{releasedNoCharge ? formatCurrency(0) : amount}</p>
             )}
           </div>
           {selectedVehicleError ? (
@@ -3970,16 +4116,27 @@ export default function PosTerminal() {
         </div>
 
         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <button
-            type="button"
-            onClick={openPaymentModal}
-            disabled={selectedVehicleLoading || !hasPayableQuote}
-            className="rounded-xl bg-rose-900 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
-          >
-            PAGAR
-          </button>
+          {releasedNoCharge ? (
+            <button
+              type="button"
+              onClick={() => void registerReleasedExit()}
+              disabled={selectedVehicleLoading || releasedExitBusy}
+              className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+            >
+              {releasedExitBusy ? "Registrando..." : "REGISTRAR SALIDA SIN COBRO"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={openPaymentModal}
+              disabled={selectedVehicleLoading || !hasPayableQuote}
+              className="rounded-xl bg-rose-900 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+            >
+              PAGAR
+            </button>
+          )}
           <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
-            {hasPayableQuote ? "Preparado para seleccionar medio de pago." : "No existe una tarifa activa para esta estadía."}
+            {releasedNoCharge ? "Patente liberada sin excedente." : hasPayableQuote ? "Preparado para seleccionar medio de pago." : "No existe una tarifa activa para esta estadía."}
           </div>
           <UnpaidExitAction
             stay={stay}
@@ -4708,7 +4865,7 @@ export default function PosTerminal() {
       {photoCaptureOpen ? (
         <PlatePhotoCapture
           plate={formatTicketPlate(entryPlate)}
-          required={platePhotoMode === "REQUIRED"}
+          required={platePhotoMode === "REQUIRED" || Boolean(entryReleased?.released)}
           gpsMode={platePhotoGpsMode}
           onCapture={capturedPlatePhoto}
           onCancel={() => setPhotoCaptureOpen(false)}

@@ -105,18 +105,22 @@ test("11. voz no soportada / sin reconocimiento local -> mensaje y el manual sig
 // ---- 12-14) Foto de patente ----
 
 test("12. foto REQUIRED bloquea el registro sin foto (UI + submitEntry + backend)", () => {
-  assert.match(submitEntry, /if \(platePhotoMode === "REQUIRED" && !entryPhoto\) \{/);
-  assert.match(entryForm, /disabled=\{entrySubmitting \|\| alreadyInside \|\| \(platePhotoMode === "REQUIRED" && !entryPhoto\)\}/);
+  // Pago liberado: una patente liberada también exige foto (modo efectivo REQUIRED).
+  assert.match(submitEntry, /const effectivePhotoMode = releasedForEntry\?\.released \? "REQUIRED" : platePhotoMode;/);
+  assert.match(submitEntry, /if \(effectivePhotoMode === "REQUIRED" && !entryPhoto\) \{/);
+  assert.match(entryForm, /disabled=\{entrySubmitting \|\| alreadyInside \|\| \(\(platePhotoMode === "REQUIRED" \|\| entryReleased\?\.released\) && !entryPhoto\)\}/);
   assert.match(dataEntry, /PLATE_PHOTO_REQUIRED/);
 });
 
 test("13. foto OPTIONAL permite registrar sin foto", () => {
-  assert.match(entryForm, /entryPhoto \|\| platePhotoMode === "REQUIRED" \? "REGISTRAR INGRESO" : "REGISTRAR SIN FOTO"/);
+  assert.match(entryForm, /entryPhoto \|\| platePhotoMode === "REQUIRED" \|\| entryReleased\?\.released \? "REGISTRAR INGRESO" : "REGISTRAR SIN FOTO"/);
 });
 
 test("14. foto DISABLED: CONFIRMAR registra directo, sin paso ni captura de foto", () => {
-  assert.match(confirmEntry, /if \(platePhotoMode === "DISABLED"\) \{\s*void submitEntry\(null, confirmedPlate\);\s*return;\s*\}\s*setEntryStep\("PHOTO"\);/);
-  assert.match(entryForm, /entryStep === "PHOTO" && platePhotoMode !== "DISABLED"/);
+  // Sin patente liberada, el modo efectivo es el del estacionamiento.
+  assert.match(confirmEntry, /const photoMode = released\?\.released \? "REQUIRED" : platePhotoMode;/);
+  assert.match(confirmEntry, /if \(photoMode === "DISABLED"\) \{\s*void submitEntry\(null, confirmedPlate, released\);\s*return;\s*\}\s*setEntryStep\("PHOTO"\);/);
+  assert.match(entryForm, /entryStep === "PHOTO" && \(platePhotoMode !== "DISABLED" \|\| entryReleased\?\.released\)/);
 });
 
 test("OCR y evidencia son imágenes distintas: la lectura solo es evidencia si el operador lo elige", () => {
@@ -137,7 +141,7 @@ test("15/16. 409 de vehículo ya ingresado se muestra como VEHÍCULO YA INGRESAD
   assert.match(dataEntry, /if \(existing\.data\) return fail\("Este vehículo ya se encuentra dentro del estacionamiento\.", 409, \{ code: "VEHICLE_ALREADY_INSIDE" \}\);/);
   assert.match(dataEntry, /if \(error\.code === "23505"\) return fail\("Este vehículo ya se encuentra dentro del estacionamiento\.", 409, \{ code: "VEHICLE_ALREADY_INSIDE" \}\);/);
   // Se conserva el cleanup de la foto huérfana antes de responder el 23505.
-  assert.match(dataEntry, /if \(uploadedPhoto\) await removeOrphanedPlatePhoto\(current\.db, uploadedPhoto\.storagePath\);\s*\n\s*if \(error\.code === "23505"\)/);
+  assert.match(dataEntry, /if \(uploadedPhoto\) await removeOrphanedPlatePhoto\(current\.db, uploadedPhoto\.storagePath\);[\s\S]{0,600}if \(error\.code === "23505"\)/);
 });
 
 test("17. doble toque: guarda síncrona, nunca dos POST de ENTRY", () => {
@@ -203,5 +207,5 @@ test("TOMAR FOTO en el paso Patente (reemplaza 'Leer con cámara'): foto de evid
   assert.match(entryForm, /onClick=\{\(\) => \{ clearEntryFailure\(\); setPhotoCaptureOpen\(true\); \}\}/);
   assert.match(entryForm, /\{entryPhoto \? "Repetir foto" : "Tomar foto"\}/);
   assert.match(entryForm, /\{platePhotoMode !== "DISABLED" \? \(/, "sin foto configurada no se ofrece");
-  assert.match(confirmEntry, /if \(entryPhoto && platePhotoMode !== "DISABLED"\) \{\s*void submitEntry\(null, confirmedPlate\);\s*return;\s*\}/);
+  assert.match(confirmEntry, /if \(entryPhoto && photoMode !== "DISABLED"\) \{\s*void submitEntry\(null, confirmedPlate, released\);\s*return;\s*\}/);
 });

@@ -6,7 +6,7 @@ import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
 import { authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { PERMISSIONS, PRODUCTS, ROLES } from "@/lib/auth/permissions.mjs";
 import { authorizationFromDb } from "./authorizationCore.mjs";
-import { paymentFromDb } from "./paymentCore.mjs";
+import { authorizationPaymentStatus, PAYMENT_STATUS, paymentFromDb } from "./paymentCore.mjs";
 import { tariffFromDb } from "./tariffCore.mjs";
 import { contractFromDb, moduleFromDb, MODULE_STATUS_LABELS, resolveModuleStatus } from "./releasedStayCore.mjs";
 
@@ -68,11 +68,14 @@ export async function listScopedParkings(db, auth) {
   return data || [];
 }
 
-// Estadías liberadas abiertas por estacionamiento. En la Etapa 1 el POS aún
-// no registra ingresos con beneficio (no existen las columnas de estadía
-// liberada): siempre 0. La Etapa 2 la reemplaza por el conteo real.
-export async function countOpenReleasedStays(_db, _parkingIds) {
-  return new Map();
+// Estadías liberadas abiertas por estacionamiento (Etapa 2).
+export async function countOpenReleasedStays(db, parkingIds) {
+  if (!parkingIds.length) return new Map();
+  const { data, error } = await db.from("parking_stays").select("parking_id").eq("status", "OPEN").in("parking_id", parkingIds).not("released_payment_authorization_id", "is", null);
+  if (error) throw error;
+  const counts = new Map();
+  for (const row of data || []) counts.set(row.parking_id, (counts.get(row.parking_id) || 0) + 1);
+  return counts;
 }
 
 // Estado del módulo por estacionamiento (lista).
@@ -97,10 +100,17 @@ export async function loadModuleStates(db, parkingIds, now = new Date()) {
   return result;
 }
 
+// Autorizaciones activas de la patente en el estacionamiento, cada una con
+// `paid`: pago vigente registrado por el total acordado (el beneficio lo exige).
 export async function loadPlateAuthorizations(db, parkingId, plate) {
   const { data, error } = await db.from("released_payment_authorizations").select("*").eq("parking_id", parkingId).eq("license_plate", plate).eq("status", "ACTIVE");
   if (error) throw error;
-  return (data || []).map(authorizationFromDb);
+  const authorizations = (data || []).map(authorizationFromDb);
+  if (!authorizations.length) return authorizations;
+  const payments = await db.from("released_payment_beneficiary_payments").select("*").in("authorization_id", authorizations.map((item) => item.id)).eq("status", "REGISTERED");
+  if (payments.error) throw payments.error;
+  const registered = (payments.data || []).map(paymentFromDb);
+  return authorizations.map((item) => ({ ...item, paid: authorizationPaymentStatus(item, registered) === PAYMENT_STATUS.PAID }));
 }
 
 // Motivo de indisponibilidad antes de validar una autorización: módulo
@@ -150,6 +160,15 @@ const RPC_MESSAGES = {
   RELEASED_PAYMENT_TARIFF_PRICE_INVALID: [400, "El precio por unidad debe estar en pesos chilenos, sin decimales."],
   RELEASED_PAYMENT_TARIFF_UNCHANGED: [409, "La tarifa ya tiene ese valor."],
   RELEASED_PAYMENT_TARIFF_NOT_FOUND: [404, "No hay una tarifa vigente para esa unidad."],
+  RELEASED_PAYMENT_SPOTS_BELOW_OCCUPANCY: [409, "No puedes dejar menos cupos que las patentes liberadas que hoy están en el estacionamiento."],
+  RELEASED_PAYMENT_NO_SPOTS: [409, "Sin cupos liberados disponibles."],
+  RELEASED_PAYMENT_STAY_DUPLICATE: [409, "La patente ya tiene una estadía abierta."],
+  RELEASED_PAYMENT_CONTRACT_CHANGED: [409, "La contratación cambió. Vuelve a validar la patente."],
+  RELEASED_PAYMENT_CONTRACT_NOT_CURRENT: [409, "La contratación no está vigente."],
+  RELEASED_PAYMENT_AUTHORIZATION_INVALID: [409, "La autorización ya no es válida. Vuelve a validar la patente."],
+  RELEASED_PAYMENT_AUTHORIZATION_NOT_CURRENT: [409, "La autorización no aplica hoy."],
+  RELEASED_PAYMENT_AUTHORIZATION_UNPAID: [409, "La autorización tiene el pago pendiente."],
+  RELEASED_PAYMENT_SNAPSHOT_INVALID: [400, "Condiciones de ingreso inválidas."],
   RELEASED_PAYMENT_AUTHORIZATION_PAID: [409, "La autorización tiene un pago registrado: para cambiar tarifa, cantidad o inicio, anula primero el pago (con motivo)."],
   RELEASED_PAYMENT_PAYMENT_INVALID: [400, "Revisa el monto y la fecha del pago."],
   RELEASED_PAYMENT_PAYMENT_METHOD_INVALID: [400, "Selecciona el medio de pago: efectivo, transferencia, tarjeta u otro."],

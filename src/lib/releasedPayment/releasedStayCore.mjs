@@ -17,7 +17,7 @@
 // - Fuera de la autorización se cobra con la tarifa normal del
 //   estacionamiento sobre el tiempo no cubierto (Ley 20.967, sin redondeo).
 
-import { coveredSecondsBetween, isAuthorizationCurrent } from "./authorizationCore.mjs";
+import { authorizationIntervals, coveredSecondsBetween, endOfLocalDayMs, uncoveredIntervalsBetween } from "./authorizationCore.mjs";
 import { RELEASED_PAYMENT_TIME_ZONE } from "./zonedTime.mjs";
 
 export const MODULE_STATUS = Object.freeze({
@@ -94,12 +94,27 @@ export const ENTRY_DECISION = Object.freeze({
   ELIGIBLE: "ELIGIBLE",
   MODULE_UNAVAILABLE: "MODULE_UNAVAILABLE",
   AUTHORIZATION_NOT_CURRENT: "AUTHORIZATION_NOT_CURRENT",
+  UNPAID: "UNPAID",
   NO_SPOTS: "NO_SPOTS",
 });
 
+// La autorización da beneficio hoy: cubre algún momento entre `now` y el fin
+// del día calendario local (vigente ahora o que comienza más tarde el mismo
+// día, P8c 2026-10-18; en una recurrente, con una franja horaria pendiente
+// hoy).
+export function authorizationUsableToday(authorization, now = Date.now(), timeZone = RELEASED_PAYMENT_TIME_ZONE) {
+  const at = new Date(now).getTime();
+  if (authorization.status !== "ACTIVE") return false;
+  if (new Date(authorization.validTo ?? authorization.valid_to).getTime() <= at) return false;
+  return authorizationIntervals(authorization, at, endOfLocalDayMs(at, timeZone), { timeZone }).length > 0;
+}
+
 /**
  * Decide si un ingreso se registra como "Patente liberada".
- * `authorizations`: autorizaciones de la patente en ESTE estacionamiento.
+ * `authorizations`: autorizaciones de la patente en ESTE estacionamiento,
+ * cada una con `paid` (pago vigente por el total acordado).
+ * El beneficio exige la autorización PAGADA (decisión 2026-10-16); la base lo
+ * vuelve a verificar al registrar el ingreso.
  */
 export function evaluateReleasedEntry({ module, contract, authorizations = [], openReleasedStays = 0, now = Date.now() }) {
   const active = authorizations.filter((item) => item.status === "ACTIVE");
@@ -109,21 +124,27 @@ export function evaluateReleasedEntry({ module, contract, authorizations = [], o
   if (moduleStatus !== MODULE_STATUS.ACTIVE) {
     return { decision: ENTRY_DECISION.MODULE_UNAVAILABLE, moduleStatus, message: `${MODULE_STATUS_LABELS[moduleStatus]}: la patente ingresa con cobro normal.` };
   }
-  const current = active.filter((item) => isAuthorizationCurrent(item, now));
-  if (!current.length) {
-    return { decision: ENTRY_DECISION.AUTHORIZATION_NOT_CURRENT, moduleStatus, message: "La autorización de esta patente no está vigente ahora: ingresa con cobro normal." };
+  const timeZone = contract?.timeZone || RELEASED_PAYMENT_TIME_ZONE;
+  const usable = active.filter((item) => authorizationUsableToday(item, now, timeZone));
+  if (!usable.length) {
+    return { decision: ENTRY_DECISION.AUTHORIZATION_NOT_CURRENT, moduleStatus, message: "La autorización de esta patente no aplica hoy: ingresa con cobro normal." };
+  }
+  const paid = usable.filter((item) => item.paid === true);
+  if (!paid.length) {
+    return { decision: ENTRY_DECISION.UNPAID, moduleStatus, message: "Autorización con pago pendiente: la patente ingresa con cobro normal. El administrador debe registrar el pago." };
   }
   if (openReleasedStays >= spots.total) {
     return { decision: ENTRY_DECISION.NO_SPOTS, moduleStatus, spots, message: `Sin cupos liberados disponibles (${spots.used} de ${spots.total} en uso): ingresa con cobro normal o espera la salida de otra patente liberada.` };
   }
-  // Primaria: la vigente que termina más tarde (la RPC re-verifica su vigencia).
-  const primary = [...current].sort((a, b) => new Date(b.validTo).getTime() - new Date(a.validTo).getTime())[0];
+  // Primaria: la pagada que termina más tarde (la base re-verifica pago y vigencia).
+  const primary = [...paid].sort((a, b) => new Date(b.validTo).getTime() - new Date(a.validTo).getTime())[0];
   return {
     decision: ENTRY_DECISION.ELIGIBLE,
     moduleStatus,
     spots,
     authorization: primary,
-    snapshot: buildReleasedEntrySnapshot({ authorizations: active, contract, operationalSpots: spots.total, now }),
+    // Solo las autorizaciones PAGADAS cubren tiempo de la estadía.
+    snapshot: buildReleasedEntrySnapshot({ authorizations: active.filter((item) => item.paid === true), contract, operationalSpots: spots.total, now }),
   };
 }
 
@@ -131,7 +152,7 @@ export function evaluateReleasedEntry({ module, contract, authorizations = [], o
 // activas de la patente en el estacionamiento (unión, sin duplicar).
 export function buildReleasedEntrySnapshot({ authorizations, contract, operationalSpots = null, now = Date.now() }) {
   return {
-    version: 3,
+    version: 4,
     capturedAt: new Date(now).toISOString(),
     timeZone: contract?.timeZone || RELEASED_PAYMENT_TIME_ZONE,
     contract: { id: contract.id, version: contract.version, modality: contract.modality ?? null, startsAt: contract.startsAt, endsAt: contract.endsAt },
@@ -150,15 +171,16 @@ export function buildReleasedEntrySnapshot({ authorizations, contract, operation
   };
 }
 
-// Tiempo transcurrido, cubierto y cobrable para una estadía liberada,
-// usando solo el snapshot del ingreso. La cobertura termina, a más tardar,
-// al fin de la contratación vigente al ingreso.
+// Tiempo transcurrido, cubierto y cobrable para una estadía liberada, usando
+// solo el snapshot del ingreso, más los intervalos NO cubiertos (cada uno se
+// cobra por separado con la tarifa del estacionamiento, P8a). La cobertura
+// termina, a más tardar, al fin de la contratación vigente al ingreso.
 export function releasedStayCoverage(snapshot, entryAt, exitAt) {
   const elapsedSeconds = Math.max(0, Math.floor((new Date(exitAt).getTime() - new Date(entryAt).getTime()) / 1000));
   const limitMs = snapshot?.contract?.endsAt ? new Date(snapshot.contract.endsAt).getTime() : null;
-  const coveredSeconds = Math.min(elapsedSeconds, coveredSecondsBetween(snapshot?.authorizations || [], entryAt, exitAt, {
-    timeZone: snapshot?.timeZone || RELEASED_PAYMENT_TIME_ZONE,
-    limitMs,
-  }));
-  return { elapsedSeconds, coveredSeconds, chargeableSeconds: elapsedSeconds - coveredSeconds };
+  const options = { timeZone: snapshot?.timeZone || RELEASED_PAYMENT_TIME_ZONE, limitMs };
+  const authorizations = snapshot?.authorizations || [];
+  const coveredSeconds = Math.min(elapsedSeconds, coveredSecondsBetween(authorizations, entryAt, exitAt, options));
+  const uncovered = elapsedSeconds > coveredSeconds ? uncoveredIntervalsBetween(authorizations, entryAt, exitAt, options) : [];
+  return { elapsedSeconds, coveredSeconds, chargeableSeconds: elapsedSeconds - coveredSeconds, uncovered };
 }
