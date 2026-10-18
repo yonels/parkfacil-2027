@@ -1,4 +1,4 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, MapPinned, UserCircle, Hash } from "lucide-react";
+import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, MapPinned, UserCircle, Hash, BadgeCheck } from "lucide-react";
 
 // Reorganización 2026-08-28 (auditoría "arquitectura administrativa"):
 // separa la navegación en 4 pilares claramente distintos, en vez de mezclar
@@ -61,7 +61,7 @@ export const navigationItems = [
     // primer ítem del árbol, mismo lugar que ocupa "Dashboard" en On Street
     // (/on-street-qr). No reemplaza /modelo-dashboard (Dashboard General de
     // Plataforma, fuera de este alcance) ni mezcla datos On Street.
-    activePrefix: ["/dashboard-off-street", "/reportes-off-street", "/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/deudas", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo"],
+    activePrefix: ["/dashboard-off-street", "/reportes-off-street", "/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/deudas", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo", "/pago-liberado"],
     children: [
       { href: "/dashboard-off-street", label: "Dashboard", icon: BarChart3 },
       {
@@ -106,6 +106,9 @@ export const navigationItems = [
         ],
       },
       { href: "/abonados", label: "Abonados y Credenciales", icon: KeyRound },
+      // Pago liberado (módulo contratado): gestión del administrador y
+      // supervisión Root. Oculto al operador (COMPANY_ADMIN_PREFIXES).
+      { href: "/pago-liberado", label: "Pago liberado", icon: BadgeCheck },
       {
         label: "Tarifas",
         icon: BadgeDollarSign,
