@@ -72,3 +72,16 @@ test("IMPRIMIR PAGOS DEL DÍA: payload PAYMENTS_DAY con los totales/filas del se
   assert.equal(buildPaymentsDayPrintPayload({ payments, totals, parking: null }), null);
   assert.equal(buildPaymentsDayPrintPayload({ payments: [], totals: null, parking }).count, 0);
 });
+
+test("PAGOS DEL DÍA: salida de patente liberada sin cobro se muestra e imprime como Liberado", async () => {
+  const { buildPaymentsDayPrintPayload, RELEASED_METHOD } = await import("./paymentsDayCore.mjs");
+  const { paymentMethodDisplay } = await import("../paymentCardType.mjs");
+  const row = toDailyPaymentRow({ id: "s2", license_plate: "QARD-04", exit_at: "2026-10-18T13:03:00.000Z", payment_method: null, total_amount: 0, code: "ING-9", payment_code: "LIB-1", released_payment_authorization_id: "a1" });
+  assert.equal(row.paymentMethod, RELEASED_METHOD);
+  assert.equal(paymentMethodDisplay(row.paymentMethod), "Liberado");
+  // Una liberada con excedente pagado conserva su medio real.
+  assert.equal(toDailyPaymentRow({ license_plate: "QARC-03", exit_at: "2026-10-18T13:40:00.000Z", payment_method: "CASH", total_amount: 875, released_payment_authorization_id: "a2" }).paymentMethod, "CASH");
+  const parking = { name: "Clínica Ramis Central", code: "PF-001", company: { business_name: "Clínica Ramis SpA" } };
+  const payload = buildPaymentsDayPrintPayload({ payments: [row], totals: summarizeDailyPayments([]), parking, now: new Date("2026-10-18T14:00:00.000Z") });
+  assert.equal(payload.payments[0].paymentMethod, "Liberado");
+});

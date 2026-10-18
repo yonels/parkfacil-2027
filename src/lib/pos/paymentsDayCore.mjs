@@ -5,6 +5,7 @@ import { OPERATIONAL_TIME_ZONE, toOperationalDateTimeParts } from "../dataEntry.
 // CREDIT/DEBIT desde su habilitación. Los históricos sin tipo permanecen
 // sin clasificar.
 const CASH_METHOD = "CASH";
+export const RELEASED_METHOD = "RELEASED";
 
 // Filtra estadías PAID cuyo exit_at cae dentro del día operacional
 // (America/Santiago) de `now`. Compara el día calendario ya resuelto en la
@@ -57,7 +58,8 @@ export function toDailyPaymentRow(stay, { timeZone = OPERATIONAL_TIME_ZONE } = {
     id: stay?.id || null,
     plate: stay?.license_plate || "-",
     time: exitParts?.entryTime || "-",
-    paymentMethod: classifiedPaymentMethod(stay) || "-",
+    // Pago liberado: salida sin cobro (sin medio de pago) → "Liberado".
+    paymentMethod: stay?.released_payment_authorization_id && !stay?.payment_method ? RELEASED_METHOD : classifiedPaymentMethod(stay) || "-",
     amount: Number(stay?.total_amount) || 0,
     ticketNumber: stay?.code || "-",
     paymentCode: stay?.payment_code || "-",
@@ -89,7 +91,9 @@ export function buildPaymentsDayPrintPayload({ payments, totals, parking, now = 
     payments: list.map((payment) => ({
       plate: String(payment?.plate || "-"),
       time: String(payment?.time || "-"),
-      paymentMethod: String(payment?.paymentMethod || "-"),
+      // El bridge imprime el texto recibido para medios que no conoce: la
+      // salida liberada viaja ya como "Liberado" (sirve con la APK actual).
+      paymentMethod: payment?.paymentMethod === RELEASED_METHOD ? "Liberado" : String(payment?.paymentMethod || "-"),
       amount: Number(payment?.amount) || 0,
       ticketNumber: String(payment?.ticketNumber || "-"),
     })),
