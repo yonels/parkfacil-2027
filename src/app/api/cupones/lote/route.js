@@ -1,4 +1,5 @@
-import { randomBytes } from "node:crypto";
+import { randomInt } from "node:crypto";
+import { generateDistinctShortCouponCodes } from "@/lib/cupones/couponCode.mjs";
 import { NextResponse } from "next/server";
 import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
@@ -15,7 +16,17 @@ export async function POST(request) {
   const { data: source } = await query.maybeSingle(); if (!source) return NextResponse.json({ error: "Cupon base no encontrado." }, { status: 404 });
   if (!(await couponsActiveForCompany(auth.db, source.company_id))) return NextResponse.json({ error: COUPON_MODULE_INACTIVE_ERROR.error, code: COUPON_MODULE_INACTIVE_ERROR.code }, { status: 403 });
   let created = [];
-  if (quantity > 1) { const rows = Array.from({ length: quantity - 1 }, () => ({ company_id: source.company_id, merchant_id: source.merchant_id, redeeming_merchant_id: source.redeeming_merchant_id, code: `PF-${randomBytes(4).toString("hex").toUpperCase()}`, name: source.name, benefit_type: source.benefit_type, benefit_value: source.benefit_value, status: source.status, valid_from: source.valid_from, expires_at: source.expires_at, created_by: actor.id })); const result = await auth.db.from("coupons").insert(rows).select(selection); if (result.error) return NextResponse.json({ error: "No fue posible generar el lote de cupones." }, { status: 503 }); created = result.data || []; }
+  if (quantity > 1) {
+    // Códigos de 4 caracteres distintos (SOL-2026-10-19-002); si alguno ya existe, se reintenta el lote.
+    const base = { company_id: source.company_id, merchant_id: source.merchant_id, redeeming_merchant_id: source.redeeming_merchant_id, name: source.name, benefit_type: source.benefit_type, benefit_value: source.benefit_value, status: source.status, valid_from: source.valid_from, expires_at: source.expires_at, created_by: actor.id };
+    let result = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const codes = generateDistinctShortCouponCodes(quantity - 1, randomInt, new Set([source.code]));
+      result = await auth.db.from("coupons").insert(codes.map((code) => ({ ...base, code }))).select(selection);
+      if (result.error?.code !== "23505") break;
+    } if (result.error) return NextResponse.json({ error: "No fue posible generar el lote de cupones." }, { status: 503 });
+    created = result.data || [];
+  }
   const { data: original } = await auth.db.from("coupons").select(selection).eq("id", source.id).single();
   return NextResponse.json({ data: [original, ...created].map(map) }, { status: 201 });
 }

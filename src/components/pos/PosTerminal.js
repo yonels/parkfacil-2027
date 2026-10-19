@@ -1840,7 +1840,7 @@ export default function PosTerminal() {
     if (!stayId || couponBusy) return;
     const couponToken = couponTokenForRequest(raw);
     if (!couponToken) {
-      setCouponMessage({ type: "error", text: "El código no corresponde a un cupón. Revisa el código PF-XXXXXXXX." });
+      setCouponMessage({ type: "error", text: "El código no corresponde a un cupón. Revisa el código de 4 caracteres impreso en el cupón." });
       return;
     }
     setCouponBusy(true);
@@ -4875,7 +4875,7 @@ export default function PosTerminal() {
                       </button>
                     ) : null}
                     <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void applyCoupon(couponCodeInput); }}>
-                      <input value={couponCodeInput} onChange={(event) => setCouponCodeInput(event.target.value.toUpperCase())} placeholder="PF-XXXXXXXX" autoCapitalize="characters" autoComplete="off" spellCheck={false} className="min-w-0 flex-1 rounded-xl border border-emerald-300 bg-white px-3 py-2 font-mono text-sm font-bold tracking-wider text-slate-900" aria-label="Código del cupón" />
+                      <input value={couponCodeInput} onChange={(event) => setCouponCodeInput(event.target.value.toUpperCase())} placeholder="Código (4 caracteres)" maxLength={12} autoCapitalize="characters" autoComplete="off" spellCheck={false} className="min-w-0 flex-1 rounded-xl border border-emerald-300 bg-white px-3 py-2 font-mono text-sm font-bold tracking-wider text-slate-900" aria-label="Código del cupón" />
                       <button type="submit" disabled={couponBusy || !couponCodeInput.trim()} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black uppercase tracking-[0.06em] text-white disabled:opacity-60">
                         {couponBusy ? "..." : "APLICAR"}
                       </button>

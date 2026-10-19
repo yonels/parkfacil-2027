@@ -15,7 +15,7 @@ function fail(message, status = 400, details) {
 }
 
 // Cupón (SOL-2026-10-19-002): POST con { couponToken } recalcula el cobro con el
-// cupón (QR "PFC-COUPON:<token>" o código "PF-XXXXXXXX"). El cálculo firmado
+// cupón (QR "PFC-COUPON:<token>" o código de 4 caracteres; "PF-XXXXXXXX" anterior). El cálculo firmado
 // resultante lleva el cupón y se canjea al pagar (efectivo o tarjeta).
 const COUPON_ERRORS = Object.freeze({
   COUPON_NOT_FOUND: "El cupón no existe.",

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { randomBytes } from "node:crypto";
+import { randomInt } from "node:crypto";
+import { generateShortCouponCode, SHORT_COUPON_CODE_PATTERN } from "@/lib/cupones/couponCode.mjs";
 import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
@@ -44,10 +45,18 @@ export async function POST(request) {
   if (!(await couponsActiveForCompany(auth.db, merchant.company_id))) return NextResponse.json({ error: COUPON_MODULE_INACTIVE_ERROR.error, code: COUPON_MODULE_INACTIVE_ERROR.code }, { status: 403 });
   const { data: redeeming } = await auth.db.from("coupon_merchants").select("id").eq("id", input.redeemingMerchantId).eq("status", "ACTIVE").eq("company_id", merchant.company_id).maybeSingle();
   if (!redeeming) return responseError("Selecciona una tienda valida para recibir el descuento.", 404);
+  // Código de 4 caracteres (SOL-2026-10-19-002): se acepta el propuesto por la
+  // pantalla si cumple el formato; si ya existe, el servidor genera otro.
   const requested = String(input.code || "").trim().toUpperCase();
-  const code = /^PF-[A-F0-9]{8}$/.test(requested) ? requested : `PF-${randomBytes(4).toString("hex").toUpperCase()}`;
-  const { data, error } = await auth.db.from("coupons").insert({ company_id: merchant.company_id, merchant_id: merchant.id, redeeming_merchant_id: redeeming.id, code, name: input.name.trim(), benefit_type: input.benefitType, benefit_value: Number(input.value), status: input.status === "ACTIVE" ? "ACTIVE" : "DRAFT", valid_from: validFrom.toISOString(), expires_at: expiresAt.toISOString(), created_by: actor.id }).select(selection).single();
-  if (error?.code === "23505") return responseError("El codigo del cupon ya existe.", 409);
+  let code = SHORT_COUPON_CODE_PATTERN.test(requested) ? requested : generateShortCouponCode(randomInt);
+  const row = { company_id: merchant.company_id, merchant_id: merchant.id, redeeming_merchant_id: redeeming.id, name: input.name.trim(), benefit_type: input.benefitType, benefit_value: Number(input.value), status: input.status === "ACTIVE" ? "ACTIVE" : "DRAFT", valid_from: validFrom.toISOString(), expires_at: expiresAt.toISOString(), created_by: actor.id };
+  let data = null; let error = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    ({ data, error } = await auth.db.from("coupons").insert({ ...row, code }).select(selection).single());
+    if (error?.code !== "23505") break;
+    code = generateShortCouponCode(randomInt);
+  }
+  if (error?.code === "23505") return responseError("No fue posible asignar un codigo unico al cupon. Intenta nuevamente.", 409);
   if (error) return responseError("No fue posible crear el cupon.", 503);
   return NextResponse.json({ data: mapCoupon(data) }, { status: 201 });
 }
