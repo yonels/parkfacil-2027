@@ -4933,7 +4933,7 @@ export default function PosTerminal() {
               </button>
             ))}
           </div>
-          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Versión {POS_FRONTEND_VERSION}</p>
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Versión {POS_FRONTEND_VERSION}{deviceInfo?.appVersion ? ` · APK ${deviceInfo.appVersion}` : ""}</p>
         </aside>
 
         <section className="pos-terminal-content min-w-0 flex-1 p-3 sm:p-4 md:p-6">
@@ -5011,7 +5011,7 @@ export default function PosTerminal() {
             )}
 
             <p className="mt-5 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-              ParkFacil POS · Versión {POS_FRONTEND_VERSION}
+              ParkFacil POS · Versión {POS_FRONTEND_VERSION}{deviceInfo?.appVersion ? ` · APK ${deviceInfo.appVersion}` : ""}
             </p>
           </div>
         </section>
