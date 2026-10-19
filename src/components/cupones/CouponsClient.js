@@ -7,6 +7,7 @@ import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import CouponsSummary from "@/components/cupones/CouponsSummary";
+import { generateShortCouponCode } from "@/lib/cupones/couponCode.mjs";
 import { couponBenefitLabel as benefitLabel, couponPrintDocument, printHtmlInFrame } from "@/lib/cupones/couponPrint.mjs";
 
 const emptyForm = { code: "", name: "", merchantId: "", redeemingMerchantId: "", quantity: 1, benefitType: "PERCENTAGE", value: "", validFrom: "", expiresAt: "", status: "ACTIVE" };
@@ -14,7 +15,8 @@ const emptyMerchant = { companyId: "", code: "", name: "", contactName: "", cont
 const inputClass = "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-[#3150D8]";
 const dateTime = (value) => value ? new Intl.DateTimeFormat("es-CL", { dateStyle: "short", timeStyle: "short" }).format(new Date(value)) : "—";
 const dateOnly = (value) => new Intl.DateTimeFormat("es-CL", { dateStyle: "short", timeZone: "America/Santiago" }).format(new Date(value));
-const generateCouponCode = () => `PF-${crypto.randomUUID().replaceAll("-", "").slice(0, 8).toUpperCase()}`;
+// Código de 4 caracteres (SOL-2026-10-19-002); el servidor lo valida y lo cambia si ya existe.
+const generateCouponCode = () => generateShortCouponCode((max) => crypto.getRandomValues(new Uint32Array(1))[0] % max);
 
 export default function CouponsClient() {
   const [coupons, setCoupons] = useState([]);

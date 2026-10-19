@@ -125,7 +125,7 @@ async function getActiveRate(db, parkingId, at = new Date()) {
 export async function getCoupon(db, rawToken, companyId) {
   if (!rawToken) return null;
 
-  // QR ("PFC-COUPON:<token>") o código impreso "PF-XXXXXXXX" escrito en el POS
+  // QR ("PFC-COUPON:<token>") o código impreso (4 caracteres, o "PF-XXXXXXXX" anterior) escrito en el POS
   // (SOL-2026-10-19-002). El código se busca solo dentro de la empresa.
   const parsed = parseCouponInput(rawToken);
   if (!parsed) throw new Error("COUPON_NOT_FOUND");

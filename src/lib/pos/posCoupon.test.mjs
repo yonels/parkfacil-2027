@@ -14,6 +14,11 @@ test("parses the coupon QR payload and the printed code (with or without dash/pr
   assert.deepEqual(parseCouponInput("pf-0b5b9cf2"), { kind: "code", value: "PF-0B5B9CF2" });
   assert.deepEqual(parseCouponInput("PF0B5B9CF2"), { kind: "code", value: "PF-0B5B9CF2" });
   assert.deepEqual(parseCouponInput("0B5B9CF2"), { kind: "code", value: "PF-0B5B9CF2" });
+  // Código corto de 4 caracteres (sin 0/O/1/I/L).
+  assert.deepEqual(parseCouponInput("k7m2"), { kind: "code", value: "K7M2" });
+  assert.deepEqual(parseCouponInput(" K7 M2 "), { kind: "code", value: "K7M2" });
+  assert.equal(parseCouponInput("K0M2"), null, "0 no forma parte del alfabeto");
+  assert.equal(parseCouponInput("K7M"), null);
   assert.equal(parseCouponInput(""), null);
   assert.equal(parseCouponInput("PF-XYZ"), null);
   assert.equal(parseCouponInput("PFC-TICKET:abc"), null);
@@ -26,7 +31,8 @@ test("ticket QR screen recognizes a coupon QR; request token keeps the kind", ()
   assert.equal(isCouponQrPayload("TCK-123"), false);
   assert.equal(couponTokenForRequest(`PFC-COUPON:${UUID}`), `PFC-COUPON:${UUID}`);
   assert.equal(couponTokenForRequest("0b5b9cf2"), "PF-0B5B9CF2");
-  assert.equal(couponTokenForRequest("nada"), null);
+  assert.equal(couponTokenForRequest("no es cupón"), null);
+  assert.equal(couponTokenForRequest("k7m2"), "K7M2");
   assert.match(COUPON_IN_TICKET_SCAN_MESSAGE, /APLICAR CUPÓN/);
 });
 
@@ -117,7 +123,7 @@ test("POS terminal: APLICAR CUPÓN in the payment window, scanner + manual code,
   assert.match(source, /APLICAR CUPÓN/);
   assert.match(source, /ESCANEAR QR DEL CUPÓN/);
   assert.match(source, /QUITAR CUPÓN/);
-  assert.match(source, /placeholder="PF-XXXXXXXX"/);
+  assert.match(source, /placeholder="Código \(4 caracteres\)"/);
   assert.match(source, /const couponControlsVisible = couponsEnabled && quoteView\?\.payable && !quote\?\.released && paymentStep === "MENU";/);
   assert.match(source, /setCouponsEnabled\(summary\.payload\?\.data\?\.couponsEnabled === true\)/);
   assert.match(source, /getPosVehicleQuote\(selectedVehicle\.stay\.id, appliedCouponToken\)/);
