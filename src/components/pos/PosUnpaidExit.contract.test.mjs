@@ -52,7 +52,9 @@ test("el cierre de turno muestra las salidas sin pago (en curso y cerradas)", ()
 
 test("el comprobante agrega el resumen de franjas sin cambiar el formato impreso", () => {
   assert.match(terminal, /summarizeChargeBreakdown\(quote\?\.snapshot\?\.chargeBreakdown\)/);
-  assert.match(terminal, /rateDescription: \[/);
+  // SOL-2026-10-18-001: la línea «Tarifa» informa el precio por minuto efectivo y
+  // usa el resumen solo como respaldo; el formato impreso (campo rateDescription) no cambia.
+  assert.match(terminal, /rateDescription: receiptRateDescription\(/);
 });
 
 test("el detalle por franja solo se muestra con una cotización pagable", () => {

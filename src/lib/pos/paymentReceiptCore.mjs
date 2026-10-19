@@ -42,3 +42,28 @@ export function receiptChargeLines(breakdown) {
   }
   return [...groups.values()].sort((a, b) => a.from.localeCompare(b.from) || a.label.localeCompare(b.label, "es"));
 }
+
+// Línea «Tarifa» del comprobante: nombre + precio por minuto efectivo cobrado
+// («$20 por minuto efectivo»; con varias franjas horarias, «$35, $25 y $20 por
+// minuto efectivo»), y «tope aplicado» si corresponde. La APK corta el campo en
+// 60 caracteres: si no cabe, se acorta y, como último recurso, se usa el resumen.
+export const RECEIPT_RATE_MAX_LENGTH = 60;
+const clp = (value) => `$${Math.round(Number(value) || 0).toLocaleString("es-CL")}`;
+
+export function receiptRateDescription(rateName, breakdown, fallbackSummary = "") {
+  const name = String(rateName || "").trim();
+  const passes = breakdown?.kind === "TIME_BANDS" && Array.isArray(breakdown.passes)
+    ? breakdown.passes.filter((pass) => Number(pass?.minutes) > 0)
+    : [];
+  const join = (...parts) => parts.filter(Boolean).join(" · ");
+  if (!passes.length) return join(name, fallbackSummary);
+  const prices = [...new Set(passes.map((pass) => Number(pass.minuteAmount || 0)))].sort((a, b) => b - a).map(clp);
+  const priceList = prices.length === 1 ? prices[0] : `${prices.slice(0, -1).join(", ")} y ${prices.at(-1)}`;
+  const capApplied = passes.some((pass) => pass.capApplied);
+  const candidates = [
+    join(name, `${priceList} por minuto efectivo`, capApplied ? "tope aplicado" : ""),
+    join(name, `${priceList} por minuto efectivo`, capApplied ? "tope" : ""),
+    join(name, `${priceList} por min. efectivo`, capApplied ? "tope" : ""),
+  ];
+  return candidates.find((text) => text.length <= RECEIPT_RATE_MAX_LENGTH) || join(name, fallbackSummary);
+}

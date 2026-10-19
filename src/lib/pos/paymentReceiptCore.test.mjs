@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { toOperationalDateTimeParts } from "../dataEntry.mjs";
-import { receiptChargeLines, receiptExitInstant } from "./paymentReceiptCore.mjs";
+import { RECEIPT_RATE_MAX_LENGTH, receiptChargeLines, receiptExitInstant, receiptRateDescription } from "./paymentReceiptCore.mjs";
 
 // Caso real de QA (AAAA-95, 2026-10-18): cálculo de cobro 21:11, pago confirmado 21:12:14.
 const stay = { entry_at: "2026-10-18T17:23:06.310Z", exit_at: "2026-10-19T00:12:14.707Z" };
@@ -74,4 +74,27 @@ test("estadía de varios días: se agrupa por franja horaria (4 líneas) y cuadr
 test("sin franjas horarias no hay detalle", () => {
   assert.deepEqual(receiptChargeLines(null), []);
   assert.deepEqual(receiptChargeLines({ kind: "OTHER", passes: [] }), []);
+});
+
+test("Tarifa con un solo precio: «$20 por minuto efectivo» (caso QA 0000-00, 4 min, $80)", () => {
+  const single = { kind: "TIME_BANDS", passes: [{ minutes: 4, minuteAmount: 20, amount: 80, capApplied: false }] };
+  assert.equal(receiptRateDescription("Azul 2026", single, "Minuto efectivo según horario"), "Azul 2026 · $20 por minuto efectivo");
+});
+
+test("Tarifa con varias franjas horarias y tope: precios de mayor a menor, sin pasar de 60 caracteres", () => {
+  assert.equal(receiptRateDescription("Azul 2026", breakdown), "Azul 2026 · $25 y $20 por minuto efectivo");
+  const capped = { kind: "TIME_BANDS", passes: [
+    { minutes: 300, minuteAmount: 35, amount: 10500 }, { minutes: 240, minuteAmount: 25, amount: 6000 },
+    { minutes: 720, minuteAmount: 20, amount: 10000, capApplied: true },
+  ] };
+  const text = receiptRateDescription("Azul 2026", capped);
+  assert.equal(text, "Azul 2026 · $35, $25 y $20 por minuto efectivo · tope");
+  assert.ok(text.length <= RECEIPT_RATE_MAX_LENGTH);
+  assert.equal(receiptRateDescription("Tarifa", { kind: "TIME_BANDS", passes: [{ minutes: 5, minuteAmount: 1000, amount: 5000 }] }), "Tarifa · $1.000 por minuto efectivo");
+});
+
+test("sin franjas horarias o nombre muy largo, se usa el resumen", () => {
+  assert.equal(receiptRateDescription("Normal", null, ""), "Normal");
+  const long = "Tarifa con un nombre extremadamente largo para el ticket";
+  assert.equal(receiptRateDescription(long, breakdown, "Minuto efectivo según horario"), `${long} · Minuto efectivo según horario`);
 });
