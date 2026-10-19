@@ -869,9 +869,6 @@ export default function PosTerminal() {
   const [selectedOffStreetParkingId, setSelectedOffStreetParkingId] = useState("");
   const [offStreetSelectionError, setOffStreetSelectionError] = useState("");
   const [lastClosedParking, setLastClosedParking] = useState(null);
-  // null = sin turno abierto; true = turno abierto restaurado al ingresar;
-  // false = turno iniciado en esta misma sesión (no se avisa).
-  const [shiftRestoredNotice, setShiftRestoredNotice] = useState(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [deviceInfo, setDeviceInfo] = useState(null);
   const operationBusyRef = useRef(false);
@@ -1163,7 +1160,6 @@ export default function PosTerminal() {
         setShiftClosure(data.lastClosure.closure);
         setLastClosedParking(data.lastClosure.parking || null);
       }
-      setShiftRestoredNotice((current) => (data.state === "OPEN" ? (current === null ? true : current) : null));
     } catch {
       setShiftError("Error de red al cargar el turno del operador.");
     } finally {
@@ -1186,7 +1182,6 @@ export default function PosTerminal() {
         else setShiftError(result.payload?.error || "No fue posible iniciar el turno.");
         return;
       }
-      setShiftRestoredNotice(false);
       await loadShiftState();
       await loadTerminalState(true);
     } catch {
@@ -1220,7 +1215,6 @@ export default function PosTerminal() {
         else setShiftError(result.payload?.error || "No fue posible iniciar el turno.");
         return;
       }
-      setShiftRestoredNotice(false);
       await loadShiftState();
       await loadTerminalState(true);
     } catch {
@@ -3270,15 +3264,12 @@ export default function PosTerminal() {
     const homeShiftGate = renderShiftGate("Inicio de turno", { hideVolver: true });
     return (
       <section className="pos-home-panel mx-auto w-full max-w-4xl">
+        {/* Una sola línea (QA PRO2 2026-10-18): reemplaza «Turno activo» + el aviso
+            el aviso de turno restaurado, que repetían el mismo dato. */}
         {shiftReadyForOperations ? (
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-emerald-800">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Turno activo
-          </div>
-        ) : null}
-
-        {shiftReadyForOperations && shiftRestoredNotice === true && parking?.name ? (
-          <div role="status" className="mb-3 rounded-2xl border border-sky-300 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-950">
-            Tienes un turno abierto en <span className="font-black">{parking.name}</span>.
+          <div role="status" className="mb-3 inline-flex max-w-full items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-emerald-800">
+            <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
+            <span className="truncate">Sesión activa{parking?.name ? <> · <span className="normal-case">{parking.name}</span></> : null}</span>
           </div>
         ) : null}
 

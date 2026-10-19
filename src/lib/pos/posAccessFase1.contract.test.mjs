@@ -311,11 +311,13 @@ test("selector Off Street: el login POS acepta operador sin asignación solo si 
   assert.match(session, /if \(!offStreetResult\.data\?\.length\) \{\s*throw new AuthorizationError\("PARKING_ASSIGNMENT_REQUIRED", 403/);
 });
 
-test("selector Off Street: el POS muestra pulldown, aviso de turno restaurado y conserva REIMPRIMIR CIERRE", () => {
+test("selector Off Street: el POS muestra pulldown, sesión activa con el estacionamiento y conserva REIMPRIMIR CIERRE", () => {
   assert.match(posTerminal, /<select\s+id="pos-offstreet-parking"/);
   assert.match(posTerminal, /Seleccione estacionamiento/);
   assert.match(posTerminal, /void startOnDemandShift\(selectedOffStreetParkingId\);/);
-  assert.match(posTerminal, /Tienes un turno abierto en <span className="font-black">\{parking\.name\}<\/span>\./);
+  // QA PRO2 2026-10-18: «Sesión activa · <estacionamiento>» en una línea reemplaza el aviso de turno restaurado.
+  assert.match(posTerminal, /Sesión activa\{parking\?\.name \? <> · <span className="normal-case">\{parking\.name\}<\/span><\/> : null\}/);
+  assert.doesNotMatch(posTerminal, /Tienes un turno abierto en/);
   assert.match(posTerminal, /const showsLastClosure = shiftState === "PARKING_SELECTION_REQUIRED" && shiftClosed && Boolean\(shiftClosure\) && Boolean\(shift\);/);
   assert.match(posTerminal, /shiftClosure,\s*parking \|\| lastClosedParking,/);
   assert.match(posTerminal, /REIMPRIMIR CIERRE/);
