@@ -124,8 +124,27 @@ export function TuuPendingPaymentCard({ record, busy = false, message = "", onRe
   );
 }
 
-// Aviso en INICIO: pagos con tarjeta sin cerrar del estacionamiento (de este
-// u otro equipo, según el servidor) y los guardados en este equipo.
+// Alerta compacta en INICIO (QA PRO2 2026-10-18): una sola línea con la cantidad
+// de pagos con tarjeta por resolver; la lista completa vive en la pantalla
+// «Pagos por resolver» del menú, para no desplazar los botones del inicio.
+export function TuuPendingPaymentsAlert({ count, onOpen }) {
+  const total = Number(count) || 0;
+  if (total <= 0) return null;
+  return (
+    <div role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-amber-400 bg-amber-50 px-4 py-2">
+      <p className="min-w-0 truncate text-sm font-black text-amber-950">
+        ⚠ {total} {total === 1 ? "pago con tarjeta por resolver" : "pagos con tarjeta por resolver"}
+      </p>
+      <button type="button" onClick={onOpen} className="min-h-10 shrink-0 rounded-xl bg-amber-700 px-4 py-2 text-xs font-black uppercase tracking-[0.08em] text-white hover:bg-amber-600">
+        VER
+      </button>
+    </div>
+  );
+}
+
+// Lista de pagos con tarjeta sin cerrar del estacionamiento (de este u otro
+// equipo, según el servidor) y los guardados en este equipo. Se muestra en la
+// pantalla «Pagos por resolver».
 export function TuuPendingPaymentsBanner({ records, onOpen }) {
   const list = Array.isArray(records) ? records : [];
   if (!list.length) return null;

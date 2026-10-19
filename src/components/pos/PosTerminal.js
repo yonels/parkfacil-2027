@@ -20,7 +20,7 @@ import { TUU_METHOD, TUU_OUTCOME, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildT
 import { buildTuuRegistrationRequest, buildTuuResultReport, canStartTuuPayment, clearTuuPendingPayment, findTuuPendingPayment, findTuuPendingPaymentByAttempt, getOrCreatePosDeviceId, isProcessedTuuSequence, latestUnresolvedTuuPayment, loadQueuedTuuResultReports, loadTuuPendingPayments, markTuuPaymentApproved, markTuuPaymentUncertain, mergeTuuPendingViews, newTuuIdempotencyKey, noteTuuRegistrationFailure, queueTuuResultReport, reconcileTuuPendingWithServer, recoverTuuPendingPayments, rememberProcessedTuuSequence, removeQueuedTuuResultReport, saveTuuPaymentStarted } from "@/lib/pos/tuuPendingPayments.mjs";
 import { createTuuResultRouter } from "@/lib/pos/tuuResultRouter.mjs";
 import { abandonNativeTuuAttempt, ackNativeTuuResult, planNativeTuuSync, readNativeDeviceId, readPendingTuuState, readTuuBridgeEnvironment, resolvePosDeviceId, shouldAbandonLostTuuAttempt, shouldAckTuuResult, tuuLaunchBridge } from "@/lib/pos/tuuNativeBridge.mjs";
-import { TuuPendingPaymentCard, TuuPendingPaymentsBanner } from "@/components/pos/PosTuuPendingPayments";
+import { TuuPendingPaymentCard, TuuPendingPaymentsAlert, TuuPendingPaymentsBanner } from "@/components/pos/PosTuuPendingPayments";
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
 import { ChargeBreakdownList, ClosedUnpaidExitsSummary, DebtNoticeBanner, UnpaidExitAction, UnpaidExitsReview } from "@/components/pos/PosUnpaidExit";
@@ -45,6 +45,7 @@ const POS_VIEWS = {
   CIERRE_CAJA: "CIERRE_CAJA",
   ESTADO_DISPOSITIVO: "ESTADO_DISPOSITIVO",
   PAGOS_DEL_DIA: "PAGOS_DEL_DIA",
+  PAGOS_POR_RESOLVER: "PAGOS_POR_RESOLVER",
   TURNO: "TURNO",
 };
 
@@ -1295,6 +1296,12 @@ export default function PosTerminal() {
     if (section === POS_VIEWS.PAGOS_DEL_DIA) {
       setPaymentsDayPrintStatus("");
       void loadPaymentsToday();
+    }
+
+    if (section === POS_VIEWS.PAGOS_POR_RESOLVER) {
+      setTuuPendingViewStayId(null);
+      setTuuPendingMessage("");
+      void refreshServerCardAttempts();
     }
 
     if (section === POS_VIEWS.VEHICULOS || section === POS_VIEWS.SALIDA) {
@@ -2996,8 +3003,13 @@ export default function PosTerminal() {
     }
   }
 
+  // Pagos con tarjeta sin cerrar (este equipo + servidor): alimentan la alerta
+  // del inicio, el contador del menú y la pantalla «Pagos por resolver».
+  const tuuPendingViews = mergeTuuPendingViews(tuuPendingPayments, serverCardAttempts, { deviceId: getKnownPosDeviceIds() });
+
   const navItems = [
     { label: "INICIO", onSelect: () => goToSection(POS_VIEWS.HOME) },
+    ...(tuuPendingViews.length ? [{ label: `PAGOS POR RESOLVER (${tuuPendingViews.length})`, alert: true, onSelect: () => goToSection(POS_VIEWS.PAGOS_POR_RESOLVER) }] : []),
     // Después de INICIO: iniciar (o ver) el turno del operador.
     // (misma condición que shiftReadyForOperations, que se declara más abajo)
     { label: shiftState === "OPEN" && shift?.status !== "CLOSING" ? "TURNO ACTIVO" : "INICIO DE TURNO", onSelect: () => goToSection(POS_VIEWS.TURNO) },
@@ -3256,9 +3268,6 @@ export default function PosTerminal() {
     // VEHÍCULOS EN EL PARKING y CÓDIGO QR siguen disponibles porque son
     // consulta, y por eso no hay "Volver" (ya estamos en HOME).
     const homeShiftGate = renderShiftGate("Inicio de turno", { hideVolver: true });
-    const tuuPendingViews = mergeTuuPendingViews(tuuPendingPayments, serverCardAttempts, { deviceId: getKnownPosDeviceIds() });
-    const tuuPendingViewRecord = paymentSubmitting ? null : findTuuPendingPayment(tuuPendingViews, tuuPendingViewStayId);
-
     return (
       <section className="pos-home-panel mx-auto w-full max-w-4xl">
         {shiftReadyForOperations ? (
@@ -3280,21 +3289,7 @@ export default function PosTerminal() {
           </div>
         ) : null}
 
-        <TuuPendingPaymentsBanner records={tuuPendingViews} onOpen={(stayId) => { setTuuPendingMessage(""); setTuuPendingViewStayId(stayId); }} />
-
-        {tuuPendingViewRecord ? (
-          <div className="mb-4">
-            <TuuPendingPaymentCard
-              key={`${tuuPendingViewRecord.stayId}:${tuuPendingViewRecord.status}`}
-              record={tuuPendingViewRecord}
-              busy={tuuPendingBusy}
-              message={tuuPendingMessage}
-              onRegister={() => void registerPendingTuuPayment(tuuPendingViewRecord)}
-              onRefresh={() => void refreshTuuPendingStatus()}
-              onClose={() => setTuuPendingViewStayId(null)}
-            />
-          </div>
-        ) : null}
+        <TuuPendingPaymentsAlert count={tuuPendingViews.length} onOpen={() => goToSection(POS_VIEWS.PAGOS_POR_RESOLVER)} />
 
         {homeShiftGate ? <div className="mb-4">{homeShiftGate}</div> : null}
 
@@ -4915,6 +4910,36 @@ export default function PosTerminal() {
     );
   }
 
+  // Pagos por resolver: lista completa de pagos con tarjeta sin cerrar y su
+  // detalle (registrar un aprobado, consultar estado). Nunca abre TUU.
+  function renderPagosPorResolverPanel() {
+    const record = paymentSubmitting ? null : findTuuPendingPayment(tuuPendingViews, tuuPendingViewStayId);
+    return (
+      <section className="mx-auto w-full max-w-4xl space-y-4">
+        <h2 className="text-xl font-black uppercase tracking-[0.08em] text-slate-800">Pagos por resolver</h2>
+        {tuuPendingViews.length ? (
+          <TuuPendingPaymentsBanner records={tuuPendingViews} onOpen={(stayId) => { setTuuPendingMessage(""); setTuuPendingViewStayId(stayId); }} />
+        ) : (
+          <p className="rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-950">No hay pagos con tarjeta por resolver.</p>
+        )}
+        {record ? (
+          <TuuPendingPaymentCard
+            key={`${record.stayId}:${record.status}`}
+            record={record}
+            busy={tuuPendingBusy}
+            message={tuuPendingMessage}
+            onRegister={() => void registerPendingTuuPayment(record)}
+            onRefresh={() => void refreshTuuPendingStatus()}
+            onClose={() => setTuuPendingViewStayId(null)}
+          />
+        ) : null}
+        <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-black uppercase tracking-[0.08em] text-slate-800 hover:bg-slate-100">
+          VOLVER AL INICIO
+        </button>
+      </section>
+    );
+  }
+
   function renderOperationalPanel() {
     if (currentView === POS_VIEWS.VEHICULO_DETALLE) {
       return renderVehicleDetailPanel();
@@ -5245,6 +5270,10 @@ export default function PosTerminal() {
       return renderPagosDelDiaPanel();
     }
 
+    if (currentView === POS_VIEWS.PAGOS_POR_RESOLVER) {
+      return renderPagosPorResolverPanel();
+    }
+
     if (currentView === POS_VIEWS.CIERRE_CAJA) {
       return renderCierreCajaPanel();
     }
@@ -5486,7 +5515,7 @@ export default function PosTerminal() {
                   key={item.label}
                   type="button"
                   onClick={() => item.onSelect()}
-                  className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"
+                  className={item.alert ? "min-h-12 w-full rounded-xl border border-amber-400 bg-amber-50 px-3 py-3 text-left text-sm font-black text-amber-950 hover:bg-amber-100" : "min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"}
                 >
                   {item.label}
                 </button>
@@ -5506,7 +5535,7 @@ export default function PosTerminal() {
                 key={item.label}
                 type="button"
                 onClick={() => item.onSelect()}
-                className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"
+                className={item.alert ? "min-h-12 w-full rounded-xl border border-amber-400 bg-amber-50 px-3 py-3 text-left text-sm font-black text-amber-950 hover:bg-amber-100" : "min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"}
               >
                 {item.label}
               </button>
