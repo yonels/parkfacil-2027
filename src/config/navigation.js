@@ -61,7 +61,7 @@ export const navigationItems = [
     // primer ítem del árbol, mismo lugar que ocupa "Dashboard" en On Street
     // (/on-street-qr). No reemplaza /modelo-dashboard (Dashboard General de
     // Plataforma, fuera de este alcance) ni mezcla datos On Street.
-    activePrefix: ["/dashboard-off-street", "/reportes-off-street", "/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/deudas", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo", "/pago-liberado"],
+    activePrefix: ["/dashboard-off-street", "/reportes-off-street", "/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/deudas", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo", "/pago-liberado", "/cupones"],
     children: [
       { href: "/dashboard-off-street", label: "Dashboard", icon: BarChart3 },
       {
@@ -109,6 +109,11 @@ export const navigationItems = [
       // Pago liberado (módulo contratado): gestión del administrador y
       // supervisión Root. Oculto al operador (COMPANY_ADMIN_PREFIXES).
       { href: "/pago-liberado", label: "Pago liberado", icon: BadgeCheck },
+      // Cupones de descuento (SOL-2026-10-19-001): se canjean en el cobro Off
+      // Street, por eso viven en este árbol (antes en Administración). Solo
+      // administrador y con Off Street contratado (COMPANY_ADMIN_PREFIXES y
+      // PRODUCT_PREFIXES en permissions.mjs).
+      { href: "/cupones", label: "Cupones y descuentos", icon: TicketPercent },
       {
         label: "Tarifas",
         icon: BadgeDollarSign,
@@ -243,7 +248,7 @@ export const navigationItems = [
   {
     label: "Administración",
     icon: Settings2,
-    activePrefix: ["/empresas", "/usuarios", "/seguridad", "/facturacion", "/contratos", "/cupones", "/convenios", "/modelo-gestion-modulos", "/documentos", "/mi-cuenta", "/administracion"],
+    activePrefix: ["/empresas", "/usuarios", "/seguridad", "/facturacion", "/contratos", "/convenios", "/modelo-gestion-modulos", "/documentos", "/mi-cuenta", "/administracion"],
     children: [
       { href: "/empresas", label: "Empresas", icon: Users },
       {
@@ -287,7 +292,6 @@ export const navigationItems = [
       // Off Street, porque el catálogo es transversal a ambos productos.
       { href: "/administracion/codigos-estacionamiento", label: "Códigos de Estacionamiento", icon: Hash },
       { href: "/contratos", label: "Contratos", icon: Handshake },
-      { href: "/cupones", label: "Cupones y descuentos", icon: TicketPercent },
       { href: "/convenios", label: "Convenios", icon: Handshake },
       // Placeholder ya existente ("próximamente"), reubicado aquí -- no es
       // una ruta real, se preserva deshabilitado tal como estaba. El

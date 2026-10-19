@@ -201,3 +201,27 @@ test("Root nunca queda sujeto a la restricción por producto", () => {
   assert.equal(canAccessPath(root, "/estacionamientos"), true);
   assert.equal(canAccessPath(root, "/on-street-qr"), true);
 });
+
+// SOL-2026-10-19-001: «Cupones y descuentos» vive en el árbol Off Street; solo administrador
+// de empresa con Off Street contratado (y Root).
+test("cupones: solo administrador con Off Street contratado; Root siempre", () => {
+  const admin = { portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts: [PRODUCTS.OFF_STREET] };
+  assert.equal(canAccessPath(admin, "/cupones"), true);
+  assert.equal(canAccessPath({ ...admin, enabledProducts: [PRODUCTS.ON_STREET] }, "/cupones"), false);
+  assert.equal(canAccessPath({ ...admin, enabledProducts: [] }, "/cupones"), false);
+  assert.equal(canAccessPath({ portal: "client", role: ROLES.OPERATOR, enabledProducts: [PRODUCTS.OFF_STREET] }, "/cupones"), false);
+  assert.equal(canAccessPath({ portal: "root", role: ROLES.PLATFORM_ADMIN }, "/cupones"), true);
+  assert.equal(navigationVisibleForRole({ href: "/cupones" }, admin), true);
+  assert.equal(navigationVisibleForRole({ href: "/cupones" }, { portal: "client", role: ROLES.OPERATOR, enabledProducts: [PRODUCTS.OFF_STREET] }), false);
+});
+
+test("cupones: el ítem del menú está en el árbol Off Street y ya no en Administración", async () => {
+  const { readFileSync } = await import("node:fs");
+  const nav = readFileSync(new URL("../../config/navigation.js", import.meta.url), "utf8");
+  const offStreet = nav.slice(nav.indexOf('label: "Off Street"'), nav.indexOf('label: "On Street"') > nav.indexOf('label: "Off Street"') ? nav.indexOf('label: "On Street"') : nav.indexOf('label: "Administración"'));
+  const admin = nav.slice(nav.indexOf('label: "Administración"'));
+  assert.match(offStreet, /\{ href: "\/cupones", label: "Cupones y descuentos", icon: TicketPercent \}/);
+  assert.match(offStreet, /"\/pago-liberado", "\/cupones"\]/);
+  assert.doesNotMatch(admin, /href: "\/cupones"/);
+  assert.doesNotMatch(admin, /"\/cupones"/);
+});

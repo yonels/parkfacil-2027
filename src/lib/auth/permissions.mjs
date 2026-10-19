@@ -145,7 +145,9 @@ const ROOT_ONLY_PREFIXES = [
 // pagar; la API exige además rol administrador (canManageDebts).
 // "/pago-liberado": gestión del administrador del estacionamiento (y
 // supervisión Root); el operador POS solo aplica las reglas en el terminal.
-const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion", "/deudas", "/pago-liberado"];
+// "/cupones" (SOL-2026-10-19-001): creación y envío de cupones de descuento, solo
+// administrador; el operador no los gestiona.
+const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion", "/deudas", "/pago-liberado", "/cupones"];
 
 // Prefijos de ruta que exigen un producto habilitado (Portal Cliente/
 // Terminal no aplica -- Root nunca pasa por aquí, ver canAccessPath). El
@@ -155,6 +157,7 @@ const PRODUCT_PREFIXES = [
   { prefix: "/estacionamientos", product: PRODUCTS.OFF_STREET },
   { prefix: "/pago-liberado", product: PRODUCTS.OFF_STREET },
   { prefix: "/deudas", product: PRODUCTS.OFF_STREET },
+  { prefix: "/cupones", product: PRODUCTS.OFF_STREET },
   { prefix: "/on-street-qr", product: PRODUCTS.ON_STREET },
 ];
 
