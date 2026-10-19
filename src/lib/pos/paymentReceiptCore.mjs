@@ -58,7 +58,7 @@ export function receiptRateDescription(rateName, breakdown, fallbackSummary = ""
   const join = (...parts) => parts.filter(Boolean).join(" · ");
   if (!passes.length) return join(name, fallbackSummary);
   const prices = [...new Set(passes.map((pass) => Number(pass.minuteAmount || 0)))].sort((a, b) => b - a).map(clp);
-  const priceList = prices.length === 1 ? prices[0] : `${prices.slice(0, -1).join(", ")} y ${prices.at(-1)}`;
+  const priceList = prices.length === 1 ? prices[0] : `${prices.slice(0, -1).join(", ")} y ${prices[prices.length - 1]}`;
   const capApplied = passes.some((pass) => pass.capApplied);
   const candidates = [
     join(name, `${priceList} por minuto efectivo`, capApplied ? "tope aplicado" : ""),
