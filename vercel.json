@@ -4,7 +4,9 @@
       "feature/pago-liberado-catalogo-prod": false,
       "feature/pago-liberado-etapa1": false,
       "feature/pago-liberado-etapa2": false,
-      "align/release-to-main": false
+      "align/release-to-main": false,
+      "feature/tuu-02-robustecimiento": false,
+      "feature/tuu-02-integracion": false
     }
   }
 }

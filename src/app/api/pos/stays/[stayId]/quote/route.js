@@ -3,6 +3,7 @@ import { authorizeOperationRequest, operationAuthorizationError, posOperationAct
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { quoteOpenPosStay } from "@/lib/posStaysService";
+import { findActiveCardPaymentAttemptRow, isCardAttemptsStorageMissing, mapCardPaymentAttemptForPos } from "@/lib/pos/cardPaymentAttempts.mjs";
 
 function fail(message, status = 400, details) {
   return NextResponse.json({ error: message, details }, { status });
@@ -32,12 +33,22 @@ export async function GET(request, { params }) {
       return fail("No existe una estadía abierta para el vehículo solicitado.", 404);
     }
 
+    // Reserva central: intento de pago con tarjeta activo de este ticket (de
+    // cualquier equipo). Con uno activo el POS no ofrece medios de pago.
+    let cardPaymentAttempt = null;
+    try {
+      cardPaymentAttempt = mapCardPaymentAttemptForPos(await findActiveCardPaymentAttemptRow(authorization.db, { stayId: detail.stay.id }));
+    } catch (attemptError) {
+      if (!isCardAttemptsStorageMissing(attemptError)) throw attemptError;
+    }
+
     return NextResponse.json({
       data: {
         parking: detail.parking || parking,
         serverNow: detail.serverNow,
         stay: detail.stay,
         quote: detail.quote,
+        cardPaymentAttempt,
         cardTypeCaptureAvailable: detail.cardTypeCaptureAvailable === true,
         actor: { ...posOperationActor(authorization.context), parkingId: parking.id },
       },
@@ -45,6 +56,6 @@ export async function GET(request, { params }) {
   } catch (error) {
     const denied = operationAuthorizationError(request, authorization?.context, error);
     if (denied) return denied;
-    return fail("No fue posible cotizar la estadía.", 503);
+    return fail("No fue posible calcular el cobro del vehículo.", 503);
   }
 }

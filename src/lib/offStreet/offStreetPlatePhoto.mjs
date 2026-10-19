@@ -119,3 +119,39 @@ export function buildPrintableEntryPayload(basePayload, { photoBase64, printOnTi
   if (!decision.includePhoto) return { payload: basePayload, includePhoto: false, reason: decision.reason };
   return { payload: { ...basePayload, platePhotoBase64: photoBase64 }, includePhoto: true, reason: "" };
 }
+
+// Estado de la configuración de fotografía de patente que el POS muestra al
+// operador (SOL-2026-10-11-001, incidencia "foto de patente"). La opción de
+// tomar la foto depende de una configuración POR ESTACIONAMIENTO; desde que el
+// operador puede elegir cualquier estacionamiento de la empresa, puede quedar
+// operando uno que nunca fue configurado. Antes la opción simplemente no
+// aparecía, sin explicación. Estos estados NO cambian la regla (sin fila o
+// DISABLED = sin fotografía): solo la hacen visible.
+//   ENABLED         el modo es OPTIONAL o REQUIRED.
+//   DISABLED        un administrador la dejó desactivada en este estacionamiento.
+//   NOT_CONFIGURED  este estacionamiento nunca tuvo configuración (sin fila).
+//   UNAVAILABLE     no se pudo leer la configuración (error): no se sabe.
+export const PLATE_PHOTO_STATUS = Object.freeze({
+  ENABLED: "ENABLED",
+  DISABLED: "DISABLED",
+  NOT_CONFIGURED: "NOT_CONFIGURED",
+  UNAVAILABLE: "UNAVAILABLE",
+});
+
+export function resolvePlatePhotoStatus({ mode, configured, readFailed } = {}) {
+  if (readFailed) return PLATE_PHOTO_STATUS.UNAVAILABLE;
+  if (mode === "OPTIONAL" || mode === "REQUIRED") return PLATE_PHOTO_STATUS.ENABLED;
+  return configured ? PLATE_PHOTO_STATUS.DISABLED : PLATE_PHOTO_STATUS.NOT_CONFIGURED;
+}
+
+// Texto para el operador cuando la opción "Tomar foto" no está disponible.
+// null cuando está habilitada o cuando el servidor no informa el estado
+// (versión anterior de la API): en ese caso no se afirma nada.
+export function platePhotoUnavailableMessage(status) {
+  if (status === PLATE_PHOTO_STATUS.NOT_CONFIGURED) {
+    return "Foto de patente sin configurar en este estacionamiento. Un administrador la activa en Estacionamientos › Configuración.";
+  }
+  if (status === PLATE_PHOTO_STATUS.DISABLED) return "Foto de patente desactivada en este estacionamiento.";
+  if (status === PLATE_PHOTO_STATUS.UNAVAILABLE) return "No fue posible leer la configuración de foto de patente. Pulsa Actualizar.";
+  return null;
+}

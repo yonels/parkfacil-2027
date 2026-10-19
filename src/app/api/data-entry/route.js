@@ -1,6 +1,7 @@
 import { canCaptureCardType, validatePaymentCardType } from "@/lib/paymentCardType.mjs";
 import { posCardPaymentsEnabled } from "@/lib/pos/cardPaymentsAvailability.mjs";
 import { canStoreCardPaymentReference, validateCardPaymentReference } from "@/lib/pos/cardPaymentReference.mjs";
+import { CARD_ATTEMPT_OUTCOMES, CARD_ATTEMPT_STATUS, cardAttemptErrorResponse, cardRegistrationStayIdProblem, cardRegistrationStayMismatch, findActiveCardPaymentAttemptRow, getCardPaymentAttemptRow, isCardAttemptsStorageMissing, isUuid, mapCardPaymentAttemptForPos, markCardPaymentAttemptSent, normalizeDeclaredTuuEnvironment, paymentFromChargeSnapshot, registerCardPaymentAttempt, reportCardPaymentAttemptResult, reserveCardPaymentAttempt, sanitizeDeviceId, sanitizeIdempotencyKey, tuuEnvironmentCompatibilityProblem, tuuEnvironmentFromEnv } from "@/lib/pos/cardPaymentAttempts.mjs";
 import { canRevertUnpaidMark, sanitizeUnpaidNotes } from "@/lib/parkingDebtsCore.mjs";
 import { buildDebtNoticeForPlate, getPendingUnpaidStay, listPendingUnpaidStaysForShift, markStayUnpaid, revertStayUnpaid } from "@/lib/parkingDebtsRepository";
 import { getDebtNoticeEnabled } from "@/lib/offStreet/debtNoticeSettingsRepository";
@@ -8,7 +9,7 @@ import { NextResponse } from "next/server";
 import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
 import { buildPosQuoteSnapshot, loadReleasedStaySnapshot, quoteParkingStay, quoteReleasedParkingStay, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
 import { describeAuthorization } from "@/lib/releasedPayment/authorizationCore.mjs";
-import { ENTRY_DECISION, evaluateReleasedEntry } from "@/lib/releasedPayment/releasedStayCore.mjs";
+import { ENTRY_DECISION, evaluateReleasedEntry, releasedStayCoverage } from "@/lib/releasedPayment/releasedStayCore.mjs";
 import { loadModuleStates, loadPlateAuthorizations, rpcErrorCode, storageMissing } from "@/lib/releasedPayment/releasedPaymentServer";
 import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, requireOperationalParking, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
@@ -246,7 +247,224 @@ async function entryDebtNotice(db, parking, plate) {
   }
 }
 
+const CARD_ATTEMPT_ACTIVE_MESSAGE = "Este ticket tiene un pago con tarjeta en curso o por resolver. No se puede pagar ni cerrar por otra vía hasta resolverlo.";
+
+// Reserva central (SOL-2026-10-11-001): ¿el ticket tiene un intento de pago
+// con tarjeta activo? Sin la migración aplicada no hay intentos: devuelve
+// null y los demás medios de pago siguen funcionando como siempre. La guarda
+// definitiva es el trigger de la base (parking_stays_guard_card_attempt).
+async function activeCardAttemptOrNull(db, stayId) {
+  try {
+    return await findActiveCardPaymentAttemptRow(db, { stayId });
+  } catch (error) {
+    if (isCardAttemptsStorageMissing(error)) return null;
+    throw error;
+  }
+}
+
+// Cálculo de cobro firmado por el servidor: mismas validaciones que el pago
+// en efectivo. Devuelve null si es válido.
+function chargeSnapshotProblem(snapshot, stay, { now = new Date() } = {}) {
+  const expiresAt = snapshot?.expiresAt ? new Date(snapshot.expiresAt) : null;
+  if (!snapshot?.signature) return { status: 409, code: "QUOTE_SNAPSHOT_REQUIRED", error: "El cálculo de cobro expiró o no es válido. Actualiza el vehículo para obtener el monto a pagar." };
+  if (!expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt <= now) return { status: 409, code: "QUOTE_SNAPSHOT_EXPIRED", error: "El cálculo de cobro expiró. Actualiza el vehículo para obtener el monto a pagar." };
+  if (snapshot.stayId !== stay.id || snapshot.parkingId !== stay.parking_id || snapshot.stayUpdatedAt !== stay.updated_at) return { status: 409, code: "QUOTE_SNAPSHOT_STALE", error: "El cálculo de cobro ya no corresponde a este ticket. Actualiza el vehículo para obtener el monto a pagar." };
+  return chargeSnapshotSignatureProblem(snapshot);
+}
+
+function chargeSnapshotSignatureProblem(snapshot) {
+  const secret = process.env.POS_QUOTE_HMAC_SECRET;
+  if (!secret) return { status: 503, code: "QUOTE_SIGNATURE_UNAVAILABLE", error: "La validación del cálculo de cobro no está configurada." };
+  let valid = false;
+  try { valid = verifyPosQuoteSnapshot(snapshot, snapshot?.signature, secret); } catch { valid = false; }
+  return valid ? null : { status: 409, code: "QUOTE_SNAPSHOT_INVALID", error: "El cálculo de cobro no pudo validarse. Actualiza el vehículo para obtener el monto a pagar." };
+}
+
+function quoteFromChargeSnapshot(snapshot) {
+  return {
+    blocked: false,
+    elapsedMinutes: Number.isFinite(Number(snapshot.elapsedMinutes)) ? Number(snapshot.elapsedMinutes) : null,
+    subtotal: Number(snapshot.subtotalAmount || 0),
+    discount: Number(snapshot.discountAmount || 0),
+    net: Number(snapshot.netAmount || 0),
+    tax: Number(snapshot.taxAmount || 0),
+    total: Number(snapshot.totalAmount || 0),
+    rate: { id: snapshot.rateId || null, name: snapshot.rateName || null, billingMode: snapshot.billingMode || null, currency: snapshot.currency || "CLP" },
+    coupon: snapshot.couponId ? { id: snapshot.couponId, code: snapshot.couponCode || null, benefitType: snapshot.couponBenefitType || null, value: Number.isFinite(Number(snapshot.couponBenefitValue)) ? Number(snapshot.couponBenefitValue) : null } : null,
+    snapshot,
+  };
+}
+
+// Reserva central de intentos de pago con tarjeta (POS):
+//   CARD_PAYMENT_RESERVE  reserva el intento ANTES de abrir TUU (atómico en la base).
+//   CARD_PAYMENT_SENT     el POS confirma que va a abrir TUU.
+//   CARD_PAYMENT_RESULT   resultado entregado por TUU (también tardío).
+// Sin reserva confirmada el POS no abre TUU. Si la migración no está aplicada
+// se responde 503: no existe un modo alternativo solo local.
+async function handleCardPaymentAttemptAction({ input, current, isPosRequest, posShift }) {
+  if (!isPosRequest || !posShift) return fail("Debes iniciar un turno en el POS para cobrar con tarjeta.", 409, { code: "OPEN_SHIFT_REQUIRED" });
+  const companyId = current.parking?.companyId || null;
+  const deviceId = sanitizeDeviceId(input.deviceId);
+  if (!companyId || !deviceId) return fail("No fue posible identificar este equipo. No se inició ningún cobro.", 400, { code: "CARD_ATTEMPT_DEVICE_REQUIRED" });
+  const log = (event, extra = {}) => console.info("[data-entry:card-attempt]", { event, action: input.action, parkingId: current.actor.parkingId, operatorId: current.actor.id, shiftId: posShift.id, deviceId, ...extra });
+  try {
+    if (input.action === "CARD_PAYMENT_RESERVE") {
+      const idempotencyKey = sanitizeIdempotencyKey(input.idempotencyKey);
+      if (!idempotencyKey) return fail("La solicitud de pago no es válida. No se inició ningún cobro.", 400, { code: "CARD_ATTEMPT_IDEMPOTENCY_KEY_REQUIRED" });
+      // Ambiente TUU: el del servidor manda. Lo que declara el equipo solo
+      // sirve para rechazar una mezcla DEV/PROD; no es una prueba de autenticidad.
+      const serverEnvironment = tuuEnvironmentFromEnv(process.env);
+      const environmentProblem = tuuEnvironmentCompatibilityProblem({ serverEnvironment, declaredEnvironment: normalizeDeclaredTuuEnvironment(input.tuuEnvironment) });
+      if (environmentProblem) {
+        log("ENVIRONMENT_REJECTED", { code: environmentProblem.code, serverEnvironment });
+        return fail(environmentProblem.error, environmentProblem.status, { code: environmentProblem.code });
+      }
+      let cardType = null;
+      try { cardType = validatePaymentCardType("CARD", input.paymentCardType); } catch { cardType = null; }
+      if (!cardType) return fail("Selecciona Débito o Crédito.", 400, { code: "INVALID_PAYMENT_CARD_TYPE" });
+      if (!(await canCaptureCardType(current.db, current.actor.parkingId))) return fail("Falta habilitar el registro de Crédito y Débito.", 503, { code: "CARD_TYPE_SCHEMA_UNAVAILABLE" });
+      const stay = await findOpenStay(current.db, { stayId: input.stayId }, current.actor.parkingId);
+      if (!stay) return fail("No existe una estadía abierta para el vehículo.", 404);
+      // El monto lo fija el servidor: es el del cálculo de cobro firmado y vigente.
+      const problem = chargeSnapshotProblem(input.quoteSnapshot || null, stay);
+      if (problem) return fail(problem.error, problem.status, { code: problem.code });
+      const amount = Math.round(Number(input.quoteSnapshot.totalAmount || 0));
+      if (!(amount > 0)) return fail("El monto a pagar no es válido.", 409, { code: "CARD_ATTEMPT_AMOUNT_INVALID" });
+      const row = await reserveCardPaymentAttempt(current.db, {
+        idempotencyKey, companyId, parkingId: stay.parking_id, stayId: stay.id,
+        operatorId: current.actor.id, operatorName: current.actor.name, shiftId: posShift.id, deviceId,
+        environment: serverEnvironment, cardType, amount, chargeSnapshot: input.quoteSnapshot,
+      });
+      log("RESERVED", { attemptId: row?.id || null, stayId: stay.id, ticket: stay.code, plate: stay.license_plate, amount, cardType, status: row?.status || null });
+      return NextResponse.json({ data: { attempt: mapCardPaymentAttemptForPos(row) } });
+    }
+
+    const attemptId = isUuid(input.attemptId) ? input.attemptId : null;
+    if (!attemptId) return fail("El intento de pago no es válido.", 400, { code: "CARD_ATTEMPT_ID_REQUIRED" });
+
+    if (input.action === "CARD_PAYMENT_SENT") {
+      const row = await markCardPaymentAttemptSent(current.db, { attemptId, companyId, operatorId: current.actor.id, deviceId });
+      log("SENT", { attemptId, status: row?.status || null });
+      return NextResponse.json({ data: { attempt: mapCardPaymentAttemptForPos(row) } });
+    }
+
+    if (!CARD_ATTEMPT_OUTCOMES.includes(input.outcome)) return fail("El resultado informado no es válido.", 400, { code: "CARD_ATTEMPT_OUTCOME_INVALID" });
+    const row = await reportCardPaymentAttemptResult(current.db, {
+      attemptId, companyId, deviceId, outcome: input.outcome,
+      reference: input.reference || null,
+      errorCode: input.errorCode ? String(input.errorCode).slice(0, 40) : null,
+      errorMessage: input.errorMessage ? String(input.errorMessage).slice(0, 200) : null,
+    });
+    log("RESULT", { attemptId, outcome: input.outcome, status: row?.status || null, reference: row?.provider_reference || null, errorCode: row?.provider_error_code || null });
+    return NextResponse.json({ data: { attempt: mapCardPaymentAttemptForPos(row) } });
+  } catch (error) {
+    const mapped = cardAttemptErrorResponse(error);
+    if (mapped) {
+      log("REJECTED", { code: mapped.code });
+      return fail(mapped.error, mapped.status, { code: mapped.code });
+    }
+    console.error("[data-entry:card-attempt]", { action: input.action, code: error?.code, message: error?.message });
+    return fail("No fue posible confirmar la operación del pago con tarjeta.", 503, { code: "CARD_ATTEMPT_FAILED" });
+  }
+}
+
+// Registro del pago con tarjeta desde el POS: SIEMPRE por intento reservado y
+// aprobado. El registro del pago y el cierre del intento ocurren en una sola
+// transacción (register_pos_card_payment); repetirlo devuelve el pago
+// existente. Monto y datos salen del cálculo de cobro guardado en el intento.
+// Pago liberado (SOL-2026-10-16-003): una estadía liberada cuyo excedente se paga con
+// tarjeta guarda el tiempo cubierto y cobrado, igual que en efectivo. Se calcula hasta la
+// hora del cálculo de cobro firmado (el monto cobrado). El pago ya quedó registrado: un
+// fallo aquí solo se registra en el log, nunca revierte el cobro.
+async function recordReleasedSecondsForCard(db, stayId, calculatedAt) {
+  try {
+    const { data: stay, error } = await db.from("parking_stays").select("id,entry_at,exit_at,released_payment_snapshot,released_payment_authorization_id").eq("id", stayId).maybeSingle();
+    if (error) throw error;
+    if (!stay?.released_payment_authorization_id) return;
+    const until = calculatedAt || stay.exit_at;
+    if (!until) return;
+    const coverage = releasedStayCoverage(stay.released_payment_snapshot, stay.entry_at, until);
+    const update = await db.from("parking_stays").update({ released_covered_seconds: coverage.coveredSeconds, released_chargeable_seconds: coverage.chargeableSeconds }).eq("id", stay.id);
+    if (update.error) throw update.error;
+  } catch (error) {
+    console.error("[data-entry:card-released-seconds]", { stayId, code: error?.code, message: error?.message });
+  }
+}
+
+async function registerCardPaymentFromAttempt({ input, current, posShift }) {
+  const attemptId = isUuid(input?.cardPayment?.attemptId) ? input.cardPayment.attemptId : null;
+  if (!attemptId) return fail("El pago con tarjeta requiere un intento reservado. Vuelve a abrir el vehículo.", 409, { code: "CARD_PAYMENT_ATTEMPT_REQUIRED" });
+  // El ticket solicitado es obligatorio y debe ser el del intento (D1).
+  const stayIdProblem = cardRegistrationStayIdProblem(input?.stayId);
+  if (stayIdProblem) return fail(stayIdProblem.error, stayIdProblem.status, { code: stayIdProblem.code });
+  const companyId = current.parking?.companyId || null;
+  const log = (event, extra = {}) => console.info("[data-entry:card-attempt]", { event, action: "EXIT", attemptId, parkingId: current.actor.parkingId, operatorId: current.actor.id, shiftId: posShift.id, ...extra });
+  let attempt;
+  try {
+    attempt = await getCardPaymentAttemptRow(current.db, { attemptId, companyId });
+  } catch (error) {
+    const mapped = cardAttemptErrorResponse(error);
+    if (mapped) return fail(mapped.error, mapped.status, { code: mapped.code });
+    console.error("[data-entry:card-attempt]", { action: "EXIT", code: error?.code, message: error?.message });
+    return fail("No fue posible registrar el pago.", 503, { code: "CARD_ATTEMPT_FAILED" });
+  }
+  if (!attempt) return fail("No existe el intento de pago solicitado.", 404, { code: "CARD_ATTEMPT_NOT_FOUND" });
+  // Antes de cualquier modificación y también si el intento ya está PAID: un
+  // intento nunca responde éxito para un ticket que no es el suyo.
+  const stayMismatch = cardRegistrationStayMismatch(input.stayId, attempt);
+  if (stayMismatch) {
+    log("REGISTRATION_REJECTED", { code: stayMismatch.code });
+    return fail(stayMismatch.error, stayMismatch.status, { code: stayMismatch.code });
+  }
+  if (attempt.parking_id !== current.actor.parkingId) {
+    return fail("Este pago corresponde a otro estacionamiento. Inicia turno allí para registrarlo.", 409, { code: "CARD_ATTEMPT_OTHER_PARKING" });
+  }
+  if (![CARD_ATTEMPT_STATUS.APPROVED_PENDING_REGISTRATION, CARD_ATTEMPT_STATUS.PAID].includes(attempt.status)) {
+    return fail("El pago todavía no está aprobado. No se registró.", 409, { code: "CARD_ATTEMPT_NOT_APPROVED" });
+  }
+  const snapshot = attempt.charge_snapshot;
+  const problem = chargeSnapshotSignatureProblem(snapshot);
+  if (problem) return fail(problem.error, problem.status, { code: problem.code });
+  const confirmedQuote = quoteFromChargeSnapshot(snapshot);
+  const paymentCode = code("PAG");
+  const redeemedAt = new Date().toISOString();
+  const alreadyPaid = attempt.status === CARD_ATTEMPT_STATUS.PAID;
+  if (!alreadyPaid && confirmedQuote.coupon) {
+    const { data: redeemed, error: redeemError } = await current.db.from("coupons").update({ status: "REDEEMED", redeemed_at: redeemedAt, redeemed_by: current.actor.id, redeemed_stay_id: attempt.stay_id }).eq("id", confirmedQuote.coupon.id).eq("status", "ACTIVE").is("redeemed_at", null).select("id").maybeSingle();
+    if (redeemError || !redeemed) return fail("El cupón ya fue utilizado o dejó de estar disponible.", 409);
+  }
+  let stay;
+  try {
+    stay = await registerCardPaymentAttempt(current.db, {
+      attemptId, companyId, operatorId: current.actor.id, operatorName: current.actor.name, shiftId: posShift.id,
+      payment: paymentFromChargeSnapshot(snapshot, { paymentCode }),
+    });
+  } catch (error) {
+    if (!alreadyPaid && confirmedQuote.coupon) {
+      await current.db.from("coupons").update({ status: "ACTIVE", redeemed_at: null, redeemed_by: null, redeemed_stay_id: null }).eq("id", confirmedQuote.coupon.id).eq("status", "REDEEMED").eq("redeemed_stay_id", attempt.stay_id).eq("redeemed_at", redeemedAt);
+    }
+    const mapped = cardAttemptErrorResponse(error);
+    log("REGISTRATION_FAILED", { code: mapped?.code || error?.code || null });
+    if (mapped) return fail(mapped.error, mapped.status, { code: mapped.code });
+    if (String(error?.message || "").includes("PAYMENT_SHIFT_NOT_OPEN")) return fail("El turno dejó de estar abierto antes de registrar el pago. Actualiza el POS.", 409, { code: "PAYMENT_SHIFT_NOT_OPEN" });
+    return fail("No fue posible registrar el pago.", 503, { code: "CARD_ATTEMPT_FAILED" });
+  }
+  if (!stay) return fail("No fue posible registrar el pago.", 503, { code: "CARD_ATTEMPT_FAILED" });
+  if (!alreadyPaid) await recordReleasedSecondsForCard(current.db, stay.id, snapshot?.calculatedAt);
+  const { data: parking } = await current.db.from("parkings").select(ticketParkingFields).eq("id", stay.parking_id).single();
+  const publicStay = Object.fromEntries(publicStayFields.split(",").map((field) => [field, stay[field] ?? null]));
+  log("REGISTERED", { stayId: stay.id, ticket: stay.code, plate: stay.license_plate, total: stay.total_amount, cardType: stay.payment_card_type, reference: stay.card_payment_reference || null, registration: stay.card_payment_registration || null, alreadyPaid });
+  return NextResponse.json({ data: {
+    stay: { ...publicStay, payment_card_type: stay.payment_card_type },
+    parking,
+    quote: { ...confirmedQuote, paymentCode: stay.payment_code },
+    cardPaymentRegistration: stay.card_payment_registration || null,
+    alreadyRegistered: alreadyPaid,
+  } });
+}
+
 const UNPAID_ERROR_MESSAGES = {
+  CARD_PAYMENT_ATTEMPT_ACTIVE: CARD_ATTEMPT_ACTIVE_MESSAGE,
   UNPAID_SHIFT_NOT_OPEN: "El turno ya no está abierto. Actualiza el POS.",
   UNPAID_SHIFT_OPERATOR_MISMATCH: "La marca debe hacerla el operador del turno abierto.",
   UNPAID_SHIFT_PARKING_MISMATCH: "El turno no corresponde a este estacionamiento.",
@@ -277,6 +495,19 @@ export async function POST(request) {
     if (!plate) return fail("Ingresa una patente válida.", 400, { plate: "Formato requerido: CXPY93", code: "INVALID_PLATE" });
     const result = await releasedEntryDecision(current.db, current.actor.parkingId, plate);
     return NextResponse.json({ data: releasedCheckPayload(plate, result) });
+  }
+  // D2 (SOL-2026-10-18-001): donde el pago con tarjeta está apagado (producción), el POS no
+  // reserva ni registra cobros con tarjeta.
+  if (isPosRequest && !posCardPaymentsEnabled() && (["CARD_PAYMENT_RESERVE", "CARD_PAYMENT_SENT", "CARD_PAYMENT_RESULT"].includes(input.action) || (input.action === "EXIT" && input.paymentMethod === "CARD"))) {
+    return fail("El pago con tarjeta no está disponible en este POS. Cobra en efectivo.", 403, { code: "CARD_PAYMENTS_DISABLED" });
+  }
+  if (["CARD_PAYMENT_RESERVE", "CARD_PAYMENT_SENT", "CARD_PAYMENT_RESULT"].includes(input.action)) {
+    return handleCardPaymentAttemptAction({ input, current, isPosRequest, posShift });
+  }
+  // Pago con tarjeta desde el POS: solo por intento reservado (nunca un
+  // registro directo que eluda la reserva).
+  if (input.action === "EXIT" && input.paymentMethod === "CARD" && isPosRequest) {
+    return registerCardPaymentFromAttempt({ input, current, posShift });
   }
   if (input.action === "ENTRY") {
     const plate = formatChileanPlate(input.plate || joinChileanPlate(input.platePrefix, input.plateSuffix));
@@ -469,6 +700,12 @@ export async function POST(request) {
     if (isPosRequest && input.paymentMethod === "CARD" && !posCardPaymentsEnabled()) {
       return fail("El pago con tarjeta no está disponible en este POS. Cobra en efectivo.", 403, { code: "CARD_PAYMENTS_DISABLED" });
     }
+    // Un ticket con un pago con tarjeta en curso, aprobado sin registrar o
+    // incierto no puede pagarse por otro medio.
+    let blockingAttempt = null;
+    try { blockingAttempt = await activeCardAttemptOrNull(current.db, stay.id); }
+    catch { return fail("No fue posible cerrar y pagar la estadía.", 503); }
+    if (blockingAttempt) return fail(CARD_ATTEMPT_ACTIVE_MESSAGE, 409, { code: "CARD_PAYMENT_ATTEMPT_ACTIVE" });
     let paymentCardType;
     try { paymentCardType = validatePaymentCardType(input.paymentMethod, input.paymentCardType); }
     catch { return fail("El tipo de tarjeta no es válido.", 400, { code: "INVALID_PAYMENT_CARD_TYPE" }); }
@@ -493,16 +730,16 @@ export async function POST(request) {
     const quoteSecret = process.env.POS_QUOTE_HMAC_SECRET;
     const quoteExpiresAt = quoteSnapshot?.expiresAt ? new Date(quoteSnapshot.expiresAt) : null;
     if (!quoteSnapshot?.signature) {
-      return fail("La cotización del POS venció o no es válida. Actualiza el vehículo y vuelve a cobrar.", 409, { code: "QUOTE_SNAPSHOT_REQUIRED" });
+      return fail("El cálculo de cobro expiró o no es válido. Actualiza el vehículo para obtener el monto a pagar.", 409, { code: "QUOTE_SNAPSHOT_REQUIRED" });
     }
     if (!quoteExpiresAt || Number.isNaN(quoteExpiresAt.getTime()) || quoteExpiresAt <= now) {
-      return fail("La cotización del POS venció o no es válida. Actualiza el vehículo y vuelve a cobrar.", 409, { code: "QUOTE_SNAPSHOT_EXPIRED" });
+      return fail("El cálculo de cobro expiró. Actualiza el vehículo para obtener el monto a pagar.", 409, { code: "QUOTE_SNAPSHOT_EXPIRED" });
     }
     if (quoteSnapshot.stayId !== stay.id || quoteSnapshot.parkingId !== stay.parking_id || quoteSnapshot.stayUpdatedAt !== stay.updated_at) {
-      return fail("La cotización del POS ya no corresponde a esta estadía. Actualiza el vehículo y vuelve a cobrar.", 409, { code: "QUOTE_SNAPSHOT_STALE" });
+      return fail("El cálculo de cobro ya no corresponde a este ticket. Actualiza el vehículo para obtener el monto a pagar.", 409, { code: "QUOTE_SNAPSHOT_STALE" });
     }
     if (!quoteSecret) {
-      return fail("La firma de cotización POS no está configurada.", 503, { code: "QUOTE_SIGNATURE_UNAVAILABLE" });
+      return fail("La validación del cálculo de cobro no está configurada.", 503, { code: "QUOTE_SIGNATURE_UNAVAILABLE" });
     }
     let quoteSnapshotValid = false;
     try {
@@ -511,7 +748,7 @@ export async function POST(request) {
       quoteSnapshotValid = false;
     }
     if (!quoteSnapshotValid) {
-      return fail("La cotización del POS fue alterada o no pudo validarse. Actualiza el vehículo y vuelve a cobrar.", 409, { code: "QUOTE_SNAPSHOT_INVALID" });
+      return fail("El cálculo de cobro no pudo validarse. Actualiza el vehículo para obtener el monto a pagar.", 409, { code: "QUOTE_SNAPSHOT_INVALID" });
     }
     const confirmedQuote = {
       blocked: false,
@@ -558,6 +795,7 @@ export async function POST(request) {
       if (confirmedQuote.coupon) {
         await current.db.from("coupons").update({ status: "ACTIVE", redeemed_at: null, redeemed_by: null, redeemed_stay_id: null }).eq("id", confirmedQuote.coupon.id).eq("status", "REDEEMED").eq("redeemed_stay_id", stay.id).eq("redeemed_at", exitAt);
       }
+      if (String(error.message || "").includes("CARD_PAYMENT_ATTEMPT_ACTIVE")) return fail(CARD_ATTEMPT_ACTIVE_MESSAGE, 409, { code: "CARD_PAYMENT_ATTEMPT_ACTIVE" });
       const shiftConflict = String(error.message || "").includes("PAYMENT_SHIFT_NOT_OPEN");
       return fail(shiftConflict ? "El turno dejó de estar abierto antes de confirmar el pago. Actualiza el POS." : "No fue posible cerrar y pagar la estadía.", shiftConflict ? 409 : 503);
     }
@@ -596,6 +834,10 @@ export async function POST(request) {
     if (!isPosRequest || !posShift) return fail("Debes iniciar un turno en el POS para registrar una salida sin pago.", 409, { code: "OPEN_SHIFT_REQUIRED" });
     const stay = await findOpenStay(current.db, input, current.actor.parkingId);
     if (!stay) return fail("No existe una estadía abierta para el vehículo.", 404);
+    let unpaidBlockingAttempt = null;
+    try { unpaidBlockingAttempt = await activeCardAttemptOrNull(current.db, stay.id); }
+    catch { return fail("No fue posible registrar la salida sin pago.", 503); }
+    if (unpaidBlockingAttempt) return fail(CARD_ATTEMPT_ACTIVE_MESSAGE, 409, { code: "CARD_PAYMENT_ATTEMPT_ACTIVE" });
     let marked;
     try {
       marked = await markStayUnpaid(current.db, { stayId: stay.id, parkingId: current.actor.parkingId, actor: current.actor, shiftId: posShift.id, notes: sanitizeUnpaidNotes(input.notes) });
