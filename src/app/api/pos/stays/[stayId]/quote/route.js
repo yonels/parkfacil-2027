@@ -5,6 +5,8 @@ import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { quoteOpenPosStay } from "@/lib/posStaysService";
 import { loadReleasedStaySnapshot } from "@/lib/parkingStayQuoteService";
 import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
+import { couponsActiveForParking } from "@/lib/cupones/couponModuleServer";
+import { COUPON_MODULE_INACTIVE_ERROR } from "@/lib/cupones/couponModuleCore.mjs";
 import { couponTokenForRequest } from "@/lib/cupones/couponInput.mjs";
 
 function fail(message, status = 400, details) {
@@ -52,6 +54,10 @@ async function quoteStay(request, { params }, couponToken) {
     const parking = await requireOperationalParking(authorization.db, authorization.context, resolved.parkingScope || authorization.scope, resolved.parkingId);
 
     const { stayId } = await params;
+    // Módulo Cupones activo de la empresa del estacionamiento (etapa C).
+    if (couponToken && !(await couponsActiveForParking(authorization.db, parking.id))) {
+      return NextResponse.json({ error: COUPON_MODULE_INACTIVE_ERROR.error, code: COUPON_MODULE_INACTIVE_ERROR.code }, { status: 403 });
+    }
     if (couponToken && await loadReleasedStaySnapshot(authorization.db, stayId)) {
       return NextResponse.json({ error: "Los cupones no aplican a patentes liberadas.", code: "RELEASED_PAYMENT_NO_COUPON" }, { status: 409 });
     }

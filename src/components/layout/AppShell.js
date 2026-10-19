@@ -45,6 +45,8 @@ function getUserContext(context) {
     portal: context.portal,
     companyId: context.companyId,
     enabledProducts: context.enabledProducts || [],
+    // Módulo Cupones de la empresa (SOL-2026-10-19-002): menú vía canAccessPath.
+    couponModuleStatus: context.couponModuleStatus,
   };
 }
 

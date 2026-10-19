@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
+import { couponsActiveForCompany, loadCouponModuleState } from "@/lib/cupones/couponModuleServer";
+import { adminModuleView, COUPON_MODULE_INACTIVE_ERROR } from "@/lib/cupones/couponModuleCore.mjs";
 
 const selection = "*,company:companies!coupons_company_id_fkey(business_name,trade_name),issuing_merchant:coupon_merchants!coupons_merchant_id_fkey(code,name),redeeming_merchant:coupon_merchants!coupons_redeeming_merchant_id_fkey(code,name)";
 const responseError = (error, status = 400) => NextResponse.json({ error }, { status });
@@ -17,7 +19,14 @@ export async function GET(request) {
   const { data, error } = await query;
   if (["PGRST205", "42P01"].includes(error?.code)) return responseError("El modulo de cupones esta pendiente de activacion en la base de datos.", 503);
   if (error) return responseError("No fue posible cargar los cupones.", 503);
-  return NextResponse.json({ data: (data || []).map(mapCoupon) });
+  // Módulo de la empresa (SOL-2026-10-19-002, etapa C): el administrador ve el
+  // estado y el término (sin importes, D8); inactivo = solo lectura.
+  let moduleView = null;
+  if (!actor.isPlatformAdmin) {
+    try { const state = await loadCouponModuleState(auth.db, actor.companyId); moduleView = adminModuleView(state.status, state.contract); }
+    catch { moduleView = adminModuleView(null, null); }
+  }
+  return NextResponse.json({ data: (data || []).map(mapCoupon), module: moduleView });
 }
 
 export async function POST(request) {
@@ -32,6 +41,7 @@ export async function POST(request) {
   if (!actor.isPlatformAdmin) merchantQuery = merchantQuery.eq("company_id", actor.companyId);
   const { data: merchant } = await merchantQuery.maybeSingle();
   if (!merchant) return responseError("Selecciona una tienda valida para emitir el cupon.", 404);
+  if (!(await couponsActiveForCompany(auth.db, merchant.company_id))) return NextResponse.json({ error: COUPON_MODULE_INACTIVE_ERROR.error, code: COUPON_MODULE_INACTIVE_ERROR.code }, { status: 403 });
   const { data: redeeming } = await auth.db.from("coupon_merchants").select("id").eq("id", input.redeemingMerchantId).eq("status", "ACTIVE").eq("company_id", merchant.company_id).maybeSingle();
   if (!redeeming) return responseError("Selecciona una tienda valida para recibir el descuento.", 404);
   const requested = String(input.code || "").trim().toUpperCase();
@@ -48,6 +58,14 @@ export async function PATCH(request) {
   const actor = remainingActor(auth.context); const input = await request.json();
   const ids = [...new Set((Array.isArray(input.ids) ? input.ids : []).map(String).filter(Boolean))].slice(0, 100);
   if (!ids.length || !["PRINT", "EMAIL"].includes(input.method)) return responseError("La entrega del cupon no es valida.");
+  // Entregar (imprimir/enviar) exige el módulo activo de cada empresa involucrada.
+  let companiesQuery = auth.db.from("coupons").select("company_id").in("id", ids);
+  if (!actor.isPlatformAdmin) companiesQuery = companiesQuery.eq("company_id", actor.companyId);
+  const { data: deliveryCompanies, error: deliveryCompaniesError } = await companiesQuery;
+  if (deliveryCompaniesError) return responseError("No fue posible registrar la entrega de los cupones.", 503);
+  for (const companyId of new Set((deliveryCompanies || []).map((row) => row.company_id))) {
+    if (!(await couponsActiveForCompany(auth.db, companyId))) return NextResponse.json({ error: COUPON_MODULE_INACTIVE_ERROR.error, code: COUPON_MODULE_INACTIVE_ERROR.code }, { status: 403 });
+  }
   let query = auth.db.from("coupons").update({ delivered_at: new Date().toISOString(), delivery_method: input.method }).in("id", ids);
   if (!actor.isPlatformAdmin) query = query.eq("company_id", actor.companyId);
   const { data, error } = await query.select("id,delivered_at,delivery_method");

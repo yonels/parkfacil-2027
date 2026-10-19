@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { posCardPaymentsEnabled } from "@/lib/pos/cardPaymentsAvailability.mjs";
-import { couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
+import { couponsActiveForParking } from "@/lib/cupones/couponModuleServer";
 import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
@@ -56,7 +56,8 @@ export async function GET(request) {
         // D2 (SOL-2026-10-18-001): tarjeta apagada en producción hasta validarla.
         cardPaymentsEnabled: posCardPaymentsEnabled(),
         // Cupones (SOL-2026-10-19-002): APLICAR CUPÓN solo donde están habilitados.
-        couponsEnabled: couponsEnabled(),
+        // + módulo activo de la empresa (SOL-2026-10-19-002, etapa C).
+        couponsEnabled: await couponsActiveForParking(authorization.db, parking.id),
       },
     });
   } catch (error) {

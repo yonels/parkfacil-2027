@@ -94,9 +94,11 @@ test("POS quote route: POST recalculates with the coupon, refused where coupons 
   assert.ok(post.indexOf("couponsEnabled()") < post.indexOf("request.json()"));
   assert.match(post, /status: 403/);
   assert.match(source, /RELEASED_PAYMENT_NO_COUPON/);
+  // Etapa C: además el módulo activo de la empresa del estacionamiento.
+  assert.match(source, /couponToken && !\(await couponsActiveForParking\(authorization\.db, parking\.id\)\)/);
   assert.match(source, /quoteOpenPosStay\(authorization\.db, parking\.id, stayId, \{ now: new Date\(\), \.\.\.\(couponToken \? \{ couponToken \} : \{\}\) \}\)/);
   assert.match(read("../posStaysService.js"), /\.\.\.\(options\.couponToken \? \{ couponToken: options\.couponToken \} : \{\}\)/);
-  assert.match(read("../../app/api/pos/stays/route.js"), /couponsEnabled: couponsEnabled\(\)/);
+  assert.match(read("../../app/api/pos/stays/route.js"), /couponsEnabled: await couponsActiveForParking\(authorization\.db, parking\.id\)/);
 });
 
 test("data-entry refuses coupons where disabled and re-checks the coupon before a card charge", () => {

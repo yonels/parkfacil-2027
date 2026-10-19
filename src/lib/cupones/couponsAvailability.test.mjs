@@ -21,7 +21,7 @@ test("build value: only an explicit false hides coupons", () => {
   assert.equal(COUPONS_DISABLED_ERROR.code, "COUPONS_DISABLED");
 });
 
-const admin = { portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts: [PRODUCTS.OFF_STREET] };
+const admin = { portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts: [PRODUCTS.OFF_STREET], couponModuleStatus: "ACTIVE" };
 const root = { portal: "root", role: ROLES.PLATFORM_ADMIN, enabledProducts: [] };
 
 function withBuildFlag(value, fn) {

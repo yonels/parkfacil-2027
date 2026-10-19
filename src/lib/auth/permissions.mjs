@@ -1,4 +1,5 @@
 import { couponsVisible } from "../cupones/couponsAvailability.mjs";
+import { couponModuleVisible } from "../cupones/couponModuleCore.mjs";
 
 export const ROLES = Object.freeze({
   PLATFORM_ADMIN: "platform_admin",
@@ -172,7 +173,7 @@ function requiredProductForPath(pathname) {
   return entry?.product || null;
 }
 
-export function canAccessPath({ portal, role, enabledProducts }, pathname) {
+export function canAccessPath({ portal, role, enabledProducts, couponModuleStatus }, pathname) {
   // Cupones (SOL-2026-10-19-001): ocultos para todos donde no están habilitados
   // (producción hasta el canje en el POS); ver couponsAvailability.mjs.
   if (matchesPrefix(pathname, ["/cupones"]) && !couponsVisible()) return false;
@@ -198,6 +199,9 @@ export function canAccessPath({ portal, role, enabledProducts }, pathname) {
   }
   if (matchesPrefix(pathname, ROOT_ONLY_PREFIXES)) return false;
   if (matchesPrefix(pathname, COMPANY_ADMIN_PREFIXES) && role !== ROLES.COMPANY_ADMIN) return false;
+  // Módulo Cupones contratado por la empresa (SOL-2026-10-19-002, etapa C):
+  // sin contratar no aparece; contratado e inactivo, solo lectura.
+  if (matchesPrefix(pathname, ["/cupones"]) && !couponModuleVisible(couponModuleStatus)) return false;
   const requiredProduct = requiredProductForPath(pathname);
   if (requiredProduct && !hasEnabledProduct(enabledProducts, requiredProduct)) return false;
   return true;
