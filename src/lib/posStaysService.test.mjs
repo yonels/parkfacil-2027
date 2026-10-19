@@ -146,10 +146,18 @@ test("la API y la UI POS quedan separadas de Webpay y no calculan minutos en el 
   // reemplazado por la integración real (ver PosTerminal.tuuPayment.contract.test.mjs)
   // -- lo que este test protege es que DÉBITO/CRÉDITO sigan cobrando vía
   // bridge nativo (payWithTuu) y nunca vía Webpay/un checkout web.
-  assert.match(terminal, /bridge\.payWithTuu\(payloadJson\)/);
+  // TUU-02: la llamada al bridge vive en tuuResultRouter.mjs (receptor
+  // permanente del resultado); PosTerminal.js la invoca a través de él.
+  const router = await readFile(new URL("./pos/tuuResultRouter.mjs", import.meta.url), "utf8");
+  assert.match(router, /bridge\.payWithTuu\(payloadJson\)/);
+  assert.match(terminal, /tuuResultRouter\.start\(getTuuPaymentBridge\(\), payloadJson, TUU_RESULT_TIMEOUT_MS\)/);
   assert.match(terminal, /action: "EXIT"/);
   assert.match(terminal, /paymentMethod: "CASH"/);
-  assert.match(terminal, /paymentMethod: "CARD"/);
+  // TUU-02: la solicitud de registro del pago con tarjeta se arma en
+  // tuuPendingPayments.mjs (buildTuuRegistrationRequest).
+  const pending = await readFile(new URL("./pos/tuuPendingPayments.mjs", import.meta.url), "utf8");
+  assert.match(pending, /paymentMethod: "CARD"/);
+  assert.match(terminal, /buildTuuRegistrationRequest\(record\)/);
   assert.doesNotMatch(terminal, /webpay/i);
   assert.doesNotMatch(terminal, /Date\.now\(\)/);
   assert.doesNotMatch(terminal, /getMinutesInside/);

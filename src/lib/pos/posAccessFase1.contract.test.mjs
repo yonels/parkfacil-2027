@@ -266,8 +266,10 @@ test("UI táctil: navegación y acciones de cabecera con área mínima de toque"
 
 test("/api/pos/stays entrega el modo de foto del estacionamiento (el POS carga su estado desde aquí)", () => {
   const stays = read("../../app/api/pos/stays/route.js");
-  assert.match(stays, /getPlatePhotoSettings\(authorization\.db, parking\.id\)\.catch\(\(\) => PLATE_PHOTO_DISABLED\)/);
-  assert.match(stays, /platePhotoSettings: \{ mode: platePhotoSettings\.plateMode, printOnTicket: platePhotoSettings\.printOnTicket, gpsMode: platePhotoSettings\.gpsMode \}/);
+  // SOL-2026-10-11-001 (foto de patente): ante un error el modo sigue siendo
+  // DISABLED, pero se registra y se informa al POS (`status`), ya no en silencio.
+  assert.match(stays, /getPlatePhotoSettings\(authorization\.db, parking\.id\)\.catch\(\(error\) => \{[\s\S]{0,260}return \{ \.\.\.PLATE_PHOTO_DISABLED, readFailed: true \};/);
+  assert.match(stays, /platePhotoSettings: \{\s*mode: platePhotoSettings\.plateMode,\s*printOnTicket: platePhotoSettings\.printOnTicket,\s*gpsMode: platePhotoSettings\.gpsMode,/);
   const terminal = read("../../components/pos/PosTerminal.js");
   assert.match(terminal, /fetch\("\/api\/pos\/stays"/);
   assert.match(terminal, /const photoSettings = summary\.payload\?\.data\?\.platePhotoSettings \|\| null;/);

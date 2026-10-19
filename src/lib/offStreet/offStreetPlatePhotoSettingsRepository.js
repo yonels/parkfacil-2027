@@ -26,8 +26,12 @@ function isMissingColumnError(error) {
 }
 
 function mapRow(row) {
-  if (!row) return { ...DEFAULT_PLATE_PHOTO_SETTINGS };
+  // `configured`: existe una fila para este estacionamiento. Sin fila el
+  // modo sigue siendo DISABLED (regla sin cambios); el dato solo permite
+  // distinguir "nunca configurado" de "desactivado por un administrador".
+  if (!row) return { ...DEFAULT_PLATE_PHOTO_SETTINGS, configured: false };
   return {
+    configured: true,
     plateMode: row.plate_photo_mode,
     printOnTicket: Boolean(row.print_plate_photo_on_ticket),
     // "gps_mode" ausente (columna no seleccionada por el fallback legacy, o
@@ -41,7 +45,7 @@ function mapRow(row) {
 }
 
 export async function getPlatePhotoSettings(db, parkingId) {
-  if (!parkingId) return { ...DEFAULT_PLATE_PHOTO_SETTINGS };
+  if (!parkingId) return { ...DEFAULT_PLATE_PHOTO_SETTINGS, configured: false };
   let { data, error } = await db
     .from("parking_offstreet_settings")
     .select(SELECT_FIELDS)

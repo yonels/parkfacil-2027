@@ -13,10 +13,14 @@ import { splitChileTaxFromTotal, toOperationalDateTimeParts } from "@/lib/dataEn
 import { ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
 import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
-import { buildPrintableEntryPayload, entryPhotoRequirementMessage, resolvePlatePhotoPrintDecision } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
+import { buildPrintableEntryPayload, entryPhotoRequirementMessage, platePhotoUnavailableMessage, resolvePlatePhotoPrintDecision } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
 import { buildAgentEntryTicketPayload } from "@/lib/pos/entryTicketPayload.mjs";
 import { photoToTicketRaster } from "@/lib/pos/ticketPhotoRaster.mjs";
-import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, isValidTuuSequenceNumber, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
+import { TUU_METHOD, TUU_OUTCOME, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, classifyTuuOutcome, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
+import { buildTuuRegistrationRequest, buildTuuResultReport, canStartTuuPayment, clearTuuPendingPayment, findTuuPendingPayment, findTuuPendingPaymentByAttempt, getOrCreatePosDeviceId, isProcessedTuuSequence, latestUnresolvedTuuPayment, loadQueuedTuuResultReports, loadTuuPendingPayments, markTuuPaymentApproved, markTuuPaymentUncertain, mergeTuuPendingViews, newTuuIdempotencyKey, noteTuuRegistrationFailure, queueTuuResultReport, reconcileTuuPendingWithServer, recoverTuuPendingPayments, rememberProcessedTuuSequence, removeQueuedTuuResultReport, saveTuuPaymentStarted } from "@/lib/pos/tuuPendingPayments.mjs";
+import { createTuuResultRouter } from "@/lib/pos/tuuResultRouter.mjs";
+import { abandonNativeTuuAttempt, ackNativeTuuResult, planNativeTuuSync, readNativeDeviceId, readPendingTuuState, readTuuBridgeEnvironment, resolvePosDeviceId, shouldAbandonLostTuuAttempt, shouldAckTuuResult, tuuLaunchBridge } from "@/lib/pos/tuuNativeBridge.mjs";
+import { TuuPendingPaymentCard, TuuPendingPaymentsBanner } from "@/components/pos/PosTuuPendingPayments";
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
 import { ChargeBreakdownList, ClosedUnpaidExitsSummary, DebtNoticeBanner, UnpaidExitAction, UnpaidExitsReview } from "@/components/pos/PosUnpaidExit";
@@ -311,67 +315,117 @@ function getTuuPaymentBridge() {
 // solo confirma que el Intent de pago se lanzó -- el resultado real del pago
 // es asíncrono (Activity Result de Android) y llega después, por separado,
 // vía window.ParkFacilTuuResult(...) (ver MainActivity.deliverTuuResultToWeb
-// en parkfacil-pos-android). Esta función envuelve ambas partes en una sola
-// Promise para que el llamador pueda usar await de principio a fin, con un
-// tope defensivo (TUU_RESULT_TIMEOUT_MS) para nunca quedar colgada si TUU no
-// responde.
-function startTuuPayment(payloadJson) {
-  const bridge = getTuuPaymentBridge();
-  if (!bridge) {
-    return Promise.resolve({
-      delivered: false,
-      code: "TUU_BRIDGE_UNAVAILABLE",
-      message: "Este dispositivo no tiene el bridge de pago TUU disponible.",
-    });
+// en parkfacil-pos-android).
+//
+// Fase TUU-02: el receptor de ese resultado queda instalado de forma
+// permanente (tuuResultRouter, ver src/lib/pos/tuuResultRouter.mjs). Al
+// agotarse TUU_RESULT_TIMEOUT_MS la espera termina con NO_RESPONSE, pero el
+// receptor sigue activo: una respuesta tardía de TUU ya no se descarta, se
+// entrega a handleLateTuuResult.
+const tuuResultRouter = createTuuResultRouter({
+  // Una aprobación ya procesada (misma referencia TUU) que llega otra vez se
+  // ignora: no puede resolver la espera de otro ticket ni registrarse dos veces.
+  isDuplicate: (result) => isProcessedTuuSequence(getTuuPendingStorage(), result?.transactionId),
+  onDuplicate: (result) => console.info("[pos:tuu]", { event: "DUPLICATE_RESULT_IGNORED", sequenceNumber: result?.transactionId || null }),
+});
+
+// Con la APK 0.4.0+ el pago se lanza con el identificador del intento
+// (payWithTuuAttempt): la APK lo guarda antes de abrir TUU, no lo envía a TUU
+// y lo devuelve junto al resultado. Con la APK 0.3.13 se usa payWithTuu, como
+// hasta ahora. En ambos casos la reserva central ya ocurrió antes de llegar aquí.
+function startTuuPayment(payloadJson, attemptId) {
+  return tuuResultRouter.start(tuuLaunchBridge(getTuuPaymentBridge(), attemptId), payloadJson, TUU_RESULT_TIMEOUT_MS, { attemptId });
+}
+
+// Bridge nativo completo (o null en un navegador). Solo lectura de capacidades.
+function getNativeDeviceBridge() {
+  return typeof window !== "undefined" ? window?.ParkFacilDevice || null : null;
+}
+
+// Almacenamiento local del WebView para los pagos TUU sin cerrar (ver
+// src/lib/pos/tuuPendingPayments.mjs). Nunca lanza: sin almacenamiento
+// disponible devuelve null y el POS no inicia un pago con tarjeta.
+function getTuuPendingStorage() {
+  try {
+    return typeof window !== "undefined" ? window.localStorage : null;
+  } catch {
+    return null;
   }
+}
 
-  return new Promise((resolve) => {
-    let settled = false;
-    let timer = null;
-    const previousCallback = typeof window !== "undefined" ? window.ParkFacilTuuResult : undefined;
+// Identificador de este equipo (se genera una vez y se conserva). Sin él no
+// se inicia un pago con tarjeta.
+// Con la APK 0.4.0+ se usa el identificador propio del equipo que entrega la
+// APK (sobrevive a la limpieza de datos del WebView); si no existe, el que la
+// web guarda en el WebView. Es un dato de trazabilidad, no una credencial.
+function getPosDeviceId() {
+  try {
+    return resolvePosDeviceId(getNativeDeviceBridge(), () => getOrCreatePosDeviceId(getTuuPendingStorage()));
+  } catch {
+    return null;
+  }
+}
 
-    const finish = (outcome) => {
-      if (settled) return;
-      settled = true;
-      if (timer) clearTimeout(timer);
-      if (typeof window !== "undefined") {
-        window.ParkFacilTuuResult = previousCallback;
-      }
-      resolve(outcome);
-    };
+// Identificadores con los que este equipo pudo reservar intentos: el de la APK
+// y el anterior del WebView (un intento reservado antes de actualizar la APK
+// sigue siendo de este equipo).
+function getKnownPosDeviceIds() {
+  let webViewId = null;
+  try {
+    webViewId = getTuuPendingStorage()?.getItem?.("parkfacil.pos.device.v1") || null;
+  } catch {
+    webViewId = null;
+  }
+  return [readNativeDeviceId(getNativeDeviceBridge()), webViewId].filter(Boolean);
+}
 
-    if (typeof window !== "undefined") {
-      window.ParkFacilTuuResult = (resultJson) => {
-        finish({ delivered: true, result: parseTuuResult(resultJson) });
-      };
-    }
+// Llamadas del POS a la reserva central de intentos de pago con tarjeta
+// (/api/data-entry: CARD_PAYMENT_RESERVE / _SENT / _RESULT y EXIT por intento).
+// Nunca lanza: un fallo de red vuelve como { ok: false, network: true }.
+async function postCardPaymentAction(body) {
+  try {
+    const response = await fetch("/api/data-entry", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-parkfacil-portal": "terminal" },
+      cache: "no-store",
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, payload: payload || {}, network: false, code: payload?.details?.code || payload?.code || null };
+  } catch {
+    return { ok: false, status: 0, payload: {}, network: true, code: "NETWORK_ERROR" };
+  }
+}
 
-    timer = setTimeout(() => {
-      finish({ delivered: false, code: "NO_RESPONSE", message: "TUU no respondió dentro del tiempo esperado." });
-    }, TUU_RESULT_TIMEOUT_MS);
+async function getPosCardPayments() {
+  try {
+    const response = await fetch("/api/pos/card-payments", { headers: { "x-parkfacil-portal": "terminal" }, cache: "no-store" });
+    const payload = await response.json().catch(() => ({}));
+    return { ok: response.ok, status: response.status, payload: payload || {} };
+  } catch {
+    return { ok: false, status: 0, payload: {} };
+  }
+}
 
-    let ack;
-    try {
-      const raw = bridge.payWithTuu(payloadJson);
-      ack = typeof raw === "string" ? JSON.parse(raw) : raw;
-    } catch (error) {
-      finish({
-        delivered: false,
-        code: "TUU_BRIDGE_EXCEPTION",
-        message: error instanceof Error ? error.message : String(error ?? "Error desconocido"),
-      });
-      return;
-    }
-
-    if (!ack?.ok) {
-      finish({
-        delivered: false,
-        code: ack?.code || "TUU_LAUNCH_FAILED",
-        message: ack?.message || "No fue posible iniciar el pago TUU.",
-      });
-    }
-    // Si ack.ok === true, no se resuelve todavía: se espera
-    // window.ParkFacilTuuResult(...) o el timeout de arriba.
+// Registro técnico de la integración TUU. Solo datos del ticket y la
+// referencia que entrega TUU; nunca datos de la tarjeta.
+function logTuu(event, record, extra = {}) {
+  console.info("[pos:tuu]", {
+    event,
+    stayId: record?.stayId || null,
+    ticket: record?.ticketCode || null,
+    plate: record?.plate || null,
+    parkingId: record?.parkingId || null,
+    parking: record?.parkingName || null,
+    operatorId: record?.operatorId || null,
+    operator: record?.operatorName || null,
+    shiftId: record?.shiftId || null,
+    amount: record?.amount ?? null,
+    cardType: record?.cardType || null,
+    sequenceNumber: record?.sequenceNumber || null,
+    attemptId: record?.attemptId || null,
+    deviceId: record?.deviceId || null,
+    ...extra,
   });
 }
 
@@ -825,13 +879,27 @@ export default function PosTerminal() {
   // Pago con tarjeta (TUU DEV): estado propio del paso "CARD_PAYMENT" --
   // PROCESSING/APPROVED son transitorios (llevan directo a PRINT_PROMPT o al
   // cierre del flujo, igual que EFECTIVO); DECLINED/CANCELLED/NOT_INSTALLED/
-  // ERROR/CHARGED_NOT_REGISTERED son terminales y se muestran en el modal.
+  // ERROR es terminal y se muestra en el modal. Un pago aprobado pendiente de
+  // registro o un resultado incierto viven en tuuPendingPayments (TUU-02).
   // cardPaymentLockRef es una guarda SÍNCRONA (a diferencia de paymentSubmitting,
   // que es estado de React y no se actualiza al instante) para impedir un
   // doble clic que dispare dos pagos TUU en paralelo.
   const [cardPaymentStatus, setCardPaymentStatus] = useState("");
   const [cardPaymentMessage, setCardPaymentMessage] = useState("");
+  // Fase TUU-02: pagos TUU sin cerrar guardados en este equipo (en curso,
+  // resultado incierto o aprobados pendientes de registro en ParkFacil).
+  const [tuuPendingPayments, setTuuPendingPayments] = useState([]);
+  const [tuuPendingBusy, setTuuPendingBusy] = useState(false);
+  const [tuuPendingMessage, setTuuPendingMessage] = useState("");
+  const [tuuPendingViewStayId, setTuuPendingViewStayId] = useState(null);
+  const [tuuPendingNotice, setTuuPendingNotice] = useState("");
+  // Intentos activos según el servidor (fuente de verdad, incluye los
+  // iniciados en otros equipos del mismo estacionamiento).
+  const [serverCardAttempts, setServerCardAttempts] = useState([]);
   const cardPaymentLockRef = useRef(false);
+  const refreshServerCardAttemptsRef = useRef(null);
+  const syncNativeTuuStateRef = useRef(null);
+  const nativeTuuResultsBusyRef = useRef(new Set());
   const [entryOpen, setEntryOpen] = useState(false);
   const [entryPlate, setEntryPlate] = useState("");
   // Fase 2 — Entrada V2: PLATE (capturar/escribir) -> CONFIRM (confirmar
@@ -873,6 +941,10 @@ export default function PosTerminal() {
   // enviar); entryPhotoForPrint conserva sus bytes tras un ENTRY exitoso,
   // exclusivamente para poder incluirla al imprimir/reimprimir el ticket.
   const [platePhotoMode, setPlatePhotoMode] = useState("DISABLED");
+  // Por qué "Tomar foto" no está disponible en el estacionamiento activo
+  // (sin configurar / desactivada / no se pudo leer). null = el servidor no
+  // lo informa. Solo es informativo: la regla sigue siendo platePhotoMode.
+  const [platePhotoStatus, setPlatePhotoStatus] = useState(null);
   const [printPlatePhotoOnTicket, setPrintPlatePhotoOnTicket] = useState(false);
   // Ajuste final: GPS configurable por proyecto, mismo enum DISABLED/
   // OPTIONAL/REQUIRED que platePhotoMode (§18/§19 del encargo) -- nunca se
@@ -991,6 +1063,7 @@ export default function PosTerminal() {
       setActiveStays(stays);
       const photoSettings = summary.payload?.data?.platePhotoSettings || null;
       setPlatePhotoMode(photoSettings?.mode || "DISABLED");
+      setPlatePhotoStatus(photoSettings?.status || null);
       setPrintPlatePhotoOnTicket(Boolean(photoSettings?.printOnTicket));
       setPlatePhotoGpsMode(photoSettings?.gpsMode || "DISABLED");
     } catch {
@@ -1535,7 +1608,7 @@ export default function PosTerminal() {
           redirectToPosLogin("sesion-expirada");
           return;
         }
-        setSelectedVehicleError(response.payload?.error || "No fue posible actualizar la cotización del vehículo.");
+        setSelectedVehicleError(response.payload?.error || "No fue posible actualizar el monto a pagar del vehículo.");
         return;
       }
 
@@ -1543,7 +1616,7 @@ export default function PosTerminal() {
       setSelectedVehicle(detail);
       return detail;
     } catch {
-      setSelectedVehicleError("Error de red al cotizar el vehículo.");
+      setSelectedVehicleError("Error de red al calcular el cobro del vehículo.");
     } finally {
       setSelectedVehicleLoading(false);
     }
@@ -1686,7 +1759,7 @@ export default function PosTerminal() {
       setPaymentStep(targetStep);
       setPaymentMessage(`${reasonPrefix} Nuevo total: ${formatCurrency(refreshedAmount)}. Confirma nuevamente para cobrar.`);
     } else {
-      setPaymentMessage("La cotización venció y no se pudo actualizar automáticamente. Vuelve a abrir el detalle del vehículo.");
+      setPaymentMessage("El cálculo de cobro expiró y no se pudo actualizar automáticamente. Vuelve a abrir el detalle del vehículo.");
     }
   }
 
@@ -1698,7 +1771,7 @@ export default function PosTerminal() {
       setPaymentSubmitting(true);
       setPaymentMessage("");
       try {
-        await refreshExpiredQuote("La cotización del vehículo expiró.");
+        await refreshExpiredQuote("El cálculo de cobro expiró.");
       } finally {
         setPaymentSubmitting(false);
       }
@@ -1729,7 +1802,7 @@ export default function PosTerminal() {
         }
         const errorCode = payload?.details?.code || payload?.code || "";
         if (errorCode === "QUOTE_SNAPSHOT_EXPIRED") {
-          await refreshExpiredQuote("La cotización venció.");
+          await refreshExpiredQuote("El cálculo de cobro expiró.");
           return;
         }
         setPaymentMessage(payload?.error || "No fue posible registrar el pago en efectivo.");
@@ -1823,14 +1896,28 @@ export default function PosTerminal() {
     setPaymentMessage("");
 
     try {
+      const stay = selectedVehicle.stay;
+      const storage = getTuuPendingStorage();
+
+      // Prevención de segundo cobro (TUU-02): si este ticket ya tiene un pago
+      // TUU aprobado pendiente de registro o con resultado incierto, NO se
+      // abre TUU. El modal muestra ese pago en lugar de los medios de pago.
+      const gate = canStartTuuPayment(loadTuuPendingPayments(storage), stay.id);
+      if (!gate.allowed || selectedVehicle?.cardPaymentAttempt) {
+        logTuu("SECOND_CHARGE_BLOCKED", gate.record, { status: gate.record?.status || selectedVehicle?.cardPaymentAttempt?.status || null });
+        setTuuPendingPayments(loadTuuPendingPayments(storage));
+        setPaymentStep("MENU");
+        return;
+      }
+
       const quoteSnapshot = selectedVehicle?.quote?.snapshot || null;
 
-      // La cotización se valida ANTES de cobrar con TUU (nunca después): una
-      // vez que TUU cobra la tarjeta, esa cobranza ya es real y no se puede
-      // deshacer desde acá -- por eso este chequeo es más estricto que en
-      // EFECTIVO (donde el backend recién cobra al confirmar).
+      // El cálculo de cobro se valida ANTES de cobrar con TUU (nunca después):
+      // una vez que TUU cobra la tarjeta, esa cobranza ya es real y no se
+      // puede deshacer desde acá -- por eso este chequeo es más estricto que
+      // en EFECTIVO (donde el backend recién cobra al confirmar).
       if (!quoteSnapshot?.signature || isQuoteSnapshotExpired(quoteSnapshot)) {
-        await refreshExpiredQuote("La cotización del vehículo expiró.", { targetStep: "MENU" });
+        await refreshExpiredQuote("El cálculo de cobro expiró.", { targetStep: "MENU" });
         return;
       }
 
@@ -1842,10 +1929,10 @@ export default function PosTerminal() {
       const paymentCardType = tuuMethod === TUU_METHOD.CREDIT ? "CREDIT" : tuuMethod === TUU_METHOD.DEBIT ? "DEBIT" : null;
       const amount = normalizeQuoteView(selectedVehicle.quote)?.total;
       if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
-        console.error("[pos:tuu:status]", { status: "ERROR", reason: "invalid_amount" });
+        console.error("[pos:tuu]", { event: "INVALID_AMOUNT", stayId: stay.id });
         setPaymentStep("CARD_PAYMENT");
         setCardPaymentStatus("ERROR");
-        setCardPaymentMessage("No hay un total válido para cobrar. Vuelve a abrir el detalle del vehículo.");
+        setCardPaymentMessage("No hay un monto a pagar válido. Vuelve a abrir el detalle del vehículo.");
         return;
       }
 
@@ -1855,105 +1942,335 @@ export default function PosTerminal() {
 
       let tuuPayload;
       try {
-        const netAmount = getTaxBreakdown(amount).netAmount;
-        tuuPayload = buildTuuPaymentPayload({ amount, method: tuuMethod, netAmount });
+        tuuPayload = buildTuuPaymentPayload({ amount, method: tuuMethod });
       } catch (error) {
-        console.error("[pos:tuu:payload]", { message: error instanceof Error ? error.message : String(error) });
+        console.error("[pos:tuu]", { event: "PAYLOAD_ERROR", stayId: stay.id, message: error instanceof Error ? error.message : String(error) });
         setCardPaymentStatus("ERROR");
-        setCardPaymentMessage("Error de comunicación con TUU.");
+        setCardPaymentMessage("No fue posible preparar el pago. No se inició ningún cobro.");
         return;
       }
 
-      console.info("[pos:tuu:start]", { package: TUU_PACKAGE_DEV, amount: tuuPayload.amount, method: tuuMethod });
-      const outcome = await startTuuPayment(JSON.stringify(tuuPayload));
-      console.info("[pos:tuu:outcome]", { delivered: Boolean(outcome?.delivered), code: outcome?.code || null });
+      // --- Reserva central (SOL-2026-10-11-001) ---------------------------
+      // 1) El servidor reserva el intento ANTES de abrir TUU. La reserva es
+      //    atómica en la base: un solo intento activo por ticket, para todos
+      //    los equipos. Sin reserva confirmada (sin conexión, ticket ya
+      //    reservado, ambiente sin habilitar) NO se abre TUU.
+      const deviceId = getPosDeviceId();
+      if (!deviceId) {
+        console.error("[pos:tuu]", { event: "DEVICE_ID_UNAVAILABLE", stayId: stay.id });
+        setCardPaymentStatus("ERROR");
+        setCardPaymentMessage("No fue posible identificar este equipo. No se inició ningún cobro.");
+        return;
+      }
+      // APK 0.4.0+: si el equipo guarda un resultado sin confirmar o un intento
+      // sin resultado de un pago anterior, primero se informa al servidor. Si
+      // aun así el equipo sigue con un pago sin cerrar, la APK no abriría TUU:
+      // no se reserva otro intento.
+      await syncNativeTuuState({ fromPaymentFlow: true });
+      const nativeState = readPendingTuuState(getNativeDeviceBridge());
+      if (nativeState.supported && (nativeState.inFlight || nativeState.results.length > 0 || nativeState.readFailed)) {
+        console.info("[pos:tuu]", { event: "DEVICE_HAS_OPEN_PAYMENT", stayId: stay.id, inFlight: Boolean(nativeState.inFlight), results: nativeState.results.length, readFailed: nativeState.readFailed === true });
+        setCardPaymentStatus("ERROR");
+        setCardPaymentMessage("Este equipo tiene un pago con tarjeta anterior sin cerrar. Verifica la conexión y vuelve a intentar. No se inició ningún cobro.");
+        return;
+      }
+      const idempotencyKey = newTuuIdempotencyKey();
+      // Ambiente que declara la APK (comprobación de compatibilidad; el
+      // servidor decide). La APK 0.3.13 no lo declara: solo opera en DEV.
+      const tuuEnvironment = readTuuBridgeEnvironment(getNativeDeviceBridge());
+      const reservation = await postCardPaymentAction({ action: "CARD_PAYMENT_RESERVE", stayId: stay.id, paymentCardType, quoteSnapshot, idempotencyKey, deviceId, ...(tuuEnvironment ? { tuuEnvironment } : {}) });
+      const attempt = reservation.ok ? reservation.payload?.data?.attempt || null : null;
+      if (!reservation.ok || !attempt?.id || attempt.status !== "RESERVED") {
+        console.info("[pos:tuu]", { event: "RESERVATION_REJECTED", stayId: stay.id, code: reservation.code, status: reservation.status });
+        if (reservation.status === 401) {
+          redirectToPosLogin("sesion-expirada");
+          return;
+        }
+        if (reservation.code === "CARD_ATTEMPT_ACTIVE") {
+          // Otro intento (de este u otro equipo) ya tiene el ticket: se
+          // muestra su estado en lugar de los medios de pago.
+          await refreshServerCardAttempts();
+          setCardPaymentStatus("");
+          setCardPaymentMessage("");
+          setPaymentStep("MENU");
+          setPaymentMessage("Este ticket ya tiene un pago con tarjeta en curso o por resolver. No se inició ningún cobro.");
+          return;
+        }
+        if (["QUOTE_SNAPSHOT_EXPIRED", "QUOTE_SNAPSHOT_STALE", "QUOTE_SNAPSHOT_REQUIRED"].includes(reservation.code)) {
+          setCardPaymentStatus("");
+          setCardPaymentMessage("");
+          await refreshExpiredQuote("El cálculo de cobro expiró.", { targetStep: "MENU" });
+          return;
+        }
+        setCardPaymentStatus("ERROR");
+        setCardPaymentMessage(reservation.network
+          ? "Sin conexión con ParkFacil: no se pudo reservar el pago. No se inició ningún cobro."
+          : `${reservation.payload?.error || "No fue posible reservar el pago."}${/No se inició ningún cobro/.test(reservation.payload?.error || "") ? "" : " No se inició ningún cobro."}`);
+        return;
+      }
 
-      if (!outcome?.delivered) {
+      // 2) Copia de apoyo en el equipo (para reconocer aquí el resultado de
+      //    TUU si llega tarde o tras recargar). Si no se puede guardar, se
+      //    devuelve la reserva y no se cobra.
+      const started = saveTuuPaymentStarted(storage, {
+        stayId: stay.id,
+        attemptId: attempt.id,
+        idempotencyKey,
+        deviceId,
+        ticketCode: stay.code,
+        plate: stay.license_plate,
+        parkingId: parking?.id || stay.parking_id,
+        parkingName: parking?.name,
+        amount: tuuPayload.amount,
+        cardType: paymentCardType,
+        operatorId: context?.userId,
+        operatorName: formatOperatorDisplayName(context),
+        shiftId: shift?.id,
+      });
+      if (!started.ok || !started.record) {
+        console.error("[pos:tuu]", { event: "PERSIST_START_FAILED", stayId: stay.id, attemptId: attempt.id });
+        await reportTuuAttemptResult({ attemptId: attempt.id, deviceId, stayId: stay.id }, "NOT_STARTED", { errorCode: "LOCAL_STORAGE_FAILED" });
+        setCardPaymentStatus("ERROR");
+        setCardPaymentMessage("No fue posible preparar el pago en este equipo. No se inició ningún cobro.");
+        return;
+      }
+      setTuuPendingPayments(started.records);
+
+      // 3) El servidor debe confirmar SENT_TO_TUU antes de abrir TUU: así una
+      //    reserva que nunca llegó a este punto consta como "no se abrió TUU".
+      const sent = await postCardPaymentAction({ action: "CARD_PAYMENT_SENT", attemptId: attempt.id, deviceId });
+      if (!sent.ok || sent.payload?.data?.attempt?.status !== "SENT_TO_TUU") {
+        console.info("[pos:tuu]", { event: "SENT_NOT_CONFIRMED", stayId: stay.id, attemptId: attempt.id, code: sent.code, status: sent.status });
+        // TUU no se abrió: se avisa al servidor (o queda en cola) y se quita la copia local.
+        await reportTuuAttemptResult(started.record, "NOT_STARTED", { errorCode: "SENT_NOT_CONFIRMED" });
+        setTuuPendingPayments(clearTuuPendingPayment(storage, stay.id).records);
+        setCardPaymentStatus("ERROR");
+        setCardPaymentMessage(sent.network
+          ? "Sin conexión con ParkFacil: no se pudo confirmar el pago. No se inició ningún cobro."
+          : "No fue posible confirmar el pago con ParkFacil. No se inició ningún cobro.");
+        return;
+      }
+
+      // 4) Recién ahora se abre TUU.
+      logTuu("PAYMENT_START", started.record, { package: TUU_PACKAGE_DEV, method: tuuMethod });
+      const outcome = await startTuuPayment(JSON.stringify(tuuPayload), attempt.id);
+      const verdict = classifyTuuOutcome(outcome);
+      logTuu("PAYMENT_RESULT", started.record, {
+        outcome: verdict.outcome,
+        errorCode: verdict.code || null,
+        errorMessage: outcome?.result?.responseMessage || outcome?.message || null,
+        sequenceNumber: outcome?.result?.transactionId || null,
+      });
+      const tuuError = { errorCode: verdict.code || null, errorMessage: outcome?.result?.responseMessage || outcome?.message || null };
+
+      // Consta que TUU no llegó a abrirse: no hubo cobro.
+      if (verdict.outcome === TUU_OUTCOME.NOT_STARTED) {
+        await reportTuuAttemptResult(started.record, "NOT_STARTED", tuuError);
+        setTuuPendingPayments(clearTuuPendingPayment(storage, stay.id).records);
         if (outcome?.code === "TUU_NOT_INSTALLED" || outcome?.code === "TUU_BRIDGE_UNAVAILABLE") {
-          console.info("[pos:tuu:status]", { status: "NOT_INSTALLED", code: outcome?.code || null });
           setCardPaymentStatus("NOT_INSTALLED");
-          setCardPaymentMessage("TUU no está instalada en este dispositivo.");
-        } else {
-          console.error("[pos:tuu:status]", { status: "ERROR", code: outcome?.code || null });
+          setCardPaymentMessage("TUU no está instalada en este dispositivo. No se inició ningún cobro.");
+        } else if (outcome?.code === "TUU_PAYMENT_IN_PROGRESS") {
           setCardPaymentStatus("ERROR");
-          setCardPaymentMessage("Error de comunicación con TUU.");
-        }
-        return;
-      }
-
-      const tuuResult = outcome.result;
-      if (!tuuResult?.success) {
-        if (tuuResult?.cancelled) {
-          console.info("[pos:tuu:status]", { status: "CANCELLED", responseCode: tuuResult?.responseCode || null });
-          setCardPaymentStatus("CANCELLED");
-          setCardPaymentMessage("Pago cancelado.");
+          setCardPaymentMessage("Este equipo tiene un pago con tarjeta anterior sin cerrar. No se inició ningún cobro.");
+        } else if (outcome?.code === "TUU_ENVIRONMENT_NOT_ENABLED" || outcome?.code === "TUU_ENVIRONMENT_MISCONFIGURED") {
+          setCardPaymentStatus("ERROR");
+          setCardPaymentMessage("El pago con tarjeta no está habilitado para este ambiente en este equipo. No se inició ningún cobro.");
         } else {
-          console.info("[pos:tuu:status]", { status: "DECLINED", responseCode: tuuResult?.responseCode || null });
-          setCardPaymentStatus("DECLINED");
-          setCardPaymentMessage(tuuResult?.responseMessage || "Pago rechazado.");
+          setCardPaymentStatus("ERROR");
+          setCardPaymentMessage("No fue posible abrir TUU. No se inició ningún cobro.");
         }
         return;
       }
 
-      // A partir de aquí TUU YA cobró la tarjeta -- lo que sigue es registrar
-      // la salida en ParkFacil. Cualquier falla desde este punto NUNCA vuelve
-      // a MENU ni permite reintentar (evita un segundo cobro real): queda en
-      // CHARGED_NOT_REGISTERED para que el operador contacte soporte.
-      console.info("[pos:tuu:status]", { status: "APPROVED", transactionId: tuuResult?.transactionId || null });
+      if (verdict.outcome === TUU_OUTCOME.CANCELLED) {
+        await reportTuuAttemptResult(started.record, "CANCELLED", tuuError);
+        setTuuPendingPayments(clearTuuPendingPayment(storage, stay.id).records);
+        setCardPaymentStatus("CANCELLED");
+        setCardPaymentMessage("Pago cancelado.");
+        return;
+      }
+
+      if (verdict.outcome === TUU_OUTCOME.DECLINED) {
+        await reportTuuAttemptResult(started.record, "DECLINED", tuuError);
+        setTuuPendingPayments(clearTuuPendingPayment(storage, stay.id).records);
+        setCardPaymentStatus("DECLINED");
+        setCardPaymentMessage(outcome?.result?.responseMessage || "Pago rechazado.");
+        return;
+      }
+
+      // Tiempo de espera agotado o respuesta no interpretable: NO es un
+      // rechazo. El intento queda con RESULTADO DEL PAGO INCIERTO en el
+      // servidor y en el equipo; nadie puede volver a cobrar este ticket
+      // hasta que llegue la respuesta tardía de TUU o un administrador lo
+      // regularice.
+      if (verdict.outcome === TUU_OUTCOME.UNCERTAIN) {
+        const uncertain = markTuuPaymentUncertain(storage, stay.id, verdict.code, outcome?.result?.responseMessage || null);
+        logTuu("PAYMENT_UNCERTAIN", uncertain.record || started.record, { reason: verdict.code || null });
+        setTuuPendingPayments(uncertain.records);
+        await reportTuuAttemptResult(uncertain.record || started.record, "UNCERTAIN", tuuError);
+        setTuuPendingMessage("");
+        setCardPaymentStatus("");
+        setCardPaymentMessage("");
+        setPaymentStep("MENU");
+        return;
+      }
+
+      // TUU aprobó: la tarjeta YA fue cobrada. El pago aprobado se guarda en el
+      // equipo ANTES de avisar al servidor y registrar; desde aquí nunca se
+      // vuelve a ofrecer un cobro para este ticket.
+      const approvedAt = new Date();
+      rememberProcessedTuuSequence(storage, outcome.result?.transactionId);
+      const approved = markTuuPaymentApproved(storage, stay.id, { sequenceNumber: outcome.result?.transactionId, approvedAt });
+      setTuuPendingPayments(approved.records);
+      const approvedRecord = approved.record || {
+        ...started.record,
+        status: "PENDING_REGISTRATION",
+        sequenceNumber: /^\d{12}$/.test(String(outcome.result?.transactionId || "")) ? outcome.result.transactionId : null,
+        approvedAt: approvedAt.toISOString(),
+      };
+      logTuu("PAYMENT_APPROVED", approvedRecord, { persisted: approved.ok });
       setCardPaymentStatus("APPROVED");
-      setCardPaymentMessage("Pago aprobado. Registrando salida...");
+      setCardPaymentMessage("Pago aprobado. Registrando pago...");
 
-      // sequenceNumber de TUU: se guarda en la estadía para conciliar. Si no
-      // vino o no tiene 12 dígitos, la salida se registra igual (el cobro ya
-      // es real) y la referencia queda solo en el log.
-      const tuuReference = isValidTuuSequenceNumber(tuuResult?.transactionId) ? tuuResult.transactionId : null;
-      const tuuReferenceText = tuuReference ? ` Referencia TUU: ${tuuReference}.` : "";
+      const registered = await registerPendingTuuPayment(approvedRecord);
+      if (!registered) {
+        // Queda PAGO TUU APROBADO — PENDIENTE DE REGISTRO (ver renderPaymentModal).
+        setCardPaymentStatus("");
+        setCardPaymentMessage("");
+        setPaymentStep("MENU");
+      }
+    } finally {
+      cardPaymentLockRef.current = false;
+      setPaymentSubmitting(false);
+    }
+  }
 
-      let response;
-      try {
-        response = await fetch("/api/data-entry", {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-parkfacil-portal": "terminal",
-          },
-          cache: "no-store",
-          body: JSON.stringify({
-            action: "EXIT",
-            stayId: selectedVehicle.stay.id,
-            paymentMethod: "CARD",
-            paymentCardType,
-            quoteSnapshot,
-            cardPayment: tuuReference ? { provider: "TUU", reference: tuuReference } : null,
-          }),
-        });
-      } catch {
-        console.error("[pos:tuu:status]", { status: "CHARGED_NOT_REGISTERED", reason: "network_error" });
-        setCardPaymentStatus("CHARGED_NOT_REGISTERED");
-        setCardPaymentMessage(`El pago fue aprobado por TUU pero hubo un error de red al registrar la salida. Contacta a soporte antes de reintentar.${tuuReferenceText}`);
-        return;
+  // Avisa al servidor el resultado que entregó TUU para un intento. Si no
+  // llega (sin red), queda en cola y se reintenta: mientras tanto el servidor
+  // mantiene el ticket bloqueado, que es el lado seguro.
+  async function reportTuuAttemptResult(record, outcome, extra = {}) {
+    const report = buildTuuResultReport(record, outcome, extra);
+    if (!report) return { ok: false, attempt: null };
+    const response = await postCardPaymentAction(report);
+    // APK 0.4.0+: el resultado guardado en el equipo se confirma (ACK) SOLO
+    // cuando el servidor lo guardó o reconoció el duplicado. Con fallo de red,
+    // sesión vencida o rechazo, la APK lo conserva y lo vuelve a entregar.
+    if (shouldAckTuuResult(response)) ackNativeTuuResult(getNativeDeviceBridge(), report.attemptId);
+    if (response.ok) {
+      removeQueuedTuuResultReport(getTuuPendingStorage(), report.attemptId);
+      return { ok: true, attempt: response.payload?.data?.attempt || null, response };
+    }
+    // Un rechazo definitivo del servidor (4xx) no se reintenta a ciegas.
+    if (response.network || response.status >= 500) queueTuuResultReport(getTuuPendingStorage(), report);
+    logTuu("RESULT_REPORT_FAILED", record, { outcome, code: response.code, status: response.status, queued: response.network || response.status >= 500 });
+    return { ok: false, attempt: null, response };
+  }
+
+  // Reintenta los avisos de resultado que quedaron en cola.
+  async function flushTuuResultReports() {
+    const storage = getTuuPendingStorage();
+    for (const report of loadQueuedTuuResultReports(storage)) {
+      const response = await postCardPaymentAction(report);
+      if (shouldAckTuuResult(response)) ackNativeTuuResult(getNativeDeviceBridge(), report.attemptId);
+      if (response.ok || (!response.network && response.status < 500)) removeQueuedTuuResultReport(storage, report.attemptId);
+      if (response.network) break;
+    }
+  }
+
+  // Estado de los intentos según el servidor (fuente de verdad). Ajusta la
+  // copia local: lo que el servidor ya resolvió se quita, lo que aprobó pasa a
+  // pendiente de registro. Es solo consulta: nunca abre TUU.
+  async function refreshServerCardAttempts() {
+    await flushTuuResultReports();
+    const response = await getPosCardPayments();
+    if (!response.ok || response.payload?.data?.available !== true) return null;
+    const attempts = Array.isArray(response.payload.data.attempts) ? response.payload.data.attempts : [];
+    setServerCardAttempts(attempts);
+    setTuuPendingPayments(reconcileTuuPendingWithServer(getTuuPendingStorage(), attempts));
+    return attempts;
+  }
+
+  // REGISTRAR PAGO: registra en ParkFacil un pago que TUU YA aprobó, por su
+  // intento reservado. El monto y los datos son los que el servidor fijó al
+  // reservar. NUNCA abre TUU: no llama a startTuuPayment ni al bridge.
+  async function registerPendingTuuPayment(record) {
+    const body = buildTuuRegistrationRequest(record);
+    if (!body) return false;
+    const storage = getTuuPendingStorage();
+    const isLocal = record.source !== "SERVER";
+    const registrationFailed = (message, reason) => {
+      if (isLocal) setTuuPendingPayments(noteTuuRegistrationFailure(storage, record.stayId, reason || message).records);
+      setTuuPendingMessage(message);
+      logTuu("REGISTRATION_ERROR", record, { reason: reason || message });
+    };
+
+    setTuuPendingBusy(true);
+    setTuuPendingMessage("");
+    logTuu("REGISTRATION_ATTEMPT", record, { attempts: (record.registrationAttempts || 0) + 1 });
+    try {
+      // 1) El servidor debe conocer la aprobación de este intento (si el pago
+      //    se aprobó en este equipo). Repetir el aviso no cambia nada.
+      if (isLocal) {
+        const reported = await reportTuuAttemptResult(record, "APPROVED", { reference: record.sequenceNumber });
+        if (!reported.ok) {
+          const response = reported.response;
+          if (response?.status === 401) {
+            registrationFailed("Tu sesión expiró. Inicia sesión nuevamente y usa REGISTRAR PAGO. El pago TUU ya está aprobado: no vuelva a cobrar.", "session_expired");
+          } else if (!response || response.network || response.status >= 500) {
+            registrationFailed("Sin conexión con ParkFacil. El pago TUU ya está aprobado: no vuelva a cobrar. Use REGISTRAR PAGO cuando vuelva la conexión.", "network_error");
+          } else {
+            registrationFailed(`ParkFacil no aceptó el resultado del pago (${response.payload?.error || "error desconocido"}). No vuelva a cobrar: avise a su administrador.`, response.code || `http_${response.status}`);
+            await refreshServerCardAttempts();
+          }
+          return false;
+        }
+        // El servidor puede dejarlo incierto (p. ej. referencia ya usada).
+        if (reported.attempt && !["APPROVED_PENDING_REGISTRATION", "PAID"].includes(reported.attempt.status)) {
+          registrationFailed("El pago quedó con resultado incierto en ParkFacil. No vuelva a cobrar: un administrador debe regularizarlo.", reported.attempt.errorCode || reported.attempt.status);
+          await refreshServerCardAttempts();
+          return false;
+        }
       }
 
-      const payload = await response.json().catch(() => ({}));
+      // 2) Registro del pago en el ticket y cierre del intento (una transacción).
+      const response = await postCardPaymentAction(body);
       if (!response.ok) {
-        console.error("[pos:tuu:status]", { status: "CHARGED_NOT_REGISTERED", reason: payload?.error || "backend_error" });
-        setCardPaymentStatus("CHARGED_NOT_REGISTERED");
-        setCardPaymentMessage(
-          `El pago fue aprobado por TUU pero no se pudo registrar la salida (${payload?.error || "error desconocido"}). Contacta a soporte antes de reintentar.${tuuReferenceText}`
-        );
-        return;
+        if (response.status === 401) {
+          registrationFailed("Tu sesión expiró. Inicia sesión nuevamente y usa REGISTRAR PAGO. El pago TUU ya está aprobado: no vuelva a cobrar.", "session_expired");
+        } else if (response.network) {
+          registrationFailed("Sin conexión con ParkFacil. El pago TUU ya está aprobado: no vuelva a cobrar. Use REGISTRAR PAGO cuando vuelva la conexión.", "network_error");
+        } else {
+          registrationFailed(`No se pudo registrar el pago en ParkFacil (${response.payload?.error || "error desconocido"}). El pago TUU ya está aprobado: no vuelva a cobrar.`, response.code || `http_${response.status}`);
+        }
+        return false;
       }
+      const payload = response.payload;
+
+      // Registrado: se quita la copia local; el intento quedó PAID en el servidor.
+      setTuuPendingPayments(clearTuuPendingPayment(storage, record.stayId).records);
+      setServerCardAttempts((current) => current.filter((item) => item.id !== record.attemptId));
+      setTuuPendingMessage("");
+      setTuuPendingViewStayId(null);
+      logTuu("REGISTRATION_OK", record, {
+        registration: payload?.data?.cardPaymentRegistration || null,
+        alreadyRegistered: Boolean(payload?.data?.alreadyRegistered),
+        paymentCode: payload?.data?.quote?.paymentCode || null,
+      });
 
       const stay = payload?.data?.stay || null;
       const quote = payload?.data?.quote || null;
       const parkingResponse = payload?.data?.parking || parking;
-      const confirmedAmount = Number(quote?.total || 0);
-      setPaymentResult({
-        plate: stay?.license_plate || selectedVehicle.stay.license_plate,
-        total: confirmedAmount,
-        paymentMethod: classifiedPaymentMethod(stay) || "CARD",
-      });
+      const plate = stay?.license_plate || record.plate;
       const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse, "CARD");
+      const inPaymentModal = paymentModalOpen && selectedVehicle?.stay?.id === record.stayId;
+      if (inPaymentModal) {
+        setPaymentResult({
+          plate,
+          total: Number(quote?.total || record.amount || 0),
+          paymentMethod: classifiedPaymentMethod(stay) || "CARD",
+        });
+      }
       setReceiptPrintPayload(receiptPayload);
       setReceiptPrintStatus("");
       await loadTerminalState(true);
@@ -1961,14 +2278,172 @@ export default function PosTerminal() {
       const printResult = receiptPayload ? await printLastReceipt(receiptPayload) : null;
       const printFailedOnDevice = Boolean(printResult?.attempted && !printResult.ok);
 
-      if (printFailedOnDevice) {
-        setPaymentStep("PRINT_PROMPT");
+      if (inPaymentModal) {
+        if (printFailedOnDevice) {
+          setPaymentStep("PRINT_PROMPT");
+        } else {
+          finishPaidFlow();
+        }
       } else {
-        finishPaidFlow();
+        setTuuPendingNotice(`Pago de ${plate || "el ticket"} registrado en ParkFacil.${printFailedOnDevice ? " No se pudo imprimir el comprobante: usa REIMPRIMIR TICKET." : ""}`);
+        void loadPaymentsToday();
       }
+      return true;
     } finally {
-      cardPaymentLockRef.current = false;
-      setPaymentSubmitting(false);
+      setTuuPendingBusy(false);
+    }
+  }
+
+  // Resultado de TUU que la APK 0.4.0+ entrega asociado a su intento
+  // (attemptId): en vivo cuando ya nadie lo espera, o guardado en el equipo
+  // y releído al cargar. Se informa al servidor con ESE identificador; la APK
+  // recién lo descarta cuando el servidor lo guardó (ver reportTuuAttemptResult).
+  // Nunca abre TUU.
+  async function processCorrelatedTuuResult(result) {
+    const attemptId = result?.attemptId;
+    if (!attemptId || nativeTuuResultsBusyRef.current.has(attemptId)) return;
+    nativeTuuResultsBusyRef.current.add(attemptId);
+    try {
+      const storage = getTuuPendingStorage();
+      const local = findTuuPendingPaymentByAttempt(loadTuuPendingPayments(storage), attemptId);
+      // Sin registro local (datos del WebView borrados): se informa igual, con
+      // el identificador de este equipo.
+      const target = local || { attemptId, deviceId: getPosDeviceId(), stayId: null };
+      const verdict = classifyTuuOutcome({ delivered: true, result });
+      logTuu("NATIVE_RESULT", local, { attemptId, outcome: verdict.outcome, errorCode: verdict.code || null, late: result?.late === true, sequenceNumber: result?.transactionId || null, hasLocalRecord: Boolean(local) });
+      const tuuError = { errorCode: verdict.code || null, errorMessage: result?.responseMessage || null };
+
+      if (verdict.outcome === TUU_OUTCOME.APPROVED) {
+        rememberProcessedTuuSequence(storage, result?.transactionId);
+        let record = local;
+        if (local) {
+          const approved = markTuuPaymentApproved(storage, local.stayId, { sequenceNumber: result?.transactionId });
+          setTuuPendingPayments(approved.records);
+          record = approved.record || local;
+        }
+        const reported = await reportTuuAttemptResult(record || target, "APPROVED", { reference: result?.transactionId });
+        if (reported.ok && record?.status === "PENDING_REGISTRATION" && !cardPaymentLockRef.current) void registerPendingTuuPayment(record);
+        else await refreshServerCardAttempts();
+        return;
+      }
+      if (verdict.outcome === TUU_OUTCOME.DECLINED || verdict.outcome === TUU_OUTCOME.CANCELLED) {
+        await reportTuuAttemptResult(target, verdict.outcome === TUU_OUTCOME.DECLINED ? "DECLINED" : "CANCELLED", tuuError);
+        if (local) {
+          setTuuPendingPayments(clearTuuPendingPayment(storage, local.stayId).records);
+          setTuuPendingNotice(`TUU informó que el pago de ${local.plate || "el ticket"} no se realizó.`);
+        }
+        await refreshServerCardAttempts();
+        return;
+      }
+      // Sigue incierto: se deja constancia del mensaje de TUU.
+      let uncertainRecord = target;
+      if (local) {
+        const uncertain = markTuuPaymentUncertain(storage, local.stayId, verdict.code, result?.responseMessage || null);
+        setTuuPendingPayments(uncertain.records);
+        uncertainRecord = uncertain.record || local;
+      }
+      await reportTuuAttemptResult(uncertainRecord, "UNCERTAIN", tuuError);
+    } finally {
+      nativeTuuResultsBusyRef.current.delete(attemptId);
+    }
+  }
+
+  // Lee lo que la APK 0.4.0+ tiene guardado (resultados sin confirmar e intento
+  // sin resultado) y lo informa al servidor. Es solo aviso y consulta: nunca
+  // abre TUU. Con la APK 0.3.13 no hace nada.
+  //   - Resultado guardado: se informa; la APK lo descarta solo si el servidor
+  //     lo guardó. Sin red queda guardado y se reintenta.
+  //   - Intento sin resultado que la APK ya no espera (el proceso murió y
+  //     Android no entregó la respuesta): se informa como incierto y se libera
+  //     en la APK. El ticket sigue bloqueado hasta la regularización.
+  async function syncNativeTuuState({ fromPaymentFlow = false } = {}) {
+    if (tuuResultRouter.isWaiting()) return;
+    if (cardPaymentLockRef.current && !fromPaymentFlow) return;
+    const bridge = getNativeDeviceBridge();
+    const actions = planNativeTuuSync(readPendingTuuState(bridge));
+    for (const action of actions) {
+      if (action.type === "RESULT") {
+        await processCorrelatedTuuResult({ ...parseTuuResult(action.result), attemptId: action.attemptId, late: action.late });
+        continue;
+      }
+      const storage = getTuuPendingStorage();
+      const local = findTuuPendingPaymentByAttempt(loadTuuPendingPayments(storage), action.attemptId);
+      let record = local || { attemptId: action.attemptId, deviceId: getPosDeviceId(), stayId: null };
+      if (local) {
+        const uncertain = markTuuPaymentUncertain(storage, local.stayId, "RESULT_NOT_DELIVERED", null);
+        setTuuPendingPayments(uncertain.records);
+        record = uncertain.record || local;
+      }
+      logTuu("NATIVE_ATTEMPT_WITHOUT_RESULT", local, { attemptId: action.attemptId });
+      const reported = await reportTuuAttemptResult(record, "UNCERTAIN", { errorCode: "RESULT_NOT_DELIVERED" });
+      if (shouldAbandonLostTuuAttempt(reported.response)) {
+        const released = abandonNativeTuuAttempt(bridge, action.attemptId);
+        logTuu("NATIVE_ATTEMPT_RELEASED", local, { attemptId: action.attemptId, ok: released.ok, code: released.code || null });
+      }
+    }
+    if (actions.length && !fromPaymentFlow) await refreshServerCardAttempts();
+  }
+
+  // Respuesta de TUU que llega cuando ya nadie la espera (después del tiempo
+  // de espera, o tras recargar la app). Se asocia al intento sin resolver más
+  // reciente de ESTE equipo y se informa al servidor con el identificador de
+  // ese intento. Si fue aprobada se intenta registrar; si TUU informa que no
+  // cobró, el servidor libera el ticket.
+  async function handleLateTuuResult(result) {
+    // APK 0.4.0+: un resultado que la APK no pudo asociar a ningún intento
+    // NUNCA se asigna a un ticket. Solo queda constancia.
+    if (result?.uncorrelated === true) {
+      console.warn("[pos:tuu]", { event: "UNCORRELATED_RESULT_IGNORED", success: result?.success === true, sequenceNumber: result?.transactionId || null });
+      return;
+    }
+    // APK 0.4.0+: el resultado trae su intento.
+    if (result?.attemptId) {
+      await processCorrelatedTuuResult(result);
+      return;
+    }
+    // APK 0.3.13 (sin correlación): criterio anterior.
+    const storage = getTuuPendingStorage();
+    const target = latestUnresolvedTuuPayment(loadTuuPendingPayments(storage));
+    const verdict = classifyTuuOutcome({ delivered: true, result });
+    logTuu("LATE_RESULT", target, {
+      outcome: verdict.outcome,
+      errorCode: verdict.code || null,
+      errorMessage: result?.responseMessage || null,
+      sequenceNumber: result?.transactionId || null,
+      matched: Boolean(target),
+    });
+    if (!target) return;
+
+    if (verdict.outcome === TUU_OUTCOME.APPROVED) {
+      rememberProcessedTuuSequence(storage, result?.transactionId);
+      const approved = markTuuPaymentApproved(storage, target.stayId, { sequenceNumber: result?.transactionId });
+      setTuuPendingPayments(approved.records);
+      if (approved.record && !approved.duplicate) void registerPendingTuuPayment(approved.record);
+      return;
+    }
+    if (verdict.outcome === TUU_OUTCOME.DECLINED || verdict.outcome === TUU_OUTCOME.CANCELLED) {
+      await reportTuuAttemptResult(target, verdict.outcome === TUU_OUTCOME.DECLINED ? "DECLINED" : "CANCELLED", { errorCode: verdict.code, errorMessage: result?.responseMessage || null });
+      setTuuPendingPayments(clearTuuPendingPayment(storage, target.stayId).records);
+      setTuuPendingNotice(`TUU informó que el pago de ${target.plate || "el ticket"} no se realizó.`);
+      await refreshServerCardAttempts();
+      return;
+    }
+    // Sigue incierto: se deja constancia del mensaje de TUU.
+    const uncertain = markTuuPaymentUncertain(storage, target.stayId, verdict.code, result?.responseMessage || null);
+    setTuuPendingPayments(uncertain.records);
+    await reportTuuAttemptResult(uncertain.record || target, "UNCERTAIN", { errorCode: verdict.code, errorMessage: result?.responseMessage || null });
+  }
+
+  // ACTUALIZAR ESTADO: consulta al servidor (p. ej. tras una regularización).
+  async function refreshTuuPendingStatus() {
+    setTuuPendingBusy(true);
+    setTuuPendingMessage("");
+    try {
+      const attempts = await refreshServerCardAttempts();
+      if (attempts === null) setTuuPendingMessage("No fue posible consultar el estado del pago. Verifica la conexión.");
+      else if (selectedVehicle?.stay?.id) void openVehicleDetail(selectedVehicle.stay);
+    } finally {
+      setTuuPendingBusy(false);
     }
   }
 
@@ -2358,6 +2833,9 @@ export default function PosTerminal() {
       setEntryPhotoForPrint(capturedPhotoBase64);
       if (entryPhoto?.previewUrl) URL.revokeObjectURL(entryPhoto.previewUrl);
       setEntryPhoto(null);
+      // Si la cámara de evidencia siguiera abierta se cierra: al desmontarse,
+      // PlatePhotoCapture ya no entrega una captura tardía al vehículo siguiente.
+      setPhotoCaptureOpen(false);
       setEntryPlate("");
       setEntryOpen(false);
       setCurrentView(POS_VIEWS.INGRESO);
@@ -2648,6 +3126,8 @@ export default function PosTerminal() {
     // VEHÍCULOS EN EL PARKING y CÓDIGO QR siguen disponibles porque son
     // consulta, y por eso no hay "Volver" (ya estamos en HOME).
     const homeShiftGate = renderShiftGate("Inicio de turno", { hideVolver: true });
+    const tuuPendingViews = mergeTuuPendingViews(tuuPendingPayments, serverCardAttempts, { deviceId: getKnownPosDeviceIds() });
+    const tuuPendingViewRecord = paymentSubmitting ? null : findTuuPendingPayment(tuuPendingViews, tuuPendingViewStayId);
 
     return (
       <section className="pos-home-panel mx-auto w-full max-w-4xl">
@@ -2660,6 +3140,29 @@ export default function PosTerminal() {
         {shiftReadyForOperations && shiftRestoredNotice === true && parking?.name ? (
           <div role="status" className="mb-3 rounded-2xl border border-sky-300 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-950">
             Tienes un turno abierto en <span className="font-black">{parking.name}</span>.
+          </div>
+        ) : null}
+
+        {tuuPendingNotice ? (
+          <div role="status" className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-950">
+            <span>{tuuPendingNotice}</span>
+            <button type="button" onClick={() => setTuuPendingNotice("")} className="min-h-9 shrink-0 rounded-lg border border-emerald-400 bg-white px-3 text-xs font-black uppercase text-emerald-900">Cerrar</button>
+          </div>
+        ) : null}
+
+        <TuuPendingPaymentsBanner records={tuuPendingViews} onOpen={(stayId) => { setTuuPendingMessage(""); setTuuPendingViewStayId(stayId); }} />
+
+        {tuuPendingViewRecord ? (
+          <div className="mb-4">
+            <TuuPendingPaymentCard
+              key={`${tuuPendingViewRecord.stayId}:${tuuPendingViewRecord.status}`}
+              record={tuuPendingViewRecord}
+              busy={tuuPendingBusy}
+              message={tuuPendingMessage}
+              onRegister={() => void registerPendingTuuPayment(tuuPendingViewRecord)}
+              onRefresh={() => void refreshTuuPendingStatus()}
+              onClose={() => setTuuPendingViewStayId(null)}
+            />
           </div>
         ) : null}
 
@@ -2783,6 +3286,12 @@ export default function PosTerminal() {
                 >
                   {entryPhoto ? "Repetir foto" : "Tomar foto"}
                 </button>
+              ) : platePhotoUnavailableMessage(platePhotoStatus) ? (
+                // La opción depende de la configuración del estacionamiento
+                // activo: en lugar de desaparecer sin explicación, se informa.
+                <p role="note" className="flex min-h-16 items-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs font-semibold leading-snug text-slate-600">
+                  {platePhotoUnavailableMessage(platePhotoStatus)}
+                </p>
               ) : <span />}
               {voiceState === "LISTENING" ? (
                 <button
@@ -3887,7 +4396,7 @@ export default function PosTerminal() {
         <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-950 shadow-sm">
           <div className="flex items-center gap-3">
             <LoaderCircle className="h-5 w-5 animate-spin text-rose-700" />
-            <p className="text-sm font-semibold">Cotizando vehículo seleccionado...</p>
+            <p className="text-sm font-semibold">Calculando el monto a pagar...</p>
           </div>
           <div className="mt-4">
             <button
@@ -4011,6 +4520,13 @@ export default function PosTerminal() {
     const stay = selectedVehicle.stay;
     const quote = selectedVehicle.quote;
     const quoteView = normalizeQuoteView(quote);
+    // TUU-02: pago TUU sin cerrar de este ticket (aprobado pendiente de
+    // registro o con resultado incierto). Mientras exista, el modal NO
+    // ofrece ningún medio de pago. No se muestra durante un pago en curso.
+    const tuuPendingForStay = paymentSubmitting ? null : findTuuPendingPayment(
+      mergeTuuPendingViews(tuuPendingPayments, [...serverCardAttempts, ...(selectedVehicle.cardPaymentAttempt ? [selectedVehicle.cardPaymentAttempt] : [])], { deviceId: getKnownPosDeviceIds() }),
+      stay?.id,
+    );
     // Desglose Neto/IVA a partir del TOTAL que ya cotizó el backend — ver
     // getTaxBreakdown. El pago confirmado más abajo (paymentBreakdown) usa
     // el total que confirmó el backend en la respuesta del EXIT, no este
@@ -4055,7 +4571,19 @@ export default function PosTerminal() {
               )}
             </div>
 
-            {paymentStep === "MENU" ? (
+            {paymentStep === "MENU" && tuuPendingForStay ? (
+              <TuuPendingPaymentCard
+                key={`${tuuPendingForStay.stayId}:${tuuPendingForStay.status}`}
+                record={tuuPendingForStay}
+                busy={tuuPendingBusy}
+                message={tuuPendingMessage}
+                onRegister={() => void registerPendingTuuPayment(tuuPendingForStay)}
+                onRefresh={() => void refreshTuuPendingStatus()}
+                onClose={closePaymentModal}
+              />
+            ) : null}
+
+            {paymentStep === "MENU" && !tuuPendingForStay ? (
               <div className="grid gap-3 sm:grid-cols-3">
                 <button type="button" onClick={() => handlePaymentSelection("CASH")} className="min-h-20 rounded-2xl bg-emerald-600 px-4 py-5 text-lg font-black text-white transition hover:bg-emerald-500">
                   EFECTIVO
@@ -4158,7 +4686,7 @@ export default function PosTerminal() {
             */}
             {paymentStep === "CARD_PAYMENT" ? (
               <div className={`space-y-4 rounded-2xl border p-4 ${
-                cardPaymentStatus === "CHARGED_NOT_REGISTERED" || cardPaymentStatus === "ERROR"
+                cardPaymentStatus === "ERROR"
                   ? "border-red-300 bg-red-50"
                   : cardPaymentStatus === "DECLINED"
                     ? "border-amber-300 bg-amber-50"
@@ -4170,27 +4698,31 @@ export default function PosTerminal() {
                     <p className="text-lg font-black text-sky-950">{cardPaymentMessage || "Procesando pago..."}</p>
                   </div>
                 ) : (
-                  <p className={`text-lg font-black ${cardPaymentStatus === "CHARGED_NOT_REGISTERED" || cardPaymentStatus === "ERROR" ? "text-red-950" : "text-sky-950"}`}>
+                  <p className={`text-lg font-black ${cardPaymentStatus === "ERROR" ? "text-red-950" : "text-sky-950"}`}>
                     {cardPaymentStatus === "DECLINED" && "PAGO RECHAZADO"}
                     {cardPaymentStatus === "CANCELLED" && "PAGO CANCELADO"}
                     {cardPaymentStatus === "NOT_INSTALLED" && "TUU NO ESTÁ INSTALADA"}
-                    {cardPaymentStatus === "ERROR" && "ERROR DE COMUNICACIÓN CON TUU"}
-                    {cardPaymentStatus === "CHARGED_NOT_REGISTERED" && "ATENCIÓN: PAGO COBRADO, SALIDA NO REGISTRADA"}
+                    {cardPaymentStatus === "ERROR" && "NO SE INICIÓ EL PAGO"}
                     {cardPaymentMessage ? <span className="mt-2 block text-sm font-semibold">{cardPaymentMessage}</span> : null}
                   </p>
                 )}
 
                 {cardPaymentStatus && cardPaymentStatus !== "PROCESSING" && cardPaymentStatus !== "APPROVED" ? (
                   <div className="flex flex-col gap-3 sm:flex-row">
-                    {cardPaymentStatus !== "CHARGED_NOT_REGISTERED" ? (
-                      <button
-                        type="button"
-                        onClick={() => { setPaymentStep("MENU"); setCardPaymentStatus(""); setCardPaymentMessage(""); }}
-                        className="rounded-xl bg-sky-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-sky-600"
-                      >
-                        REINTENTAR
-                      </button>
-                    ) : null}
+                    {/*
+                      REINTENTAR solo existe en estados donde consta que TUU
+                      no cobró (rechazado, cancelado, TUU no instalada o no se
+                      pudo abrir). Un resultado incierto o un pago aprobado
+                      nunca pasan por aquí: se muestran con
+                      TuuPendingPaymentCard, sin opción de volver a cobrar.
+                    */}
+                    <button
+                      type="button"
+                      onClick={() => { setPaymentStep("MENU"); setCardPaymentStatus(""); setCardPaymentMessage(""); }}
+                      className="rounded-xl bg-sky-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-sky-600"
+                    >
+                      REINTENTAR
+                    </button>
                     <button type="button" onClick={closePaymentModal} className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-slate-800 transition hover:bg-slate-100">
                       CERRAR
                     </button>
@@ -4199,7 +4731,7 @@ export default function PosTerminal() {
               </div>
             ) : null}
 
-            {paymentStep === "MENU" ? (
+            {paymentStep === "MENU" && !tuuPendingForStay ? (
               <button type="button" onClick={closePaymentModal} className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-slate-800 transition hover:bg-slate-100">
                 VOLVER
               </button>
@@ -4636,6 +5168,42 @@ export default function PosTerminal() {
       cancelled = true;
     };
   }, []);
+
+  // Fase TUU-02 — al abrir el POS se recuperan los pagos TUU sin cerrar
+  // guardados en el equipo (un intento que quedó "en curso" pasa a resultado
+  // incierto) y se instala el receptor permanente del resultado de TUU, de
+  // modo que una respuesta tardía también se capture tras recargar la app.
+  useEffect(() => {
+    let cancelled = false;
+    tuuResultRouter.install(window);
+    Promise.resolve().then(() => {
+      if (cancelled) return;
+      const recovered = recoverTuuPendingPayments(getTuuPendingStorage());
+      setTuuPendingPayments(recovered);
+      for (const record of recovered) logTuu("RECOVERED_AFTER_RESTART", record, { status: record.status });
+      // El servidor es la fuente de verdad: intentos activos del estacionamiento
+      // (también los de otros equipos) y avisos que quedaron en cola.
+      void refreshServerCardAttemptsRef.current?.();
+      // APK 0.4.0+: resultados guardados en el equipo que la web aún no confirmó.
+      void syncNativeTuuStateRef.current?.();
+    });
+    // Al volver a primer plano (p. ej. después de TUU) se vuelve a consultar.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void syncNativeTuuStateRef.current?.();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
+  // El receptor usa siempre la versión vigente de handleLateTuuResult.
+  useEffect(() => {
+    tuuResultRouter.setLateResultHandler((result) => void handleLateTuuResult(result));
+    refreshServerCardAttemptsRef.current = refreshServerCardAttempts;
+    syncNativeTuuStateRef.current = syncNativeTuuState;
+  });
 
   // Fase 1 — una operación en curso (cobro, ingreso, cierre, inicio de
   // turno) nunca se interrumpe con una redirección por revalidación.

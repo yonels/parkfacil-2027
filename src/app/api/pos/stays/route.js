@@ -4,6 +4,7 @@ import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { listOpenPosStays } from "@/lib/posStaysService";
 import { getPlatePhotoSettings } from "@/lib/offStreet/offStreetPlatePhotoSettingsRepository";
+import { resolvePlatePhotoStatus } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
 import { configuredParkingCapacity } from "@/lib/pos/homeVehicles.mjs";
 
 const PLATE_PHOTO_DISABLED = { plateMode: "DISABLED", printOnTicket: false, gpsMode: "DISABLED" };
@@ -33,7 +34,12 @@ export async function GET(request) {
     // /api/data-entry: sin fila (o ante error) -> DISABLED.
     const [summary, platePhotoSettings, capacity] = await Promise.all([
       listOpenPosStays(authorization.db, parking.id, { now: new Date() }),
-      getPlatePhotoSettings(authorization.db, parking.id).catch(() => PLATE_PHOTO_DISABLED),
+      // Ante un error de lectura el modo sigue siendo DISABLED (regla sin
+      // cambios), pero ya no en silencio: se registra y el POS lo informa.
+      getPlatePhotoSettings(authorization.db, parking.id).catch((error) => {
+        console.error("[pos:stays] plate photo settings", { parkingId: parking.id, code: error?.code || null, message: error?.message || String(error) });
+        return { ...PLATE_PHOTO_DISABLED, readFailed: true };
+      }),
       // Same active zones used by the Off Street configurator. Query only
       // the operational parking already resolved by authorization above.
       (async () => {
@@ -50,7 +56,13 @@ export async function GET(request) {
         serverNow: summary.serverNow,
         stays: summary.stays,
         actor: { ...posOperationActor(authorization.context), parkingId: parking.id },
-        platePhotoSettings: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket, gpsMode: platePhotoSettings.gpsMode },
+        platePhotoSettings: {
+          mode: platePhotoSettings.plateMode,
+          printOnTicket: platePhotoSettings.printOnTicket,
+          gpsMode: platePhotoSettings.gpsMode,
+          // Por qué la opción de foto está o no disponible en ESTE estacionamiento.
+          status: resolvePlatePhotoStatus({ mode: platePhotoSettings.plateMode, configured: platePhotoSettings.configured === true, readFailed: platePhotoSettings.readFailed === true }),
+        },
       },
     });
   } catch (error) {

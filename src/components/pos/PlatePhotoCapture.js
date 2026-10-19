@@ -157,6 +157,14 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
   const trackRef = useRef(null);
   const webTorchSupportedRef = useRef(false);
   const torchOnRef = useRef(false);
+  // Entrega única de la fotografía: nunca dos veces (doble toque) ni después
+  // de cancelar o desmontar (respuesta tardía).
+  const deliveringRef = useRef(false);
+  const closedRef = useRef(false);
+  useEffect(() => {
+    closedRef.current = false;
+    return () => { closedRef.current = true; };
+  }, []);
   const [mode, setMode] = useState("LOADING"); // LOADING | LIVE | PREVIEW | FALLBACK | ERROR
   const [preview, setPreview] = useState(null); // { url, blob }
   // Tamaño real del video: el recuadro guía se calcula con la MISMA función
@@ -474,8 +482,20 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
   const gpsBlocksConfirm = gpsMode === "REQUIRED" && gpsStatus !== "READY";
 
   async function usePhoto() {
-    if (!preview?.blob || gpsBlocksConfirm) return;
-    const base64 = await blobToBase64(preview.blob);
+    // Doble toque en "Usar foto" o cierre mientras se prepara la imagen: una
+    // sola entrega, y ninguna después de cancelar o desmontar.
+    if (!preview?.blob || gpsBlocksConfirm || deliveringRef.current || closedRef.current) return;
+    deliveringRef.current = true;
+    let base64;
+    try {
+      base64 = await blobToBase64(preview.blob);
+    } catch {
+      deliveringRef.current = false;
+      if (!closedRef.current) setError("No fue posible procesar la fotografía. Intenta nuevamente.");
+      return;
+    }
+    if (closedRef.current) return;
+    closedRef.current = true;
     stopStream();
     onCapture({
       base64,
@@ -490,6 +510,7 @@ export default function PlatePhotoCapture({ plate, required, gpsMode = "DISABLED
   }
 
   function cancel() {
+    closedRef.current = true;
     stopStream();
     if (preview?.url) URL.revokeObjectURL(preview.url);
     onCancel();

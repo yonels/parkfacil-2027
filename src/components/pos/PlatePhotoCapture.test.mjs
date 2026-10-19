@@ -122,8 +122,8 @@ test("cerrar el stream (usePhoto/cancelar) siempre pasa por stopStream, que apag
     source,
     /function stopStream\(\) \{\s*\n\s*void turnOffTorch\(\);\s*\n\s*streamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);/
   );
-  assert.match(source, /async function usePhoto\(\) \{[\s\S]{0,200}stopStream\(\);/);
-  assert.match(source, /function cancel\(\) \{\s*\n\s*stopStream\(\);/);
+  assert.match(source, /async function usePhoto\(\) \{[\s\S]{0,800}stopStream\(\);/);
+  assert.match(source, /function cancel\(\) \{\s*\n\s*closedRef\.current = true;\s*\n\s*stopStream\(\);/);
 });
 
 test("el desmonte del componente (cleanup del efecto de montaje) también apaga el torch, no solo detiene las pistas", () => {
@@ -176,8 +176,29 @@ test("GPS DISABLED nunca solicita el permiso de ubicación (ni siquiera navigato
 
 test("GPS REQUIRED bloquea 'Usar foto' hasta tener una posición válida -- OPTIONAL/DISABLED nunca bloquean", () => {
   assert.match(source, /const gpsBlocksConfirm = gpsMode === "REQUIRED" && gpsStatus !== "READY";/);
-  assert.match(source, /async function usePhoto\(\) \{\s*\n\s*if \(!preview\?\.blob \|\| gpsBlocksConfirm\) return;/);
+  assert.match(source, /async function usePhoto\(\) \{[\s\S]{0,260}?if \(!preview\?\.blob \|\| gpsBlocksConfirm \|\| deliveringRef\.current \|\| closedRef\.current\) return;/);
   assert.match(source, /disabled=\{gpsBlocksConfirm\}/);
+});
+
+// ---- SOL-2026-10-11-001 (incidencia foto de patente): entrega única ----
+
+test("la fotografía se entrega una sola vez: ni doble toque ni después de cancelar o desmontar (captura tardía)", () => {
+  const usePhoto = source.slice(source.indexOf("async function usePhoto() {"), source.indexOf("function cancel() {"));
+  // Guarda síncrona antes de cualquier await.
+  const guard = usePhoto.indexOf("if (!preview?.blob || gpsBlocksConfirm || deliveringRef.current || closedRef.current) return;");
+  const lock = usePhoto.indexOf("deliveringRef.current = true;");
+  const firstAwait = usePhoto.indexOf("await blobToBase64(preview.blob)");
+  assert.ok(guard !== -1 && lock !== -1 && firstAwait !== -1 && guard < lock && lock < firstAwait);
+  // Después del await se vuelve a comprobar que no se cerró, y recién entonces se entrega.
+  const recheck = usePhoto.indexOf("if (closedRef.current) return;", firstAwait);
+  const deliver = usePhoto.indexOf("onCapture({");
+  assert.ok(recheck !== -1 && deliver !== -1 && recheck < deliver);
+  assert.equal((source.match(/onCapture\(\{/g) || []).length, 1, "un único punto de entrega");
+  // Cancelar y desmontar cierran la entrega.
+  assert.match(source, /function cancel\(\) \{\s*\n\s*closedRef\.current = true;/);
+  assert.match(source, /useEffect\(\(\) => \{\s*\n\s*closedRef\.current = false;\s*\n\s*return \(\) => \{ closedRef\.current = true; \};\s*\n\s*\}, \[\]\);/);
+  // Un error al preparar la imagen no deja el botón bloqueado ni entrega nada.
+  assert.match(usePhoto, /catch \{\s*\n\s*deliveringRef\.current = false;/);
 });
 
 test("capturar la fotografía NUNCA se bloquea por GPS -- solo 'Usar foto' puede quedar bloqueado", () => {

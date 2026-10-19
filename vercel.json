@@ -8,5 +8,10 @@
       "path": "/api/internal/on-street-payments/reconcile",
       "schedule": "*/2 * * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "feature/tuu-02-robustecimiento": false
+    }
+  }
 }
