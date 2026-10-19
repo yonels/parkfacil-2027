@@ -74,3 +74,23 @@ test("payload rejects empty recipients and supports HTML", () => {
   const payload = buildSendMailPayload({ para: "a@example.com", asunto: "A", html: "<p>A</p>" });
   assert.equal(payload.message.body.contentType, "HTML");
 });
+test("Graph attachments keep isInline and contentId for cid: images (coupon QR)", () => {
+  const [inline, plain] = buildGraphAttachments([
+    { name: "cupon.png", contentType: "image/png", contentBytes: "abc", isInline: true, contentId: "coupon-qr" },
+    { name: "doc.pdf", contentType: "application/pdf", contentBytes: "def" },
+  ]);
+  assert.equal(inline.isInline, true);
+  assert.equal(inline.contentId, "coupon-qr");
+  assert.equal("isInline" in plain, false);
+  assert.equal("contentId" in plain, false);
+  const payload = buildSendMailPayload({ para: "a@example.com", asunto: "x", html: '<img src="cid:coupon-qr">', attachments: [{ name: "q.png", contentType: "image/png", contentBytes: "abc", isInline: true, contentId: "coupon-qr" }] });
+  assert.equal(payload.message.attachments[0].contentId, "coupon-qr");
+  assert.equal(payload.message.attachments[0].isInline, true);
+});
+
+test("coupon email embeds the QR with the same contentId it references", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../app/api/cupones/enviar/route.js", import.meta.url), "utf8");
+  assert.ok(source.includes('src="cid:coupon-qr"'));
+  assert.ok(source.includes('isInline: true, contentId: "coupon-qr"'));
+});
