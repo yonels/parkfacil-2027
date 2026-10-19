@@ -1,5 +1,7 @@
 import { canCaptureCardType, validatePaymentCardType } from "@/lib/paymentCardType.mjs";
 import { posCardPaymentsEnabled } from "@/lib/pos/cardPaymentsAvailability.mjs";
+import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
+import { couponAvailableForCharge } from "@/lib/cupones/couponInput.mjs";
 import { canStoreCardPaymentReference, validateCardPaymentReference } from "@/lib/pos/cardPaymentReference.mjs";
 import { CARD_ATTEMPT_OUTCOMES, CARD_ATTEMPT_STATUS, cardAttemptErrorResponse, cardRegistrationStayIdProblem, cardRegistrationStayMismatch, findActiveCardPaymentAttemptRow, getCardPaymentAttemptRow, isCardAttemptsStorageMissing, isUuid, mapCardPaymentAttemptForPos, markCardPaymentAttemptSent, normalizeDeclaredTuuEnvironment, paymentFromChargeSnapshot, registerCardPaymentAttempt, reportCardPaymentAttemptResult, reserveCardPaymentAttempt, sanitizeDeviceId, sanitizeIdempotencyKey, tuuEnvironmentCompatibilityProblem, tuuEnvironmentFromEnv } from "@/lib/pos/cardPaymentAttempts.mjs";
 import { canRevertUnpaidMark, sanitizeUnpaidNotes } from "@/lib/parkingDebtsCore.mjs";
@@ -330,6 +332,15 @@ async function handleCardPaymentAttemptAction({ input, current, isPosRequest, po
       if (problem) return fail(problem.error, problem.status, { code: problem.code });
       const amount = Math.round(Number(input.quoteSnapshot.totalAmount || 0));
       if (!(amount > 0)) return fail("El monto a pagar no es válido.", 409, { code: "CARD_ATTEMPT_AMOUNT_INVALID" });
+      // Cupón (SOL-2026-10-19-002): se canjea al registrar el pago, después del
+      // cobro en TUU. Antes de cobrar se confirma que siga disponible para no
+      // cobrar con un descuento que luego no se puede canjear.
+      if (input.quoteSnapshot.couponId) {
+        if (!couponsEnabled()) return fail(COUPONS_DISABLED_ERROR.error, 403, { code: COUPONS_DISABLED_ERROR.code });
+        const { data: couponRow, error: couponError } = await current.db.from("coupons").select("id,status,redeemed_at,expires_at").eq("id", input.quoteSnapshot.couponId).maybeSingle();
+        if (couponError) return fail("No fue posible validar el cupón. No se inició ningún cobro.", 503, { code: "COUPON_CHECK_FAILED" });
+        if (!couponAvailableForCharge(couponRow)) return fail("El cupón ya fue utilizado o venció. Quita el cupón y vuelve a calcular. No se inició ningún cobro.", 409, { code: "COUPON_UNAVAILABLE" });
+      }
       const row = await reserveCardPaymentAttempt(current.db, {
         idempotencyKey, companyId, parkingId: stay.parking_id, stayId: stay.id,
         operatorId: current.actor.id, operatorName: current.actor.name, shiftId: posShift.id, deviceId,
@@ -670,6 +681,7 @@ export async function POST(request) {
     if (!stay) return fail("No existe una estadía abierta para el vehículo.", 404);
     const now = new Date();
     const releasedSnapshot = await loadReleasedStaySnapshot(current.db, stay.id);
+    if (input.couponToken && !couponsEnabled()) return fail(COUPONS_DISABLED_ERROR.error, 403, { code: COUPONS_DISABLED_ERROR.code });
     if (releasedSnapshot && input.couponToken) return fail("Los cupones no aplican a patentes liberadas.", 409, { code: "RELEASED_PAYMENT_NO_COUPON" });
     let quote; try { quote = releasedSnapshot ? await quoteReleasedParkingStay(current.db, stay, releasedSnapshot, { now }) : await quoteParkingStay(current.db, stay, { couponToken: input.couponToken, now }); } catch (error) {
       const messages = { PARKING_NOT_FOUND: "El estacionamiento no existe.", COUPON_NOT_FOUND: "El cupón no existe.", COUPON_ALREADY_USED: "El cupón ya fue utilizado.", COUPON_WRONG_COMPANY: "El cupón no corresponde a este estacionamiento.", COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.", COUPON_EXPIRED: "El cupón está vencido." };

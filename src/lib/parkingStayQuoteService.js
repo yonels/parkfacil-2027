@@ -8,6 +8,7 @@ import { buildChargeBreakdown } from "./parkingTimeBands.mjs";
 import { signWebpayQuoteEvidence } from "./webpayQuoteEvidence.mjs";
 import { quoteUncoveredIntervals } from "./releasedPayment/releasedChargeCore.mjs";
 import { releasedStayCoverage } from "./releasedPayment/releasedStayCore.mjs";
+import { parseCouponInput } from "./cupones/couponInput.mjs";
 
 const POS_QUOTE_TTL_SECONDS = 120;
 const POS_QUOTE_TTL_MS = POS_QUOTE_TTL_SECONDS * 1000;
@@ -121,11 +122,16 @@ async function getActiveRate(db, parkingId, at = new Date()) {
   return selectActiveRate(rates, at);
 }
 
-async function getCoupon(db, rawToken, companyId) {
+export async function getCoupon(db, rawToken, companyId) {
   if (!rawToken) return null;
 
-  const token = String(rawToken).replace(/^PFC-COUPON:/i, "").trim();
-  const { data, error } = await db.from("coupons").select("*").eq("qr_token", token).maybeSingle();
+  // QR ("PFC-COUPON:<token>") o código impreso "PF-XXXXXXXX" escrito en el POS
+  // (SOL-2026-10-19-002). El código se busca solo dentro de la empresa.
+  const parsed = parseCouponInput(rawToken);
+  if (!parsed) throw new Error("COUPON_NOT_FOUND");
+  let query = db.from("coupons").select("*");
+  query = parsed.kind === "code" ? query.eq("code", parsed.value).eq("company_id", companyId || "") : query.eq("qr_token", parsed.value);
+  const { data, error } = await query.maybeSingle();
 
   if (error || !data) throw new Error("COUPON_NOT_FOUND");
 
