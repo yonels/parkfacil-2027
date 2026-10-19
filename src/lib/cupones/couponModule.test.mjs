@@ -99,7 +99,8 @@ test("APIs: write operations require the active module; GET reports the admin vi
   assert.match(read("../../app/api/cupones/comercios/route.js"), /couponsActiveForCompany\(auth\.db, companyId\)/);
   const dataEntry = read("../../app/api/data-entry/route.js");
   assert.match(dataEntry, /input\.action === "EXIT" && input\.quoteSnapshot\?\.couponId\)\) && !\(await couponsActiveForParking\(current\.db, stay\.parking_id\)\)/);
-  assert.match(dataEntry, /if \(!\(await couponsActiveForParking\(current\.db, stay\.parking_id\)\)\) return fail\(COUPON_MODULE_INACTIVE_ERROR\.error/);
+  // Reserva de pago con tarjeta (TUU-02): solo en las ramas que la tienen.
+  if (dataEntry.includes('if (input.action === "CARD_PAYMENT_RESERVE")')) assert.match(dataEntry, /if \(!\(await couponsActiveForParking\(current\.db, stay\.parking_id\)\)\) return fail\(COUPON_MODULE_INACTIVE_ERROR\.error/);
 });
 
 test("Root APIs and page: Root only, contract validation shared with Pago liberado, not gated by COUPONS_ENABLED", () => {
