@@ -104,6 +104,9 @@ body {
 table { border-collapse: collapse; }
 table thead { background: #3150d8 !important; color: #ffffff !important; }
 table thead th { background: #3150d8 !important; border-color: #5271e8 !important; color: #ffffff !important; }
+/* Filtros dentro del encabezado (fondo blanco): sin esto heredan el blanco del
+   encabezado y lo escrito no se ve (QA 2026-10-19, SOL-2026-10-19-002). */
+table thead input, table thead select, table thead textarea { color: #041e42; }
 table th { border: 1px solid #5271e8; font-weight: 600; }
 table td { border: 1px solid #e2e8f0; }
 table tbody tr:nth-child(even) { background: #f8fafc; }
