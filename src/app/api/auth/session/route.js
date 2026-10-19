@@ -3,6 +3,7 @@ import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
 import { getAuthenticatedContext, SESSION_COOKIE } from "@/lib/auth/authenticatedContext";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { hasPermission, PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
+import { withCouponModuleStatus } from "@/lib/cupones/couponModuleSession";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -19,6 +20,8 @@ function publicContext(context) {
     role: context.role,
     companyId: context.companyId,
     enabledProducts: context.enabledProducts,
+    // Módulo Cupones (SOL-2026-10-19-002): el menú lo usa vía canAccessPath.
+    ...(context.couponModuleStatus ? { couponModuleStatus: context.couponModuleStatus } : {}),
     membership: context.membership,
   };
 }
@@ -72,7 +75,8 @@ async function validatePosOperatorScope(context) {
 
 export async function GET(request) {
   try {
-    return NextResponse.json({ data: publicContext(await getAuthenticatedContext(request)) });
+    // Módulo Cupones: el menú del Portal Cliente lo necesita (canAccessPath).
+    return NextResponse.json({ data: publicContext(await withCouponModuleStatus(await getAuthenticatedContext(request), "/cupones")) });
   } catch (error) {
     return failure(error);
   }

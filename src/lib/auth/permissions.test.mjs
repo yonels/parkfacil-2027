@@ -205,8 +205,13 @@ test("Root nunca queda sujeto a la restricción por producto", () => {
 // SOL-2026-10-19-001: «Cupones y descuentos» vive en el árbol Off Street; solo administrador
 // de empresa con Off Street contratado (y Root).
 test("cupones: solo administrador con Off Street contratado; Root siempre", () => {
-  const admin = { portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts: [PRODUCTS.OFF_STREET] };
+  // Etapa C (SOL-2026-10-19-002): además, la empresa debe haber contratado el módulo.
+  const admin = { portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts: [PRODUCTS.OFF_STREET], couponModuleStatus: "ACTIVE" };
   assert.equal(canAccessPath(admin, "/cupones"), true);
+  assert.equal(canAccessPath({ ...admin, couponModuleStatus: "DISABLED" }, "/cupones"), true, "contratado e inactivo: solo lectura");
+  assert.equal(canAccessPath({ ...admin, couponModuleStatus: "EXPIRED" }, "/cupones"), true);
+  assert.equal(canAccessPath({ ...admin, couponModuleStatus: "NOT_CONTRACTED" }, "/cupones"), false);
+  assert.equal(canAccessPath({ ...admin, couponModuleStatus: undefined }, "/cupones"), false, "sin dato = no contratado");
   assert.equal(canAccessPath({ ...admin, enabledProducts: [PRODUCTS.ON_STREET] }, "/cupones"), false);
   assert.equal(canAccessPath({ ...admin, enabledProducts: [] }, "/cupones"), false);
   assert.equal(canAccessPath({ portal: "client", role: ROLES.OPERATOR, enabledProducts: [PRODUCTS.OFF_STREET] }, "/cupones"), false);

@@ -3,6 +3,7 @@ import { getAuthenticatedContext, SESSION_COOKIE } from "@/lib/auth/authenticate
 import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
 import { canAccessPath, ROLES } from "@/lib/auth/permissions.mjs";
 import { getRequestPortal } from "@/lib/auth/portal.mjs";
+import { withCouponModuleStatus } from "@/lib/cupones/couponModuleSession";
 
 const PUBLIC_PATHS = new Set([
   "/login",
@@ -81,7 +82,9 @@ export async function proxy(request) {
     request.nextUrl.pathname.startsWith("/estacionar/")
   ) return NextResponse.next();
   try {
-    const context = await getAuthenticatedContext(request);
+    // Módulo Cupones (SOL-2026-10-19-002, etapa C): el estado de la empresa se
+    // consulta solo para /cupones, así el resto de las pantallas no paga la consulta.
+    const context = await withCouponModuleStatus(await getAuthenticatedContext(request), request.nextUrl.pathname);
     if (!canAccessPath(context, request.nextUrl.pathname) || !canOpenPosTerminal(context)) return forbidden(context);
     return allowPosPath(request.nextUrl.pathname);
   } catch (error) {
