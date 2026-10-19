@@ -286,3 +286,12 @@ test("respuesta aprobada duplicada: las referencias ya procesadas se recuerdan e
   assert.equal(isProcessedTuuSequence(storage, "000012345678"), false, "solo las últimas 50");
   assert.equal(isProcessedTuuSequence(storage, "000000000059"), true);
 });
+
+test("ACTUALIZAR ESTADO siempre informa el resultado (QA PRO2 2026-10-19)", async () => {
+  const { tuuRefreshResultMessage } = await import("./tuuPendingPayments.mjs");
+  assert.match(tuuRefreshResultMessage(null, "s1"), /No fue posible consultar/);
+  assert.match(tuuRefreshResultMessage([{ stayId: "s1", status: "UNCERTAIN" }], "s1"), /^Sin cambios: el pago sigue por resolver\. Un administrador debe regularizarlo en Pagos con tarjeta\.$/);
+  assert.equal(tuuRefreshResultMessage([{ stayId: "s1", status: "RELEASED_BY_REGULARIZATION" }], "s1"), "El pago ya fue resuelto.");
+  assert.equal(tuuRefreshResultMessage([], "s1"), "El pago ya fue resuelto.");
+  assert.equal(tuuRefreshResultMessage([{ stayId: "otro", status: "UNCERTAIN" }], "s1"), "El pago ya fue resuelto.");
+});

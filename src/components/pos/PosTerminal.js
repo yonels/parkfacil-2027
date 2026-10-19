@@ -18,7 +18,7 @@ import { buildPrintableEntryPayload, entryPhotoRequirementMessage, platePhotoUna
 import { buildAgentEntryTicketPayload } from "@/lib/pos/entryTicketPayload.mjs";
 import { photoToTicketRaster } from "@/lib/pos/ticketPhotoRaster.mjs";
 import { TUU_METHOD, TUU_OUTCOME, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, classifyTuuOutcome, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
-import { buildTuuRegistrationRequest, buildTuuResultReport, canStartTuuPayment, clearTuuPendingPayment, findTuuPendingPayment, findTuuPendingPaymentByAttempt, getOrCreatePosDeviceId, isProcessedTuuSequence, latestUnresolvedTuuPayment, loadQueuedTuuResultReports, loadTuuPendingPayments, markTuuPaymentApproved, markTuuPaymentUncertain, mergeTuuPendingViews, newTuuIdempotencyKey, noteTuuRegistrationFailure, queueTuuResultReport, reconcileTuuPendingWithServer, recoverTuuPendingPayments, rememberProcessedTuuSequence, removeQueuedTuuResultReport, saveTuuPaymentStarted } from "@/lib/pos/tuuPendingPayments.mjs";
+import { buildTuuRegistrationRequest, buildTuuResultReport, canStartTuuPayment, clearTuuPendingPayment, findTuuPendingPayment, findTuuPendingPaymentByAttempt, getOrCreatePosDeviceId, isProcessedTuuSequence, latestUnresolvedTuuPayment, loadQueuedTuuResultReports, loadTuuPendingPayments, markTuuPaymentApproved, markTuuPaymentUncertain, mergeTuuPendingViews, newTuuIdempotencyKey, noteTuuRegistrationFailure, queueTuuResultReport, reconcileTuuPendingWithServer, recoverTuuPendingPayments, rememberProcessedTuuSequence, removeQueuedTuuResultReport, saveTuuPaymentStarted, tuuRefreshResultMessage } from "@/lib/pos/tuuPendingPayments.mjs";
 import { createTuuResultRouter } from "@/lib/pos/tuuResultRouter.mjs";
 import { abandonNativeTuuAttempt, ackNativeTuuResult, planNativeTuuSync, readNativeDeviceId, readPendingTuuState, readTuuBridgeEnvironment, resolvePosDeviceId, shouldAbandonLostTuuAttempt, shouldAckTuuResult, tuuLaunchBridge } from "@/lib/pos/tuuNativeBridge.mjs";
 import { TuuPendingPaymentCard, TuuPendingPaymentsAlert, TuuPendingPaymentsBanner } from "@/components/pos/PosTuuPendingPayments";
@@ -2545,13 +2545,13 @@ export default function PosTerminal() {
   }
 
   // ACTUALIZAR ESTADO: consulta al servidor (p. ej. tras una regularización).
-  async function refreshTuuPendingStatus() {
+  async function refreshTuuPendingStatus(stayId) {
     setTuuPendingBusy(true);
     setTuuPendingMessage("");
     try {
       const attempts = await refreshServerCardAttempts();
-      if (attempts === null) setTuuPendingMessage("No fue posible consultar el estado del pago. Verifica la conexión.");
-      else if (selectedVehicle?.stay?.id) void openVehicleDetail(selectedVehicle.stay);
+      setTuuPendingMessage(tuuRefreshResultMessage(attempts, stayId));
+      if (attempts !== null && selectedVehicle?.stay?.id) void openVehicleDetail(selectedVehicle.stay);
     } finally {
       setTuuPendingBusy(false);
     }
@@ -4734,7 +4734,7 @@ export default function PosTerminal() {
                 busy={tuuPendingBusy}
                 message={tuuPendingMessage}
                 onRegister={() => void registerPendingTuuPayment(tuuPendingForStay)}
-                onRefresh={() => void refreshTuuPendingStatus()}
+                onRefresh={(stayId) => void refreshTuuPendingStatus(stayId)}
                 onClose={closePaymentModal}
               />
             ) : null}
@@ -4921,7 +4921,7 @@ export default function PosTerminal() {
             busy={tuuPendingBusy}
             message={tuuPendingMessage}
             onRegister={() => void registerPendingTuuPayment(record)}
-            onRefresh={() => void refreshTuuPendingStatus()}
+            onRefresh={(stayId) => void refreshTuuPendingStatus(stayId)}
             onClose={() => setTuuPendingViewStayId(null)}
           />
         ) : null}

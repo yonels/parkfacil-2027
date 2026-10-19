@@ -433,3 +433,15 @@ export function rememberProcessedTuuSequence(storage, sequenceNumber) {
   const next = [...loadProcessedTuuSequences(storage).filter((item) => item !== sequenceNumber), sequenceNumber].slice(-TUU_PROCESSED_LIMIT);
   return writeJson(storage, TUU_PROCESSED_STORAGE_KEY, next);
 }
+
+// ACTUALIZAR ESTADO (QA PRO2 2026-10-19, SOL-2026-10-11-001): siempre informa el resultado
+// de la consulta; antes, si nada cambiaba, no mostraba nada y parecía no funcionar.
+const ACTIVE_ATTEMPT_STATUSES = new Set(["RESERVED", "SENT_TO_TUU", "APPROVED_PENDING_REGISTRATION", "UNCERTAIN"]);
+
+export function tuuRefreshResultMessage(attempts, stayId) {
+  if (!Array.isArray(attempts)) return "No fue posible consultar el estado del pago. Verifica la conexión.";
+  const stillPending = Boolean(stayId) && attempts.some((attempt) => attempt?.stayId === stayId && (!attempt?.status || ACTIVE_ATTEMPT_STATUSES.has(attempt.status)));
+  return stillPending
+    ? "Sin cambios: el pago sigue por resolver. Un administrador debe regularizarlo en Pagos con tarjeta."
+    : "El pago ya fue resuelto.";
+}

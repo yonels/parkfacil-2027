@@ -160,7 +160,7 @@ function sliceBetween(startText, endText) {
 }
 
 test("respuesta tardía: se asocia al intento local más reciente y se informa al servidor por su identificador; nunca abre TUU", () => {
-  const fn = sliceBetween("async function handleLateTuuResult(result) {", "async function refreshTuuPendingStatus() {");
+  const fn = sliceBetween("async function handleLateTuuResult(result) {", "async function refreshTuuPendingStatus(stayId) {");
   assert.match(fn, /const target = latestUnresolvedTuuPayment\(loadTuuPendingPayments\(storage\)\);/);
   assert.match(fn, /if \(verdict\.outcome === TUU_OUTCOME\.APPROVED\) \{\s*\n\s*rememberProcessedTuuSequence\(storage, result\?\.transactionId\);\s*\n\s*const approved = markTuuPaymentApproved\(storage, target\.stayId, \{ sequenceNumber: result\?\.transactionId \}\);/);
   assert.match(fn, /if \(approved\.record && !approved\.duplicate\) void registerPendingTuuPayment\(approved\.record\);/);
@@ -512,7 +512,7 @@ test("fase APK: recuperar el estado guardado en la APK solo informa al servidor;
 });
 
 test("fase APK: un resultado sin correlación válida nunca se asigna a un ticket; con attemptId va a su intento", () => {
-  const late = sliceBetween("async function handleLateTuuResult(result) {", "async function refreshTuuPendingStatus() {");
+  const late = sliceBetween("async function handleLateTuuResult(result) {", "async function refreshTuuPendingStatus(stayId) {");
   const uncorrelated = late.indexOf("if (result?.uncorrelated === true) {");
   const correlated = late.indexOf("if (result?.attemptId) {");
   const legacy = late.indexOf("latestUnresolvedTuuPayment(loadTuuPendingPayments(storage))");
