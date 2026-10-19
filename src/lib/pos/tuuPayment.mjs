@@ -95,11 +95,12 @@ export function buildTuuPaymentPayload({ amount, method } = {}) {
     },
   };
 
-  // installmentsQuantity solo aplica a crédito -- documentado por TUU como
-  // propio de ese medio; se omite en débito en vez de forzar un valor.
-  if (method === TUU_METHOD.CREDIT) {
-    payload.installmentsQuantity = 1;
-  }
+  // installmentsQuantity es obligatorio para Pago-DEV en ambos medios: en el QA
+  // físico del 2026-10-18 (SOL-2026-10-11-001) un débito sin el campo volvió con
+  // HP-8 "No todos los atributos requeridos están presentes". Crédito: 1 cuota.
+  // Débito: -1 (no se usa, misma convención que tip/cashback; el error 4 de TUU
+  // rechaza cuotas > -1 fuera de crédito).
+  payload.installmentsQuantity = method === TUU_METHOD.CREDIT ? 1 : TUU_DISABLED;
 
   return payload;
 }
@@ -265,6 +266,10 @@ const TUU_NOT_STARTED_CODES = new Set([
 export const TUU_PRE_TRANSACTION_ERROR_CODES = new Set([
   "1", "2", "3", "4", "5", "6", "7", "8", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21",
   "I-01", "I-02", "I-03", "I-04",
+  // Pago-DEV real (2026-10-18): "HP-8" con el mensaje del error 8 ("No todos los
+  // atributos requeridos están presentes"), en 0,3 s y sin leer la tarjeta. No
+  // figura en la tabla post-transaccional de TUU.
+  "HP-8",
 ]);
 
 // errorCodeOnApp documentado para "La transacción fue cancelada".

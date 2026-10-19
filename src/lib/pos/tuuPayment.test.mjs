@@ -38,15 +38,16 @@ test("TUU: buildTuuPaymentPayload arma el payload débito con los campos reales"
       netAmount: 3500,
       sourceName: "ParkFacil POS",
     },
+    installmentsQuantity: -1,
   });
 });
 
-test("TUU: buildTuuPaymentPayload agrega installmentsQuantity=1 solo en crédito", () => {
+test("TUU: installmentsQuantity = 1 en crédito y -1 en débito (Pago-DEV lo exige, HP-8 sin él)", () => {
   const credit = buildTuuPaymentPayload({ amount: 1000, method: TUU_METHOD.CREDIT, netAmount: 840 });
   assert.equal(credit.installmentsQuantity, 1);
 
   const debit = buildTuuPaymentPayload({ amount: 1000, method: TUU_METHOD.DEBIT, netAmount: 840 });
-  assert.equal("installmentsQuantity" in debit, false);
+  assert.equal(debit.installmentsQuantity, -1);
 });
 
 test("TUU: buildTuuPaymentPayload redondea amount/netAmount sin inventar decimales", () => {
@@ -210,7 +211,7 @@ test("TUU-02: tip = -1 y cashback = -1 en débito y en crédito", () => {
   }
 });
 
-test("TUU-02: payload final DÉBITO sin installmentsQuantity y payload final CRÉDITO con installmentsQuantity = 1", () => {
+test("TUU-02: payload final DÉBITO con installmentsQuantity = -1 y payload final CRÉDITO con installmentsQuantity = 1", () => {
   assert.deepEqual(buildTuuPaymentPayload({ amount: 4500, method: TUU_METHOD.DEBIT, netAmount: 3782 }), {
     amount: 4500,
     tip: -1,
@@ -218,6 +219,7 @@ test("TUU-02: payload final DÉBITO sin installmentsQuantity y payload final CR�
     method: 2,
     printVoucherOnApp: true,
     extraData: { taxIdnValidation: "", exemptAmount: 0, netAmount: 4500, sourceName: "ParkFacil POS" },
+    installmentsQuantity: -1,
   });
   assert.deepEqual(buildTuuPaymentPayload({ amount: 4500, method: TUU_METHOD.CREDIT, netAmount: 3782 }), {
     amount: 4500,
@@ -292,7 +294,7 @@ test("auditoría: cashback y cuotas respetan las validaciones de TUU (errores 4 
   const debit = buildTuuPaymentPayload({ amount: 1000, method: TUU_METHOD.DEBIT });
   assert.equal(credit.cashback, -1);
   assert.equal(debit.cashback, -1);
-  assert.equal("installmentsQuantity" in debit, false);
+  assert.equal(debit.installmentsQuantity, -1);
   assert.equal(credit.installmentsQuantity, 1);
 });
 
@@ -326,4 +328,11 @@ test("auditoría: error durante el pago, códigos HP post-transaccionales o desc
   ]) {
     assert.equal(tuuOutcome(tuu).outcome, TUU_OUTCOME.UNCERTAIN, JSON.stringify(tuu));
   }
+});
+
+test("Pago-DEV real: HP-8 (faltan atributos, error 8) es pre-transaccional: no hubo cobro", () => {
+  const raw = JSON.stringify({ errorCode: "HP-8", errorMessage: "No todos los atributos requeridos están presentes.", extraData: {} });
+  const outcome = classifyTuuOutcome({ delivered: true, result: { success: false, cancelled: false, rawResponse: raw } });
+  assert.equal(outcome.outcome, TUU_OUTCOME.DECLINED);
+  assert.equal(outcome.code, "HP-8");
 });
