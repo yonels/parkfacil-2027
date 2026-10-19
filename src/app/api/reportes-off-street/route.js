@@ -6,6 +6,8 @@ import { getMovementsSummary, getOpenCountsByParking, searchMovementsReport, sea
 import { getDashboardCapacityByParking } from "@/lib/offStreetDashboardCapacity";
 import { toOccupancyReportRow, validateReportsFilters } from "@/lib/offStreetReportsCore.mjs";
 import { listParkings } from "@/lib/estacionamientosRepository";
+import { searchCouponRedemptions } from "@/lib/cupones/couponReportsService";
+import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
 
 function fail(message, status = 400, details) {
   return NextResponse.json({ error: message, details }, { status });
@@ -59,6 +61,16 @@ export async function GET(request) {
         getMovementsSummary(authorization.db, scopedParkings, { parkingId, companyId }),
       ]);
       return NextResponse.json({ data: { rows: result.rows, total: result.total, page: result.page, pageSize: result.pageSize, parkings: result.parkings, resumen: summary, actor } });
+    }
+
+    // Cupones (SOL-2026-10-19-002): un canje por fila; solo donde los cupones están habilitados.
+    if (type === "coupons") {
+      if (!couponsEnabled()) return fail(COUPONS_DISABLED_ERROR.error, 403, { code: COUPONS_DISABLED_ERROR.code });
+      const result = await searchCouponRedemptions(authorization.db, scopedParkings, {
+        dateFrom, dateTo, parkingId, companyId, all,
+        page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined,
+      });
+      return NextResponse.json({ data: { rows: result.rows, total: result.total, page: result.page, pageSize: result.pageSize, resumen: result.summary, actor } });
     }
 
     if (type === "shifts") {
