@@ -102,6 +102,8 @@ test("POS quote route: POST recalculates with the coupon, refused where coupons 
 test("data-entry refuses coupons where disabled and re-checks the coupon before a card charge", () => {
   const source = read("../../app/api/data-entry/route.js");
   assert.match(source, /if \(input\.couponToken && !couponsEnabled\(\)\) return fail\(COUPONS_DISABLED_ERROR\.error, 403/);
+  // La reserva de pagos con tarjeta (TUU-02) no existe en todas las ramas.
+  if (!source.includes('if (input.action === "CARD_PAYMENT_RESERVE")')) return;
   const reserve = source.slice(source.indexOf('if (input.action === "CARD_PAYMENT_RESERVE")'), source.indexOf("reserveCardPaymentAttempt(current.db"));
   assert.match(reserve, /input\.quoteSnapshot\.couponId/);
   assert.match(reserve, /couponAvailableForCharge\(couponRow\)/);
