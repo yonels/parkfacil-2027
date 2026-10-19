@@ -20,8 +20,9 @@ import {
 } from "./offStreetRevenueCore.mjs";
 import { readCardTypedQuery, matchesRevenueMethod } from "./paymentCardType.mjs";
 import { AuthorizationError } from "./auth/contextCore.mjs";
+import { couponTotalsByShift } from "./cupones/couponReportsCore.mjs";
 
-const stayFields = "id,code,license_plate,parking_id,status,exit_at,exit_operator_id,exit_operator_name,payment_method,payment_code,total_amount,payment_shift_id";
+const stayFields = "id,code,license_plate,parking_id,status,exit_at,exit_operator_id,exit_operator_name,payment_method,payment_code,total_amount,payment_shift_id,coupon_id,coupon_code,discount_amount";
 const closureFields = "id,shift_id,folio,parking_id,parking_name,company_name,operator_id,operator_name,shift_date,actual_start_at,actual_close_at,paid_vehicles_count,cancelled_vehicles_count,pending_vehicles_count,cash_amount,card_amount,payments_snapshot,collected_amount,declared_cash_amount,cash_difference,difference_observation,closure_status,confirmed_by,confirmed_at";
 
 // Auditoría previa (§11/§12): un .limit(1000)/.limit(20000) simple es un
@@ -272,7 +273,19 @@ export async function searchRevenueClosures(db, scopedParkings, options = {}) {
   const widened = await fetchAllMatchingRows(queryFactory);
   const exactRows = filterRowsByExactOperationalDateRange(widened, "actual_close_at", effectiveDateFrom, effectiveDateTo);
   const pageRows = all ? exactRows : exactRows.slice(offset, offset + safeSize);
-  const rows = pageRows.map((row) => toRevenueClosureRow(row));
+  // Cupones canjeados y descuento por turno (SOL-2026-10-19-002): desde las
+  // estadías pagadas con cupón de esos turnos, en lote.
+  const shiftIds = [...new Set(pageRows.map((row) => row.shift_id).filter(Boolean))];
+  const couponTotals = new Map();
+  for (let index = 0; index < shiftIds.length; index += 200) {
+    const { data, error } = await db.from("parking_stays").select("payment_shift_id,coupon_id,discount_amount").in("payment_shift_id", shiftIds.slice(index, index + 200)).eq("status", "PAID").not("coupon_id", "is", null);
+    if (error) throw error;
+    for (const [shiftId, totals] of couponTotalsByShift(data || [])) couponTotals.set(shiftId, totals);
+  }
+  const rows = pageRows.map((row) => {
+    const totals = couponTotals.get(row.shift_id);
+    return toRevenueClosureRow({ ...row, coupon_count: totals?.couponCount || 0, coupon_discount_amount: totals?.couponDiscountAmount || 0 });
+  });
 
   return { rows, total: exactRows.length, page: safePage, pageSize: all ? rows.length : safeSize };
 }

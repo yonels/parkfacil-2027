@@ -18,6 +18,8 @@ function createMockDb({ stays = [], shifts = [], closures = [], rangeCalls = nul
       select() { return api; },
       eq(field, value) { predicates.push((row) => row[field] === value); return api; },
       in(field, values) { const set = new Set(values); predicates.push((row) => set.has(row[field])); return api; },
+      // Cupones (SOL-2026-10-19-002): .not(field, "is", null).
+      not(field, operator, value) { predicates.push((row) => (operator === "is" && value === null ? row[field] != null : row[field] !== value)); return api; },
       gte(field, value) { predicates.push((row) => row[field] >= value); return api; },
       lte(field, value) { predicates.push((row) => row[field] <= value); return api; },
       or(expr) {
@@ -500,7 +502,7 @@ test("SIN TECHO SILENCIOSO: superar el tope máximo real rechaza explícitamente
 test("ESTADO VACÍO: empresa/parking/período sin pagos ni cierres devuelve ceros reales, nunca restos de otra consulta", async () => {
   const db = createMockDb({ stays: [], closures: [] });
   const overview = await getRevenueOverview(db, CO1_PARKINGS, { dateFrom: "2026-01-01", dateTo: "2026-01-02" });
-  assert.deepEqual(overview.summary, { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0 });
+  assert.deepEqual(overview.summary, { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0, couponCount: 0, couponDiscountAmount: 0 });
   assert.ok(overview.dailySeries.every((day) => day.amount === 0));
   assert.equal(overview.cashDifference.totalDifference, 0);
 
