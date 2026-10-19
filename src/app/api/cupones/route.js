@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
 
 const selection = "*,company:companies!coupons_company_id_fkey(business_name,trade_name),issuing_merchant:coupon_merchants!coupons_merchant_id_fkey(code,name),redeeming_merchant:coupon_merchants!coupons_redeeming_merchant_id_fkey(code,name)";
 const responseError = (error, status = 400) => NextResponse.json({ error }, { status });
 const mapCoupon = (row) => ({ id: row.id, companyId: row.company_id, companyName: row.company?.trade_name || row.company?.business_name || row.company_id, merchantId: row.merchant_id, redeemingMerchantId: row.redeeming_merchant_id, merchantName: row.issuing_merchant?.name || "", merchantCode: row.issuing_merchant?.code || "", redeemingMerchantName: row.redeeming_merchant?.name || "", code: row.code, name: row.name, benefitType: row.benefit_type, value: Number(row.benefit_value), qrToken: row.delivered_at ? null : row.qr_token, qrPayload: row.delivered_at ? null : `PFC-COUPON:${row.qr_token}`, status: row.redeemed_at ? "REDEEMED" : row.status === "ACTIVE" && new Date(row.expires_at) <= new Date() ? "EXPIRED" : row.status, validFrom: row.valid_from, expiresAt: row.expires_at, redeemedAt: row.redeemed_at, deliveredAt: row.delivered_at, deliveryMethod: row.delivery_method });
 
 export async function GET(request) {
+  if (!couponsEnabled()) return NextResponse.json(COUPONS_DISABLED_ERROR, { status: 403 });
   const auth = await authorizeRemainingRequest(request, PERMISSIONS.COUPONS_READ); if (auth.response) return auth.response;
   const actor = remainingActor(auth.context);
   let query = auth.db.from("coupons").select(selection).order("created_at", { ascending: false });
@@ -19,6 +21,7 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  if (!couponsEnabled()) return NextResponse.json(COUPONS_DISABLED_ERROR, { status: 403 });
   const auth = await authorizeRemainingRequest(request, PERMISSIONS.COUPONS_MANAGE); if (auth.response) return auth.response;
   const actor = remainingActor(auth.context); const input = await request.json();
   const validFrom = new Date(input.validFrom); const expiresAt = new Date(input.expiresAt);
@@ -40,6 +43,7 @@ export async function POST(request) {
 }
 
 export async function PATCH(request) {
+  if (!couponsEnabled()) return NextResponse.json(COUPONS_DISABLED_ERROR, { status: 403 });
   const auth = await authorizeRemainingRequest(request, PERMISSIONS.COUPONS_MANAGE); if (auth.response) return auth.response;
   const actor = remainingActor(auth.context); const input = await request.json();
   const ids = [...new Set((Array.isArray(input.ids) ? input.ids : []).map(String).filter(Boolean))].slice(0, 100);

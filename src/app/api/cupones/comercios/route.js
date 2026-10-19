@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
 const clean = (value) => String(value || "").trim();
 const map = (row) => ({ id: row.id, companyId: row.company_id, companyName: row.companies?.trade_name || row.companies?.business_name || row.company_id, code: row.code, name: row.name, contactName: row.contact_name, contactEmail: row.contact_email, status: row.status });
 
 export async function GET(request) {
+  if (!couponsEnabled()) return NextResponse.json(COUPONS_DISABLED_ERROR, { status: 403 });
   const auth = await authorizeRemainingRequest(request, PERMISSIONS.COUPONS_READ); if (auth.response) return auth.response;
   const actor = remainingActor(auth.context);
   let query = auth.db.from("coupon_merchants").select("*,companies(business_name,trade_name)").eq("status", "ACTIVE").order("name");
@@ -14,6 +16,7 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  if (!couponsEnabled()) return NextResponse.json(COUPONS_DISABLED_ERROR, { status: 403 });
   const auth = await authorizeRemainingRequest(request, PERMISSIONS.COUPONS_MANAGE); if (auth.response) return auth.response;
   const actor = remainingActor(auth.context); const input = await request.json();
   const companyId = actor.isPlatformAdmin ? clean(input.companyId) : actor.companyId;
