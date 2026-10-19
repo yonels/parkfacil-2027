@@ -21,6 +21,7 @@ import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
 import { ChargeBreakdownList, ClosedUnpaidExitsSummary, DebtNoticeBanner, UnpaidExitAction, UnpaidExitsReview } from "@/components/pos/PosUnpaidExit";
 import { summarizeChargeBreakdown } from "@/lib/parkingTimeBands.mjs";
+import { receiptChargeLines, receiptExitInstant } from "@/lib/pos/paymentReceiptCore.mjs";
 import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } from "@/lib/pos/qrExitCore.mjs";
 import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
 import { buildPaymentsDayPrintPayload } from "@/lib/pos/paymentsDayCore.mjs";
@@ -132,7 +133,9 @@ function buildEntryPrintPayload(stay, parkingResponse) {
 function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod = "CASH") {
   if (!stay || !quote || !parkingResponse) return null;
   const entryDateTime = formatBridgeEntryDateTime(stay.entry_at);
-  const exitDateTime = formatBridgeEntryDateTime(stay.exit_at);
+  // «Salida» = hora del cálculo de cobro (entrada + minutos cobrados), no la
+  // confirmación del pago: así cuadra con «Tiempo» (SOL-2026-10-18-001).
+  const exitDateTime = formatBridgeEntryDateTime(receiptExitInstant(stay, quote));
   if (!entryDateTime || !exitDateTime) return null;
 
   // El monto del comprobante es siempre el TOTAL ya confirmado por el
@@ -163,6 +166,8 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod 
     // SOL-2026-10-08-003: con franjas horarias se agrega un resumen del
     // desglose en la misma línea "Tarifa" (el formato impreso es fijo en la APK).
     rateDescription: [String(quote?.rate?.name || stay?.rate_name || "").trim(), summarizeChargeBreakdown(quote?.snapshot?.chargeBreakdown)].filter(Boolean).join(" · "),
+    // Detalle por franja horaria (APK con soporte de chargeLines; las anteriores lo ignoran).
+    chargeLines: receiptChargeLines(quote?.snapshot?.chargeBreakdown),
     netAmount: breakdown.netAmount,
     vatAmount: breakdown.vatAmount,
     amount: breakdown.totalAmount,
