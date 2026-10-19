@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { configuredParkingCapacity, homeVehicleMinutes, homeVehiclePagination, sortHomeVehicles } from "@/lib/pos/homeVehicles.mjs";
+import { configuredParkingCapacity, homeVehicleClockAnchor, homeVehicleMinutes, homeVehiclePagination, sortHomeVehicles } from "@/lib/pos/homeVehicles.mjs";
 
 export default function PosHomeVehicles({ stays, capacity, onSelect, formatEntry, formatPlate }) {
   const rowsRef = useRef(null);
@@ -12,9 +12,7 @@ export default function PosHomeVehicles({ stays, capacity, onSelect, formatEntry
   const clockAnchor = useRef({ local: 0, server: 0 });
 
   useEffect(() => {
-    const local = Date.now();
-    const server = Date.parse(stays?.[0]?.serverNow);
-    clockAnchor.current = { local, server: Number.isFinite(server) ? server : local };
+    clockAnchor.current = homeVehicleClockAnchor(stays, Date.now());
     const tick = () => setClock(clockAnchor.current.server + Date.now() - clockAnchor.current.local);
     tick();
     const timer = setInterval(tick, 15000);

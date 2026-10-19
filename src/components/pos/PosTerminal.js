@@ -3,6 +3,7 @@
 import { classifiedPaymentMethod, paymentMethodDisplay } from "@/lib/paymentCardType.mjs";
 import PosPlateInput from "@/components/pos/PosPlateInput";
 import PosHomeVehicles from "@/components/pos/PosHomeVehicles";
+import { stampStaysReceivedAt } from "@/lib/pos/homeVehicles.mjs";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LoaderCircle, LogOut, Menu, RefreshCw, X } from "lucide-react";
@@ -1013,7 +1014,7 @@ export default function PosTerminal() {
       setParking(summary.payload?.data?.parking || null);
       setParkingSelectionRequired(false);
       setVehiclesInside(stays.length);
-      setActiveStays(stays);
+      setActiveStays(stampStaysReceivedAt(stays));
       const photoSettings = summary.payload?.data?.platePhotoSettings || null;
       setPlatePhotoMode(photoSettings?.mode || "DISABLED");
       setPrintPlatePhotoOnTicket(Boolean(photoSettings?.printOnTicket));
@@ -1639,7 +1640,7 @@ export default function PosTerminal() {
         return;
       }
       const stays = Array.isArray(summary.payload?.data?.stays) ? summary.payload.data.stays : [];
-      setActiveStays(stays);
+      setActiveStays(stampStaysReceivedAt(stays));
       setVehiclesInside(stays.length);
       const result = resolveStayFromQr(stays, raw);
       if (result.status !== QR_EXIT_STATUS.FOUND) {
@@ -1699,7 +1700,7 @@ export default function PosTerminal() {
       }
       if (!summary.ok) return;
       const stays = Array.isArray(summary.payload?.data?.stays) ? summary.payload.data.stays : [];
-      setActiveStays(stays);
+      setActiveStays(stampStaysReceivedAt(stays));
       setVehiclesInside(stays.length);
     } catch {
       // Sin red: se busca en la última lista cargada.

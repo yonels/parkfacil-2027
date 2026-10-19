@@ -24,3 +24,21 @@ test("capacity remains unknown without positive configured zones", () => {
   assert.equal(configuredParkingCapacity([{ capacity: null }, { capacity: 0 }]), null);
   assert.equal(configuredParkingCapacity([{ capacity: 25 }, { capacity: "15" }, { capacity: -1 }]), 40);
 });
+
+// QA PRO2 2026-10-19: al volver al inicio con datos de una carga anterior, los minutos no deben
+// retroceder: el reloj se ancla al momento en que llegó la respuesta, no al montar la lista.
+test("reloj del inicio: se ancla a la llegada de los datos y no retrocede al volver a la pantalla", async () => {
+  const { homeVehicleClockAnchor, stampStaysReceivedAt } = await import("./homeVehicles.mjs");
+  const serverNow = "2026-10-19T13:36:00Z";
+  const receivedAt = Date.parse("2026-10-19T13:36:00Z");
+  const stays = stampStaysReceivedAt([{ id: "a", entry_at: "2026-10-19T13:34:37Z", serverNow }, { id: "b", entry_at: "2026-10-19T13:35:21Z", serverNow }], receivedAt);
+  // La lista se vuelve a montar a las 10:45 (13:45 UTC) con esos mismos datos.
+  const remountAt = Date.parse("2026-10-19T13:45:19Z");
+  const anchor = homeVehicleClockAnchor(stays, remountAt);
+  const clock = anchor.server + remountAt - anchor.local;
+  assert.equal(homeVehicleMinutes(stays[0].entry_at, clock), 10);
+  assert.equal(homeVehicleMinutes(stays[1].entry_at, clock), 9);
+  // Sin marca de llegada (datos antiguos) se mantiene el comportamiento anterior.
+  assert.deepEqual(homeVehicleClockAnchor([{ serverNow }], remountAt), { server: Date.parse(serverNow), local: remountAt });
+  assert.deepEqual(homeVehicleClockAnchor([], remountAt), { server: remountAt, local: remountAt });
+});
