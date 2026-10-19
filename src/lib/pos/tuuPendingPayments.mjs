@@ -272,14 +272,20 @@ export function latestUnresolvedTuuPayment(records) {
 // ---------------------------------------------------------------------------
 
 // Registro en ParkFacil de un pago que TUU YA aprobó: siempre por intento.
-export function buildTuuRegistrationRequest(record) {
+// `includeApprovedResult` (SOL-2026-10-11-001): el aviso de aprobación viaja en la
+// misma llamada del registro, solo si este equipo tiene la aprobación de TUU.
+export function buildTuuRegistrationRequest(record, { includeApprovedResult = false } = {}) {
   if (!record || record.status !== TUU_PENDING_STATUS.PENDING_REGISTRATION || !record.attemptId) return null;
+  const withResult = includeApprovedResult && Boolean(record.deviceId);
   return {
     action: "EXIT",
     stayId: record.stayId,
     paymentMethod: "CARD",
     paymentCardType: record.cardType,
-    cardPayment: { attemptId: record.attemptId },
+    cardPayment: {
+      attemptId: record.attemptId,
+      ...(withResult ? { result: { outcome: "APPROVED", deviceId: record.deviceId, reference: isValidTuuSequenceNumber(record.sequenceNumber) ? record.sequenceNumber : null } } : {}),
+    },
   };
 }
 

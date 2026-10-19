@@ -2434,9 +2434,24 @@ export default function PosTerminal() {
     setTuuPendingMessage("");
     logTuu("REGISTRATION_ATTEMPT", record, { attempts: (record.registrationAttempts || 0) + 1 });
     try {
+      // 0) Camino rápido (SOL-2026-10-11-001): aprobación y registro en UNA llamada.
+      //    Si falla, se sigue el camino de siempre (aviso y luego registro).
+      let response = null;
+      if (isLocal) {
+        const combined = await postCardPaymentAction(buildTuuRegistrationRequest(record, { includeApprovedResult: true }));
+        if (combined.ok) {
+          if (shouldAckTuuResult(combined)) ackNativeTuuResult(getNativeDeviceBridge(), record.attemptId);
+          removeQueuedTuuResultReport(storage, record.attemptId);
+          response = combined;
+        } else if (combined.status === 401) {
+          registrationFailed("Tu sesión expiró. Inicia sesión nuevamente y usa REGISTRAR PAGO. El pago TUU ya está aprobado: no vuelva a cobrar.", "session_expired");
+          return false;
+        }
+      }
+
       // 1) El servidor debe conocer la aprobación de este intento (si el pago
       //    se aprobó en este equipo). Repetir el aviso no cambia nada.
-      if (isLocal) {
+      if (isLocal && !response) {
         const reported = await reportTuuAttemptResult(record, "APPROVED", { reference: record.sequenceNumber });
         if (!reported.ok) {
           const response = reported.response;
@@ -2459,7 +2474,7 @@ export default function PosTerminal() {
       }
 
       // 2) Registro del pago en el ticket y cierre del intento (una transacción).
-      const response = await postCardPaymentAction(body);
+      if (!response) response = await postCardPaymentAction(body);
       if (!response.ok) {
         if (response.status === 401) {
           registrationFailed("Tu sesión expiró. Inicia sesión nuevamente y usa REGISTRAR PAGO. El pago TUU ya está aprobado: no vuelva a cobrar.", "session_expired");

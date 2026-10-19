@@ -295,3 +295,21 @@ test("ACTUALIZAR ESTADO siempre informa el resultado (QA PRO2 2026-10-19)", asyn
   assert.equal(tuuRefreshResultMessage([], "s1"), "El pago ya fue resuelto.");
   assert.equal(tuuRefreshResultMessage([{ stayId: "otro", status: "UNCERTAIN" }], "s1"), "El pago ya fue resuelto.");
 });
+
+test("registro combinado: el aviso de aprobación viaja en la misma llamada solo si se pide y hay equipo (SOL-2026-10-11-001)", () => {
+  const record = { status: TUU_PENDING_STATUS.PENDING_REGISTRATION, attemptId: "a1", stayId: "s1", cardType: "DEBIT", deviceId: "apk-1", sequenceNumber: "130000046876" };
+  assert.deepEqual(buildTuuRegistrationRequest(record).cardPayment, { attemptId: "a1" });
+  assert.deepEqual(buildTuuRegistrationRequest(record, { includeApprovedResult: true }).cardPayment, { attemptId: "a1", result: { outcome: "APPROVED", deviceId: "apk-1", reference: "130000046876" } });
+  assert.deepEqual(buildTuuRegistrationRequest({ ...record, deviceId: null }, { includeApprovedResult: true }).cardPayment, { attemptId: "a1" });
+  assert.equal(buildTuuRegistrationRequest({ ...record, sequenceNumber: "x" }, { includeApprovedResult: true }).cardPayment.result.reference, null);
+});
+
+test("servidor: el registro guarda el resultado aprobado antes de registrar, con la misma RPC", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync(new URL("../../app/api/data-entry/route.js", import.meta.url), "utf8");
+  const fn = source.slice(source.indexOf("async function registerCardPaymentFromAttempt("), source.indexOf("const UNPAID_ERROR_MESSAGES = {"));
+  const combined = fn.indexOf('approvedResult?.outcome === "APPROVED"');
+  assert.ok(combined > fn.indexOf("if (attempt.parking_id !== current.actor.parkingId)"));
+  assert.ok(combined < fn.indexOf("if (![CARD_ATTEMPT_STATUS.APPROVED_PENDING_REGISTRATION, CARD_ATTEMPT_STATUS.PAID].includes(attempt.status)) {\n    return fail") || combined < fn.lastIndexOf("CARD_ATTEMPT_NOT_APPROVED"));
+  assert.match(fn, /attempt = await reportCardPaymentAttemptResult\(current\.db, \{\s*attemptId, companyId, deviceId: sanitizeDeviceId\(approvedResult\.deviceId\), outcome: "APPROVED"/);
+});

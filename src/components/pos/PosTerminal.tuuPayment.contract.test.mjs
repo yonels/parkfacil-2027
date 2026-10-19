@@ -494,11 +494,16 @@ test("fase APK: el ACK a la APK ocurre solo después de que el servidor guardó 
   const post = report.indexOf("const response = await postCardPaymentAction(report);");
   const ack = report.indexOf("if (shouldAckTuuResult(response)) ackNativeTuuResult(getNativeDeviceBridge(), report.attemptId);");
   assert.ok(post !== -1 && ack !== -1 && post < ack);
-  assert.equal((terminalSource.match(/ackNativeTuuResult\(/g) || []).length, 2, "al informar y al vaciar la cola");
+  // Tres puntos: al informar, al vaciar la cola y en el camino rápido (aprobación y
+  // registro en una llamada, SOL-2026-10-11-001), siempre tras la respuesta OK del servidor.
+  assert.equal((terminalSource.match(/ackNativeTuuResult\(/g) || []).length, 3, "al informar, al vaciar la cola y en el registro combinado");
   for (const match of terminalSource.matchAll(/ackNativeTuuResult\(/g)) {
     const line = terminalSource.slice(terminalSource.lastIndexOf("\n", match.index) + 1, terminalSource.indexOf("\n", match.index));
-    assert.match(line, /if \(shouldAckTuuResult\(response\)\) ackNativeTuuResult\(getNativeDeviceBridge\(\), report\.attemptId\);/);
+    assert.match(line, /if \(shouldAckTuuResult\((response|combined)\)\) ackNativeTuuResult\(getNativeDeviceBridge\(\), (report|record)\.attemptId\);/);
   }
+  const fast = sliceBetween("// 0) Camino rápido", "// 1) El servidor debe conocer la aprobación");
+  assert.ok(fast.indexOf("const combined = await postCardPaymentAction(") < fast.indexOf("if (combined.ok) {"));
+  assert.ok(fast.indexOf("if (combined.ok) {") < fast.indexOf("ackNativeTuuResult("));
   // Y el ACK es siempre del intento informado, nunca "el último" ni todos.
   assert.match(nativeBridgeSource, /export function shouldAckTuuResult\(response\) \{\s*\n\s*return Boolean\(response\) && response\.ok === true && response\.network !== true;/);
 });

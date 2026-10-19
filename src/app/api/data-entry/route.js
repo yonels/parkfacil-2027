@@ -433,6 +433,25 @@ async function registerCardPaymentFromAttempt({ input, current, posShift }) {
   if (attempt.parking_id !== current.actor.parkingId) {
     return fail("Este pago corresponde a otro estacionamiento. Inicia turno allí para registrarlo.", 409, { code: "CARD_ATTEMPT_OTHER_PARKING" });
   }
+  // Una sola llamada (QA PRO2 2026-10-19, SOL-2026-10-11-001): el POS puede enviar
+  // junto al registro el resultado APROBADO de TUU. Se guarda con la misma RPC que
+  // CARD_PAYMENT_RESULT y se registra a continuación; ahorra una ida y vuelta (~1,2 s).
+  const approvedResult = input?.cardPayment?.result;
+  if (approvedResult?.outcome === "APPROVED" && ![CARD_ATTEMPT_STATUS.APPROVED_PENDING_REGISTRATION, CARD_ATTEMPT_STATUS.PAID].includes(attempt.status)) {
+    try {
+      attempt = await reportCardPaymentAttemptResult(current.db, {
+        attemptId, companyId, deviceId: sanitizeDeviceId(approvedResult.deviceId), outcome: "APPROVED",
+        reference: approvedResult.reference || null, errorCode: null, errorMessage: null,
+      });
+      log("RESULT", { outcome: "APPROVED", combined: true, status: attempt?.status || null, reference: attempt?.provider_reference || null });
+    } catch (error) {
+      const mapped = cardAttemptErrorResponse(error);
+      if (mapped) return fail(mapped.error, mapped.status, { code: mapped.code });
+      console.error("[data-entry:card-attempt]", { action: "EXIT", code: error?.code, message: error?.message });
+      return fail("No fue posible registrar el pago.", 503, { code: "CARD_ATTEMPT_FAILED" });
+    }
+    if (!attempt) return fail("No existe el intento de pago solicitado.", 404, { code: "CARD_ATTEMPT_NOT_FOUND" });
+  }
   if (![CARD_ATTEMPT_STATUS.APPROVED_PENDING_REGISTRATION, CARD_ATTEMPT_STATUS.PAID].includes(attempt.status)) {
     return fail("El pago todavía no está aprobado. No se registró.", 409, { code: "CARD_ATTEMPT_NOT_APPROVED" });
   }
