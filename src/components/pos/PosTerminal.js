@@ -2051,9 +2051,10 @@ export default function PosTerminal() {
       const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse);
       setReceiptPrintPayload(receiptPayload);
       setReceiptPrintStatus("");
-      await loadTerminalState(true);
-
+      // Igual que en tarjeta: imprimir sin esperar la recarga del terminal.
+      const terminalRefresh = loadTerminalState(true);
       const printResult = receiptPayload ? await printLastReceipt(receiptPayload) : null;
+      await terminalRefresh;
       const printFailedOnDevice = Boolean(printResult?.attempted && !printResult.ok);
 
       if (printFailedOnDevice) {
@@ -2497,9 +2498,12 @@ export default function PosTerminal() {
       }
       setReceiptPrintPayload(receiptPayload);
       setReceiptPrintStatus("");
-      await loadTerminalState(true);
-
+      // Imprime apenas el servidor confirma el registro (QA PRO2 2026-10-19): antes
+      // se esperaba la recarga del terminal (~3,7 s) antes de pedir la impresión.
+      // La recarga corre en paralelo y se espera antes de volver al inicio.
+      const terminalRefresh = loadTerminalState(true);
       const printResult = receiptPayload ? await printLastReceipt(receiptPayload) : null;
+      await terminalRefresh;
       const printFailedOnDevice = Boolean(printResult?.attempted && !printResult.ok);
 
       if (inPaymentModal) {

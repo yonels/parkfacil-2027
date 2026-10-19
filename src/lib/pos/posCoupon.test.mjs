@@ -132,3 +132,10 @@ test("POS terminal: APLICAR CUPÓN in the payment window, scanner + manual code,
   const qrTicket = source.slice(source.indexOf("async function handleQrTicket"), source.indexOf("async function handleQrTicket") + 400);
   assert.match(qrTicket, /isCouponQrPayload\(raw\)/);
 });
+
+test("receipt prints as soon as the payment is confirmed; terminal refresh runs in parallel (cash and card)", () => {
+  const source = readFileSync(new URL("../../components/pos/PosTerminal.js", import.meta.url), "utf8");
+  const pattern = /const terminalRefresh = loadTerminalState\(true\);\r?\n\s*const printResult = receiptPayload \? await printLastReceipt\(receiptPayload\) : null;\r?\n\s*await terminalRefresh;/g;
+  assert.equal((source.match(pattern) || []).length, 2);
+  assert.doesNotMatch(source, /await loadTerminalState\(true\);\r?\n\r?\n\s*const printResult = receiptPayload/);
+});
