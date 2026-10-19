@@ -1,5 +1,6 @@
 import { canCaptureCardType, validatePaymentCardType } from "@/lib/paymentCardType.mjs";
 import { posCardPaymentsEnabled } from "@/lib/pos/cardPaymentsAvailability.mjs";
+import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
 import { canStoreCardPaymentReference, validateCardPaymentReference } from "@/lib/pos/cardPaymentReference.mjs";
 import { canRevertUnpaidMark, sanitizeUnpaidNotes } from "@/lib/parkingDebtsCore.mjs";
 import { buildDebtNoticeForPlate, getPendingUnpaidStay, listPendingUnpaidStaysForShift, markStayUnpaid, revertStayUnpaid } from "@/lib/parkingDebtsRepository";
@@ -439,6 +440,7 @@ export async function POST(request) {
     if (!stay) return fail("No existe una estadía abierta para el vehículo.", 404);
     const now = new Date();
     const releasedSnapshot = await loadReleasedStaySnapshot(current.db, stay.id);
+    if (input.couponToken && !couponsEnabled()) return fail(COUPONS_DISABLED_ERROR.error, 403, { code: COUPONS_DISABLED_ERROR.code });
     if (releasedSnapshot && input.couponToken) return fail("Los cupones no aplican a patentes liberadas.", 409, { code: "RELEASED_PAYMENT_NO_COUPON" });
     let quote; try { quote = releasedSnapshot ? await quoteReleasedParkingStay(current.db, stay, releasedSnapshot, { now }) : await quoteParkingStay(current.db, stay, { couponToken: input.couponToken, now }); } catch (error) {
       const messages = { PARKING_NOT_FOUND: "El estacionamiento no existe.", COUPON_NOT_FOUND: "El cupón no existe.", COUPON_ALREADY_USED: "El cupón ya fue utilizado.", COUPON_WRONG_COMPANY: "El cupón no corresponde a este estacionamiento.", COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.", COUPON_EXPIRED: "El cupón está vencido." };

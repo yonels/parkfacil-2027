@@ -24,7 +24,8 @@ test("handlePaymentSelection(CASH) sigue yendo a CASH_CONFIRM, sin ninguna rama 
 });
 
 test("confirmCashPayment y refreshExpiredQuote no fueron tocados en su lógica de cobro (misma llamada EXIT/CASH)", () => {
-  assert.match(terminalSource, /body: JSON\.stringify\(\{ action: "EXIT", stayId: selectedVehicle\.stay\.id, paymentMethod: "CASH", quoteSnapshot \}\)/);
+  // Cupón (SOL-2026-10-19-002): la misma llamada EXIT/CASH agrega couponToken solo si el cálculo firmado lleva cupón.
+  assert.match(terminalSource, /body: JSON\.stringify\(\{ action: "EXIT", stayId: selectedVehicle\.stay\.id, paymentMethod: "CASH", quoteSnapshot, \.\.\.\(appliedCouponToken && quoteSnapshot\?\.couponId \? \{ couponToken: appliedCouponToken \} : \{\}\) \}\)/);
 });
 
 // ---- 2) Los botones DÉBITO/CRÉDITO llaman al nuevo flujo con el method real ----

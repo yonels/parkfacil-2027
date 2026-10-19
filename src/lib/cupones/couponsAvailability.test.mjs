@@ -59,8 +59,8 @@ test("next.config fixes NEXT_PUBLIC_COUPONS_ENABLED from couponsEnabled at build
 test("every coupons API handler refuses with 403 when coupons are disabled", () => {
   for (const path of ["route.js", "comercios/route.js", "enviar/route.js", "lote/route.js"]) {
     const source = readFileSync(new URL(`../../app/api/cupones/${path}`, import.meta.url), "utf8");
-    const handlers = source.match(/export async function \w+\([^)]*\) \{\n/g) || [];
-    const guards = source.match(/\n {2}if \(!couponsEnabled\(\)\) return NextResponse\.json\(COUPONS_DISABLED_ERROR, \{ status: 403 \}\);\n/g) || [];
+    const handlers = source.match(/export async function \w+\([^)]*\) \{\r?\n/g) || [];
+    const guards = source.match(/\n {2}if \(!couponsEnabled\(\)\) return NextResponse\.json\(COUPONS_DISABLED_ERROR, \{ status: 403 \}\);\r?\n/g) || [];
     assert.ok(handlers.length > 0, path);
     assert.equal(guards.length, handlers.length, path);
   }

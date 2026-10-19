@@ -119,7 +119,7 @@ export async function quoteOpenPosStay(db, parkingId, stayId, options = {}) {
   if (error) throw error;
   if (!stay) return { parking, serverNow: toIsoTimestamp(now), stay: null, quote: null };
 
-  const quoted = await (options.quoteFn ? options.quoteFn(db, stay, { now }) : quoteParkingStayById(db, stayId, { now, includePosSnapshot: true }));
+  const quoted = await (options.quoteFn ? options.quoteFn(db, stay, { now }) : quoteParkingStayById(db, stayId, { now, includePosSnapshot: true, ...(options.couponToken ? { couponToken: options.couponToken } : {}) }));
   const quote = quoted?.quote || quoted || null;
   return {
     parking,
