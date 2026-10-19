@@ -4701,9 +4701,12 @@ export default function PosTerminal() {
     const paymentBreakdown = paymentResult ? getTaxBreakdown(paymentResult.total) : null;
 
     return (
-      <div className="fixed inset-0 z-50 grid place-items-center bg-rose-950/55 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) closePaymentModal(); }}>
-        <section className="w-full max-w-2xl overflow-hidden rounded-3xl bg-white shadow-2xl">
-          <header className="flex items-center justify-between bg-rose-900 px-5 py-4 text-white">
+      // Alto máximo = pantalla y contenido desplazable (QA PRO2 2026-10-18,
+      // SOL-2026-10-11-001): el aviso de pago incierto superaba el alto de la
+      // pantalla y dejaba fuera de vista la X y CERRAR, sin forma de llegar a ellos.
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-rose-950/55 p-2 backdrop-blur-sm sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) closePaymentModal(); }}>
+        <section className="flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" style={{ maxHeight: "calc(100vh - 1rem)" }}>
+          <header className="flex shrink-0 items-center justify-between bg-rose-900 px-5 py-4 text-white">
             <div>
               <p className="text-xs font-semibold text-rose-200">Pago operacional</p>
               <h3 className="mt-1 text-xl font-black">Seleccione medio de pago</h3>
@@ -4713,7 +4716,7 @@ export default function PosTerminal() {
             </button>
           </header>
 
-          <div className="space-y-4 p-5">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-500">Patente</p>
               <p className="mt-1 text-2xl font-black text-slate-900">{stay?.license_plate || "-"}</p>
