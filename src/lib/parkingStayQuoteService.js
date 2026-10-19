@@ -24,10 +24,32 @@ function textHex(value) {
   return Buffer.from(String(value || ""), "utf8").toString("hex");
 }
 
+// JSON con claves ordenadas en todos los niveles: el mismo texto aunque el objeto
+// haya pasado por jsonb (que reordena claves) o por otro serializador.
+export function stableJsonStringify(value) {
+  if (Array.isArray(value)) return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().filter((key) => value[key] !== undefined).map((key) => `${JSON.stringify(key)}:${stableJsonStringify(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+// Cálculo firmado con desglose por franja horaria.
+export const SNAPSHOT_VERSIONS_WITH_BREAKDOWN = Object.freeze(["POS_STAY_QUOTE_V2", "POS_STAY_QUOTE_V3"]);
+export function snapshotHasChargeBreakdown(snapshot) {
+  return SNAPSHOT_VERSIONS_WITH_BREAKDOWN.includes(snapshot?.version) && Boolean(snapshot?.chargeBreakdown);
+}
+
 // V2 (SOL-2026-10-08-003): agrega el desglose por franja firmado. Una cotización
 // sin desglose (tarifas clásicas) sigue firmándose exactamente como V1.
+// V3 (QA PRO2 2026-10-19, SOL-2026-10-11-001): igual que V2, pero el desglose se
+// firma con claves ordenadas. El V2 firmaba JSON.stringify en el orden de
+// inserción; al guardarse en jsonb (pos_card_payment_attempts.charge_snapshot) las
+// claves se reordenan y la firma dejaba de verificar. V2 se sigue verificando
+// tal como llega (cálculos emitidos antes de este cambio).
 function canonicalizePosQuoteSnapshot(snapshot) {
   const v1 = canonicalizePosQuoteSnapshotV1(snapshot);
+  if (snapshot.version === "POS_STAY_QUOTE_V3") return `POS_STAY_QUOTE_V3|${v1}|${textHex(stableJsonStringify(snapshot.chargeBreakdown ?? null))}`;
   if (snapshot.version !== "POS_STAY_QUOTE_V2") return v1;
   return `POS_STAY_QUOTE_V2|${v1}|${textHex(JSON.stringify(snapshot.chargeBreakdown ?? null))}`;
 }
@@ -78,7 +100,7 @@ export function buildPosQuoteSnapshot({ stay, quote, calculatedAt = new Date() }
   const expiresAt = new Date(signedAt.getTime() + POS_QUOTE_TTL_MS);
   const chargeBreakdown = quote?.breakdown || null;
   const snapshot = {
-    version: chargeBreakdown ? "POS_STAY_QUOTE_V2" : "POS_STAY_QUOTE_V1",
+    version: chargeBreakdown ? "POS_STAY_QUOTE_V3" : "POS_STAY_QUOTE_V1",
     stayId: stay.id,
     stayCode: stay.code,
     parkingId: stay.parking_id,

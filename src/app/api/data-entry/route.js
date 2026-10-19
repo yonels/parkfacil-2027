@@ -9,7 +9,7 @@ import { buildDebtNoticeForPlate, getPendingUnpaidStay, listPendingUnpaidStaysFo
 import { getDebtNoticeEnabled } from "@/lib/offStreet/debtNoticeSettingsRepository";
 import { NextResponse } from "next/server";
 import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
-import { buildPosQuoteSnapshot, loadReleasedStaySnapshot, quoteParkingStay, quoteReleasedParkingStay, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
+import { buildPosQuoteSnapshot, loadReleasedStaySnapshot, quoteParkingStay, quoteReleasedParkingStay, snapshotHasChargeBreakdown, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
 import { describeAuthorization } from "@/lib/releasedPayment/authorizationCore.mjs";
 import { ENTRY_DECISION, evaluateReleasedEntry } from "@/lib/releasedPayment/releasedStayCore.mjs";
 import { loadModuleStates, loadPlateAuthorizations, rpcErrorCode, storageMissing } from "@/lib/releasedPayment/releasedPaymentServer";
@@ -556,7 +556,7 @@ export async function POST(request) {
       update.released_chargeable_seconds = quote.released.chargeableSeconds;
     }
     // Desglose por franja: solo el que viene firmado (cotización V2).
-    if (quoteSnapshot.version === "POS_STAY_QUOTE_V2" && quoteSnapshot.chargeBreakdown) update.charge_breakdown = quoteSnapshot.chargeBreakdown;
+    if (snapshotHasChargeBreakdown(quoteSnapshot)) update.charge_breakdown = quoteSnapshot.chargeBreakdown;
     if (cardPaymentReference) {
       update.card_payment_provider = cardPaymentReference.provider;
       update.card_payment_reference = cardPaymentReference.reference;
