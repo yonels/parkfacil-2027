@@ -1,3 +1,5 @@
+import { couponsVisible } from "../cupones/couponsAvailability.mjs";
+
 export const ROLES = Object.freeze({
   PLATFORM_ADMIN: "platform_admin",
   COMPANY_ADMIN: "company_admin",
@@ -171,6 +173,9 @@ function requiredProductForPath(pathname) {
 }
 
 export function canAccessPath({ portal, role, enabledProducts }, pathname) {
+  // Cupones (SOL-2026-10-19-001): ocultos para todos donde no están habilitados
+  // (producción hasta el canje en el POS); ver couponsAvailability.mjs.
+  if (matchesPrefix(pathname, ["/cupones"]) && !couponsVisible()) return false;
   if (portal === "terminal") {
     const terminalPath = pathname === "/pos" || pathname.startsWith("/pos/");
     return terminalPath && hasPermission(role, PERMISSIONS.OPERATIONS_USE);

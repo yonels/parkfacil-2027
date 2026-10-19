@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import QRCode from "qrcode";
 import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character
 const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 export async function POST(request) {
+  if (!couponsEnabled()) return NextResponse.json(COUPONS_DISABLED_ERROR, { status: 403 });
   const authorization = await authorizeRemainingRequest(request, PERMISSIONS.COUPONS_MANAGE);
   if (authorization.response) return authorization.response;
   const actor = remainingActor(authorization.context);
