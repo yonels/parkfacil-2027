@@ -533,3 +533,12 @@ test("registro: el ticket solicitado debe ser el del intento, también si el int
   assert.equal(cardRegistrationStayMismatch(own, { stay_id: null }).code, "CARD_ATTEMPT_STAY_MISMATCH");
   assert.equal(cardRegistrationStayMismatch(own, null).code, "CARD_ATTEMPT_STAY_MISMATCH");
 });
+
+test("registro: el cálculo guardado debe corresponder al intento (ticket y monto)", async () => {
+  const { storedChargeSnapshotProblem } = await import("./cardPaymentAttempts.mjs");
+  const attempt = { stay_id: "s1", amount: "18115.00" };
+  assert.equal(storedChargeSnapshotProblem({ stayId: "s1", totalAmount: 18115 }, attempt), null);
+  assert.equal(storedChargeSnapshotProblem({ stayId: "s2", totalAmount: 18115 }, attempt).code, "CARD_ATTEMPT_SNAPSHOT_MISMATCH");
+  assert.equal(storedChargeSnapshotProblem({ stayId: "s1", totalAmount: 100 }, attempt).code, "CARD_ATTEMPT_SNAPSHOT_MISMATCH");
+  assert.equal(storedChargeSnapshotProblem(null, attempt).code, "CARD_ATTEMPT_SNAPSHOT_MISMATCH");
+});

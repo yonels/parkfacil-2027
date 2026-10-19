@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { buildPosQuoteSnapshot, signPosQuoteSnapshot, toPagueAquiQuote, verifyPosQuoteSnapshot } from "./parkingStayQuoteService.js";
+import { buildPosQuoteSnapshot, signPosQuoteSnapshot, toPagueAquiQuote, verifyPosQuoteSnapshot, stableJsonStringify } from "./parkingStayQuoteService.js";
 
 const TEST_POS_QUOTE_HMAC_SECRET = process.env.POS_QUOTE_HMAC_SECRET || "TEST_POS_QUOTE_HMAC_SECRET_FOR_UNIT_TESTS_ONLY_2026";
 
@@ -155,9 +155,9 @@ const BAND_QUOTE = {
   breakdown: { version: 1, kind: "TIME_BANDS", passes: [{ label: "Noche", minutes: 840, grossAmount: 16800, capAmount: 10000, capApplied: true, amount: 10000 }] },
 };
 
-test("cotización con franjas se firma como V2 e incluye el desglose", () => {
+test("cotización con franjas se firma como V3 (desglose con claves ordenadas) e incluye el desglose", () => {
   const snapshot = buildPosQuoteSnapshot({ stay: BAND_QUOTE_STAY, quote: BAND_QUOTE, calculatedAt: new Date("2026-10-13T11:00:00.000Z") });
-  assert.equal(snapshot.version, "POS_STAY_QUOTE_V2");
+  assert.equal(snapshot.version, "POS_STAY_QUOTE_V3");
   assert.deepEqual(snapshot.chargeBreakdown, BAND_QUOTE.breakdown);
   assert.equal(verifyPosQuoteSnapshot(snapshot, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), true);
 });
@@ -177,4 +177,25 @@ test("una cotización sin franjas sigue siendo V1 y se firma igual que antes", (
   assert.equal("chargeBreakdown" in snapshot, false);
   const { signature, ...unsigned } = snapshot;
   assert.equal(signature, signPosQuoteSnapshot(unsigned, process.env.POS_QUOTE_HMAC_SECRET));
+});
+
+// QA PRO2 2026-10-19 (SOL-2026-10-11-001): jsonb reordena las claves del desglose.
+function reorderKeysDeep(value) {
+  if (Array.isArray(value)) return value.map(reorderKeysDeep);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).reverse().map((key) => [key, reorderKeysDeep(value[key])]));
+  return value;
+}
+
+test("V3: la firma sigue verificando aunque el desglose cambie el orden de sus claves (jsonb)", () => {
+  const snapshot = buildPosQuoteSnapshot({ stay: BAND_QUOTE_STAY, quote: BAND_QUOTE, calculatedAt: new Date("2026-10-13T11:00:00.000Z") });
+  const reordered = JSON.parse(JSON.stringify({ ...snapshot, chargeBreakdown: reorderKeysDeep(snapshot.chargeBreakdown) }));
+  assert.notEqual(JSON.stringify(reordered.chargeBreakdown), JSON.stringify(snapshot.chargeBreakdown));
+  assert.equal(verifyPosQuoteSnapshot(reordered, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), true);
+  const tampered = { ...reordered, chargeBreakdown: { ...reordered.chargeBreakdown, passes: [] } };
+  assert.equal(verifyPosQuoteSnapshot(tampered, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), false);
+  assert.equal(verifyPosQuoteSnapshot({ ...reordered, version: "POS_STAY_QUOTE_V2" }, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), false, "bajar a V2 invalida");
+});
+
+test("stableJsonStringify ordena claves en todos los niveles", () => {
+  assert.equal(stableJsonStringify({ b: 1, a: { d: [ { y: 2, x: 1 } ], c: null } }), '{"a":{"c":null,"d":[{"x":1,"y":2}]},"b":1}');
 });

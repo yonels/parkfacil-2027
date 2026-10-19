@@ -287,7 +287,8 @@ export function paymentFromChargeSnapshot(snapshot, { paymentCode } = {}) {
     total_amount: number(snapshot.totalAmount),
     payment_code: paymentCode || null,
   };
-  if (snapshot.version === "POS_STAY_QUOTE_V2" && snapshot.chargeBreakdown) payment.charge_breakdown = snapshot.chargeBreakdown;
+  // V2 o V3 (desglose firmado con claves ordenadas, SOL-2026-10-11-001).
+  if (["POS_STAY_QUOTE_V2", "POS_STAY_QUOTE_V3"].includes(snapshot.version) && snapshot.chargeBreakdown) payment.charge_breakdown = snapshot.chargeBreakdown;
   return payment;
 }
 
@@ -416,4 +417,14 @@ export function validateRegularizationInput(input) {
   // Declarar un pago como aprobado exige evidencia (p. ej. foto del comprobante TUU).
   if (resolution === "APPROVED" && evidence.length < 5) return { ok: false, code: "CARD_ATTEMPT_EVIDENCE_REQUIRED", error: "Describe la evidencia del pago aprobado (comprobante TUU, reporte de ventas)." };
   return { ok: true, resolution, reason: reason.slice(0, 500), evidence, reference: reference || null };
+}
+
+// Registro de un pago con tarjeta aprobado (QA PRO2 2026-10-19, SOL-2026-10-11-001):
+// el cálculo guardado al reservar debe corresponder al intento (ticket y monto).
+export function storedChargeSnapshotProblem(snapshot, attempt) {
+  const amount = Math.round(Number(snapshot?.totalAmount));
+  if (!snapshot || snapshot.stayId !== attempt?.stay_id || !(amount > 0) || amount !== Math.round(Number(attempt?.amount))) {
+    return { status: 409, code: "CARD_ATTEMPT_SNAPSHOT_MISMATCH", error: "El cálculo guardado no corresponde a este pago. No se registró." };
+  }
+  return null;
 }

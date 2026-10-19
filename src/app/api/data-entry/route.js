@@ -5,13 +5,13 @@ import { couponsActiveForParking } from "@/lib/cupones/couponModuleServer";
 import { COUPON_MODULE_INACTIVE_ERROR } from "@/lib/cupones/couponModuleCore.mjs";
 import { couponAvailableForCharge } from "@/lib/cupones/couponInput.mjs";
 import { canStoreCardPaymentReference, validateCardPaymentReference } from "@/lib/pos/cardPaymentReference.mjs";
-import { CARD_ATTEMPT_OUTCOMES, CARD_ATTEMPT_STATUS, cardAttemptErrorResponse, cardRegistrationStayIdProblem, cardRegistrationStayMismatch, findActiveCardPaymentAttemptRow, getCardPaymentAttemptRow, isCardAttemptsStorageMissing, isUuid, mapCardPaymentAttemptForPos, markCardPaymentAttemptSent, normalizeDeclaredTuuEnvironment, paymentFromChargeSnapshot, registerCardPaymentAttempt, reportCardPaymentAttemptResult, reserveCardPaymentAttempt, sanitizeDeviceId, sanitizeIdempotencyKey, tuuEnvironmentCompatibilityProblem, tuuEnvironmentFromEnv } from "@/lib/pos/cardPaymentAttempts.mjs";
+import { CARD_ATTEMPT_OUTCOMES, CARD_ATTEMPT_STATUS, storedChargeSnapshotProblem, cardAttemptErrorResponse, cardRegistrationStayIdProblem, cardRegistrationStayMismatch, findActiveCardPaymentAttemptRow, getCardPaymentAttemptRow, isCardAttemptsStorageMissing, isUuid, mapCardPaymentAttemptForPos, markCardPaymentAttemptSent, normalizeDeclaredTuuEnvironment, paymentFromChargeSnapshot, registerCardPaymentAttempt, reportCardPaymentAttemptResult, reserveCardPaymentAttempt, sanitizeDeviceId, sanitizeIdempotencyKey, tuuEnvironmentCompatibilityProblem, tuuEnvironmentFromEnv } from "@/lib/pos/cardPaymentAttempts.mjs";
 import { canRevertUnpaidMark, sanitizeUnpaidNotes } from "@/lib/parkingDebtsCore.mjs";
 import { buildDebtNoticeForPlate, getPendingUnpaidStay, listPendingUnpaidStaysForShift, markStayUnpaid, revertStayUnpaid } from "@/lib/parkingDebtsRepository";
 import { getDebtNoticeEnabled } from "@/lib/offStreet/debtNoticeSettingsRepository";
 import { NextResponse } from "next/server";
 import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
-import { buildPosQuoteSnapshot, loadReleasedStaySnapshot, quoteParkingStay, quoteReleasedParkingStay, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
+import { buildPosQuoteSnapshot, loadReleasedStaySnapshot, quoteParkingStay, quoteReleasedParkingStay, snapshotHasChargeBreakdown, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
 import { describeAuthorization } from "@/lib/releasedPayment/authorizationCore.mjs";
 import { ENTRY_DECISION, evaluateReleasedEntry, releasedStayCoverage } from "@/lib/releasedPayment/releasedStayCore.mjs";
 import { loadModuleStates, loadPlateAuthorizations, rpcErrorCode, storageMissing } from "@/lib/releasedPayment/releasedPaymentServer";
@@ -436,8 +436,13 @@ async function registerCardPaymentFromAttempt({ input, current, posShift }) {
   if (![CARD_ATTEMPT_STATUS.APPROVED_PENDING_REGISTRATION, CARD_ATTEMPT_STATUS.PAID].includes(attempt.status)) {
     return fail("El pago todavía no está aprobado. No se registró.", 409, { code: "CARD_ATTEMPT_NOT_APPROVED" });
   }
+  // El cálculo lo guardó el servidor al reservar, DESPUÉS de verificar su firma
+  // con el JSON que envió el POS; la tabla solo se escribe con service_role. No se
+  // vuelve a verificar la firma: jsonb reordena las claves y el V2 dejaba de
+  // validar, con el pago ya cobrado en TUU (QA PRO2 2026-10-19). Se exige que
+  // corresponda al intento (ticket y monto).
   const snapshot = attempt.charge_snapshot;
-  const problem = chargeSnapshotSignatureProblem(snapshot);
+  const problem = storedChargeSnapshotProblem(snapshot, attempt);
   if (problem) return fail(problem.error, problem.status, { code: problem.code });
   const confirmedQuote = quoteFromChargeSnapshot(snapshot);
   const paymentCode = code("PAG");
@@ -804,7 +809,7 @@ export async function POST(request) {
       update.released_chargeable_seconds = quote.released.chargeableSeconds;
     }
     // Desglose por franja: solo el que viene firmado (cotización V2).
-    if (quoteSnapshot.version === "POS_STAY_QUOTE_V2" && quoteSnapshot.chargeBreakdown) update.charge_breakdown = quoteSnapshot.chargeBreakdown;
+    if (snapshotHasChargeBreakdown(quoteSnapshot)) update.charge_breakdown = quoteSnapshot.chargeBreakdown;
     if (cardPaymentReference) {
       update.card_payment_provider = cardPaymentReference.provider;
       update.card_payment_reference = cardPaymentReference.reference;

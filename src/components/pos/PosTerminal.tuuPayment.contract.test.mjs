@@ -345,11 +345,14 @@ test("servidor: la reserva valida turno, equipo, ticket abierto del estacionamie
   assert.doesNotMatch(fn, /input\.companyId|input\.amount|input\.parkingId/);
 });
 
-test("servidor: registro por intento -> datos del cálculo de cobro guardado, firma verificada, una sola operación; sin recalcular", () => {
+// QA PRO2 2026-10-19: el cálculo guardado ya fue verificado al reservar; al registrar
+// se exige que corresponda al intento (jsonb reordenaba el desglose V2 y la firma fallaba).
+test("servidor: registro por intento -> datos del cálculo de cobro guardado (verificado al reservar), una sola operación; sin recalcular", () => {
   const fn = dataEntrySource.slice(dataEntrySource.indexOf("async function registerCardPaymentFromAttempt("), dataEntrySource.indexOf("const UNPAID_ERROR_MESSAGES = {"));
   assert.match(fn, /attempt = await getCardPaymentAttemptRow\(current\.db, \{ attemptId, companyId \}\);/);
   assert.match(fn, /if \(attempt\.parking_id !== current\.actor\.parkingId\) \{/);
-  assert.match(fn, /const snapshot = attempt\.charge_snapshot;\s*\n\s*const problem = chargeSnapshotSignatureProblem\(snapshot\);/);
+  assert.match(fn, /const snapshot = attempt\.charge_snapshot;\s*\r?\n\s*const problem = storedChargeSnapshotProblem\(snapshot, attempt\);/);
+  assert.doesNotMatch(fn, /chargeSnapshotSignatureProblem/);
   assert.match(fn, /payment: paymentFromChargeSnapshot\(snapshot, \{ paymentCode \}\),/);
   assert.doesNotMatch(fn, /quoteParkingStay|input\.quoteSnapshot|input\.cardPayment\.reference|input\.cardPayment\.amount/);
   assert.equal((fn.match(/await registerCardPaymentAttempt\(/g) || []).length, 1);
