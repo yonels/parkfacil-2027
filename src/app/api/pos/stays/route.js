@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { posCardPaymentsEnabled } from "@/lib/pos/cardPaymentsAvailability.mjs";
 import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
@@ -51,6 +52,8 @@ export async function GET(request) {
         stays: summary.stays,
         actor: { ...posOperationActor(authorization.context), parkingId: parking.id },
         platePhotoSettings: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket, gpsMode: platePhotoSettings.gpsMode },
+        // D2 (SOL-2026-10-18-001): tarjeta apagada en producción hasta validarla.
+        cardPaymentsEnabled: posCardPaymentsEnabled(),
       },
     });
   } catch (error) {

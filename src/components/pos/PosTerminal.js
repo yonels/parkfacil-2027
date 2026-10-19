@@ -895,6 +895,8 @@ export default function PosTerminal() {
   // OPTIONAL/REQUIRED que platePhotoMode (§18/§19 del encargo) -- nunca se
   // solicita ubicación por esta funcionalidad si viene DISABLED.
   const [platePhotoGpsMode, setPlatePhotoGpsMode] = useState("DISABLED");
+  // D2 (SOL-2026-10-18-001): DÉBITO/CRÉDITO solo si el servidor los habilita (apagados en producción).
+  const [cardPaymentsEnabled, setCardPaymentsEnabled] = useState(false);
   const [entryPhoto, setEntryPhoto] = useState(null);
   // Pago liberado: resultado de RELEASED_CHECK para la patente confirmada.
   // Una patente liberada exige foto nueva aunque el estacionamiento tenga la
@@ -1016,6 +1018,7 @@ export default function PosTerminal() {
       setPlatePhotoMode(photoSettings?.mode || "DISABLED");
       setPrintPlatePhotoOnTicket(Boolean(photoSettings?.printOnTicket));
       setPlatePhotoGpsMode(photoSettings?.gpsMode || "DISABLED");
+      setCardPaymentsEnabled(summary.payload?.data?.cardPaymentsEnabled === true);
     } catch {
       setError("Error de red al cargar el terminal POS.");
     } finally {
@@ -4219,16 +4222,20 @@ export default function PosTerminal() {
             </div>
 
             {paymentStep === "MENU" ? (
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className={`grid gap-3 ${cardPaymentsEnabled ? "sm:grid-cols-3" : ""}`}>
                 <button type="button" onClick={() => handlePaymentSelection("CASH")} className="min-h-20 rounded-2xl bg-emerald-600 px-4 py-5 text-lg font-black text-white transition hover:bg-emerald-500">
                   EFECTIVO
                 </button>
-                <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.DEBIT)} className="min-h-20 rounded-2xl bg-sky-600 px-4 py-5 text-lg font-black text-white transition hover:bg-sky-500">
-                  DÉBITO
-                </button>
-                <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.CREDIT)} className="min-h-20 rounded-2xl bg-indigo-600 px-4 py-5 text-lg font-black text-white transition hover:bg-indigo-500">
-                  CRÉDITO
-                </button>
+                {cardPaymentsEnabled ? (
+                  <>
+                    <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.DEBIT)} className="min-h-20 rounded-2xl bg-sky-600 px-4 py-5 text-lg font-black text-white transition hover:bg-sky-500">
+                      DÉBITO
+                    </button>
+                    <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.CREDIT)} className="min-h-20 rounded-2xl bg-indigo-600 px-4 py-5 text-lg font-black text-white transition hover:bg-indigo-500">
+                      CRÉDITO
+                    </button>
+                  </>
+                ) : null}
               </div>
             ) : null}
 

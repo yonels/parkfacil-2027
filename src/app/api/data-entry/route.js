@@ -1,4 +1,5 @@
 import { canCaptureCardType, validatePaymentCardType } from "@/lib/paymentCardType.mjs";
+import { posCardPaymentsEnabled } from "@/lib/pos/cardPaymentsAvailability.mjs";
 import { canStoreCardPaymentReference, validateCardPaymentReference } from "@/lib/pos/cardPaymentReference.mjs";
 import { canRevertUnpaidMark, sanitizeUnpaidNotes } from "@/lib/parkingDebtsCore.mjs";
 import { buildDebtNoticeForPlate, getPendingUnpaidStay, listPendingUnpaidStaysForShift, markStayUnpaid, revertStayUnpaid } from "@/lib/parkingDebtsRepository";
@@ -464,6 +465,10 @@ export async function POST(request) {
       return NextResponse.json({ data: { stay, parking, quote: quoteWithSnapshot } });
     }
     if (!['CASH','CARD'].includes(input.paymentMethod)) return fail("Selecciona contado o tarjeta.");
+    // D2 (SOL-2026-10-18-001): el POS no registra pagos con tarjeta donde están apagados (producción).
+    if (isPosRequest && input.paymentMethod === "CARD" && !posCardPaymentsEnabled()) {
+      return fail("El pago con tarjeta no está disponible en este POS. Cobra en efectivo.", 403, { code: "CARD_PAYMENTS_DISABLED" });
+    }
     let paymentCardType;
     try { paymentCardType = validatePaymentCardType(input.paymentMethod, input.paymentCardType); }
     catch { return fail("El tipo de tarjeta no es válido.", 400, { code: "INVALID_PAYMENT_CARD_TYPE" }); }
