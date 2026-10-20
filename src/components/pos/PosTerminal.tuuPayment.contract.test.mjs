@@ -353,7 +353,8 @@ test("servidor: registro por intento -> datos del cálculo de cobro guardado (ve
   assert.match(fn, /if \(attempt\.parking_id !== current\.actor\.parkingId\) \{/);
   assert.match(fn, /const snapshot = attempt\.charge_snapshot;\s*\r?\n\s*const problem = storedChargeSnapshotProblem\(snapshot, attempt\);/);
   assert.doesNotMatch(fn, /chargeSnapshotSignatureProblem/);
-  assert.match(fn, /payment: paymentFromChargeSnapshot\(snapshot, \{ paymentCode \}\),/);
+  // Con el tipo y los últimos 4 dígitos que informa TUU (SOL-2026-10-11-001).
+  assert.match(fn, /payment: paymentFromChargeSnapshot\(snapshot, \{ paymentCode, tuu: sanitizeTuuCardDetails\(input\?\.cardPayment\?\.tuu\) \}\),/);
   assert.doesNotMatch(fn, /quoteParkingStay|input\.quoteSnapshot|input\.cardPayment\.reference|input\.cardPayment\.amount/);
   assert.equal((fn.match(/await registerCardPaymentAttempt\(/g) || []).length, 1);
 });

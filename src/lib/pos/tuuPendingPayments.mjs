@@ -143,6 +143,9 @@ export function sanitizeTuuPendingPayment(input) {
     uncertainReason: text(input.uncertainReason, 60),
     // Mensaje de error de la app de pago junto a un resultado incierto.
     uncertainDetail: text(input.uncertainDetail, 160),
+    // Tipo de venta y últimos 4 dígitos según TUU (SOL-2026-10-11-001).
+    tuuCardType: ["CREDIT", "DEBIT"].includes(input.tuuCardType) ? input.tuuCardType : null,
+    tuuLast4: /^\d{4}$/.test(String(input.tuuLast4 || "")) ? String(input.tuuLast4) : null,
     registrationAttempts: Math.max(0, Math.round(Number(input.registrationAttempts) || 0)),
     lastRegistrationError: text(input.lastRegistrationError, 200),
   };
@@ -213,7 +216,8 @@ export function markTuuPaymentUncertain(storage, stayId, reason, detail = null) 
 }
 
 // TUU aprobó: se guarda ANTES de avisar al servidor y de registrar el pago.
-export function markTuuPaymentApproved(storage, stayId, { sequenceNumber, approvedAt = new Date() } = {}) {
+// cardType/last4: tipo de venta y últimos 4 dígitos según TUU (SOL-2026-10-11-001).
+export function markTuuPaymentApproved(storage, stayId, { sequenceNumber, approvedAt = new Date(), cardType = null, last4 = null } = {}) {
   const current = findTuuPendingPayment(loadTuuPendingPayments(storage), stayId);
   if (!current) return { ok: false, record: null, records: loadTuuPendingPayments(storage) };
   // La misma referencia recibida dos veces no altera el pago ya guardado.
@@ -222,6 +226,8 @@ export function markTuuPaymentApproved(storage, stayId, { sequenceNumber, approv
     status: TUU_PENDING_STATUS.PENDING_REGISTRATION,
     sequenceNumber: isValidTuuSequenceNumber(sequenceNumber) ? sequenceNumber : null,
     approvedAt: isoOrNull(approvedAt) || new Date().toISOString(),
+    tuuCardType: ["CREDIT", "DEBIT"].includes(cardType) ? cardType : null,
+    tuuLast4: /^\d{4}$/.test(String(last4 || "")) ? String(last4) : null,
     uncertainReason: null,
     uncertainDetail: null,
   });
@@ -284,6 +290,7 @@ export function buildTuuRegistrationRequest(record, { includeApprovedResult = fa
     paymentCardType: record.cardType,
     cardPayment: {
       attemptId: record.attemptId,
+      ...(record.tuuCardType || record.tuuLast4 ? { tuu: { cardType: record.tuuCardType || null, last4: record.tuuLast4 || null } } : {}),
       ...(withResult ? { result: { outcome: "APPROVED", deviceId: record.deviceId, reference: isValidTuuSequenceNumber(record.sequenceNumber) ? record.sequenceNumber : null } } : {}),
     },
   };

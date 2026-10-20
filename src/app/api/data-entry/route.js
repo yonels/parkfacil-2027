@@ -1,5 +1,6 @@
 import { canCaptureCardType, validatePaymentCardType } from "@/lib/paymentCardType.mjs";
 import { posCardPaymentsEnabled } from "@/lib/pos/cardPaymentsAvailability.mjs";
+import { sanitizeTuuCardDetails } from "@/lib/pos/tuuCardDetails.mjs";
 import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
 import { couponsActiveForParking } from "@/lib/cupones/couponModuleServer";
 import { COUPON_MODULE_INACTIVE_ERROR } from "@/lib/cupones/couponModuleCore.mjs";
@@ -477,7 +478,7 @@ async function registerCardPaymentFromAttempt({ input, current, posShift }) {
   try {
     stay = await registerCardPaymentAttempt(current.db, {
       attemptId, companyId, operatorId: current.actor.id, operatorName: current.actor.name, shiftId: posShift.id,
-      payment: paymentFromChargeSnapshot(snapshot, { paymentCode }),
+      payment: paymentFromChargeSnapshot(snapshot, { paymentCode, tuu: sanitizeTuuCardDetails(input?.cardPayment?.tuu) }),
     });
   } catch (error) {
     if (!alreadyPaid && confirmedQuote.coupon) {
@@ -495,7 +496,7 @@ async function registerCardPaymentFromAttempt({ input, current, posShift }) {
   const publicStay = Object.fromEntries(publicStayFields.split(",").map((field) => [field, stay[field] ?? null]));
   log("REGISTERED", { stayId: stay.id, ticket: stay.code, plate: stay.license_plate, total: stay.total_amount, cardType: stay.payment_card_type, reference: stay.card_payment_reference || null, registration: stay.card_payment_registration || null, alreadyPaid });
   return NextResponse.json({ data: {
-    stay: { ...publicStay, payment_card_type: stay.payment_card_type },
+    stay: { ...publicStay, payment_card_type: stay.payment_card_type, card_last4: stay.card_last4 ?? null, card_type_selected: stay.card_type_selected ?? null },
     parking,
     quote: { ...confirmedQuote, paymentCode: stay.payment_code },
     cardPaymentRegistration: stay.card_payment_registration || null,

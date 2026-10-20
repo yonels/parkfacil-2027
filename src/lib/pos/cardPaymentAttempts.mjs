@@ -280,7 +280,9 @@ export function cardAttemptErrorResponse(error) {
 // guardado en el intento (nunca se recalcula después de la aprobación).
 // ---------------------------------------------------------------------------
 
-export function paymentFromChargeSnapshot(snapshot, { paymentCode } = {}) {
+// tuu: tipo de venta y últimos 4 dígitos informados por TUU (prevalecen sobre el
+// botón elegido; la base guarda ambos, migración 20261020090000).
+export function paymentFromChargeSnapshot(snapshot, { paymentCode, tuu = null } = {}) {
   if (!snapshot || typeof snapshot !== "object") return null;
   const number = (value) => (Number.isFinite(Number(value)) ? Number(value) : 0);
   const payment = {
@@ -297,6 +299,8 @@ export function paymentFromChargeSnapshot(snapshot, { paymentCode } = {}) {
     total_amount: number(snapshot.totalAmount),
     payment_code: paymentCode || null,
   };
+  if (["CREDIT", "DEBIT"].includes(tuu?.cardType)) payment.payment_card_type = tuu.cardType;
+  if (/^\d{4}$/.test(String(tuu?.last4 || ""))) payment.card_last4 = String(tuu.last4);
   // V2 o V3 (desglose firmado con claves ordenadas, SOL-2026-10-11-001).
   if (["POS_STAY_QUOTE_V2", "POS_STAY_QUOTE_V3"].includes(snapshot.version) && snapshot.chargeBreakdown) payment.charge_breakdown = snapshot.chargeBreakdown;
   return payment;

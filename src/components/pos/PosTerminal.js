@@ -31,6 +31,7 @@ import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } f
 import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
 import { couponTokenForRequest, isCouponQrPayload } from "@/lib/cupones/couponInput.mjs";
 import { COUPON_IN_TICKET_SCAN_MESSAGE, couponViewFromQuote, receiptCouponLine } from "@/lib/pos/posCoupon.mjs";
+import { receiptPaymentMethod, tuuCardDetailsFromRaw } from "@/lib/pos/tuuCardDetails.mjs";
 import { buildPaymentsDayPrintPayload } from "@/lib/pos/paymentsDayCore.mjs";
 import { classifyEntryFailure, entryErrorMessage, isPlateAlreadyInside, PLATE_SOURCES } from "@/lib/pos/entryPlateCore.mjs";
 import { preloadPlateOcr, recognizePlate, releasePlateOcr } from "@/lib/pos/plateOcr";
@@ -182,7 +183,8 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod 
     netAmount: breakdown.netAmount,
     vatAmount: breakdown.vatAmount,
     amount: breakdown.totalAmount,
-    paymentMethod: classifiedPaymentMethod(stay) || paymentMethod,
+    // Con tarjeta: "Debito ****5223" (tipo y últimos 4 dígitos según TUU).
+    paymentMethod: receiptPaymentMethod(classifiedPaymentMethod(stay) || paymentMethod, stay?.card_last4),
     paymentId: String(stay?.payment_code || "").trim(),
   };
 
@@ -197,13 +199,14 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod 
 // (SOL-2026-10-11-001): montos del cálculo firmado y código PAG reservado al
 // reservar el intento (el mismo con que se registra). Así se imprime en paralelo
 // con el registro.
-function buildEarlyCardReceiptPayload({ stay, snapshot, parkingResponse, paymentCode, cardType, operatorName }) {
+function buildEarlyCardReceiptPayload({ stay, snapshot, parkingResponse, paymentCode, cardType, operatorName, last4 = null }) {
   if (!stay || !snapshot || !paymentCode) return null;
   const paidStay = {
     ...stay,
     payment_code: paymentCode,
     payment_method: "CARD",
     payment_card_type: cardType || null,
+    card_last4: last4 || null,
     exit_operator_name: operatorName || "",
     coupon_code: snapshot.couponCode || null,
     subtotal_amount: snapshot.subtotalAmount,
@@ -2367,13 +2370,17 @@ export default function PosTerminal() {
       // vuelve a ofrecer un cobro para este ticket.
       const approvedAt = new Date();
       rememberProcessedTuuSequence(storage, outcome.result?.transactionId);
-      const approved = markTuuPaymentApproved(storage, stay.id, { sequenceNumber: outcome.result?.transactionId, approvedAt });
+      // Tipo de venta y últimos 4 dígitos según TUU (prevalece TUU sobre el botón).
+      const tuuCard = tuuCardDetailsFromRaw(outcome.result?.rawResponse);
+      const approved = markTuuPaymentApproved(storage, stay.id, { sequenceNumber: outcome.result?.transactionId, approvedAt, cardType: tuuCard.cardType, last4: tuuCard.last4 });
       setTuuPendingPayments(approved.records);
       const approvedRecord = approved.record || {
         ...started.record,
         status: "PENDING_REGISTRATION",
         sequenceNumber: /^\d{12}$/.test(String(outcome.result?.transactionId || "")) ? outcome.result.transactionId : null,
         approvedAt: approvedAt.toISOString(),
+        tuuCardType: tuuCard.cardType,
+        tuuLast4: tuuCard.last4,
       };
       logTuu("PAYMENT_APPROVED", approvedRecord, { persisted: approved.ok });
       setCardPaymentStatus("APPROVED");
@@ -2385,8 +2392,9 @@ export default function PosTerminal() {
         snapshot: quoteSnapshot,
         parkingResponse: selectedVehicle?.parking || parking,
         paymentCode: attempt?.reservedPaymentCode || null,
-        cardType: paymentCardType,
+        cardType: tuuCard.cardType || paymentCardType,
         operatorName: selectedVehicle?.actor?.name || "",
+        last4: tuuCard.last4,
       });
       const earlyPrint = earlyReceipt ? printLastReceipt(earlyReceipt) : null;
       if (earlyReceipt) setReceiptPrintPayload(earlyReceipt);
@@ -2531,7 +2539,9 @@ export default function PosTerminal() {
         paymentCode: payload?.data?.quote?.paymentCode || null,
       });
 
-      const stay = payload?.data?.stay || null;
+      const registeredStay = payload?.data?.stay || null;
+      // Últimos 4 dígitos según TUU aunque la base aún no tenga la columna.
+      const stay = registeredStay ? { ...registeredStay, card_last4: registeredStay.card_last4 || record.tuuLast4 || null } : null;
       const quote = payload?.data?.quote || null;
       const parkingResponse = payload?.data?.parking || parking;
       const plate = stay?.license_plate || record.plate;
@@ -2542,6 +2552,7 @@ export default function PosTerminal() {
           plate,
           total: Number(quote?.total || record.amount || 0),
           paymentMethod: classifiedPaymentMethod(stay) || "CARD",
+          cardLast4: stay?.card_last4 || null,
         });
       }
       setReceiptPrintPayload(receiptPayload);
@@ -5009,7 +5020,7 @@ export default function PosTerminal() {
             {paymentStep === "PRINT_PROMPT" ? (
               <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                 <div className="rounded-xl border border-emerald-300 bg-white px-3 py-3 text-sm font-black text-emerald-900">
-                  PAGO REGISTRADO ({formatPaymentMethodLabel(paymentResult?.paymentMethod)})<br />SALIDA COMPLETADA
+                  PAGO REGISTRADO ({formatPaymentMethodLabel(paymentResult?.paymentMethod)}{paymentResult?.cardLast4 ? ` ****${paymentResult.cardLast4}` : ""})<br />SALIDA COMPLETADA
                   <div className="mt-2 text-xs font-semibold text-emerald-800">Patente: {paymentResult?.plate || "-"}</div>
                   {paymentBreakdown ? (
                     <div className="mt-3 space-y-1 border-t border-emerald-200 pt-2">
