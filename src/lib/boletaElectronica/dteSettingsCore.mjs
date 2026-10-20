@@ -59,9 +59,34 @@ export function decryptDteApiKey(payload, secret = process.env[DTE_KEY_ENV]) {
 
 // --- Validación del formulario ----------------------------------------------
 
-// input: { environment, apiKey?, removeApiKey?, parkingIds }
+const BRANCH_CODE_PATTERN = /^\d{1,9}$/;
+const EMITTER_LIMITS = { businessName: 100, activity: 80, address: 70, commune: 20, city: 20 };
+const EMITTER_LABELS = { businessName: "razón social", activity: "giro", address: "dirección de origen", commune: "comuna de origen" };
+const clean = (value, max) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+
+// Datos del emisor que exige la boleta del SII (OpenFactura, esquema de boleta:
+// RznSocEmisor, GiroEmisor, DirOrigen, CmnaOrigen y opcionalmente CiudadOrigen y
+// CdgSIISucur por estacionamiento). El RUT es siempre el de la empresa.
+function normalizeEmitter(input) {
+  return Object.fromEntries(Object.entries(EMITTER_LIMITS).map(([key, max]) => [key, clean(input?.[key], max)]));
+}
+
+function normalizeBranchCodes(input, allowed) {
+  const codes = {};
+  const errors = [];
+  for (const [parkingId, value] of Object.entries(input && typeof input === "object" ? input : {})) {
+    const code = String(value ?? "").trim();
+    if (!code) continue;
+    if (!allowed.has(parkingId)) errors.push("Hay códigos de sucursal de estacionamientos que no pertenecen a tu empresa.");
+    else if (!BRANCH_CODE_PATTERN.test(code)) errors.push("El código de sucursal SII debe tener solo números (hasta 9 dígitos).");
+    else codes[parkingId] = code;
+  }
+  return { codes, errors };
+}
+
+// input: { environment, apiKey?, removeApiKey?, parkingIds, emitter?, branchCodes? }
 // allowedParkingIds: estacionamientos Off Street de la empresa.
-// Devuelve { environment, parkingIds, apiKeyAction: "KEEP"|"SET"|"REMOVE", apiKey }.
+// Devuelve { environment, parkingIds, apiKeyAction: "KEEP"|"SET"|"REMOVE", apiKey, emitter, branchCodes }.
 export function validateDteSettingsInput(input, { allowedParkingIds = [], hasStoredKey = false } = {}) {
   const errors = [];
   const environment = String(input?.environment || "");
@@ -85,12 +110,18 @@ export function validateDteSettingsInput(input, { allowedParkingIds = [], hasSto
   const willHaveKey = apiKeyAction === "SET" || (apiKeyAction === "KEEP" && hasStoredKey);
   if (parkingIds.length && !willHaveKey) errors.push("Para activar estacionamientos primero carga la API Key.");
 
+  const emitter = normalizeEmitter(input?.emitter);
+  const missingEmitter = Object.keys(EMITTER_LABELS).filter((key) => !emitter[key]);
+  if (parkingIds.length && missingEmitter.length) errors.push(`Para emitir boletas completa los datos del emisor: ${missingEmitter.map((key) => EMITTER_LABELS[key]).join(", ")}.`);
+  const branch = normalizeBranchCodes(input?.branchCodes, allowed);
+  errors.push(...new Set(branch.errors));
+
   if (errors.length) {
     const error = new DteSettingsError("DTE_SETTINGS_INVALID", errors[0]);
     error.details = errors;
     throw error;
   }
-  return { environment, parkingIds: parkingIds.sort(), apiKeyAction, apiKey: apiKeyAction === "SET" ? rawKey : null };
+  return { environment, parkingIds: parkingIds.sort(), apiKeyAction, apiKey: apiKeyAction === "SET" ? rawKey : null, emitter, branchCodes: branch.codes };
 }
 
 // --- Estado y vistas ----------------------------------------------------------
@@ -100,17 +131,32 @@ export function resolveDteStatus(row) {
   return (row.enabled_parking_ids || []).length ? DTE_STATUS.CONFIGURED : DTE_STATUS.CONFIGURED_INACTIVE;
 }
 
+// Emisor guardado o, si aún no se guarda, sugerido desde los datos de la empresa.
+export function emitterFromSettings(row, company = null) {
+  return {
+    rut: company?.rut_number && company?.rut_dv ? `${company.rut_number}-${company.rut_dv}` : "",
+    businessName: row?.emitter_business_name || clean(company?.business_name, EMITTER_LIMITS.businessName),
+    activity: row?.emitter_activity || clean(company?.business_activity, EMITTER_LIMITS.activity),
+    address: row?.emitter_address || clean(company?.address, EMITTER_LIMITS.address),
+    commune: row?.emitter_commune || clean(company?.district, EMITTER_LIMITS.commune),
+    city: row?.emitter_city || clean(company?.city, EMITTER_LIMITS.city),
+  };
+}
+
 // Vista del administrador de la empresa: la API Key solo enmascarada.
-export function dteSettingsView(row, parkings = []) {
+export function dteSettingsView(row, parkings = [], company = null) {
   const enabled = new Set(row?.enabled_parking_ids || []);
+  const branchCodes = row?.parking_branch_codes && typeof row.parking_branch_codes === "object" ? row.parking_branch_codes : {};
   return {
     provider: row?.provider || DTE_PROVIDERS.HAULMER,
     environment: row?.environment || DTE_ENVIRONMENTS.TEST,
     hasApiKey: Boolean(row?.api_key_ciphertext),
     apiKeyMasked: maskedApiKey(row?.api_key_last4 || null),
-    parkings: parkings.map((parking) => ({ id: parking.id, name: parking.name, code: parking.code || "", enabled: enabled.has(parking.id) })),
+    parkings: parkings.map((parking) => ({ id: parking.id, name: parking.name, code: parking.code || "", enabled: enabled.has(parking.id), branchCode: branchCodes[parking.id] || "" })),
+    emitter: emitterFromSettings(row, company),
     status: resolveDteStatus(row),
-    emissionAvailable: false,
+    // Emisión en el pago en efectivo del POS (SOL-2026-10-20-001).
+    emissionAvailable: true,
     updatedAt: row?.updated_at || null,
     updatedByEmail: row?.updated_by_email || null,
   };
@@ -136,6 +182,9 @@ export function dteAuditChanges(previous, next) {
   const before = [...(previous?.enabled_parking_ids || [])].sort();
   if (JSON.stringify(before) !== JSON.stringify(next.parkingIds)) changes.enabledParkingIds = { from: before, to: next.parkingIds };
   if (next.apiKeyAction !== "KEEP") changes.apiKey = next.apiKeyAction;
+  const previousEmitter = { businessName: previous?.emitter_business_name || "", activity: previous?.emitter_activity || "", address: previous?.emitter_address || "", commune: previous?.emitter_commune || "", city: previous?.emitter_city || "" };
+  if (next.emitter && JSON.stringify(previousEmitter) !== JSON.stringify(next.emitter)) changes.emitter = { from: previousEmitter, to: next.emitter };
+  if (next.branchCodes && JSON.stringify(previous?.parking_branch_codes || {}) !== JSON.stringify(next.branchCodes)) changes.branchCodes = { from: previous?.parking_branch_codes || {}, to: next.branchCodes };
   return changes;
 }
 

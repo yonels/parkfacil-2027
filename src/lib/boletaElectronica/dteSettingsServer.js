@@ -20,7 +20,8 @@ import {
 // ingresa el administrador de la empresa; Root solo ve el estado. El operador
 // no accede. La API Key nunca sale del servidor (ni cifrada).
 
-const SETTINGS_COLUMNS = "company_id,provider,environment,api_key_ciphertext,api_key_last4,enabled_parking_ids,updated_by_email,updated_at";
+const SETTINGS_COLUMNS = "company_id,provider,environment,api_key_ciphertext,api_key_last4,enabled_parking_ids,emitter_business_name,emitter_activity,emitter_address,emitter_commune,emitter_city,parking_branch_codes,updated_by_email,updated_at";
+const COMPANY_COLUMNS = "id,rut_number,rut_dv,business_name,business_activity,address,district,city";
 
 export function fail(message, status = 400, extra = {}) {
   return NextResponse.json({ error: message, ...extra }, { status });
@@ -55,9 +56,15 @@ async function loadSettingsRow(db, companyId) {
   return data;
 }
 
+async function loadCompany(db, companyId) {
+  const { data, error } = await db.from("companies").select(COMPANY_COLUMNS).eq("id", companyId).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
 export async function loadCompanyDteSettings({ db, scope, context }) {
-  const [row, parkings] = await Promise.all([loadSettingsRow(db, context.companyId), companyOffStreetParkings(db, scope)]);
-  return { ...dteSettingsView(row, parkings), encryptionReady: dteEncryptionConfigured() };
+  const [row, parkings, company] = await Promise.all([loadSettingsRow(db, context.companyId), companyOffStreetParkings(db, scope), loadCompany(db, context.companyId)]);
+  return { ...dteSettingsView(row, parkings, company), encryptionReady: dteEncryptionConfigured() };
 }
 
 // Root: estado por empresa cliente con Off Street (sin API Key).
@@ -78,7 +85,7 @@ export async function loadRootDteStatus(db, { companyId = null } = {}) {
 
 export async function saveCompanyDteSettings({ db, scope, context }, input) {
   const companyId = context.companyId;
-  const [previous, parkings] = await Promise.all([loadSettingsRow(db, companyId), companyOffStreetParkings(db, scope)]);
+  const [previous, parkings, company] = await Promise.all([loadSettingsRow(db, companyId), companyOffStreetParkings(db, scope), loadCompany(db, companyId)]);
   const next = validateDteSettingsInput(input, { allowedParkingIds: parkings.map((parking) => parking.id), hasStoredKey: Boolean(previous?.api_key_ciphertext) });
 
   const now = new Date().toISOString();
@@ -87,6 +94,12 @@ export async function saveCompanyDteSettings({ db, scope, context }, input) {
     provider: "HAULMER",
     environment: next.environment,
     enabled_parking_ids: next.parkingIds,
+    emitter_business_name: next.emitter.businessName || null,
+    emitter_activity: next.emitter.activity || null,
+    emitter_address: next.emitter.address || null,
+    emitter_commune: next.emitter.commune || null,
+    emitter_city: next.emitter.city || null,
+    parking_branch_codes: next.branchCodes,
     updated_by: context.userId,
     updated_by_email: context.email || null,
     updated_at: now,
@@ -111,5 +124,5 @@ export async function saveCompanyDteSettings({ db, scope, context }, input) {
   });
   if (audit.error) console.error("[boleta-electronica:audit]", { code: audit.error.code, message: audit.error.message });
 
-  return { ...dteSettingsView(saved.data, parkings), encryptionReady: dteEncryptionConfigured() };
+  return { ...dteSettingsView(saved.data, parkings, company), encryptionReady: dteEncryptionConfigured() };
 }

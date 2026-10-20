@@ -1,6 +1,7 @@
 import { canCaptureCardType, validatePaymentCardType } from "@/lib/paymentCardType.mjs";
 import { posCardPaymentsEnabled } from "@/lib/pos/cardPaymentsAvailability.mjs";
 import { sanitizeTuuCardDetails } from "@/lib/pos/tuuCardDetails.mjs";
+import { issueCashPaymentBoleta } from "@/lib/boletaElectronica/cashBoletaService";
 import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
 import { couponsActiveForParking } from "@/lib/cupones/couponModuleServer";
 import { COUPON_MODULE_INACTIVE_ERROR } from "@/lib/cupones/couponModuleCore.mjs";
@@ -845,7 +846,10 @@ export async function POST(request) {
       const shiftConflict = String(error.message || "").includes("PAYMENT_SHIFT_NOT_OPEN");
       return fail(shiftConflict ? "El turno dejó de estar abierto antes de confirmar el pago. Actualiza el POS." : "No fue posible cerrar y pagar la estadía.", shiftConflict ? 409 : 503);
     }
-    return NextResponse.json({ data: { stay: { ...data, payment_card_type: paymentCardType }, parking, quote: { ...confirmedQuote, paymentCode } } });
+    // Boleta electrónica del pago en efectivo del POS (SOL-2026-10-20-001): se
+    // emite con el pago ya registrado; si Haulmer falla, el pago no se revierte.
+    const boleta = isPosRequest && input.paymentMethod === "CASH" ? await issueCashPaymentBoleta(current.db, data).catch(() => null) : null;
+    return NextResponse.json({ data: { stay: { ...data, payment_card_type: paymentCardType }, parking, quote: { ...confirmedQuote, paymentCode }, ...(boleta ? { boleta } : {}) } });
   }
   // Pago liberado: salida sin cobro (todo el tiempo cubierto). Libera el cupo.
   if (input.action === "RELEASED_EXIT") {

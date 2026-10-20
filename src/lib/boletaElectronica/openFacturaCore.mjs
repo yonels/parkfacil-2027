@@ -107,6 +107,7 @@ export function parseBoletaResponse(status, body) {
       folio: Number.isInteger(body.FOLIO) ? body.FOLIO : Number(body.FOLIO) || null,
       resolution: body.RESOLUCION ? { date: body.RESOLUCION.fecha || null, number: body.RESOLUCION.numero ?? null } : null,
       stampPngBase64: typeof body.TIMBRE === "string" ? body.TIMBRE : null,
+      xmlBase64: typeof body.XML === "string" ? body.XML : null,
       warning: body.WARNING || null,
       alreadyIssued: false,
     };
@@ -120,9 +121,26 @@ export function parseBoletaResponse(status, body) {
   // la boleta existe (folio y timbre se recuperan por el token).
   if (code === "OF-06") {
     const token = (Array.isArray(error.details) ? error.details : []).find((item) => item?.field === "token")?.issue;
-    if (token) return { token: String(token), folio: null, resolution: null, stampPngBase64: null, warning: null, alreadyIssued: true };
+    if (token) return { token: String(token), folio: null, resolution: null, stampPngBase64: null, xmlBase64: null, warning: null, alreadyIssued: true };
   }
   // OF-06: la llave de idempotencia ya se usó (la boleta ya fue emitida).
   const retryable = status >= 500 || ["OF-13", "OF-21"].includes(code);
   throw new OpenFacturaError(code, String(error.message || "Haulmer no emitió la boleta."), { status, details: Array.isArray(error.details) ? error.details : [], retryable });
+}
+
+// TED (timbre electrónico) desde el XML que devuelve OpenFactura (base64,
+// ISO-8859-1). La APK lo imprime como PDF417; se quitan los espacios entre
+// etiquetas (el XML viene indentado), sin tocar el texto de cada campo.
+export function extractTedFromXml(xmlBase64) {
+  if (!xmlBase64) return null;
+  const xml = Buffer.from(String(xmlBase64), "base64").toString("latin1");
+  const ted = xml.match(/<TED[\s\S]*?<\/TED>/)?.[0];
+  return ted ? ted.replace(/>\s+</g, "><").trim() : null;
+}
+
+// Leyenda del timbre en el comprobante: «Res. N° 80 de 2014».
+export function resolutionText(resolution) {
+  const year = String(resolution?.date || "").slice(0, 4);
+  if (!/^\d{4}$/.test(year) || resolution?.number == null) return "";
+  return `Res. N° ${resolution.number} de ${year}`;
 }

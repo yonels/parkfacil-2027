@@ -43,6 +43,8 @@ function CompanySettings({ settings, onSaved }) {
   const [replacing, setReplacing] = useState(!settings.hasApiKey);
   const [removeApiKey, setRemoveApiKey] = useState(false);
   const [parkingIds, setParkingIds] = useState(settings.parkings.filter((parking) => parking.enabled).map((parking) => parking.id));
+  const [emitter, setEmitter] = useState({ businessName: settings.emitter?.businessName || "", activity: settings.emitter?.activity || "", address: settings.emitter?.address || "", commune: settings.emitter?.commune || "", city: settings.emitter?.city || "" });
+  const [branchCodes, setBranchCodes] = useState(Object.fromEntries(settings.parkings.map((parking) => [parking.id, parking.branchCode || ""])));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
 
@@ -55,7 +57,7 @@ function CompanySettings({ settings, onSaved }) {
       const response = await authenticatedFetch("/api/boleta-electronica", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ environment, apiKey: replacing ? apiKey : "", removeApiKey, parkingIds: removeApiKey ? [] : parkingIds }),
+        body: JSON.stringify({ environment, apiKey: replacing ? apiKey : "", removeApiKey, parkingIds: removeApiKey ? [] : parkingIds, emitter, branchCodes }),
       });
       const body = await readJson(response);
       if (!response.ok) { setMessage({ type: "error", text: body.error || "No fue posible guardar." }); return; }
@@ -74,7 +76,7 @@ function CompanySettings({ settings, onSaved }) {
       <h2 className="text-lg font-bold text-[#041E42]">Haulmer</h2>
       <StatusPill status={settings.status}/>
     </div>
-    <p className="rounded-2xl bg-blue-50 p-3 text-sm text-[#041E42]">Por ahora solo se guarda la configuración. La emisión de boletas con timbre electrónico se habilitará cuando esté lista la integración con Haulmer; mientras tanto el POS sigue imprimiendo el comprobante de ParkFacil.</p>
+    <p className="rounded-2xl bg-blue-50 p-3 text-sm text-[#041E42]">En los estacionamientos activos, cada pago en efectivo del POS emite una boleta electrónica en Haulmer y el comprobante se imprime con su folio y timbre. Si Haulmer no responde, el pago queda registrado y el comprobante indica que la boleta quedó pendiente.</p>
     {!settings.encryptionReady ? <p className="rounded-2xl bg-amber-50 p-3 text-sm font-semibold text-amber-800">Este ambiente aún no tiene configurada la clave de cifrado: no se puede guardar la API Key.</p> : null}
     {message ? <p className={`rounded-2xl p-3 text-sm font-semibold ${message.type === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>{message.text}</p> : null}
 
@@ -98,12 +100,27 @@ function CompanySettings({ settings, onSaved }) {
       </select>
     </label>
 
+    <div className="space-y-2">
+      <p className="text-xs font-semibold text-slate-600">Datos del emisor{settings.emitter?.rut ? ` · RUT ${settings.emitter.rut}` : ""}</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="text-xs font-semibold text-slate-600"><span className="mb-1 block">Razón social</span><input maxLength={100} value={emitter.businessName} onChange={(event) => setEmitter({ ...emitter, businessName: event.target.value })} className={inputClass}/></label>
+        <label className="text-xs font-semibold text-slate-600"><span className="mb-1 block">Giro</span><input maxLength={80} value={emitter.activity} onChange={(event) => setEmitter({ ...emitter, activity: event.target.value })} className={inputClass}/></label>
+        <label className="text-xs font-semibold text-slate-600"><span className="mb-1 block">Dirección de origen</span><input maxLength={70} value={emitter.address} onChange={(event) => setEmitter({ ...emitter, address: event.target.value })} className={inputClass}/></label>
+        <label className="text-xs font-semibold text-slate-600"><span className="mb-1 block">Comuna de origen</span><input maxLength={20} value={emitter.commune} onChange={(event) => setEmitter({ ...emitter, commune: event.target.value })} className={inputClass}/></label>
+        <label className="text-xs font-semibold text-slate-600"><span className="mb-1 block">Ciudad (opcional)</span><input maxLength={20} value={emitter.city} onChange={(event) => setEmitter({ ...emitter, city: event.target.value })} className={inputClass}/></label>
+      </div>
+      <p className="text-xs text-slate-500">Deben coincidir con los registrados en Haulmer y el SII. El RUT es el de la empresa.</p>
+    </div>
+
     <div>
       <p className="mb-2 text-xs font-semibold text-slate-600">Estacionamientos donde se emitirá la boleta</p>
-      {settings.parkings.length ? <div className="grid gap-2 sm:grid-cols-2">{settings.parkings.map((parking) => <label key={parking.id} className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm">
-        <input type="checkbox" disabled={removeApiKey} checked={!removeApiKey && parkingIds.includes(parking.id)} onChange={() => toggleParking(parking.id)}/>
-        <span className="font-semibold text-[#041E42]">{parking.name}</span>{parking.code ? <span className="text-xs text-slate-500">{parking.code}</span> : null}
-      </label>)}</div> : <p className="text-sm text-slate-500">Tu empresa no tiene estacionamientos Off Street.</p>}
+      {settings.parkings.length ? <div className="grid gap-2 sm:grid-cols-2">{settings.parkings.map((parking) => <div key={parking.id} className="space-y-2 rounded-xl border border-slate-200 px-3 py-2 text-sm">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" disabled={removeApiKey} checked={!removeApiKey && parkingIds.includes(parking.id)} onChange={() => toggleParking(parking.id)}/>
+          <span className="font-semibold text-[#041E42]">{parking.name}</span>{parking.code ? <span className="text-xs text-slate-500">{parking.code}</span> : null}
+        </label>
+        <label className="block text-xs text-slate-600"><span className="mb-1 block">Código de sucursal SII (opcional)</span><input inputMode="numeric" maxLength={9} value={branchCodes[parking.id] || ""} onChange={(event) => setBranchCodes({ ...branchCodes, [parking.id]: event.target.value.replace(/\D/g, "") })} className={inputClass}/></label>
+      </div>)}</div> : <p className="text-sm text-slate-500">Tu empresa no tiene estacionamientos Off Street.</p>}
     </div>
 
     <div className="flex flex-wrap items-center gap-3">

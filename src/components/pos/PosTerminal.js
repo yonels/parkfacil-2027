@@ -139,7 +139,9 @@ function buildEntryPrintPayload(stay, parkingResponse) {
 // que el backend devolvió tras confirmar el pago (stay/quote/parking del
 // EXIT) — nunca el monto u otros valores que haya tenido el frontend antes
 // de esa respuesta.
-function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod = "CASH") {
+// boleta: boleta electrónica del pago en efectivo (SOL-2026-10-20-001), tal como
+// la devuelve /api/data-entry. Las APK sin soporte ignoran los campos dte*.
+function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod = "CASH", boleta = null) {
   if (!stay || !quote || !parkingResponse) return null;
   const entryDateTime = formatBridgeEntryDateTime(stay.entry_at);
   // «Salida» = hora del cálculo de cobro (entrada + minutos cobrados), no la
@@ -186,13 +188,33 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod 
     // Con tarjeta: "Debito ****5223" (tipo y últimos 4 dígitos según TUU).
     paymentMethod: receiptPaymentMethod(classifiedPaymentMethod(stay) || paymentMethod, stay?.card_last4),
     paymentId: String(stay?.payment_code || "").trim(),
+    ...receiptBoletaFields(boleta),
   };
+  // Con boleta emitida, Neto/IVA son los de la boleta (mismo total).
+  if (boleta?.status === "ISSUED" && Number(boleta.totalAmount) === payload.amount && Number.isFinite(Number(boleta.netAmount))) {
+    payload.netAmount = Number(boleta.netAmount);
+    payload.vatAmount = Number(boleta.taxAmount);
+  }
 
   if (!payload.companyName || !payload.parkingName || !payload.ticketNumber || !payload.paymentId) {
     return null;
   }
 
   return payload;
+}
+
+// Campos de la boleta electrónica para la APK: encabezado con folio y PDF417 del
+// timbre (dteTed). Si quedó pendiente, solo la leyenda (dtePending).
+function receiptBoletaFields(boleta) {
+  if (!boleta) return {};
+  if (boleta.status !== "ISSUED") return { dtePending: "Boleta electrónica pendiente de emisión" };
+  return {
+    dteType: "BOLETA ELECTRONICA",
+    dteFolio: boleta.folio != null ? String(boleta.folio) : "",
+    dteTed: boleta.ted || "",
+    dteResolution: boleta.resolution || "",
+    dteTest: boleta.environment === "TEST",
+  };
 }
 
 // Comprobante de un pago con tarjeta armado al aprobar TUU, ANTES del registro
@@ -2067,12 +2089,14 @@ export default function PosTerminal() {
       const quote = payload?.data?.quote || null;
       const parkingResponse = payload?.data?.parking || parking;
       const amount = Number(quote?.total || 0);
+      const boleta = payload?.data?.boleta || null;
       setPaymentResult({
         plate: stay?.license_plate || selectedVehicle.stay.license_plate,
         total: amount,
         paymentMethod: classifiedPaymentMethod(stay) || "CASH",
+        boleta,
       });
-      const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse);
+      const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse, "CASH", boleta);
       setReceiptPrintPayload(receiptPayload);
       setReceiptPrintStatus("");
       // Igual que en tarjeta: imprimir sin esperar la recarga del terminal.
@@ -5022,6 +5046,14 @@ export default function PosTerminal() {
                 <div className="rounded-xl border border-emerald-300 bg-white px-3 py-3 text-sm font-black text-emerald-900">
                   PAGO REGISTRADO ({formatPaymentMethodLabel(paymentResult?.paymentMethod)}{paymentResult?.cardLast4 ? ` ****${paymentResult.cardLast4}` : ""})<br />SALIDA COMPLETADA
                   <div className="mt-2 text-xs font-semibold text-emerald-800">Patente: {paymentResult?.plate || "-"}</div>
+                  {paymentResult?.boleta?.status === "ISSUED" ? (
+                    <div className="mt-2 text-xs font-semibold text-emerald-800">
+                      Boleta electrónica N° {paymentResult.boleta.folio ?? "-"}{paymentResult.boleta.environment === "TEST" ? " (prueba)" : ""}
+                      {paymentResult.boleta.stampPngBase64 ? <img alt="Timbre electrónico" src={`data:image/png;base64,${paymentResult.boleta.stampPngBase64}`} className="mt-2 w-full max-w-xs bg-white" /> : null}
+                    </div>
+                  ) : paymentResult?.boleta ? (
+                    <div className="mt-2 text-xs font-semibold text-amber-800">{paymentResult.boleta.message}</div>
+                  ) : null}
                   {paymentBreakdown ? (
                     <div className="mt-3 space-y-1 border-t border-emerald-200 pt-2">
                       <div className="flex items-center justify-between gap-3 text-xs font-semibold text-emerald-800">

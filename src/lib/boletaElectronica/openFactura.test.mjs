@@ -47,7 +47,7 @@ test("OpenFactura: idempotencia estable por código de pago", () => {
 
 test("OpenFactura: respuesta exitosa, ya emitida (OF-06) y errores", () => {
   const ok = parseBoletaResponse(200, { TOKEN: "tok", FOLIO: 711226, RESOLUCION: { fecha: "2022-09-07", numero: 0 }, TIMBRE: "iVBOR", WARNING: [{ RznSocEmisor: "x" }] });
-  assert.deepEqual(ok, { token: "tok", folio: 711226, resolution: { date: "2022-09-07", number: 0 }, stampPngBase64: "iVBOR", warning: [{ RznSocEmisor: "x" }], alreadyIssued: false });
+  assert.deepEqual(ok, { token: "tok", folio: 711226, resolution: { date: "2022-09-07", number: 0 }, stampPngBase64: "iVBOR", xmlBase64: null, warning: [{ RznSocEmisor: "x" }], alreadyIssued: false });
   // Respuesta real de dev al reenviar la misma Idempotency-Key.
   const again = parseBoletaResponse(400, { error: { code: "OF-06", message: "Este DTE ya fue emitido (Idempotency-Key)", details: [{ field: "token", issue: "c16f" }] } });
   assert.equal(again.alreadyIssued, true);

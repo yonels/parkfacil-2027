@@ -426,7 +426,8 @@ test("consulta de intentos: un intento que no está pagado nunca se presenta com
 });
 
 test("buildPaymentReceiptPayload(..., paymentMethod = \"CASH\") mantiene el comportamiento anterior para EFECTIVO (mismo default)", () => {
-  assert.match(terminalSource, /function buildPaymentReceiptPayload\(stay, quote, parkingResponse, paymentMethod = "CASH"\) \{/);
+  // SOL-2026-10-20-001 agrega `boleta` (opcional, al final): el default de EFECTIVO no cambia.
+  assert.match(terminalSource, /function buildPaymentReceiptPayload\(stay, quote, parkingResponse, paymentMethod = "CASH", boleta = null\) \{/);
 });
 
 // ---- 11) No se agregó ninguna dependencia/paquete nuevo de Sunmi ----
