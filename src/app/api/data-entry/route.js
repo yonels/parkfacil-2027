@@ -5,7 +5,7 @@ import { couponsActiveForParking } from "@/lib/cupones/couponModuleServer";
 import { COUPON_MODULE_INACTIVE_ERROR } from "@/lib/cupones/couponModuleCore.mjs";
 import { couponAvailableForCharge } from "@/lib/cupones/couponInput.mjs";
 import { canStoreCardPaymentReference, validateCardPaymentReference } from "@/lib/pos/cardPaymentReference.mjs";
-import { CARD_ATTEMPT_OUTCOMES, CARD_ATTEMPT_STATUS, storedChargeSnapshotProblem, cardAttemptErrorResponse, cardRegistrationStayIdProblem, cardRegistrationStayMismatch, findActiveCardPaymentAttemptRow, getCardPaymentAttemptRow, isCardAttemptsStorageMissing, isUuid, mapCardPaymentAttemptForPos, markCardPaymentAttemptSent, normalizeDeclaredTuuEnvironment, paymentFromChargeSnapshot, registerCardPaymentAttempt, reportCardPaymentAttemptResult, reserveCardPaymentAttempt, sanitizeDeviceId, sanitizeIdempotencyKey, tuuEnvironmentCompatibilityProblem, tuuEnvironmentFromEnv } from "@/lib/pos/cardPaymentAttempts.mjs";
+import { CARD_ATTEMPT_OUTCOMES, CARD_ATTEMPT_STATUS, reservedPaymentCodeFrom, storedChargeSnapshotProblem, cardAttemptErrorResponse, cardRegistrationStayIdProblem, cardRegistrationStayMismatch, findActiveCardPaymentAttemptRow, getCardPaymentAttemptRow, isCardAttemptsStorageMissing, isUuid, mapCardPaymentAttemptForPos, markCardPaymentAttemptSent, normalizeDeclaredTuuEnvironment, paymentFromChargeSnapshot, registerCardPaymentAttempt, reportCardPaymentAttemptResult, reserveCardPaymentAttempt, sanitizeDeviceId, sanitizeIdempotencyKey, tuuEnvironmentCompatibilityProblem, tuuEnvironmentFromEnv } from "@/lib/pos/cardPaymentAttempts.mjs";
 import { canRevertUnpaidMark, sanitizeUnpaidNotes } from "@/lib/parkingDebtsCore.mjs";
 import { buildDebtNoticeForPlate, getPendingUnpaidStay, listPendingUnpaidStaysForShift, markStayUnpaid, revertStayUnpaid } from "@/lib/parkingDebtsRepository";
 import { getDebtNoticeEnabled } from "@/lib/offStreet/debtNoticeSettingsRepository";
@@ -347,7 +347,8 @@ async function handleCardPaymentAttemptAction({ input, current, isPosRequest, po
       const row = await reserveCardPaymentAttempt(current.db, {
         idempotencyKey, companyId, parkingId: stay.parking_id, stayId: stay.id,
         operatorId: current.actor.id, operatorName: current.actor.name, shiftId: posShift.id, deviceId,
-        environment: serverEnvironment, cardType, amount, chargeSnapshot: input.quoteSnapshot,
+        // Código PAG reservado (SOL-2026-10-11-001): el POS lo imprime al aprobar TUU.
+        environment: serverEnvironment, cardType, amount, chargeSnapshot: { ...input.quoteSnapshot, reservedPaymentCode: code("PAG") },
       });
       log("RESERVED", { attemptId: row?.id || null, stayId: stay.id, ticket: stay.code, plate: stay.license_plate, amount, cardType, status: row?.status || null });
       return NextResponse.json({ data: { attempt: mapCardPaymentAttemptForPos(row) } });
@@ -464,7 +465,8 @@ async function registerCardPaymentFromAttempt({ input, current, posShift }) {
   const problem = storedChargeSnapshotProblem(snapshot, attempt);
   if (problem) return fail(problem.error, problem.status, { code: problem.code });
   const confirmedQuote = quoteFromChargeSnapshot(snapshot);
-  const paymentCode = code("PAG");
+  // El mismo código que el POS ya imprimió al aprobar TUU (si fue reservado).
+  const paymentCode = reservedPaymentCodeFrom(snapshot) || code("PAG");
   const redeemedAt = new Date().toISOString();
   const alreadyPaid = attempt.status === CARD_ATTEMPT_STATUS.PAID;
   if (!alreadyPaid && confirmedQuote.coupon) {

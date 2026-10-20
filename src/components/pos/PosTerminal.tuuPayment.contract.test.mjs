@@ -241,7 +241,7 @@ test("copia local antes de abrir TUU: si no se puede guardar se devuelve la rese
 test("el pago aprobado se guarda en el equipo ANTES de avisar al servidor y registrar", () => {
   const fn = handlerSource();
   const persist = fn.indexOf("markTuuPaymentApproved(storage, stay.id,");
-  const register = fn.indexOf("await registerPendingTuuPayment(approvedRecord)");
+  const register = fn.indexOf("await registerPendingTuuPayment(approvedRecord, { earlyPrint })");
   assert.ok(persist !== -1 && register !== -1 && persist < register);
 });
 
@@ -276,7 +276,7 @@ test("REINTENTAR solo existe donde consta que TUU no cobró; ya no existe el est
 // ---- 10) REGISTRAR PAGO y recuperación: solo servidor, nunca TUU ----
 
 function registerSource() {
-  return sliceBetween("async function registerPendingTuuPayment(record) {", "async function processCorrelatedTuuResult(result) {");
+  return sliceBetween("async function registerPendingTuuPayment(record, { earlyPrint = null } = {}) {", "async function processCorrelatedTuuResult(result) {");
 }
 
 test("REGISTRAR PAGO nunca vuelve a invocar TUU: avisa la aprobación del intento y registra por intento", () => {

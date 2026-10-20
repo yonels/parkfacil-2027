@@ -193,6 +193,27 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod 
   return payload;
 }
 
+// Comprobante de un pago con tarjeta armado al aprobar TUU, ANTES del registro
+// (SOL-2026-10-11-001): montos del cálculo firmado y código PAG reservado al
+// reservar el intento (el mismo con que se registra). Así se imprime en paralelo
+// con el registro.
+function buildEarlyCardReceiptPayload({ stay, snapshot, parkingResponse, paymentCode, cardType, operatorName }) {
+  if (!stay || !snapshot || !paymentCode) return null;
+  const paidStay = {
+    ...stay,
+    payment_code: paymentCode,
+    payment_method: "CARD",
+    payment_card_type: cardType || null,
+    exit_operator_name: operatorName || "",
+    coupon_code: snapshot.couponCode || null,
+    subtotal_amount: snapshot.subtotalAmount,
+    discount_amount: snapshot.discountAmount,
+    total_amount: snapshot.totalAmount,
+  };
+  const quote = { total: Number(snapshot.totalAmount || 0), elapsedMinutes: snapshot.elapsedMinutes, rate: { name: snapshot.rateName || stay.rate_name || null }, snapshot };
+  return buildPaymentReceiptPayload(paidStay, quote, parkingResponse, "CARD");
+}
+
 function isQuoteSnapshotExpired(snapshot) {
   if (!snapshot?.expiresAt) return true;
   const expiresAt = new Date(snapshot.expiresAt);
@@ -2358,7 +2379,19 @@ export default function PosTerminal() {
       setCardPaymentStatus("APPROVED");
       setCardPaymentMessage("Pago aprobado. Registrando pago...");
 
-      const registered = await registerPendingTuuPayment(approvedRecord);
+      // Imprime el comprobante ya, en paralelo con el registro (código PAG reservado).
+      const earlyReceipt = buildEarlyCardReceiptPayload({
+        stay,
+        snapshot: quoteSnapshot,
+        parkingResponse: selectedVehicle?.parking || parking,
+        paymentCode: attempt?.reservedPaymentCode || null,
+        cardType: paymentCardType,
+        operatorName: selectedVehicle?.actor?.name || "",
+      });
+      const earlyPrint = earlyReceipt ? printLastReceipt(earlyReceipt) : null;
+      if (earlyReceipt) setReceiptPrintPayload(earlyReceipt);
+
+      const registered = await registerPendingTuuPayment(approvedRecord, { earlyPrint });
       if (!registered) {
         // Queda PAGO TUU APROBADO — PENDIENTE DE REGISTRO (ver renderPaymentModal).
         setCardPaymentStatus("");
@@ -2419,7 +2452,7 @@ export default function PosTerminal() {
   // REGISTRAR PAGO: registra en ParkFacil un pago que TUU YA aprobó, por su
   // intento reservado. El monto y los datos son los que el servidor fijó al
   // reservar. NUNCA abre TUU: no llama a startTuuPayment ni al bridge.
-  async function registerPendingTuuPayment(record) {
+  async function registerPendingTuuPayment(record, { earlyPrint = null } = {}) {
     const body = buildTuuRegistrationRequest(record);
     if (!body) return false;
     const storage = getTuuPendingStorage();
@@ -2512,12 +2545,13 @@ export default function PosTerminal() {
         });
       }
       setReceiptPrintPayload(receiptPayload);
-      setReceiptPrintStatus("");
       // Imprime apenas el servidor confirma el registro (QA PRO2 2026-10-19): antes
       // se esperaba la recarga del terminal (~3,7 s) antes de pedir la impresión.
-      // La recarga corre en paralelo y se espera antes de volver al inicio.
+      // La recarga corre en paralelo y se espera antes de volver al inicio. Si el
+      // comprobante ya se imprimió al aprobar TUU (earlyPrint), no se repite.
       const terminalRefresh = loadTerminalState(true);
-      const printResult = receiptPayload ? await printLastReceipt(receiptPayload) : null;
+      if (!earlyPrint) setReceiptPrintStatus("");
+      const printResult = earlyPrint ? await earlyPrint : receiptPayload ? await printLastReceipt(receiptPayload) : null;
       await terminalRefresh;
       const printFailedOnDevice = Boolean(printResult?.attempted && !printResult.ok);
 

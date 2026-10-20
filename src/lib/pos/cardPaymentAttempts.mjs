@@ -186,7 +186,17 @@ export function mapCardPaymentAttemptForPos(row) {
   const attempt = mapCardPaymentAttempt(row);
   if (!attempt) return null;
   const { regularization, companyId, ...rest } = attempt;
-  return { ...rest, regularized: Boolean(regularization) };
+  return { ...rest, regularized: Boolean(regularization), reservedPaymentCode: reservedPaymentCodeFrom(row?.charge_snapshot) };
+}
+
+// Código de pago PAG reservado al reservar el intento (SOL-2026-10-11-001): el POS
+// imprime el comprobante apenas TUU aprueba, con el mismo código con que después
+// se registra el pago. Se guarda dentro del cálculo (sin migración); no forma parte
+// de la firma.
+const RESERVED_PAYMENT_CODE_PATTERN = /^PAG-\d{12}-[0-9A-F]{4}$/;
+export function reservedPaymentCodeFrom(snapshot) {
+  const value = String(snapshot?.reservedPaymentCode || "");
+  return RESERVED_PAYMENT_CODE_PATTERN.test(value) ? value : null;
 }
 
 // ---------------------------------------------------------------------------

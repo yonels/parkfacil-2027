@@ -542,3 +542,26 @@ test("registro: el cálculo guardado debe corresponder al intento (ticket y mont
   assert.equal(storedChargeSnapshotProblem({ stayId: "s1", totalAmount: 100 }, attempt).code, "CARD_ATTEMPT_SNAPSHOT_MISMATCH");
   assert.equal(storedChargeSnapshotProblem(null, attempt).code, "CARD_ATTEMPT_SNAPSHOT_MISMATCH");
 });
+
+test("código PAG reservado: solo se acepta el formato del servidor y se expone al POS (SOL-2026-10-11-001)", async () => {
+  const { reservedPaymentCodeFrom, mapCardPaymentAttemptForPos } = await import("./cardPaymentAttempts.mjs");
+  assert.equal(reservedPaymentCodeFrom({ reservedPaymentCode: "PAG-261019200015-E19E" }), "PAG-261019200015-E19E");
+  assert.equal(reservedPaymentCodeFrom({ reservedPaymentCode: "PAG-x" }), null);
+  assert.equal(reservedPaymentCodeFrom(null), null);
+  assert.equal(mapCardPaymentAttemptForPos({ id: "a1", status: "RESERVED", amount: 100, charge_snapshot: { reservedPaymentCode: "PAG-261019200015-E19E" } }).reservedPaymentCode, "PAG-261019200015-E19E");
+});
+
+test("servidor: reserva el código PAG al reservar y registra con ese mismo código", async () => {
+  const source = await readFile(new URL("../../app/api/data-entry/route.js", import.meta.url), "utf8");
+  assert.match(source, /chargeSnapshot: \{ \.\.\.input\.quoteSnapshot, reservedPaymentCode: code\("PAG"\) \}/);
+  assert.match(source, /const paymentCode = reservedPaymentCodeFrom\(snapshot\) \|\| code\("PAG"\);/);
+});
+
+test("POS: el comprobante se imprime al aprobar TUU, en paralelo con el registro, sin repetir la impresión", async () => {
+  const source = await readFile(new URL("../../components/pos/PosTerminal.js", import.meta.url), "utf8");
+  const approved = source.slice(source.indexOf('logTuu("PAYMENT_APPROVED", approvedRecord'), source.indexOf("const registered = await registerPendingTuuPayment(approvedRecord, { earlyPrint });"));
+  assert.match(approved, /paymentCode: attempt\?\.reservedPaymentCode \|\| null/);
+  assert.match(approved, /const earlyPrint = earlyReceipt \? printLastReceipt\(earlyReceipt\) : null;/);
+  assert.doesNotMatch(approved, /await printLastReceipt/);
+  assert.match(source, /const printResult = earlyPrint \? await earlyPrint : receiptPayload \? await printLastReceipt\(receiptPayload\) : null;/);
+});

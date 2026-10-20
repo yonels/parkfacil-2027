@@ -135,7 +135,10 @@ test("POS terminal: APLICAR CUPÓN in the payment window, scanner + manual code,
 
 test("receipt prints as soon as the payment is confirmed; terminal refresh runs in parallel (cash and card)", () => {
   const source = readFileSync(new URL("../../components/pos/PosTerminal.js", import.meta.url), "utf8");
-  const pattern = /const terminalRefresh = loadTerminalState\(true\);\r?\n\s*const printResult = receiptPayload \? await printLastReceipt\(receiptPayload\) : null;\r?\n\s*await terminalRefresh;/g;
-  assert.equal((source.match(pattern) || []).length, 2);
+  // Efectivo: imprime sin esperar la recarga. Tarjeta: igual, o usa la impresión ya iniciada al aprobar TUU.
+  const cash = /const terminalRefresh = loadTerminalState\(true\);\r?\n\s*const printResult = receiptPayload \? await printLastReceipt\(receiptPayload\) : null;\r?\n\s*await terminalRefresh;/g;
+  const card = /const terminalRefresh = loadTerminalState\(true\);\r?\n\s*if \(!earlyPrint\) setReceiptPrintStatus\(""\);\r?\n\s*const printResult = earlyPrint \? await earlyPrint : receiptPayload \? await printLastReceipt\(receiptPayload\) : null;\r?\n\s*await terminalRefresh;/g;
+  assert.equal((source.match(cash) || []).length, 1);
+  assert.equal((source.match(card) || []).length, 1);
   assert.doesNotMatch(source, /await loadTerminalState\(true\);\r?\n\r?\n\s*const printResult = receiptPayload/);
 });
