@@ -11,6 +11,7 @@ import { formatearRut } from "@/data/empresas.mjs";
 import { getCompanyPageData } from "@/lib/companiesServer";
 import EmpresaEditButton from "@/components/empresas/EmpresaEditButton";
 import EmpresaEnrolamientoPanel from "@/components/empresas/EmpresaEnrolamientoPanel";
+import EmpresaBoletaElectronicaEstado from "@/components/empresas/EmpresaBoletaElectronicaEstado";
 
 function DetailItem({ label, value }) {
   return (
@@ -168,6 +169,8 @@ export default async function EmpresaDetallePage({ params }) {
             <DetailItem label="Región" value={empresa.region} />
           </div>
         </section>
+
+        <EmpresaBoletaElectronicaEstado companyId={empresa.id} />
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="text-xl font-semibold text-[#041E42]">Estacionamientos y usuarios</h3>

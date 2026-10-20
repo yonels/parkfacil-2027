@@ -46,7 +46,10 @@ test("UI: no muestra precios hasta que la API confirma Root; ubicación Planes �
   assert.doesNotMatch(page, /DEFAULT_RELEASED_PAYMENT_CATALOG/);
   assert.ok(route.includes("return NextResponse.json({ data: [], audit: [], storageReady: false"), "sin migración no se muestran precios fijos");
   assert.ok(page.includes("{form?.length ? ("), "sin filas no se dibuja la tabla de precios");
-  assert.match(plans, /\{isRoot \? \(\s*<section[\s\S]{0,200}Módulos adicionales/);
+  // Boleta electrónica (SOL-2026-10-20-001) también la ve el administrador de la
+  // empresa; Pago liberado y Cupones siguen solo para Root.
+  assert.match(plans, /\{isRoot \|\| isCompanyAdmin \? \(\s*<section[\s\S]{0,200}Módulos adicionales/);
+  assert.match(plans, /\{isRoot \? <>\s*<Link href="\/tarifas\/modulos\/pago-liberado"/);
   assert.match(plans, /setIsRoot\(Boolean\(body\.permissions\?\.canCreate\)\)/);
   assert.match(plans, /href="\/tarifas\/modulos\/pago-liberado"/);
 });

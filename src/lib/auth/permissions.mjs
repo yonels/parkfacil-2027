@@ -152,7 +152,9 @@ const ROOT_ONLY_PREFIXES = [
 // (pendientes, inciertos, regularización); la API exige además rol administrador.
 // "/cupones" (SOL-2026-10-19-001): creación y envío de cupones de descuento, solo
 // administrador; el operador no los gestiona.
-const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion", "/deudas", "/pagos-tarjeta", "/pago-liberado", "/cupones"];
+// "/tarifas/modulos/boleta-electronica" (SOL-2026-10-20-001): API Key de Haulmer
+// de la empresa, solo administrador (Root solo ve el estado).
+const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion", "/deudas", "/pagos-tarjeta", "/pago-liberado", "/cupones", "/tarifas/modulos/boleta-electronica"];
 
 // Prefijos de ruta que exigen un producto habilitado (Portal Cliente/
 // Terminal no aplica -- Root nunca pasa por aquí, ver canAccessPath). El
@@ -164,6 +166,7 @@ const PRODUCT_PREFIXES = [
   { prefix: "/deudas", product: PRODUCTS.OFF_STREET },
   { prefix: "/pagos-tarjeta", product: PRODUCTS.OFF_STREET },
   { prefix: "/cupones", product: PRODUCTS.OFF_STREET },
+  { prefix: "/tarifas/modulos/boleta-electronica", product: PRODUCTS.OFF_STREET },
   { prefix: "/on-street-qr", product: PRODUCTS.ON_STREET },
 ];
 

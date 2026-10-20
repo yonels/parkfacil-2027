@@ -54,6 +54,9 @@ export default function TarifasPage() {
   const [empresas, setEmpresas] = useState([]);
   // Módulos adicionales (Pago liberado): catálogo exclusivo de Root.
   const [isRoot, setIsRoot] = useState(false);
+  // Boleta electrónica (SOL-2026-10-20-001): el administrador de la empresa
+  // ingresa su API Key de Haulmer; Root solo ve el estado.
+  const [isCompanyAdmin, setIsCompanyAdmin] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -62,6 +65,11 @@ export default function TarifasPage() {
       const body = await response.json();
       if (active && Array.isArray(body.data)) setTarifas([...body.data, ...demoTarifas]);
       if (active) setIsRoot(Boolean(body.permissions?.canCreate));
+    }).catch(() => {});
+    fetch("/api/auth/session", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) return null;
+      const body = await response.json();
+      if (active) setIsCompanyAdmin(body?.data?.role === "company_admin");
     }).catch(() => {});
     authenticatedFetch("/api/empresas", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return null;
@@ -141,11 +149,12 @@ export default function TarifasPage() {
           <TarifaResumen title="Planes personalizados" value={resumen.personalizados} description="A medida" tone="neutral" />
         </section>
 
-        {isRoot ? (
+        {isRoot || isCompanyAdmin ? (
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
             <h2 className="text-lg font-bold text-[#041E42]">Módulos adicionales</h2>
-            <p className="mt-1 text-sm text-slate-600">Módulos que se cotizan y contratan aparte del servicio base. Solo ParkFacil Root administra su catálogo.</p>
+            <p className="mt-1 text-sm text-slate-600">{isRoot ? "Módulos que se cotizan y contratan aparte del servicio base. Solo ParkFacil Root administra su catálogo." : "Configuración de los módulos adicionales de tu empresa."}</p>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {isRoot ? <>
               <Link href="/tarifas/modulos/pago-liberado" className="group rounded-2xl border border-slate-200 p-4 hover:border-[#3150D8] hover:bg-[#F5F9FF]">
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Off Street</p>
                 <p className="mt-1 flex items-center justify-between text-base font-bold text-[#041E42]">Pago liberado <ArrowRight className="h-4 w-4 text-[#3150D8]" /></p>
@@ -156,6 +165,13 @@ export default function TarifasPage() {
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Off Street</p>
                 <p className="mt-1 flex items-center justify-between text-base font-bold text-[#041E42]">Cupones y descuentos <ArrowRight className="h-4 w-4 text-[#3150D8]" /></p>
                 <p className="mt-1 text-sm text-slate-600">Cupones QR de un solo uso que las tiendas entregan y el POS canjea al cobrar. Se contrata por empresa: importe mensual + IVA definido en cada propuesta.</p>
+              </Link>
+              </> : null}
+              {/* Boleta electrónica (SOL-2026-10-20-001): el administrador configura su API Key de Haulmer; Root ve el estado. */}
+              <Link href="/tarifas/modulos/boleta-electronica" className="group rounded-2xl border border-slate-200 p-4 hover:border-[#3150D8] hover:bg-[#F5F9FF]">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Off Street</p>
+                <p className="mt-1 flex items-center justify-between text-base font-bold text-[#041E42]">Boleta electrónica <ArrowRight className="h-4 w-4 text-[#3150D8]" /></p>
+                <p className="mt-1 text-sm text-slate-600">{isRoot ? "Estado de la configuración de boleta electrónica (Haulmer) de cada empresa. La API Key la ingresa el administrador de la empresa." : "API Key de Haulmer, ambiente y estacionamientos donde se emitirá la boleta con timbre electrónico."}</p>
               </Link>
             </div>
           </section>
