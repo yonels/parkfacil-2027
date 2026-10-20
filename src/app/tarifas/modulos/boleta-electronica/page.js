@@ -44,6 +44,7 @@ function CompanySettings({ settings, onSaved }) {
   const [removeApiKey, setRemoveApiKey] = useState(false);
   const [parkingIds, setParkingIds] = useState(settings.parkings.filter((parking) => parking.enabled).map((parking) => parking.id));
   const [emitter, setEmitter] = useState({ businessName: settings.emitter?.businessName || "", activity: settings.emitter?.activity || "", address: settings.emitter?.address || "", commune: settings.emitter?.commune || "", city: settings.emitter?.city || "" });
+  const [testEmitterRut, setTestEmitterRut] = useState(settings.emitter?.testRut || "");
   const [branchCodes, setBranchCodes] = useState(Object.fromEntries(settings.parkings.map((parking) => [parking.id, parking.branchCode || ""])));
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
@@ -57,7 +58,7 @@ function CompanySettings({ settings, onSaved }) {
       const response = await authenticatedFetch("/api/boleta-electronica", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ environment, apiKey: replacing ? apiKey : "", removeApiKey, parkingIds: removeApiKey ? [] : parkingIds, emitter, branchCodes }),
+        body: JSON.stringify({ environment, apiKey: replacing ? apiKey : "", removeApiKey, parkingIds: removeApiKey ? [] : parkingIds, emitter, branchCodes, testEmitterRut }),
       });
       const body = await readJson(response);
       if (!response.ok) { setMessage({ type: "error", text: body.error || "No fue posible guardar." }); return; }
@@ -110,6 +111,7 @@ function CompanySettings({ settings, onSaved }) {
         <label className="text-xs font-semibold text-slate-600"><span className="mb-1 block">Ciudad (opcional)</span><input maxLength={20} value={emitter.city} onChange={(event) => setEmitter({ ...emitter, city: event.target.value })} className={inputClass}/></label>
       </div>
       <p className="text-xs text-slate-500">Deben coincidir con los registrados en Haulmer y el SII. El RUT es el de la empresa.</p>
+      {environment === "TEST" ? <label className="block max-w-xs text-xs font-semibold text-slate-600"><span className="mb-1 block">RUT emisor de prueba (solo ambiente Prueba)</span><input value={testEmitterRut} onChange={(event) => setTestEmitterRut(event.target.value)} placeholder="76795561-8" className={inputClass}/><span className="mt-1 block font-normal text-slate-500">Las API Keys de desarrollo de Haulmer solo emiten con el RUT de su empresa de prueba. En Producción se usa siempre el RUT de la empresa.</span></label> : null}
     </div>
 
     <div>

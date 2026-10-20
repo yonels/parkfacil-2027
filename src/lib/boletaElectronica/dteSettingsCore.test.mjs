@@ -10,10 +10,12 @@ import {
   DTE_STATUS,
   encryptDteApiKey,
   maskedApiKey,
+  normalizeRut,
   resolveDteStatus,
   validateDteSettingsInput,
 } from "./dteSettingsCore.mjs";
 import { canAccessPath, ROLES } from "../auth/permissions.mjs";
+import { emitterRutFor } from "./cashBoletaCore.mjs";
 
 // Boleta electrónica (SOL-2026-10-20-001): configuración Haulmer por empresa.
 const SECRET = "x".repeat(40);
@@ -35,7 +37,7 @@ test("boleta electrónica: la API Key se cifra (AES-256-GCM) y solo se descifra 
 
 test("boleta electrónica: validación del formulario del administrador", () => {
   const ok = validateDteSettingsInput({ environment: "TEST", apiKey: ` ${KEY} `, parkingIds: [P2, P1, P1], emitter: EMITTER, branchCodes: { [P1]: " 81303347 ", [P2]: "" } }, { allowedParkingIds: [P1, P2] });
-  assert.deepEqual(ok, { environment: "TEST", parkingIds: [P1, P2], apiKeyAction: "SET", apiKey: KEY, emitter: { ...EMITTER, city: "" }, branchCodes: { [P1]: "81303347" } });
+  assert.deepEqual(ok, { environment: "TEST", parkingIds: [P1, P2], apiKeyAction: "SET", apiKey: KEY, emitter: { ...EMITTER, city: "" }, branchCodes: { [P1]: "81303347" }, testEmitterRut: null });
   assert.equal(validateDteSettingsInput({ environment: "PRODUCTION", parkingIds: [P1], emitter: EMITTER }, { allowedParkingIds: [P1], hasStoredKey: true }).apiKeyAction, "KEEP");
   // Sin estacionamientos activos los datos del emisor pueden quedar incompletos.
   assert.equal(validateDteSettingsInput({ environment: "TEST", parkingIds: [] }).parkingIds.length, 0);
@@ -60,7 +62,7 @@ test("boleta electrónica: el administrador ve la API Key solo enmascarada y Roo
   assert.equal(view.status, DTE_STATUS.CONFIGURED);
   assert.equal(view.emissionAvailable, true);
   // Emisor: lo guardado prevalece; lo que falta se sugiere desde la empresa. RUT siempre el de la empresa.
-  assert.deepEqual(view.emitter, { rut: "76111222-3", businessName: "Clínica Ramis SpA", activity: "ESTACIONAMIENTOS", address: "Calle 1", commune: "Curicó", city: "Curicó" });
+  assert.deepEqual(view.emitter, { rut: "76111222-3", businessName: "Clínica Ramis SpA", activity: "ESTACIONAMIENTOS", address: "Calle 1", commune: "Curicó", city: "Curicó", testRut: "" });
   assert.deepEqual(view.parkings.map((parking) => parking.branchCode), ["81303347", ""]);
   assert.deepEqual(view.parkings.map((parking) => parking.enabled), [true, false]);
   assert.equal(JSON.stringify(view).includes(row.api_key_ciphertext), false);
@@ -70,6 +72,20 @@ test("boleta electrónica: el administrador ve la API Key solo enmascarada y Roo
   assert.deepEqual(Object.keys(root).sort(), ["companyId", "companyName", "enabledParkings", "environment", "provider", "status", "updatedAt"]);
   assert.equal(JSON.stringify(root).includes("wxyz"), false);
   assert.equal(maskedApiKey(null), null);
+});
+
+test("boleta electrónica: RUT emisor de prueba solo en ambiente Prueba y con DV válido", () => {
+  assert.equal(normalizeRut("76.795.561-8"), "76795561-8");
+  assert.equal(normalizeRut("12345678-5"), "12345678-5");
+  assert.equal(normalizeRut("76795561-9"), null, "DV incorrecto");
+  assert.equal(normalizeRut("11111111-1"), "11111111-1");
+  assert.equal(validateDteSettingsInput({ environment: "TEST", testEmitterRut: "76.795.561-8" }).testEmitterRut, "76795561-8");
+  assert.equal(validateDteSettingsInput({ environment: "PRODUCTION", testEmitterRut: "76795561-8" }).testEmitterRut, null, "en Producción no se guarda");
+  assert.throws(() => validateDteSettingsInput({ environment: "TEST", testEmitterRut: "76795561-9" }), /RUT emisor de prueba no es válido/);
+  const company = { rut_number: "76345890", rut_dv: "2" };
+  assert.equal(emitterRutFor({ environment: "TEST", test_emitter_rut: "76795561-8" }, company), "76795561-8");
+  assert.equal(emitterRutFor({ environment: "PRODUCTION", test_emitter_rut: "76795561-8" }, company), "76345890-2", "Producción: siempre el RUT de la empresa");
+  assert.equal(emitterRutFor({ environment: "TEST", test_emitter_rut: null }, company), "76345890-2");
 });
 
 test("boleta electrónica: estado según API Key y estacionamientos", () => {

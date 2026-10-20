@@ -20,7 +20,7 @@ import {
 // ingresa el administrador de la empresa; Root solo ve el estado. El operador
 // no accede. La API Key nunca sale del servidor (ni cifrada).
 
-const SETTINGS_COLUMNS = "company_id,provider,environment,api_key_ciphertext,api_key_last4,enabled_parking_ids,emitter_business_name,emitter_activity,emitter_address,emitter_commune,emitter_city,parking_branch_codes,updated_by_email,updated_at";
+const SETTINGS_COLUMNS = "company_id,provider,environment,api_key_ciphertext,api_key_last4,enabled_parking_ids,emitter_business_name,emitter_activity,emitter_address,emitter_commune,emitter_city,parking_branch_codes,test_emitter_rut,updated_by_email,updated_at";
 const COMPANY_COLUMNS = "id,rut_number,rut_dv,business_name,business_activity,address,district,city";
 
 export function fail(message, status = 400, extra = {}) {
@@ -100,6 +100,7 @@ export async function saveCompanyDteSettings({ db, scope, context }, input) {
     emitter_commune: next.emitter.commune || null,
     emitter_city: next.emitter.city || null,
     parking_branch_codes: next.branchCodes,
+    test_emitter_rut: next.testEmitterRut,
     updated_by: context.userId,
     updated_by_email: context.email || null,
     updated_at: now,

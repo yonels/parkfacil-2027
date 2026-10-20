@@ -84,7 +84,23 @@ function normalizeBranchCodes(input, allowed) {
   return { codes, errors };
 }
 
-// input: { environment, apiKey?, removeApiKey?, parkingIds, emitter?, branchCodes? }
+// RUT chileno "76795561-8": sin puntos, DV en mayúscula y dígito verificador válido.
+export function normalizeRut(value) {
+  const text = String(value ?? "").replace(/[.\s]/g, "").toUpperCase();
+  const match = text.match(/^(\d{7,8})-?([\dK])$/);
+  if (!match) return null;
+  let sum = 0;
+  let factor = 2;
+  for (let i = match[1].length - 1; i >= 0; i -= 1) {
+    sum += Number(match[1][i]) * factor;
+    factor = factor === 7 ? 2 : factor + 1;
+  }
+  const rest = 11 - (sum % 11);
+  const dv = rest === 11 ? "0" : rest === 10 ? "K" : String(rest);
+  return dv === match[2] ? `${match[1]}-${dv}` : null;
+}
+
+// input: { environment, apiKey?, removeApiKey?, parkingIds, emitter?, branchCodes?, testEmitterRut? }
 // allowedParkingIds: estacionamientos Off Street de la empresa.
 // Devuelve { environment, parkingIds, apiKeyAction: "KEEP"|"SET"|"REMOVE", apiKey, emitter, branchCodes }.
 export function validateDteSettingsInput(input, { allowedParkingIds = [], hasStoredKey = false } = {}) {
@@ -116,12 +132,18 @@ export function validateDteSettingsInput(input, { allowedParkingIds = [], hasSto
   const branch = normalizeBranchCodes(input?.branchCodes, allowed);
   errors.push(...new Set(branch.errors));
 
+  // RUT emisor de prueba (decisión del usuario): solo en ambiente Prueba, para
+  // las API Keys de desarrollo de Haulmer. En Producción no se guarda.
+  const rawTestRut = String(input?.testEmitterRut ?? "").trim();
+  const testEmitterRut = environment === DTE_ENVIRONMENTS.TEST && rawTestRut ? normalizeRut(rawTestRut) : null;
+  if (environment === DTE_ENVIRONMENTS.TEST && rawTestRut && !testEmitterRut) errors.push("El RUT emisor de prueba no es válido.");
+
   if (errors.length) {
     const error = new DteSettingsError("DTE_SETTINGS_INVALID", errors[0]);
     error.details = errors;
     throw error;
   }
-  return { environment, parkingIds: parkingIds.sort(), apiKeyAction, apiKey: apiKeyAction === "SET" ? rawKey : null, emitter, branchCodes: branch.codes };
+  return { environment, parkingIds: parkingIds.sort(), apiKeyAction, apiKey: apiKeyAction === "SET" ? rawKey : null, emitter, branchCodes: branch.codes, testEmitterRut };
 }
 
 // --- Estado y vistas ----------------------------------------------------------
@@ -140,6 +162,7 @@ export function emitterFromSettings(row, company = null) {
     address: row?.emitter_address || clean(company?.address, EMITTER_LIMITS.address),
     commune: row?.emitter_commune || clean(company?.district, EMITTER_LIMITS.commune),
     city: row?.emitter_city || clean(company?.city, EMITTER_LIMITS.city),
+    testRut: row?.test_emitter_rut || "",
   };
 }
 
@@ -185,6 +208,7 @@ export function dteAuditChanges(previous, next) {
   const previousEmitter = { businessName: previous?.emitter_business_name || "", activity: previous?.emitter_activity || "", address: previous?.emitter_address || "", commune: previous?.emitter_commune || "", city: previous?.emitter_city || "" };
   if (next.emitter && JSON.stringify(previousEmitter) !== JSON.stringify(next.emitter)) changes.emitter = { from: previousEmitter, to: next.emitter };
   if (next.branchCodes && JSON.stringify(previous?.parking_branch_codes || {}) !== JSON.stringify(next.branchCodes)) changes.branchCodes = { from: previous?.parking_branch_codes || {}, to: next.branchCodes };
+  if (next.testEmitterRut !== undefined && (previous?.test_emitter_rut || null) !== next.testEmitterRut) changes.testEmitterRut = { from: previous?.test_emitter_rut || null, to: next.testEmitterRut };
   return changes;
 }
 

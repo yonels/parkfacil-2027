@@ -2,7 +2,7 @@ import "server-only";
 import { decryptDteApiKey, DTE_STORAGE_MISSING_CODES } from "./dteSettingsCore.mjs";
 import { emitBoleta } from "./openFacturaClient.mjs";
 import { boletaIdempotencyKey, buildBoletaRequest, chileIssueDate, extractTedFromXml, splitGrossAmount } from "./openFacturaCore.mjs";
-import { boletaForReceipt, shouldIssueCashBoleta } from "./cashBoletaCore.mjs";
+import { boletaForReceipt, emitterRutFor, shouldIssueCashBoleta } from "./cashBoletaCore.mjs";
 
 // Boleta electrónica del pago en efectivo del POS (SOL-2026-10-20-001).
 // Se llama DESPUÉS de registrar el pago: nunca lo revierte ni lo bloquea. Si
@@ -22,7 +22,7 @@ async function loadEmissionContext(db, parkingId) {
   if (parking.error) throw parking.error;
   if (!parking.data?.company_id) return null;
   const [settings, company] = await Promise.all([
-    db.from("company_dte_settings").select("company_id,environment,api_key_ciphertext,enabled_parking_ids,emitter_business_name,emitter_activity,emitter_address,emitter_commune,emitter_city,parking_branch_codes").eq("company_id", parking.data.company_id).maybeSingle(),
+    db.from("company_dte_settings").select("company_id,environment,api_key_ciphertext,enabled_parking_ids,emitter_business_name,emitter_activity,emitter_address,emitter_commune,emitter_city,parking_branch_codes,test_emitter_rut").eq("company_id", parking.data.company_id).maybeSingle(),
     db.from("companies").select("id,rut_number,rut_dv").eq("id", parking.data.company_id).maybeSingle(),
   ]);
   if (settings.error) throw settings.error;
@@ -69,7 +69,7 @@ export async function issueCashPaymentBoleta(db, stay, { emit = emitBoleta } = {
   try {
     const request = buildBoletaRequest({
       emitter: {
-        rut: `${company.rut_number}-${company.rut_dv}`,
+        rut: emitterRutFor(settings, company),
         businessName: settings.emitter_business_name,
         activity: settings.emitter_activity,
         address: settings.emitter_address,
