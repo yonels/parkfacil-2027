@@ -45,8 +45,14 @@ export const navigationItems = [
     // hecho clic para expandirlo. Ver Sidebar.js / MobileNavigation.js.
     activePrefix: "/usuarios",
     children: [
-      { href: "/usuarios/administradores", label: "Administradores" },
-      { href: "/usuarios/operadores", label: "Operadores" },
+      { href: "/usuarios/administradores", label: "Administradores", activePrefix: "/usuarios/administradores", children: [
+        { href: "/usuarios/administradores", label: "Ver y administrar administradores" },
+        { href: "/usuarios/administradores/crear", label: "Crear administrador" },
+      ] },
+      { href: "/usuarios/operadores", label: "Operadores", activePrefix: "/usuarios/operadores", children: [
+        { href: "/usuarios/operadores", label: "Ver y administrar operadores" },
+        { href: "/usuarios/operadores/crear", label: "Crear operador" },
+      ] },
     ],
   },
   { href: "/modelo-gestion-modulos", label: "Gestión de módulos", icon: SlidersHorizontal },

@@ -127,11 +127,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
           </div>
           {expanded ? (
             <div className="relative ml-6 mt-1 space-y-0.5 border-l border-slate-300 pl-3">
-              {item.children.map((child) => (
-                <Link key={child.href} href={child.href} onClick={onNavigate} className={`relative block rounded-lg px-3 py-2 text-xs font-medium transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${isItemActive(pathname, child.href) ? "bg-[#EEF4FF] text-[#3150D8]" : "text-slate-600 hover:bg-[#EEF4FF] hover:text-[#3150D8]"}`}>
-                  {child.label}
-                </Link>
-              ))}
+              {item.children.filter((child) => navigationVisibleForRole(child, userContext)).map((child) => renderNavItem(child, onNavigate, tone))}
             </div>
           ) : null}
         </div>
