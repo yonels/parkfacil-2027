@@ -1,0 +1,19 @@
+{
+  "name": "parkfacil-validacion-contratacion-bd",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/lib/contratacionProvision.test.mjs tests/entorno.test.mjs tests/auth-operativa/accesos.test.mjs tests/web-flow.test.mjs tests/web-http.test.mjs tests/account-access.test.mjs tests/temporary-pin.test.mjs tests/pin-http-integration.test.mjs tests/pin-sql.test.mjs tests/recovery-qa.test.mjs",
+    "qa": "node --env-file=.env.qa scripts/validar-alta-real.mjs",
+    "comprobar": "node --env-file=.env.qa scripts/comprobar-conexion.mjs",
+    "web": "node --env-file=.env.qa web/server.mjs",
+    "root:crear": "node --env-file=.env.qa scripts/crear-root-qa.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.110.2"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.10"
+  }
+}
+

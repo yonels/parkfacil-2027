@@ -10,6 +10,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Arnés de pruebas de contratación con su propio package.json (SOL-2026-10-16-001).
+    "contratacion-qa/**",
   ]),
 ]);
 

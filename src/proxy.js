@@ -5,6 +5,7 @@ import { canAccessPath } from "@/lib/auth/permissions.mjs";
 import { getRequestPortal } from "@/lib/auth/portal.mjs";
 
 const PUBLIC_PATHS = new Set([
+  "/contratacion/acceso",
   "/login",
   "/pos/login",
   "/acceso-operador",

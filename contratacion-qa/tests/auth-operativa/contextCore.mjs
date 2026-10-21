@@ -1,0 +1,64 @@
+import { hasPermission, PERMISSIONS, resolveEnabledProducts, ROLES } from "./permissions.mjs";
+
+export class AuthorizationError extends Error {
+  constructor(code, status, message, auditContext = null) {
+    super(message);
+    this.name = "AuthorizationError";
+    this.code = code;
+    this.status = status;
+    this.auditContext = auditContext;
+  }
+}
+
+export async function resolveAuthenticatedContext({ user, portal, loadMembership }) {
+  if (!user?.id) throw new AuthorizationError("AUTH_REQUIRED", 401, "Debes iniciar sesión.");
+
+  const metadataRole = user.app_metadata?.role;
+  if (metadataRole === ROLES.PLATFORM_ADMIN) {
+    if (portal !== "root") throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al Portal Root.", { userId: user.id, companyId: null, portal, role: ROLES.PLATFORM_ADMIN });
+    return { userId: user.id, email: user.email || "", portal, role: ROLES.PLATFORM_ADMIN, companyId: null, enabledProducts: resolveEnabledProducts(ROLES.PLATFORM_ADMIN, null), membership: null };
+  }
+  // Inspector (Etapa 2): igual que platform_admin, resuelto por
+  // app_metadata.role -- deliberadamente SIN loadMembership/company_id, para
+  // que la consulta de patentes nunca quede restringida por empresa (ver
+  // §3.1 de Etapa 2). enabledProducts vacío: Inspector no usa el gating por
+  // producto Off/On Street, portal "inspector" no lo evalúa (ver canAccessPath).
+  if (metadataRole === ROLES.INSPECTOR) {
+    if (portal !== "inspector") throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al portal de Inspectores.", { userId: user.id, companyId: null, portal, role: ROLES.INSPECTOR });
+    return { userId: user.id, email: user.email || "", portal, role: ROLES.INSPECTOR, companyId: null, enabledProducts: [], membership: null };
+  }
+
+  const membership = await loadMembership(user.id);
+  if (!membership || membership.status !== "active") {
+    throw new AuthorizationError("MEMBERSHIP_INACTIVE", 403, "No existe una membresía cliente activa.", { userId: user.id, companyId: membership?.company_id || null, portal, role: membership?.role || null });
+  }
+  if (![ROLES.COMPANY_ADMIN, ROLES.OPERATOR].includes(membership.role)) {
+    throw new AuthorizationError("ROLE_FORBIDDEN", 403, "El rol de la membresía no está autorizado.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
+  }
+  if (!["client", "terminal"].includes(portal)) throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al Portal Cliente o Terminal.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
+  if (portal === "terminal" && !hasPermission(membership.role, PERMISSIONS.OPERATIONS_USE)) {
+    throw new AuthorizationError("PERMISSION_FORBIDDEN", 403, "Esta cuenta no tiene permiso para operar el Terminal.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
+  }
+  if (!membership.company || membership.company.status !== "active" || membership.company.relationship_type !== "client") {
+    throw new AuthorizationError("COMPANY_INACTIVE", 403, "La empresa no está habilitada como cliente.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
+  }
+
+  return {
+    userId: user.id,
+    email: user.email || "",
+    portal,
+    role: membership.role,
+    companyId: membership.company_id,
+    enabledProducts: resolveEnabledProducts(membership.role, membership.company),
+    membership: {
+      userId: membership.user_id,
+      companyId: membership.company_id,
+      fullName: membership.full_name,
+      role: membership.role,
+      status: membership.status,
+      posOnly: Boolean(membership.pos_only),
+      company: membership.company,
+    },
+  };
+}
+

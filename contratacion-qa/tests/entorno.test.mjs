@@ -1,0 +1,7 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {assertTestEnvironment} from '../src/lib/contratacionTestEnvironment.mjs';
+// Identificadores ficticios exclusivamente para pruebas unitarias; no destinos reales.
+const c='aaaaaaaaaaaaaaaaaaaa',o='bbbbbbbbbbbbbbbbbbbb';const config=()=>({crmUrl:`https://${c}.supabase.co`,operationalUrl:`https://${o}.supabase.co`,approvedCrmRef:c,approvedOperationalRef:o,mailMode:'simulated',paymentMode:'simulated'});
+test('Acepta solo los dos destinos explícitos',()=>assert.equal(assertTestEnvironment(config()).crmRef,c));
+test('Bloquea producción y QA POS en cualquiera de los dos destinos',()=>{for(const r of ['ithfijtevbumbesizoxn','fstacjpckslamubovwms','ohzksqazcgtdeuowqagy'])for(const k of ['crmUrl','operationalUrl'])assert.throws(()=>assertTestEnvironment({...config(),[k]:`https://${r}.supabase.co`}),/EXISTING_PROJECT_FORBIDDEN/);});
+test('Bloquea destino no aprobado, bases iguales y servicios reales',()=>{assert.throws(()=>assertTestEnvironment({...config(),approvedOperationalRef:null}));assert.throws(()=>assertTestEnvironment({...config(),operationalUrl:`https://${c}.supabase.co`,approvedOperationalRef:c}));for(const k of ['mailMode','paymentMode'])assert.throws(()=>assertTestEnvironment({...config(),[k]:'real'}));});
+test('Rechaza URL con usuario, ruta o dominio ajeno',()=>{for(const u of ['https://user@aaaaaaaaaaaaaaaaaaaa.supabase.co','https://aaaaaaaaaaaaaaaaaaaa.supabase.co/api','https://example.com'])assert.throws(()=>assertTestEnvironment({...config(),crmUrl:u}));});

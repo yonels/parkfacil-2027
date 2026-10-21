@@ -2,7 +2,8 @@
   "git": {
     "deploymentEnabled": {
       "feature/pago-liberado-catalogo-prod": false,
-      "feature/pago-liberado-etapa1": false
+      "feature/pago-liberado-etapa1": false,
+      "feature/contratacion-integral": false
     }
   }
 }

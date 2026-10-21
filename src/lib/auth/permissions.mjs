@@ -61,7 +61,7 @@ export function permissionsForRole(role) {
   return [...(ROLE_PERMISSIONS[role] || [])];
 }
 
-const ROOT_ONLY_PREFIXES = ["/empresas", "/contratos", "/facturacion", "/modelo-gestion-modulos"];
+const ROOT_ONLY_PREFIXES = ["/empresas", "/contratos", "/facturacion", "/modelo-gestion-modulos", "/contratacion/gestion"];
 // "/pago-liberado": gestion del administrador (y supervision Root); el operador
 // POS solo aplicara las reglas en el terminal (Etapa 2).
 const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/pago-liberado"];

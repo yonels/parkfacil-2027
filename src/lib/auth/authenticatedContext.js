@@ -26,6 +26,11 @@ export async function getAuthenticatedContext(request) {
   const db = getSupabaseAdminClient();
   const { data, error } = await db.auth.getUser(token);
   if (error || !data?.user) throw new AuthorizationError("AUTH_REQUIRED", 401, "La sesión no es válida.");
+  if (process.env.CONTRATACION_INTEGRAL_ENABLED === 'true' && data.user.app_metadata?.enrollment_id) {
+    let iat=0;try{iat=JSON.parse(Buffer.from(token.split('.')[1],'base64url').toString()).iat||0;}catch{}
+    const state=await db.rpc('contratacion_context',{p_user:data.user.id,p_iat:iat});
+    if(state.error||!state.data?.sessionValid||state.data.mustChangePassword)throw new AuthorizationError('ENROLLMENT_SESSION_RESTRICTED',403,'Complete o recupere sus accesos desde Contratación ParkFacil.');
+  }
 
   return resolveAuthenticatedContext({
     user: data.user,
