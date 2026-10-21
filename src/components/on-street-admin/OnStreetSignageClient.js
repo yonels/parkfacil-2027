@@ -244,7 +244,7 @@ export default function OnStreetSignageClient({ id }) {
           </div>
           <div className="text-right text-xs">
             <p className="text-[#9BB0D9]">Más información</p>
-            <p className="font-bold text-white">www.parkfacil.cl</p>
+            <p className="font-bold text-white">https://www.parkfacilapp.cl</p>
           </div>
         </div>
       </section>

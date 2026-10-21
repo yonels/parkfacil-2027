@@ -52,7 +52,7 @@ test("courtesyTicketLines: exactamente el formato pedido, sin información adici
     subtitle: "TIEMPO VENCIDO",
     messageLines: ["SU TIEMPO EXPIRO Y", "ESTA EN INFRACCION"],
     folioLine: "Fiscalizacion: #A1B2C3D4",
-    footer: "www.parkfacil.cl",
+    footer: "https://www.parkfacilapp.cl",
   });
 });
 
@@ -91,14 +91,14 @@ test("buildCourtesyTicketEscPos: contiene la patente, la fecha/hora y el folio r
   assert.ok(decoded.includes("TIEMPO VENCIDO"));
   assert.ok(decoded.includes("SU TIEMPO EXPIRO Y"));
   assert.ok(decoded.includes("ESTA EN INFRACCION"));
-  assert.ok(decoded.includes("www.parkfacil.cl"));
+  assert.ok(decoded.includes("https://www.parkfacilapp.cl"));
   assert.ok(decoded.includes("PARKFACIL"));
 });
 
 test("buildCourtesyTicketEscPos: NUNCA agrega información adicional al ticket -- el texto decodificado no contiene ninguna palabra fuera del set fijo pedido", () => {
   const bytes = buildCourtesyTicketEscPos({ plate: "ABCD12", inspectedAt: "2026-08-30T18:25:00-04:00", inspectionId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890" });
   const decoded = decodeTicketText(bytes);
-  const expectedWords = new Set("PARKFACIL PATENTE: ABCD12 30/08/2026 18:25 MULTA DE CORTESIA TIEMPO VENCIDO SU TIEMPO EXPIRO Y ESTA EN INFRACCION Fiscalizacion: #A1B2C3D4 www.parkfacil.cl".split(/\s+/));
+  const expectedWords = new Set("PARKFACIL PATENTE: ABCD12 30/08/2026 18:25 MULTA DE CORTESIA TIEMPO VENCIDO SU TIEMPO EXPIRO Y ESTA EN INFRACCION Fiscalizacion: #A1B2C3D4 https://www.parkfacilapp.cl".split(/\s+/));
   const actualWords = decoded.split(/\s+/).filter(Boolean);
   for (const word of actualWords) assert.ok(expectedWords.has(word), `palabra inesperada en el ticket (información adicional no pedida): "${word}"`);
 });

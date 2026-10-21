@@ -24,7 +24,7 @@
 //   SU TIEMPO EXPIRO Y
 //   ESTA EN INFRACCION       <- destacado junto con la línea anterior
 //   Fiscalizacion: #<folio>
-//   www.parkfacil.cl
+//   https://www.parkfacilapp.cl
 //
 // Papel de 58mm (MTP-II real, ~48mm de ancho efectivo -- ver informe),
 // ~32 columnas a fuente normal, mismo criterio que ticketFormatter.js del
@@ -72,7 +72,7 @@ export function courtesyTicketLines({ plate, inspectedAt, inspectionId }) {
     subtitle: "TIEMPO VENCIDO",
     messageLines: ["SU TIEMPO EXPIRO Y", "ESTA EN INFRACCION"],
     folioLine: `Fiscalizacion: #${folio}`,
-    footer: "www.parkfacil.cl",
+    footer: "https://www.parkfacilapp.cl",
   };
 }
 
