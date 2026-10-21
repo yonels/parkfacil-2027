@@ -76,3 +76,9 @@ test("pantalla: Eliminar solo en /cupones/eliminar, con diálogo propio y candad
   assert.match(read("../../app/cupones/crear/page.js"), /<CouponsClient mode="crear" \/>/);
   assert.match(read("../../app/cupones/eliminar/page.js"), /<CouponsClient mode="eliminar" \/>/);
 });
+
+test("crear: el monto fijo acepta pesos enteros desde $1; el porcentaje sigue con centésimas", () => {
+  const client = read("../../components/cupones/CouponsClient.js");
+  assert.match(client, /min=\{percentage \? "0\.01" : "1"\} max=\{percentage \? "100" : undefined\} step=\{percentage \? "0\.01" : "1"\}/);
+  assert.doesNotMatch(client, /type="number" min="0\.01" max=\{percentage/);
+});
