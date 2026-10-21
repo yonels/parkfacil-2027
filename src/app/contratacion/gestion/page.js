@@ -1,6 +1,7 @@
 'use client';
 import {useState,useRef,useEffect} from 'react';
 import {authenticatedFetch} from '@/lib/supabaseBrowser';
+import PaymentVerification from '@/components/contratacion/PaymentVerification';
 export default function EnrollmentManagement(){
  const [rows,setRows]=useState([]),[recoveries,setRecoveries]=useState([]),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[secret,setSecret]=useState(null),timer=useRef(null);
  useEffect(()=>()=>clearTimeout(timer.current),[]);
@@ -25,6 +26,7 @@ export default function EnrollmentManagement(){
  <label><input type="checkbox" name="identityConfirmed"/> Verifiqué la identidad del representante o usuario solicitado.</label><label><input type="checkbox" name="excluded"/> Detuve el trabajador anterior y concilié sus llamadas externas pendientes.</label>
  <button disabled={busy} className="rounded bg-blue-700 p-3 text-white sm:col-span-2">{busy?'Procesando…':'Ejecutar acción seleccionada'}</button></form>
  {message&&<p role="status" className="rounded bg-slate-100 p-4">{message}</p>}{secret&&<div className="rounded border border-amber-400 bg-amber-50 p-4"><p>Entrega solo al representante verificado. Se ocultará en 30 segundos.</p><p className="break-all">{secret}</p><button onClick={()=>setSecret(null)} className="mt-3 underline">Ocultar ahora</button></div>}
+ <PaymentVerification/>
  <section><h2 className="text-xl font-bold">Solicitudes consultadas</h2><div className="overflow-x-auto"><table className="w-full text-left"><thead><tr><th>Referencia</th><th>Empresa</th><th>Estado del alta</th><th>Versión</th></tr></thead><tbody>{rows.map(r=><tr key={r.id}><td className="p-2">{r.id}</td><td>{r.empresa}</td><td>{r.state}</td><td>{r.epoch}</td></tr>)}</tbody></table></div></section>
  <section><h2 className="text-xl font-bold">Recuperaciones consultadas</h2><ul>{recoveries.map(r=><li key={r.id} className="border-b py-2">{r.id} · {r.email} · {r.state} · emisiones: {r.issues}</li>)}</ul></section></main>;
 }

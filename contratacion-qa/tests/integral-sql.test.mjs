@@ -46,24 +46,24 @@ test('SQL operativo: alta inactiva, activación controlada, H1/H2/H3, sesiones y
    assert.equal(await scalar('select contratacion_recovery_claim($1)',[hash('token2')]),null);
    await pg.query('select contratacion_recovery_finish($1,$2)',[request,accounts[0].id]);
   });
-  const evidence={simulated:false,acceptanceId:randomUUID(),contractId:randomUUID(),paymentId:randomUUID(),documentHash:'a'.repeat(64),acceptedByCustomer:true,contractAccepted:true,paymentVerified:true,currency:'UF',basis:'first_month',requiredAmount:'1.50',paidAmount:'1.50',reservationId:id,reservationExpiresAt:new Date(Date.now()+300000).toISOString()};
+  const evidence={simulated:false,acceptanceId:randomUUID(),contractId:randomUUID(),paymentId:randomUUID(),documentHash:'a'.repeat(64),acceptedByCustomer:true,contractAccepted:true,paymentVerified:true,currency:'UF',basis:'first_installment',requiredAmount:'16.0650',ufValue:'39500.25',ufDate:'2026-10-20',expectedAmountClp:'634572',paidAmountClp:'634404',withinTolerance:true,reservationId:id,reservationExpiresAt:new Date(Date.now()+300000).toISOString()};
   await t.test('sin evidencia, simulada, incompleta o concurrentemente obsoleta: activación rechazada',async()=>{
    await claims(root);
-   for(const [revision,change] of [[1,{simulated:true}],[2,{currency:null}],[3,{paidAmount:'1.49'}]]){
+   for(const [revision,change] of [[1,{simulated:true}],[2,{currency:'CLP'}],[3,{paidAmountClp:'621000'}],[4,{basis:'first_month'}],[5,{expectedAmountClp:'600000',paidAmountClp:'600000'}]]){
     await pg.query('select contratacion_integral_evidence($1,$2,$3)',[id,revision,{...evidence,...change}]);
     await pg.exec('set role authenticated');await assert.rejects(()=>pg.query("select contratacion_integral_status($1,'active',$2,'Prueba local requisitos')",[id,revision]),/COMMERCIAL_REQUIREMENTS/);await pg.exec('reset role');
    }
-   await pg.query('select contratacion_integral_evidence($1,4,$2)',[id,evidence]);
-   await pg.exec('set role authenticated');await assert.rejects(()=>pg.query("select contratacion_integral_status($1,'active',3,'Evidencia anterior')",[id]),/EVIDENCE_STALE/);await pg.exec('reset role');
+   await pg.query('select contratacion_integral_evidence($1,6,$2)',[id,evidence]);
+   await pg.exec('set role authenticated');await assert.rejects(()=>pg.query("select contratacion_integral_status($1,'active',5,'Evidencia anterior')",[id]),/EVIDENCE_STALE/);await pg.exec('reset role');
   });
   await t.test('H2: activar, suspender con cuatro y cinco miembros, reactivar sin rehabilitar suspensión individual',async()=>{
-   await claims(root);await pg.exec('set role authenticated');await pg.query("select contratacion_integral_status($1,'active',4,'Activación inicial local')",[id]);await pg.exec('reset role');
+   await claims(root);await pg.exec('set role authenticated');await pg.query("select contratacion_integral_status($1,'active',6,'Activación inicial local')",[id]);await pg.exec('reset role');
    assert.equal(await scalar('select count(*)::integer from company_members where status=$1',['active']),3);
    await pg.query("update company_members set status='inactive' where user_id=$1",[accounts[1].id]);
    for(let i=0;i<2;i++){
     const aid=randomUUID();await pg.query('insert into auth.users values($1,$2,$3,null,null)',[aid,`extra${i}@example.invalid`,{}]);
     await pg.query("insert into company_members(user_id,company_id,full_name,role,status,pos_only,must_change_password) values($1,$2,'Extra','operator','active',true,false)",[aid,company]);
-    await pg.exec('set role authenticated');await pg.query("select contratacion_integral_status($1,'inactive',4,'Suspensión empresa local')",[id]);await pg.query("select contratacion_integral_status($1,'active',4,'Reactivación empresa local')",[id]);await pg.exec('reset role');
+    await pg.exec('set role authenticated');await pg.query("select contratacion_integral_status($1,'inactive',6,'Suspensión empresa local')",[id]);await pg.query("select contratacion_integral_status($1,'active',6,'Reactivación empresa local')",[id]);await pg.exec('reset role');
     assert.equal(await scalar('select status from company_members where user_id=$1',[accounts[1].id]),'inactive');
    }
    assert.equal(await scalar('select status from parkings limit 1'),'DRAFT');
@@ -71,7 +71,7 @@ test('SQL operativo: alta inactiva, activación controlada, H1/H2/H3, sesiones y
   await t.test('sesión anterior a recuperación bloqueada y suspensión invalida sesión ya abierta',async()=>{
    await claims(accounts[0].id,1);assert.equal(await scalar('select contratacion_session_valid()'),false);
    await claims(accounts[0].id);assert.equal(await scalar('select contratacion_session_valid()'),true);
-   await claims(root);await pg.exec('set role authenticated');await pg.query("select contratacion_integral_status($1,'inactive',4,'Revocar sesión abierta')",[id]);await pg.exec('reset role');
+   await claims(root);await pg.exec('set role authenticated');await pg.query("select contratacion_integral_status($1,'inactive',6,'Revocar sesión abierta')",[id]);await pg.exec('reset role');
    await claims(accounts[0].id);assert.equal(await scalar('select contratacion_session_valid()'),false);
    await pg.exec('set role authenticated');await assert.rejects(()=>pg.query('select * from contratacion_integral.recovery_requests'));await pg.exec('reset role');
    await assert.rejects(()=>pg.exec('delete from contratacion_integral.credential_events'));

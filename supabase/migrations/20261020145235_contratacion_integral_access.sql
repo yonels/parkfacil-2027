@@ -130,9 +130,12 @@ begin
    or ev.snapshot->>'acceptedByCustomer' is distinct from 'true'
    or ev.snapshot->>'contractAccepted' is distinct from 'true'
    or ev.snapshot->>'paymentVerified' is distinct from 'true'
-   or coalesce(ev.snapshot->>'currency','') not in ('CLP','UF') or coalesce(ev.snapshot->>'basis','') not in ('first_month','full_contract')
-   or coalesce((ev.snapshot->>'requiredAmount')::numeric,0)<=0
-   or coalesce((ev.snapshot->>'paidAmount')::numeric,0)<(ev.snapshot->>'requiredAmount')::numeric
+   -- Pago exigible (2026-10-21): primera cuota en UF + IVA, transferida en pesos con la UF del día de envío; tolerancia ±2 %.
+   or coalesce(ev.snapshot->>'currency','')<>'UF' or coalesce(ev.snapshot->>'basis','')<>'first_installment'
+   or ev.snapshot->>'withinTolerance' is distinct from 'true'
+   or coalesce((ev.snapshot->>'requiredAmount')::numeric,0)<=0 or coalesce((ev.snapshot->>'ufValue')::numeric,0)<=0
+   or coalesce((ev.snapshot->>'expectedAmountClp')::numeric,0)<>round((ev.snapshot->>'requiredAmount')::numeric*(ev.snapshot->>'ufValue')::numeric)
+   or abs(coalesce((ev.snapshot->>'paidAmountClp')::numeric,0)-(ev.snapshot->>'expectedAmountClp')::numeric)*100>2*(ev.snapshot->>'expectedAmountClp')::numeric
    then raise exception 'COMMERCIAL_REQUIREMENTS_MISSING'; end if;
    if coalesce(ev.snapshot->>'reservationId','')<>p_id::text or coalesce((ev.snapshot->>'reservationExpiresAt')::timestamptz,'epoch'::timestamptz)<=clock_timestamp()+interval '1 second' then raise exception 'COMMERCIAL_RESERVATION_EXPIRED'; end if;
    -- Three accounts are an initial-provisioning invariant, never a suspension prerequisite.
