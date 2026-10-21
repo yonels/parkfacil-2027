@@ -8,9 +8,7 @@ function mapRate(row, blocks, usedRateIds = new Set()) {
     currency: row.currency, minuteAmount: row.minute_amount == null ? null : Number(row.minute_amount),
     freePeriodSeconds: row.free_period_seconds, multiplyBySpaces: row.multiply_by_spaces,
     dailyFlatAmount: row.daily_flat_amount == null ? null : Number(row.daily_flat_amount),
-    // Campos heredados de un modelo de "estadía nocturna" (valor fijo) incompatible con
-    // las dos únicas modalidades legales para <24h. Se conservan solo para lectura de
-    // historial; el motor de cálculo ya no los usa (ver classifyRateCompliance).
+    closingDebtEnabled: row.closing_debt_enabled === true,
     regularStartTime: row.regular_start_time?.slice(0, 5) || null, regularEndTime: row.regular_end_time?.slice(0, 5) || null,
     overnightEndTime: row.overnight_end_time?.slice(0, 5) || null,
     overnightFlatAmount: row.overnight_flat_amount == null ? null : Number(row.overnight_flat_amount),
@@ -56,6 +54,10 @@ export async function createParkingRate(db, parkingId, input) {
     parking_id: parkingId, area_id: input.areaId || null, name: input.name, billing_mode: input.billingMode,
     currency: "CLP", minute_amount: input.billingMode === "EFFECTIVE_MINUTE" ? input.minuteAmount : null,
     free_period_seconds: input.freePeriodSeconds, multiply_by_spaces: input.multiplyBySpaces,
+    closing_debt_enabled: input.closingDebtEnabled === true,
+    regular_start_time: input.closingDebtEnabled ? input.regularStartTime : null,
+    regular_end_time: input.closingDebtEnabled ? input.regularEndTime : null,
+    overnight_flat_amount: input.closingDebtEnabled ? input.overnightFlatAmount : null,
     daily_flat_amount: input.dailyFlatAmount || null, valid_from: input.validFrom,
     valid_until: input.validUntil || null, status: "DRAFT", notes: input.notes,
   }).select("*").single();
@@ -101,6 +103,10 @@ export async function updateParkingRate(db, parkingId, rateId, input) {
     area_id: input.areaId || null, name: input.name, billing_mode: input.billingMode,
     minute_amount: input.billingMode === "EFFECTIVE_MINUTE" ? input.minuteAmount : null,
     free_period_seconds: input.freePeriodSeconds, multiply_by_spaces: input.multiplyBySpaces,
+    closing_debt_enabled: input.closingDebtEnabled === true,
+    regular_start_time: input.closingDebtEnabled ? input.regularStartTime : null,
+    regular_end_time: input.closingDebtEnabled ? input.regularEndTime : null,
+    overnight_flat_amount: input.closingDebtEnabled ? input.overnightFlatAmount : null,
     daily_flat_amount: input.dailyFlatAmount || null, valid_from: input.validFrom,
     valid_until: input.validUntil || null, notes: input.notes, updated_at: new Date().toISOString(),
   }).eq("id", rateId).eq("status", "DRAFT");

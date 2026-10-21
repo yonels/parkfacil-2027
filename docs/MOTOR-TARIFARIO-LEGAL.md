@@ -1,3 +1,10 @@
+> Actualización de implementación solicitada el 21-10-2026: la política opcional
+> `closingDebtEnabled` agrega minutos hasta el primer cierre más una única tarifa
+> nocturna y conserva ese importe hasta el pago. Ver `CIERRE-DEUDA-UNICA.md`.
+> Las referencias siguientes al rechazo absoluto del valor nocturno describen la
+> versión anterior; siguen aplicándose a planes que no habiliten esta política.
+> Este cambio documenta una regla comercial solicitada, no una nueva conclusión jurídica.
+
 # Motor Tarifario Legal — ParkFacil
 
 Fuente de verdad técnica del motor de cobro por estacionamiento transitorio (estadías

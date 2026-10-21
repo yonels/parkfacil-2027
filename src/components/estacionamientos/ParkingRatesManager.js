@@ -5,15 +5,13 @@ import { Plus, X } from "lucide-react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import { rateStatusBadge } from "@/lib/rateStatusBadge.mjs";
 
-// Modelo legal: minuto efectivo (sin tramos) o tramo vencido con exactamente un tramo
-// inicial (mín. 30 min) y un tramo siguiente repetible (mín. 10 min). No existe un tercer
-// modo ni un valor nocturno fijo — ver docs/MOTOR-TARIFARIO-LEGAL.md.
 const initial = {
   mode: "create", sourceId: null,
   name: "", billingMode: "EFFECTIVE_MINUTE", minuteAmount: "", freePeriodMinutes: 0,
   multiplyBySpaces: false, legalComplianceAccepted: false,
   validFrom: new Date().toISOString().slice(0, 16), validUntil: "",
   status: "DRAFT", notes: "",
+  closingDebtEnabled: false, regularStartTime: "", regularEndTime: "", overnightFlatAmount: "",
   initialBlockMinutes: 30, initialBlockAmount: "",
   nextBlockMinutes: 10, nextBlockAmount: "",
 };
@@ -28,6 +26,10 @@ function formFromRate(rate, mode) {
   return {
     mode, sourceId: rate.id,
     name: rate.name, billingMode: rate.billingMode,
+    closingDebtEnabled: rate.closingDebtEnabled === true,
+    regularStartTime: rate.regularStartTime || "",
+    regularEndTime: rate.regularEndTime || "",
+    overnightFlatAmount: rate.overnightFlatAmount ?? "",
     minuteAmount: rate.minuteAmount ?? "",
     freePeriodMinutes: Math.round((rate.freePeriodSeconds || 0) / 60),
     multiplyBySpaces: rate.multiplyBySpaces,
@@ -163,6 +165,21 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
         <p className="rounded-xl bg-white p-3 text-xs font-semibold text-[#3150D8]">Solo se cobran tramos completamente vencidos. El sistema no redondea períodos hacia arriba.</p>
       </div> : null}
 
+      <fieldset className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+        <label className="flex items-start gap-3 text-sm font-semibold text-[#041E42]">
+          <input type="checkbox" checked={form.closingDebtEnabled} onChange={(e) => set("closingDebtEnabled", e.target.checked)} />
+          Fijar deuda al cierre: minutos consumidos más una sola tarifa nocturna
+        </label>
+        {form.closingDebtEnabled ? <>
+          <p className="mt-2 text-sm text-slate-600">Para cobro por minuto efectivo. Horario de Chile (America/Santiago). Al primer cierre, el importe queda fijo hasta el pago, sin nuevas noches ni recargos.</p>
+          <div className="mt-3 grid gap-4 md:grid-cols-3">
+            <Field label="Apertura" error={errors.regularStartTime}><input type="time" required value={form.regularStartTime} onChange={(e) => set("regularStartTime", e.target.value)} className={inputClass} /></Field>
+            <Field label="Cierre" error={errors.regularEndTime}><input type="time" required value={form.regularEndTime} onChange={(e) => set("regularEndTime", e.target.value)} className={inputClass} /></Field>
+            <Field label="Tarifa nocturna única (CLP)" error={errors.overnightFlatAmount}><input type="number" required min="0" step="1" value={form.overnightFlatAmount} onChange={(e) => set("overnightFlatAmount", e.target.value)} className={inputClass} /></Field>
+          </div>
+        </> : null}
+      </fieldset>
+
       <section className="mt-5 rounded-2xl border border-[#BFD2FF] bg-white p-4 text-sm text-slate-700"><h3 className="font-bold text-[#041E42]">Cumplimiento Ley 20.967</h3><ul className="mt-2 list-disc space-y-1 pl-5"><li>Minuto efectivo, sin rangos ni tramos.</li><li>Tramo vencido: primero de al menos 30 minutos y siguientes de al menos 10.</li><li>Nunca se redondea ni aproxima el cobro al alza.</li><li>El período gratuito se descuenta antes de calcular.</li><li>La pérdida del comprobante no habilita multas, recargos ni tarifas prefijadas.</li></ul></section>
       <label className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><input type="checkbox" checked={form.legalComplianceAccepted} onChange={(e) => set("legalComplianceAccepted", e.target.checked)} className="mt-1" /><span><strong>Confirmo que la tarifa publicada cumple la Ley 20.967.</strong>{errors.legalComplianceAccepted ? <span className="mt-1 block font-semibold text-red-700">{errors.legalComplianceAccepted}</span> : null}</span></label>
       <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setForm(null)} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold">Cancelar</button><button disabled={saving} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{submitLabel}</button></div>
@@ -187,6 +204,7 @@ function RateCard({ rate, onEdit, onReplace }) {
     {needsReview ? <p className="mt-3 rounded-xl bg-amber-100 p-2.5 text-xs font-semibold text-amber-900">Requiere revisión administrativa: {rate.compliance.reasons.join(" ")}</p> : null}
     <div className="mt-4 space-y-2 text-sm text-slate-600">
       {rate.billingMode === "EFFECTIVE_MINUTE" ? <p><strong>{money.format(rate.minuteAmount)}</strong> por minuto efectivo</p> : (rate.blocks || []).map((block) => <p key={block.id}>Tramo {block.sequence}: {block.durationSeconds / 60} min · <strong>{money.format(block.amount)}</strong>{block.repeatAfter ? " · repetible" : ""}</p>)}
+      {rate.closingDebtEnabled ? <p>Horario: {rate.regularStartTime}–{rate.regularEndTime} · Nocturna única: <strong>{money.format(rate.overnightFlatAmount)}</strong>. Deuda fija desde el cierre hasta el pago.</p> : null}
       <p>Período gratuito: {rate.freePeriodSeconds / 60} minutos</p>
       <p>Factor por plazas: {rate.multiplyBySpaces ? "Sí" : "No"}</p>
       {vigenciaDesde ? <p>Vigente desde {vigenciaDesde}{vigenciaHasta ? ` hasta ${vigenciaHasta}` : " · sin fecha de término"}</p> : null}

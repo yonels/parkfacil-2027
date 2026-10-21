@@ -1,3 +1,5 @@
+import { addLocalDays, localParts, parseTimeOfDay, zonedLocalToUtc } from "./releasedPayment/zonedTime.mjs";
+
 export const BILLING_MODES = {
   EFFECTIVE_MINUTE: "EFFECTIVE_MINUTE",
   EXPIRED_BLOCKS: "EXPIRED_BLOCKS",
@@ -60,11 +62,19 @@ export function validateOperationalRate(rate) {
     errors.freePeriodSeconds = "El período gratuito debe ser igual o mayor que cero.";
   }
 
-  // El "valor unico nocturno" (overnight_flat_amount) es un cargo fijo ajeno a minuto
-  // efectivo y a tramo vencido: para estadias <24h la normativa solo admite esas dos
-  // modalidades, asi que cualquier valor nocturno fijo distinto de cero queda prohibido.
-  if (rate?.overnightFlatAmount != null && Number(rate.overnightFlatAmount) > 0) {
-    errors.overnightFlatAmount = "No está permitido un valor fijo nocturno para estadías inferiores a 24 horas.";
+  // Política explícita: minutos hasta el primer cierre + una sola noche.
+  // Los valores nocturnos heredados no habilitan esta regla automáticamente.
+  if (rate?.closingDebtEnabled === true) {
+    if (mode !== BILLING_MODES.EFFECTIVE_MINUTE) errors.billingMode = "El cierre de deuda requiere cobro por minuto efectivo.";
+    const start = parseTimeOfDay(rate.regularStartTime);
+    const end = parseTimeOfDay(rate.regularEndTime);
+    if (start === null) errors.regularStartTime = "Ingresa la hora de apertura.";
+    if (end === null || start === end) errors.regularEndTime = "Ingresa un cierre distinto de la apertura.";
+    if (rate.overnightFlatAmount == null || !Number.isSafeInteger(Number(rate.overnightFlatAmount)) || Number(rate.overnightFlatAmount) < 0) {
+      errors.overnightFlatAmount = "Ingresa un monto nocturno entero igual o mayor que cero.";
+    }
+  } else if (rate?.overnightFlatAmount != null && Number(rate.overnightFlatAmount) !== 0) {
+    errors.overnightFlatAmount = "Activa y configura el cierre de deuda para aplicar una tarifa nocturna.";
   }
 
   return errors;
@@ -87,6 +97,28 @@ export function calculateScheduledParkingCharge(rate, entryAt, exitAt) {
   const exit = new Date(exitAt);
   if (!(exit > entry)) return { valid: false, errors: { stay: "La salida debe ser posterior al ingreso." } };
   const elapsedSeconds = Math.floor((exit - entry) / 1000);
+  if (rate?.closingDebtEnabled === true) {
+    const errors = validateOperationalRate(rate);
+    if (Object.keys(errors).length) return { valid: false, errors };
+    const parts = localParts(entry);
+    const minute = parts.hour * 60 + parts.minute;
+    const start = parseTimeOfDay(rate.regularStartTime);
+    const end = parseTimeOfDay(rate.regularEndTime);
+    const withinHours = start < end ? minute >= start && minute < end : minute >= start || minute < end;
+    if (!withinHours) return { valid: false, errors: { stay: "El ingreso está fuera del horario asignado; requiere revisión." } };
+    const closeDay = addLocalDays(parts, start > end && minute >= start ? 1 : 0);
+    const closesAt = zonedLocalToUtc({ ...closeDay, hour: Math.floor(end / 60), minute: end % 60 });
+    const frozen = exit.getTime() >= closesAt;
+    const billableSeconds = Math.max(0, Math.floor((Math.min(exit.getTime(), closesAt) - entry.getTime()) / 1000));
+    // Una jornada puede durar 25 horas al cambiar la hora: calcular minutos reales.
+    const chargeableSeconds = Math.max(0, billableSeconds - Number(rate.freePeriodSeconds || 0));
+    const chargedMinutes = Math.floor(chargeableSeconds / 60);
+    const daytimeAmount = Math.floor(chargedMinutes * Number(rate.minuteAmount));
+    const overnightAmount = frozen ? Number(rate.overnightFlatAmount) : 0;
+    return { valid: true, amount: daytimeAmount + overnightAmount, elapsedSeconds, chargeableSeconds,
+      chargedMinutes, chargedBlocks: [], daytimeAmount, overnightAmount, frozen,
+      frozenAt: frozen ? new Date(closesAt).toISOString() : null };
+  }
   return { ...calculateParkingCharge(rate, elapsedSeconds), elapsedSeconds };
 }
 
@@ -146,4 +178,20 @@ export function calculateParkingCharge(rate, elapsedSeconds, spacesUsed = 1) {
     }
   }
   return { valid: true, amount: Math.floor(amount) * factor, elapsedSeconds: elapsed, chargeableSeconds, spacesUsed: spaces, chargedBlocks, unchargedSeconds: remaining };
+}
+
+// La deuda al cierre conserva el plan del ingreso aunque después finalice su vigencia.
+export function selectStayRate(rates, stay, now = new Date()) {
+  if (stay.rate_id) {
+    const assigned = rates.find((rate) => rate.id === stay.rate_id);
+    if (assigned?.closingDebtEnabled) return assigned;
+  }
+  const atEntry = rates.filter((rate) => rate.closingDebtEnabled &&
+    ["ACTIVE", "ENDED"].includes(rate.status) &&
+    new Date(rate.validFrom) <= new Date(stay.entry_at) &&
+    (!rate.validUntil || new Date(stay.entry_at) < new Date(rate.validUntil)));
+  if (!stay.rate_id && atEntry.length === 1) return atEntry[0];
+  if (!stay.rate_id && atEntry.length > 1) return null;
+  // Nunca asignar retroactivamente una política nueva a un ingreso antiguo.
+  return selectActiveRate(rates.filter((rate) => !rate.closingDebtEnabled), now);
 }

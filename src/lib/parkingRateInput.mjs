@@ -4,13 +4,14 @@ import { validateOperationalRate } from "./parkingRates.mjs";
 // aplica validate(). Vive fuera de route.js (que importa "next/server") para poder
 // probarla con node:test sin depender del runtime de Next.
 //
-// Nunca se aceptan campos de "estadía nocturna" (regularStartTime/regularEndTime/
-// overnightEndTime) desde el cliente: ese modelo quedó retirado del motor legal (ver
-// docs/MOTOR-TARIFARIO-LEGAL.md). overnightFlatAmount solo se procesa para poder
-// rechazar explícitamente cualquier valor distinto de cero, nunca para guardarlo.
 export function sanitizeRateInput(input = {}) {
   const billingMode = ["EFFECTIVE_MINUTE", "EXPIRED_BLOCKS"].includes(input.billingMode) ? input.billingMode : null;
   return {
+    closingDebtEnabled: input.closingDebtEnabled === true,
+    ...(input.closingDebtEnabled === true ? {
+      regularStartTime: String(input.regularStartTime || ""),
+      regularEndTime: String(input.regularEndTime || ""),
+    } : {}),
     name: String(input.name || "").trim().slice(0, 120),
     areaId: input.areaId || null,
     billingMode,
@@ -34,7 +35,7 @@ export function sanitizeRateInput(input = {}) {
 }
 
 // validateOperationalRate es la única regla de dominio: modalidad exclusiva, mínimos de
-// tramos, y prohibición del valor nocturno fijo. Esta función no la repite, solo agrega
+// tramos, y configuración explícita de cierre de deuda. Esta función no la repite, solo agrega
 // las validaciones propias del formulario (nombre, vigencia, aceptación legal).
 export function validateRateInput(input) {
   const errors = validateOperationalRate(input);

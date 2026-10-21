@@ -74,10 +74,10 @@ test("cotización bloqueada no fuerza monto cero", () => {
   assert.equal(payload.elapsedMinutes, 127);
 });
 
-test("el motor selecciona la tarifa vigente en el timestamp cotizado, nunca en la hora actual implícita", async () => {
+test("el servicio transmite el ticket y timestamp explícito al selector de tarifa", async () => {
   const source = await readFile(new URL("./parkingStayQuoteService.js", import.meta.url), "utf8");
-  assert.match(source, /getActiveRate\(db, stay\.parking_id, now\)/);
-  assert.match(source, /selectActiveRate\(rates, at\)/);
+  assert.match(source, /getStayRate\(db, stay, now\)/);
+  assert.match(source, /selectStayRate\(rates, stay, at\)/);
   assert.doesNotMatch(source, /selectActiveRate\(rates\);/);
 });
 
