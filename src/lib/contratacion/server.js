@@ -18,6 +18,15 @@ export async function revokeSessions(db,accessToken){
   const r=await db.auth.admin.signOut(accessToken,'global');
   if(r.error&&r.error.name!=='AuthSessionMissingError'&&![401,403,404].includes(r.error.status))throw Error('SESSION_REVOCATION_UNCONFIRMED');
 }
+// Encabezados para llamar al CRM servidor a servidor. En QA el Preview del CRM está protegido por Vercel: con
+// CONTRATACION_CRM_BYPASS_SECRET (Protection Bypass for Automation del proyecto CRM) la llamada lo atraviesa.
+// Decisión del usuario 2026-10-21. Sin la variable (producción, local) no se envía nada extra.
+export function crmHeaders(token){
+  const headers={'Content-Type':'application/json',origin:process.env.CONTRATACION_ROOT_ORIGIN,authorization:`Bearer ${token}`};
+  const bypass=String(process.env.CONTRATACION_CRM_BYPASS_SECRET||'').trim();
+  if(bypass)headers['x-vercel-protection-bypass']=bypass;
+  return headers;
+}
 export function enabled() { if(process.env.CONTRATACION_INTEGRAL_ENABLED!=='true')throw Error('UNAVAILABLE'); }
 export async function boundedBody(request) {
   enabled();
