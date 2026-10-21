@@ -56,3 +56,23 @@ test("timeout si el APK nunca responde", async () => {
   win.timers[0].fn();
   assert.deepEqual(await pending, { ok: false, error: "timeout" });
 });
+
+test("cupón: usa scanCouponQr si el APK lo tiene (0.5.9+) y scanQr si no", async () => {
+  const calls = [];
+  const deliver = (w) => { setImmediate(() => w.ParkFacilQrResult({ ok: true, value: "PFC-COUPON:abc" })); return JSON.stringify({ ok: true, started: true }); };
+  const nueva = fakeWindow((w) => { calls.push("scanQr"); return deliver(w); });
+  nueva.ParkFacilDevice.scanCouponQr = () => { calls.push("scanCouponQr"); return deliver(nueva); };
+  assert.deepEqual(await scanQrWithNativeScanner(nueva, { purpose: "coupon" }), { ok: true, value: "PFC-COUPON:abc" });
+  assert.deepEqual(await scanQrWithNativeScanner(nueva), { ok: true, value: "PFC-COUPON:abc" });
+  const antigua = fakeWindow((w) => { calls.push("scanQr-0.5.8"); return deliver(w); });
+  assert.deepEqual(await scanQrWithNativeScanner(antigua, { purpose: "coupon" }), { ok: true, value: "PFC-COUPON:abc" });
+  assert.deepEqual(calls, ["scanCouponQr", "scanQr", "scanQr-0.5.8"]);
+});
+
+test("permiso de cámara denegado (APK 0.5.9+) -> permissionDenied", async () => {
+  const win = fakeWindow((w) => {
+    setImmediate(() => w.ParkFacilQrResult({ ok: false, error: "camera_permission_denied" }));
+    return JSON.stringify({ ok: true, started: true });
+  });
+  assert.deepEqual(await scanQrWithNativeScanner(win, { purpose: "coupon" }), { ok: false, permissionDenied: true });
+});

@@ -47,7 +47,7 @@ test("DÉBITO llama a handleCardPaymentSelection(TUU_METHOD.DEBIT) y CRÉDITO a 
 test("handleCardPaymentSelection verifica y fija cardPaymentLockRef ANTES del primer await (nunca después)", () => {
   const fnStart = terminalSource.indexOf("async function handleCardPaymentSelection(tuuMethod) {");
   assert.notEqual(fnStart, -1);
-  const guardIndex = terminalSource.indexOf("if (cardPaymentLockRef.current || paymentSubmitting) return;", fnStart);
+  const guardIndex = terminalSource.indexOf("if (cardPaymentLockRef.current || paymentSubmitting || couponLockRef.current) return;", fnStart);
   const lockIndex = terminalSource.indexOf("cardPaymentLockRef.current = true;", fnStart);
   const firstAwaitIndex = terminalSource.indexOf("await ", fnStart);
   assert.ok(guardIndex > fnStart && guardIndex < lockIndex, "la verificación del candado debe ir antes de fijarlo");
@@ -261,8 +261,11 @@ test("pago rechazado o cancelado: se informa al servidor (que libera el ticket) 
 });
 
 test("con un intento activo (de este u otro equipo) el modal NO ofrece medios de pago (ni EFECTIVO ni tarjeta)", () => {
-  assert.match(terminalSource, /const tuuPendingForStay = paymentSubmitting \? null : findTuuPendingPayment\(\s*\n\s*mergeTuuPendingViews\(tuuPendingPayments, \[\.\.\.serverCardAttempts, \.\.\.\(selectedVehicle\.cardPaymentAttempt \? \[selectedVehicle\.cardPaymentAttempt\] : \[\]\)\], \{ deviceId: getKnownPosDeviceIds\(\) \}\),/);
-  assert.match(terminalSource, /\{paymentStep === "MENU" && !tuuPendingForStay \? \(\s*\n\s*<div className=\{`grid gap-3 \$\{cardPaymentsEnabled \? "sm:grid-cols-3" : ""\}`\}>\s*\n\s*<button type="button" onClick=\{\(\) => handlePaymentSelection\("CASH"\)\}/);
+  assert.match(terminalSource, /const tuuPendingForStay = paymentSubmitting \? null : pendingTuuPaymentFor\(stay\?\.id\);/);
+  assert.match(terminalSource, /function pendingTuuPaymentFor\(stayId\) \{\s*\n\s*return findTuuPendingPayment\(\s*\n\s*mergeTuuPendingViews\(tuuPendingPayments, \[\.\.\.serverCardAttempts, \.\.\.\(selectedVehicle\?\.cardPaymentAttempt \? \[selectedVehicle\.cardPaymentAttempt\] : \[\]\)\], \{ deviceId: getKnownPosDeviceIds\(\) \}\),/);
+  // Con o sin total $0 por cupón, los medios de pago exigen que no haya un intento activo.
+  assert.match(terminalSource, /\{paymentStep === "MENU" && !tuuPendingForStay && !zeroTotalCoupon \? \(\s*\n\s*<div className=\{`grid gap-3 \$\{cardPaymentsEnabled \? "sm:grid-cols-3" : ""\}`\}>\s*\n\s*<button type="button" onClick=\{\(\) => handlePaymentSelection\("CASH"\)\}/);
+  assert.match(terminalSource, /\{paymentStep === "MENU" && !tuuPendingForStay && zeroTotalCoupon \? \(/);
   assert.match(terminalSource, /\{paymentStep === "MENU" && tuuPendingForStay \? \(\s*\n\s*<TuuPendingPaymentCard/);
   assert.match(handlerSource(), /if \(!gate\.allowed \|\| selectedVehicle\?\.cardPaymentAttempt\) \{/);
 });

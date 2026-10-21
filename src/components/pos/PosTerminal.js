@@ -6,7 +6,7 @@ import PosHomeVehicles from "@/components/pos/PosHomeVehicles";
 import { stampStaysReceivedAt } from "@/lib/pos/homeVehicles.mjs";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LoaderCircle, LogOut, Menu, RefreshCw, X } from "lucide-react";
+import { LoaderCircle, LogOut, Menu, QrCode, RefreshCw, X } from "lucide-react";
 
 import PosViewport from "@/components/pos/PosViewport";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
@@ -30,7 +30,7 @@ import { receiptChargeLines, receiptExitInstant, receiptRateDescription } from "
 import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } from "@/lib/pos/qrExitCore.mjs";
 import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
 import { couponTokenForRequest, isCouponQrPayload } from "@/lib/cupones/couponInput.mjs";
-import { COUPON_IN_TICKET_SCAN_MESSAGE, couponViewFromQuote, receiptCouponLine } from "@/lib/pos/posCoupon.mjs";
+import { classifyDiscountScan, COUPON_IN_TICKET_SCAN_MESSAGE, couponViewFromQuote, discountScanFailureMessage, DISCOUNT_SCAN_MESSAGES, isZeroTotalCouponCharge, receiptCouponLine } from "@/lib/pos/posCoupon.mjs";
 import { receiptPaymentMethod, tuuCardDetailsFromRaw } from "@/lib/pos/tuuCardDetails.mjs";
 import { buildPaymentsDayPrintPayload } from "@/lib/pos/paymentsDayCore.mjs";
 import { classifyEntryFailure, entryErrorMessage, isPlateAlreadyInside, PLATE_SOURCES } from "@/lib/pos/entryPlateCore.mjs";
@@ -1033,6 +1033,12 @@ export default function PosTerminal() {
   const [couponCodeInput, setCouponCodeInput] = useState("");
   const [couponBusy, setCouponBusy] = useState(false);
   const [couponMessage, setCouponMessage] = useState(null);
+  const couponRequestRef = useRef(0);
+  const couponLockRef = useRef(false);
+  const selectedStayIdRef = useRef(null);
+  useEffect(() => {
+    selectedStayIdRef.current = selectedVehicle?.stay?.id || null;
+  }, [selectedVehicle?.stay?.id]);
   const [entryPhoto, setEntryPhoto] = useState(null);
   // Pago liberado: resultado de RELEASED_CHECK para la patente confirmada.
   // Una patente liberada exige foto nueva aunque el estacionamiento tenga la
@@ -1738,11 +1744,15 @@ export default function PosTerminal() {
     setPaymentSubmitting(false);
     setPaymentMessage("");
     setPaymentResult(null);
+    selectedStayIdRef.current = stay.id;
     setSelectedVehicle({ stay, quote: stay.quote || null, parking: parking || null, serverNow: stay.serverNow || null });
     resetCouponEntry();
 
+    // Respuesta tardía de otro vehículo (se cambió de patente mientras se cotizaba): se descarta.
+    const stillSelected = () => selectedStayIdRef.current === stay.id;
     try {
       const response = await getPosVehicleQuote(stay.id);
+      if (!stillSelected()) return null;
       if (!response.ok) {
         if (response.status === 401) {
           redirectToPosLogin("sesion-expirada");
@@ -1756,9 +1766,9 @@ export default function PosTerminal() {
       setSelectedVehicle(detail);
       return detail;
     } catch {
-      setSelectedVehicleError("Error de red al calcular el cobro del vehículo.");
+      if (stillSelected()) setSelectedVehicleError("Error de red al calcular el cobro del vehículo.");
     } finally {
-      setSelectedVehicleLoading(false);
+      if (stillSelected()) setSelectedVehicleLoading(false);
     }
   }
 
@@ -1871,6 +1881,10 @@ export default function PosTerminal() {
   }
 
   function resetCouponEntry() {
+    // Cambio de vehículo o detalle reabierto: las respuestas pendientes del
+    // cupón anterior quedan descartadas (ver runCouponRequest).
+    couponRequestRef.current += 1;
+    couponLockRef.current = false;
     setAppliedCouponToken(null);
     setCouponEntryOpen(false);
     setCouponCodeInput("");
@@ -1878,27 +1892,45 @@ export default function PosTerminal() {
     setCouponMessage(null);
   }
 
-  // APLICAR CUPÓN (SOL-2026-10-19-002): el servidor valida el cupón y devuelve un
-  // cálculo firmado nuevo con subtotal, descuento y total. El cupón se canjea
-  // recién al registrar el pago (efectivo o tarjeta).
-  async function applyCoupon(raw) {
+  // Leer QR Descuento (SOL-2026-10-19-002): una sola lectura o consulta a la vez
+  // por estadía (couponLockRef evita el doble toque y el QR leído dos veces) y
+  // solo se usa la respuesta de la última solicitud de la estadía que sigue
+  // seleccionada. Mientras tanto PAGAR queda bloqueado (couponBusy).
+  async function runCouponRequest(work) {
     const stayId = selectedVehicle?.stay?.id;
-    if (!stayId || couponBusy) return;
-    const couponToken = couponTokenForRequest(raw);
-    if (!couponToken) {
-      setCouponMessage({ type: "error", text: "El código no corresponde a un cupón. Revisa el código de 4 caracteres impreso en el cupón." });
-      return;
-    }
+    if (!stayId || couponLockRef.current) return;
+    couponLockRef.current = true;
+    couponRequestRef.current += 1;
+    const requestId = couponRequestRef.current;
+    const isCurrent = () => couponRequestRef.current === requestId && selectedStayIdRef.current === stayId;
     setCouponBusy(true);
     setCouponMessage(null);
     try {
+      await work({ stayId, isCurrent });
+    } finally {
+      if (couponRequestRef.current === requestId) {
+        couponLockRef.current = false;
+        setCouponBusy(false);
+      }
+    }
+  }
+
+  // El servidor valida el cupón y devuelve un cálculo firmado nuevo con subtotal,
+  // descuento y total; un cupón nuevo reemplaza al anterior (no se acumulan). Si
+  // falla, se conserva el último cálculo válido. El cupón se canjea recién al
+  // registrar el pago (efectivo o tarjeta).
+  async function quoteWithCoupon(stayId, couponToken, isCurrent) {
+    const replacing = Boolean(appliedCouponToken);
+    try {
       const response = await getPosVehicleQuote(stayId, couponToken);
+      if (!isCurrent()) return;
       if (response.status === 401) {
         redirectToPosLogin("sesion-expirada");
         return;
       }
-      if (!response.ok || !response.payload?.data) {
-        setCouponMessage({ type: "error", text: response.payload?.error || "No fue posible aplicar el cupón." });
+      if (!response.ok || response.payload?.data?.stay?.id !== stayId) {
+        const reason = response.payload?.error || "No fue posible aplicar el cupón.";
+        setCouponMessage({ type: "error", text: replacing ? `${reason} Se mantiene el cupón anterior.` : reason });
         return;
       }
       setSelectedVehicle(response.payload.data);
@@ -1907,50 +1939,72 @@ export default function PosTerminal() {
       setCouponCodeInput("");
       setPaymentStep("MENU");
       setPaymentMessage("");
-      setCouponMessage({ type: "success", text: "Cupón aplicado. Revisa el nuevo total antes de cobrar." });
+      setCouponMessage({ type: "success", text: replacing ? "Cupón reemplazado. Revisa el nuevo total antes de cobrar." : "Cupón aplicado. Revisa el nuevo total antes de cobrar." });
     } catch {
-      setCouponMessage({ type: "error", text: "Error de red al aplicar el cupón." });
-    } finally {
-      setCouponBusy(false);
+      if (isCurrent()) setCouponMessage({ type: "error", text: "Error de red al validar el cupón. Revisa la conexión y vuelve a intentar." });
     }
   }
 
-  async function removeCoupon() {
-    const stayId = selectedVehicle?.stay?.id;
-    if (!stayId || couponBusy) return;
-    setCouponBusy(true);
-    setCouponMessage(null);
-    try {
-      const response = await getPosVehicleQuote(stayId);
-      if (response.ok && response.payload?.data) {
-        setSelectedVehicle(response.payload.data);
-        setAppliedCouponToken(null);
-        setPaymentStep("MENU");
-        setCouponMessage({ type: "info", text: "Cupón quitado." });
-      } else {
-        setCouponMessage({ type: "error", text: response.payload?.error || "No fue posible quitar el cupón." });
+  function applyCouponCode(raw) {
+    const couponToken = couponTokenForRequest(raw);
+    if (!couponToken) {
+      setCouponMessage({ type: "error", text: "El código no corresponde a un cupón. Revisa el código de 4 caracteres impreso en el cupón." });
+      return;
+    }
+    if (couponToken === appliedCouponToken) {
+      setCouponMessage({ type: "info", text: DISCOUNT_SCAN_MESSAGES.alreadyApplied });
+      return;
+    }
+    void runCouponRequest(({ stayId, isCurrent }) => quoteWithCoupon(stayId, couponToken, isCurrent));
+  }
+
+  function removeCoupon() {
+    void runCouponRequest(async ({ stayId, isCurrent }) => {
+      try {
+        const response = await getPosVehicleQuote(stayId);
+        if (!isCurrent()) return;
+        if (response.status === 401) {
+          redirectToPosLogin("sesion-expirada");
+          return;
+        }
+        if (response.ok && response.payload?.data?.stay?.id === stayId) {
+          setSelectedVehicle(response.payload.data);
+          setAppliedCouponToken(null);
+          setPaymentStep("MENU");
+          setCouponMessage({ type: "info", text: "Cupón quitado. El total volvió a calcularse sin descuento." });
+        } else {
+          setCouponMessage({ type: "error", text: response.payload?.error || "No fue posible quitar el cupón." });
+        }
+      } catch {
+        if (isCurrent()) setCouponMessage({ type: "error", text: "Error de red al quitar el cupón. Vuelve a intentar." });
       }
-    } catch {
-      setCouponMessage({ type: "error", text: "Error de red al quitar el cupón." });
-    } finally {
-      setCouponBusy(false);
-    }
+    });
   }
 
-  // Mismo escáner nativo del APK que el QR del ticket; sin él, se escribe el código.
-  async function scanCouponQr() {
-    if (couponBusy) return;
-    setCouponMessage(null);
-    const result = await scanQrWithNativeScanner(window);
-    if (result.ok) {
-      await applyCoupon(result.value);
-      return;
-    }
-    if (result.cancelled) {
-      setCouponMessage({ type: "info", text: "Lectura cancelada. Puedes escanear de nuevo o escribir el código." });
-      return;
-    }
-    setCouponMessage({ type: "error", text: "No fue posible abrir el escáner. Escribe el código del cupón." });
+  // Mismo escáner nativo del APK que el QR del ticket (la cámara se cierra al
+  // terminar la lectura); sin él, se escribe el código. Solo el QR del cupón se
+  // consulta al servidor: el del ticket o uno ajeno se explican sin consultar.
+  function scanCouponQr() {
+    void runCouponRequest(async ({ stayId, isCurrent }) => {
+      const result = await scanQrWithNativeScanner(window, { purpose: "coupon" });
+      if (!isCurrent()) return;
+      if (!result.ok) {
+        if (result.unsupported) setQrNativeUnsupported(true);
+        setCouponMessage(discountScanFailureMessage(result));
+        if (!result.cancelled) setCouponEntryOpen(true);
+        return;
+      }
+      const scanned = classifyDiscountScan(result.value);
+      if (scanned.kind !== "coupon") {
+        setCouponMessage({ type: "error", text: DISCOUNT_SCAN_MESSAGES[scanned.kind] });
+        return;
+      }
+      if (scanned.token === appliedCouponToken) {
+        setCouponMessage({ type: "info", text: DISCOUNT_SCAN_MESSAGES.alreadyApplied });
+        return;
+      }
+      await quoteWithCoupon(stayId, scanned.token, isCurrent);
+    });
   }
 
   function openPaymentModal() {
@@ -2034,7 +2088,7 @@ export default function PosTerminal() {
   }
 
   async function confirmCashPayment() {
-    if (!selectedVehicle?.stay?.id || paymentSubmitting) return;
+    if (!selectedVehicle?.stay?.id || paymentSubmitting || couponLockRef.current) return;
     const quoteSnapshot = selectedVehicle?.quote?.snapshot || null;
 
     if (!quoteSnapshot?.signature || isQuoteSnapshotExpired(quoteSnapshot)) {
@@ -2142,6 +2196,7 @@ export default function PosTerminal() {
   }
 
   function handlePaymentSelection(method) {
+    if (couponLockRef.current) return;
     if (method === "CASH") {
       setPaymentStep("CASH_CONFIRM");
       setPaymentMessage("");
@@ -2161,8 +2216,10 @@ export default function PosTerminal() {
   // posterior al cobro real) -- nunca se libera antes de que ambas partes
   // terminen.
   async function handleCardPaymentSelection(tuuMethod) {
-    if (cardPaymentLockRef.current || paymentSubmitting) return;
+    if (cardPaymentLockRef.current || paymentSubmitting || couponLockRef.current) return;
     if (!selectedVehicle?.stay?.id) return;
+    // Total $0 por cupón: salida sin cargo, nunca una transacción de $0 en TUU.
+    if (isZeroTotalCouponCharge(selectedVehicle?.quote)) return;
 
     cardPaymentLockRef.current = true;
     setPaymentSubmitting(true);
@@ -4761,6 +4818,9 @@ export default function PosTerminal() {
     const detailBreakdown = hasPayableQuote ? getTaxBreakdown(quoteView.total) : null;
     const releasedView = quoteView?.released || null;
     const releasedNoCharge = Boolean(quoteView?.releasedNoCharge);
+    const couponView = hasPayableQuote ? couponViewFromQuote(quote) : null;
+    // Leer QR Descuento encima de PAGAR: no aplica a Pago liberado ni con un pago con tarjeta sin cerrar.
+    const detailCouponVisible = couponsEnabled && hasPayableQuote && !quote?.released && !releasedNoCharge && !pendingTuuPaymentFor(stay?.id);
 
     return (
       <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-950 shadow-sm">
@@ -4798,6 +4858,7 @@ export default function PosTerminal() {
             <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">TOTAL A PAGAR</p>
             {detailBreakdown ? (
               <div className="mt-1 space-y-1">
+                {renderCouponLines(couponView, { text: "text-rose-800", strong: "text-rose-950" })}
                 <div className="flex items-center justify-between gap-3 text-sm font-semibold text-rose-800">
                   <span>Neto</span>
                   <span className="font-bold text-rose-950">{formatCurrency(detailBreakdown.netAmount)}</span>
@@ -4833,17 +4894,20 @@ export default function PosTerminal() {
               {releasedExitBusy ? "Registrando..." : "REGISTRAR SALIDA SIN COBRO"}
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={openPaymentModal}
-              disabled={selectedVehicleLoading || !hasPayableQuote}
-              className="rounded-xl bg-rose-900 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
-            >
-              PAGAR
-            </button>
+            <div className="flex flex-col gap-2 sm:w-80">
+              {detailCouponVisible ? renderCouponPanel(couponView) : null}
+              <button
+                type="button"
+                onClick={openPaymentModal}
+                disabled={selectedVehicleLoading || !hasPayableQuote || couponBusy}
+                className="rounded-xl bg-rose-900 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+              >
+                {couponBusy ? "VALIDANDO CUPÓN..." : "PAGAR"}
+              </button>
+            </div>
           )}
           <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
-            {releasedNoCharge ? "Patente liberada sin excedente." : hasPayableQuote ? "Preparado para seleccionar medio de pago." : "No existe una tarifa activa para esta estadía."}
+            {releasedNoCharge ? "Patente liberada sin excedente." : hasPayableQuote ? (isZeroTotalCouponCharge(quote) ? "El cupón cubre el total: la salida es sin cargo." : "Preparado para seleccionar medio de pago.") : "No existe una tarifa activa para esta estadía."}
           </div>
           <UnpaidExitAction
             stay={stay}
@@ -4869,6 +4933,89 @@ export default function PosTerminal() {
     );
   }
 
+  // TUU-02: pago TUU sin cerrar del ticket (aprobado pendiente de registro o
+  // con resultado incierto), de este equipo o informado por el servidor.
+  function pendingTuuPaymentFor(stayId) {
+    return findTuuPendingPayment(
+      mergeTuuPendingViews(tuuPendingPayments, [...serverCardAttempts, ...(selectedVehicle?.cardPaymentAttempt ? [selectedVehicle.cardPaymentAttempt] : [])], { deviceId: getKnownPosDeviceIds() }),
+      stayId,
+    );
+  }
+
+  // Subtotal, cupón con su beneficio y descuento, tal como vienen en el cálculo firmado.
+  function renderCouponLines(couponView, { text, strong }) {
+    if (!couponView) return null;
+    return (
+      <>
+        {couponView.subtotal !== null ? (
+          <div className={`flex items-center justify-between gap-3 text-sm font-semibold ${text}`}>
+            <span>Subtotal</span>
+            <span className={`font-bold ${strong}`}>{formatCurrency(couponView.subtotal)}</span>
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between gap-3 text-sm font-semibold text-emerald-700">
+          <span>Cupón {couponView.code}{couponView.benefit ? ` · ${couponView.benefit}` : ""}</span>
+        </div>
+        <div className="flex items-center justify-between gap-3 text-sm font-semibold text-emerald-700">
+          <span>Descuento</span>
+          <span className="font-bold">-{formatCurrency(couponView.discount)}</span>
+        </div>
+      </>
+    );
+  }
+
+  // Leer QR Descuento (SOL-2026-10-19-002): el detalle del vehículo (encima de
+  // PAGAR) y la ventana de pago comparten estado y acciones. El código escrito
+  // queda como respaldo; sin escáner nativo (navegador) es la única opción.
+  function renderCouponPanel(couponView) {
+    const native = usesNativeQrScanner();
+    const showCodeForm = couponEntryOpen || !native;
+    return (
+      <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3">
+        {couponView ? (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm font-black text-emerald-900">CUPÓN {couponView.code} APLICADO</p>
+            <button type="button" onClick={removeCoupon} disabled={couponBusy} className="rounded-xl border border-emerald-300 bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.06em] text-emerald-900 disabled:opacity-60">
+              QUITAR CUPÓN
+            </button>
+          </div>
+        ) : null}
+        {native ? (
+          <button type="button" onClick={scanCouponQr} disabled={couponBusy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black tracking-[0.04em] text-white transition hover:bg-emerald-600 disabled:opacity-60">
+            {couponBusy ? <LoaderCircle className="h-5 w-5 animate-spin" aria-hidden="true" /> : <QrCode className="h-5 w-5" aria-hidden="true" />}
+            Leer QR Descuento
+          </button>
+        ) : null}
+        {showCodeForm ? (
+          <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); applyCouponCode(couponCodeInput); }}>
+            <input
+              value={couponCodeInput}
+              onChange={(event) => setCouponCodeInput(event.target.value.toUpperCase())}
+              // Con el teclado abierto (adjustResize) el campo y APLICAR quedan a la vista.
+              onFocus={(event) => { const field = event.currentTarget; window.setTimeout(() => field.scrollIntoView({ block: "center" }), 300); }}
+              placeholder="Código (4 caracteres)"
+              maxLength={12}
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
+              className="min-w-0 flex-1 rounded-xl border border-emerald-300 bg-white px-3 py-2 font-mono text-sm font-bold tracking-wider text-slate-900"
+              aria-label="Código del cupón"
+            />
+            <button type="submit" disabled={couponBusy || !couponCodeInput.trim()} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black uppercase tracking-[0.06em] text-white disabled:opacity-60">
+              {couponBusy ? "..." : "APLICAR"}
+            </button>
+          </form>
+        ) : null}
+        {native ? (
+          <button type="button" onClick={() => { setCouponEntryOpen(!couponEntryOpen); setCouponCodeInput(""); setCouponMessage(null); }} disabled={couponBusy} className="text-xs font-bold text-emerald-900 underline disabled:opacity-60">
+            {couponEntryOpen ? "Cancelar código" : "Escribir código del cupón"}
+          </button>
+        ) : null}
+        {couponMessage ? <p role="status" className={`text-xs font-semibold ${couponMessage.type === "error" ? "text-rose-700" : "text-emerald-800"}`}>{couponMessage.text}</p> : null}
+      </div>
+    );
+  }
+
   function renderPaymentModal() {
     if (!paymentModalOpen || !selectedVehicle) return null;
 
@@ -4878,10 +5025,7 @@ export default function PosTerminal() {
     // TUU-02: pago TUU sin cerrar de este ticket (aprobado pendiente de
     // registro o con resultado incierto). Mientras exista, el modal NO
     // ofrece ningún medio de pago. No se muestra durante un pago en curso.
-    const tuuPendingForStay = paymentSubmitting ? null : findTuuPendingPayment(
-      mergeTuuPendingViews(tuuPendingPayments, [...serverCardAttempts, ...(selectedVehicle.cardPaymentAttempt ? [selectedVehicle.cardPaymentAttempt] : [])], { deviceId: getKnownPosDeviceIds() }),
-      stay?.id,
-    );
+    const tuuPendingForStay = paymentSubmitting ? null : pendingTuuPaymentFor(stay?.id);
     // Desglose Neto/IVA a partir del TOTAL que ya cotizó el backend — ver
     // getTaxBreakdown. El pago confirmado más abajo (paymentBreakdown) usa
     // el total que confirmó el backend en la respuesta del EXIT, no este
@@ -4891,6 +5035,8 @@ export default function PosTerminal() {
     const couponView = couponViewFromQuote(quote);
     // Cupones: no aplican a Pago liberado (regla del servidor) ni con un pago con tarjeta pendiente.
     const couponControlsVisible = couponsEnabled && quoteView?.payable && !quote?.released && paymentStep === "MENU";
+    // Total $0 por el cupón: salida sin cargo confirmada (efectivo $0), nunca TUU.
+    const zeroTotalCoupon = isZeroTotalCouponCharge(quote);
 
     return (
       // Alto máximo = pantalla y contenido desplazable (QA PRO2 2026-10-18,
@@ -4914,20 +5060,7 @@ export default function PosTerminal() {
               <p className="mt-1 text-2xl font-black text-slate-900">{stay?.license_plate || "-"}</p>
               {quoteBreakdown ? (
                 <div className="mt-3 space-y-1">
-                  {couponView ? (
-                    <>
-                      {couponView.subtotal !== null ? (
-                        <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700">
-                          <span>Subtotal</span>
-                          <span className="font-bold text-slate-900">{formatCurrency(couponView.subtotal)}</span>
-                        </div>
-                      ) : null}
-                      <div className="flex items-center justify-between gap-3 text-sm font-semibold text-emerald-700">
-                        <span>Cupón {couponView.code}{couponView.benefit ? ` · ${couponView.benefit}` : ""}</span>
-                        <span className="font-bold">{couponView.discount > 0 ? `-${formatCurrency(couponView.discount)}` : ""}</span>
-                      </div>
-                    </>
-                  ) : null}
+                  {renderCouponLines(couponView, { text: "text-slate-700", strong: "text-slate-900" })}
                   <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700">
                     <span>Neto</span>
                     <span className="font-bold text-slate-900">{formatCurrency(quoteBreakdown.netAmount)}</span>
@@ -4946,38 +5079,7 @@ export default function PosTerminal() {
               )}
             </div>
 
-            {couponControlsVisible && !tuuPendingForStay ? (
-              <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3">
-                {couponView ? (
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-black text-emerald-900">CUPÓN {couponView.code} APLICADO</p>
-                    <button type="button" onClick={() => void removeCoupon()} disabled={couponBusy} className="rounded-xl border border-emerald-300 bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.06em] text-emerald-900 disabled:opacity-60">
-                      {couponBusy ? "..." : "QUITAR CUPÓN"}
-                    </button>
-                  </div>
-                ) : couponEntryOpen ? (
-                  <div className="space-y-2">
-                    {usesNativeQrScanner() ? (
-                      <button type="button" onClick={() => void scanCouponQr()} disabled={couponBusy} className="w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.06em] text-white disabled:opacity-60">
-                        ESCANEAR QR DEL CUPÓN
-                      </button>
-                    ) : null}
-                    <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void applyCoupon(couponCodeInput); }}>
-                      <input value={couponCodeInput} onChange={(event) => setCouponCodeInput(event.target.value.toUpperCase())} placeholder="Código (4 caracteres)" maxLength={12} autoCapitalize="characters" autoComplete="off" spellCheck={false} className="min-w-0 flex-1 rounded-xl border border-emerald-300 bg-white px-3 py-2 font-mono text-sm font-bold tracking-wider text-slate-900" aria-label="Código del cupón" />
-                      <button type="submit" disabled={couponBusy || !couponCodeInput.trim()} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black uppercase tracking-[0.06em] text-white disabled:opacity-60">
-                        {couponBusy ? "..." : "APLICAR"}
-                      </button>
-                    </form>
-                    <button type="button" onClick={() => { setCouponEntryOpen(false); setCouponMessage(null); }} disabled={couponBusy} className="text-xs font-bold text-emerald-900 underline">Cancelar</button>
-                  </div>
-                ) : (
-                  <button type="button" onClick={() => { setCouponEntryOpen(true); setCouponMessage(null); }} className="w-full rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.06em] text-emerald-900 hover:bg-emerald-100">
-                    APLICAR CUPÓN
-                  </button>
-                )}
-                {couponMessage ? <p className={`text-xs font-semibold ${couponMessage.type === "error" ? "text-rose-700" : "text-emerald-800"}`}>{couponMessage.text}</p> : null}
-              </div>
-            ) : null}
+            {couponControlsVisible && !tuuPendingForStay ? renderCouponPanel(couponView) : null}
 
             {paymentStep === "MENU" && tuuPendingForStay ? (
               <TuuPendingPaymentCard
@@ -4991,17 +5093,23 @@ export default function PosTerminal() {
               />
             ) : null}
 
-            {paymentStep === "MENU" && !tuuPendingForStay ? (
+            {paymentStep === "MENU" && !tuuPendingForStay && zeroTotalCoupon ? (
+              <button type="button" onClick={() => handlePaymentSelection("CASH")} disabled={couponBusy} className="min-h-20 w-full rounded-2xl bg-emerald-600 px-4 py-5 text-lg font-black text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
+                SALIDA SIN CARGO (CUPÓN)
+              </button>
+            ) : null}
+
+            {paymentStep === "MENU" && !tuuPendingForStay && !zeroTotalCoupon ? (
               <div className={`grid gap-3 ${cardPaymentsEnabled ? "sm:grid-cols-3" : ""}`}>
-                <button type="button" onClick={() => handlePaymentSelection("CASH")} className="min-h-20 rounded-2xl bg-emerald-600 px-4 py-5 text-lg font-black text-white transition hover:bg-emerald-500">
+                <button type="button" onClick={() => handlePaymentSelection("CASH")} disabled={couponBusy} className="min-h-20 rounded-2xl bg-emerald-600 px-4 py-5 text-lg font-black text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
                   EFECTIVO
                 </button>
                 {cardPaymentsEnabled ? (
                   <>
-                    <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.DEBIT)} className="min-h-20 rounded-2xl bg-sky-600 px-4 py-5 text-lg font-black text-white transition hover:bg-sky-500">
+                    <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.DEBIT)} disabled={couponBusy} className="min-h-20 rounded-2xl bg-sky-600 px-4 py-5 text-lg font-black text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
                       DÉBITO
                     </button>
-                    <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.CREDIT)} className="min-h-20 rounded-2xl bg-indigo-600 px-4 py-5 text-lg font-black text-white transition hover:bg-indigo-500">
+                    <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.CREDIT)} disabled={couponBusy} className="min-h-20 rounded-2xl bg-indigo-600 px-4 py-5 text-lg font-black text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600">
                       CRÉDITO
                     </button>
                   </>
@@ -5011,7 +5119,8 @@ export default function PosTerminal() {
 
             {paymentStep === "CASH_CONFIRM" ? (
               <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <p className="text-lg font-black text-emerald-950">¿CONFIRMA PAGO EN EFECTIVO?</p>
+                <p className="text-lg font-black text-emerald-950">{zeroTotalCoupon ? "¿CONFIRMA SALIDA SIN CARGO?" : "¿CONFIRMA PAGO EN EFECTIVO?"}</p>
+                {zeroTotalCoupon ? <p className="text-sm font-semibold text-emerald-900">El cupón cubre el total. Se registra la salida con $0 y el cupón queda utilizado.</p> : null}
                 <div className="grid gap-2 text-sm font-semibold text-emerald-950 sm:grid-cols-2">
                   <div><span className="block text-xs font-black uppercase tracking-[0.08em] text-emerald-700">Patente</span>{stay?.license_plate || "-"}</div>
                   <div><span className="block text-xs font-black uppercase tracking-[0.08em] text-emerald-700">Total</span>{formatQuoteAmount(quote)}</div>
@@ -5024,7 +5133,7 @@ export default function PosTerminal() {
                     disabled={paymentSubmitting}
                     className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
                   >
-                    {paymentSubmitting ? "Procesando..." : "CONFIRMAR PAGO"}
+                    {paymentSubmitting ? "Procesando..." : zeroTotalCoupon ? "CONFIRMAR SALIDA SIN CARGO" : "CONFIRMAR PAGO"}
                   </button>
                   <button type="button" onClick={() => setPaymentStep("MENU")} disabled={paymentSubmitting} className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60">
                     CANCELAR
@@ -5762,6 +5871,7 @@ export default function PosTerminal() {
               </button>
             </div>
             <div className="space-y-2">
+              {/* eslint-disable-next-line react-hooks/refs -- onSelect solo corre al tocar el menú (SALIDA por QR llega a openVehicleDetail, que lee selectedStayIdRef después del await) */}
               {navItems.map((item) => (
                 <button
                   key={item.label}
@@ -5782,6 +5892,7 @@ export default function PosTerminal() {
           <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">ParkFacil POS</p>
           <h2 className="mt-2 text-xl font-black text-slate-800">Navegación</h2>
           <div className="mt-4 space-y-2">
+            {/* eslint-disable-next-line react-hooks/refs -- igual que en el menú lateral móvil */}
             {navItems.map((item) => (
               <button
                 key={item.label}

@@ -20,6 +20,7 @@ function fail(message, status = 400, details) {
 const COUPON_ERRORS = Object.freeze({
   COUPON_NOT_FOUND: "El cupón no existe.",
   COUPON_ALREADY_USED: "El cupón ya fue utilizado.",
+  COUPON_INACTIVE: "El cupón no está activo.",
   COUPON_WRONG_COMPANY: "El cupón no corresponde a este estacionamiento.",
   COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.",
   COUPON_EXPIRED: "El cupón está vencido.",

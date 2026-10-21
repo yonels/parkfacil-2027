@@ -20,8 +20,11 @@ function parse(raw) {
 }
 
 // Resultado: { ok: true, value } | { ok: false, cancelled: true }
-// | { ok: false, unsupported: true } (APK sin escáner) | { ok: false, error }.
-export function scanQrWithNativeScanner(win, { timeoutMs = 120000 } = {}) {
+// | { ok: false, permissionDenied: true } (APK 0.5.9+) | { ok: false, unsupported: true }
+// (APK sin escáner) | { ok: false, error }.
+// purpose "coupon" (SOL-2026-10-19-002): APK 0.5.9+ abre el mismo escáner con el
+// texto del cupón (scanCouponQr); las anteriores usan scanQr.
+export function scanQrWithNativeScanner(win, { timeoutMs = 120000, purpose = "ticket" } = {}) {
   if (!hasNativeQrScanner(win)) return Promise.resolve({ ok: false, unsupported: true });
   return new Promise((resolve) => {
     const previous = win.ParkFacilQrResult;
@@ -40,6 +43,8 @@ export function scanQrWithNativeScanner(win, { timeoutMs = 120000 } = {}) {
         done({ ok: true, value: result.value.trim() });
       } else if (result && result.cancelled) {
         done({ ok: false, cancelled: true });
+      } else if (result && result.error === "camera_permission_denied") {
+        done({ ok: false, permissionDenied: true });
       } else {
         done({ ok: false, error: "invalid_result" });
       }
@@ -48,7 +53,8 @@ export function scanQrWithNativeScanner(win, { timeoutMs = 120000 } = {}) {
 
     let ack = null;
     try {
-      ack = parse(win.ParkFacilDevice.scanQr());
+      const bridge = win.ParkFacilDevice;
+      ack = parse(purpose === "coupon" && typeof bridge.scanCouponQr === "function" ? bridge.scanCouponQr() : bridge.scanQr());
     } catch {
       ack = null;
     }

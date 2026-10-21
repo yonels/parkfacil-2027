@@ -158,8 +158,12 @@ export async function getCoupon(db, rawToken, companyId) {
   if (error || !data) throw new Error("COUPON_NOT_FOUND");
 
   const now = Date.now();
-  if (data.status !== "ACTIVE" || data.redeemed_at) throw new Error("COUPON_ALREADY_USED");
+  // Empresa primero: de un cupón ajeno no se revela su estado.
   if (!companyId || data.company_id !== companyId) throw new Error("COUPON_WRONG_COMPANY");
+  if (data.status === "REDEEMED" || data.redeemed_at) throw new Error("COUPON_ALREADY_USED");
+  if (data.status === "EXPIRED") throw new Error("COUPON_EXPIRED");
+  // Borrador o anulado (SOL-2026-10-19-002): no es un cupón usado, es uno inactivo.
+  if (data.status !== "ACTIVE") throw new Error("COUPON_INACTIVE");
   if (new Date(data.valid_from).getTime() > now) throw new Error("COUPON_NOT_YET_VALID");
   if (new Date(data.expires_at).getTime() <= now) throw new Error("COUPON_EXPIRED");
 
@@ -375,7 +379,10 @@ export async function quoteParkingStayById(db, stayId, options = {}) {
     publicQuote.snapshot = buildPosQuoteSnapshot({ stay, quote, calculatedAt });
   }
 
-  if (publicQuote.payable && process.env.WEBPAY_QUOTE_HMAC_SECRET) {
+  // Cotización Webpay (Pague Aquí): nunca con cupón. El cupón solo existe en el cálculo
+  // del POS (SOL-2026-10-19-002), que no usa quoteId, y un descuento que cubre todo
+  // dejaba el total en $0, que create_webpay_stay_quote rechaza (INVALID_QUOTE_BREAKDOWN).
+  if (publicQuote.payable && !quote.coupon && process.env.WEBPAY_QUOTE_HMAC_SECRET) {
     const evidence = signWebpayQuoteEvidence({
       stayId: stay.id,
       stayUpdatedAt: stay.updated_at,

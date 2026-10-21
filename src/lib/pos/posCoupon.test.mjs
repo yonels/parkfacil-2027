@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { couponAvailableForCharge, couponTokenForRequest, isCouponQrPayload, parseCouponInput } from "../cupones/couponInput.mjs";
-import { couponBenefitText, couponViewFromQuote, receiptCouponLine, COUPON_IN_TICKET_SCAN_MESSAGE } from "./posCoupon.mjs";
+import { classifyDiscountScan, couponBenefitText, couponViewFromQuote, discountScanFailureMessage, DISCOUNT_SCAN_MESSAGES, isZeroTotalCouponCharge, receiptCouponLine, COUPON_IN_TICKET_SCAN_MESSAGE } from "./posCoupon.mjs";
 import { getCoupon } from "../parkingStayQuoteService.js";
 
 const UUID = "3f2b8c1e-9d4a-4e7b-8c2d-1a2b3c4d5e6f";
@@ -33,7 +33,7 @@ test("ticket QR screen recognizes a coupon QR; request token keeps the kind", ()
   assert.equal(couponTokenForRequest("0b5b9cf2"), "PF-0B5B9CF2");
   assert.equal(couponTokenForRequest("no es cupón"), null);
   assert.equal(couponTokenForRequest("k7m2"), "K7M2");
-  assert.match(COUPON_IN_TICKET_SCAN_MESSAGE, /APLICAR CUPÓN/);
+  assert.match(COUPON_IN_TICKET_SCAN_MESSAGE, /Leer QR Descuento/);
 });
 
 test("card charge pre-check: only active, unredeemed and unexpired coupons", () => {
@@ -90,6 +90,11 @@ test("getCoupon keeps the existing validations", async () => {
   await assert.rejects(getCoupon(fakeCouponDb({ ...validRow, expires_at: "2000-01-01T00:00:00Z" }).db, "PF-0B5B9CF2", "emp-ramis"), /COUPON_EXPIRED/);
   await assert.rejects(getCoupon(fakeCouponDb({ ...validRow, valid_from: "2999-01-01T00:00:00Z" }).db, "PF-0B5B9CF2", "emp-ramis"), /COUPON_NOT_YET_VALID/);
   assert.equal(await getCoupon(fakeCouponDb(validRow).db, null, "emp-ramis"), null);
+  // Inactivo (borrador o anulado) no es "ya utilizado"; de otra empresa no revela su estado.
+  await assert.rejects(getCoupon(fakeCouponDb({ ...validRow, status: "CANCELLED" }).db, "PF-0B5B9CF2", "emp-ramis"), /COUPON_INACTIVE/);
+  await assert.rejects(getCoupon(fakeCouponDb({ ...validRow, status: "DRAFT" }).db, "PF-0B5B9CF2", "emp-ramis"), /COUPON_INACTIVE/);
+  await assert.rejects(getCoupon(fakeCouponDb({ ...validRow, status: "EXPIRED" }).db, "PF-0B5B9CF2", "emp-ramis"), /COUPON_EXPIRED/);
+  await assert.rejects(getCoupon(fakeCouponDb({ ...validRow, status: "REDEEMED", company_id: "emp-5q" }).db, `PFC-COUPON:${UUID}`, "emp-ramis"), /COUPON_WRONG_COMPANY/);
 });
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -118,10 +123,10 @@ test("data-entry refuses coupons where disabled and re-checks the coupon before 
   assert.match(reserve, /COUPON_UNAVAILABLE/);
 });
 
-test("POS terminal: APLICAR CUPÓN in the payment window, scanner + manual code, coupon kept on refresh and sent on cash exit", () => {
+test("POS terminal: Leer QR Descuento (detail above PAGAR and payment window), scanner + manual code, coupon kept on refresh and sent on cash exit", () => {
   const source = read("../../components/pos/PosTerminal.js");
-  assert.match(source, /APLICAR CUPÓN/);
-  assert.match(source, /ESCANEAR QR DEL CUPÓN/);
+  assert.match(source, /<QrCode className="h-5 w-5" aria-hidden="true" \/>\}\s*Leer QR Descuento/);
+  assert.match(source, /scanQrWithNativeScanner\(window, \{ purpose: "coupon" \}\)/);
   assert.match(source, /QUITAR CUPÓN/);
   assert.match(source, /placeholder="Código \(4 caracteres\)"/);
   assert.match(source, /const couponControlsVisible = couponsEnabled && quoteView\?\.payable && !quote\?\.released && paymentStep === "MENU";/);
@@ -131,6 +136,31 @@ test("POS terminal: APLICAR CUPÓN in the payment window, scanner + manual code,
   assert.match(source, /coupon: receiptCouponLine\(stay, quote\)/);
   const qrTicket = source.slice(source.indexOf("async function handleQrTicket"), source.indexOf("async function handleQrTicket") + 400);
   assert.match(qrTicket, /isCouponQrPayload\(raw\)/);
+  // Detalle del vehículo: el panel queda inmediatamente encima de PAGAR y PAGAR se bloquea mientras se valida.
+  assert.match(source, /\{detailCouponVisible \? renderCouponPanel\(couponView\) : null\}\s*<button\s+type="button"\s+onClick=\{openPaymentModal\}\s+disabled=\{selectedVehicleLoading \|\| !hasPayableQuote \|\| couponBusy\}/);
+  assert.match(source, /\{couponControlsVisible && !tuuPendingForStay \? renderCouponPanel\(couponView\) : null\}/);
+});
+
+test("POS terminal: late coupon or detail responses of another stay are ignored; one coupon request at a time", () => {
+  const source = read("../../components/pos/PosTerminal.js");
+  const run = source.slice(source.indexOf("async function runCouponRequest"), source.indexOf("async function quoteWithCoupon"));
+  assert.match(run, /if \(!stayId \|\| couponLockRef\.current\) return;/);
+  assert.match(run, /couponRequestRef\.current === requestId && selectedStayIdRef\.current === stayId/);
+  const quote = source.slice(source.indexOf("async function quoteWithCoupon"), source.indexOf("function applyCouponCode"));
+  assert.ok(quote.indexOf("if (!isCurrent()) return;") < quote.indexOf("setSelectedVehicle(response.payload.data)"));
+  const reset = source.slice(source.indexOf("function resetCouponEntry"), source.indexOf("async function runCouponRequest"));
+  assert.match(reset, /couponRequestRef\.current \+= 1;/);
+  const detail = source.slice(source.indexOf("async function openVehicleDetail"), source.indexOf("async function handleQrTicket"));
+  assert.match(detail, /if \(!stillSelected\(\)\) return null;/);
+});
+
+test("POS terminal: total $0 by coupon is an explicit no-charge exit, never sent to TUU", () => {
+  const source = read("../../components/pos/PosTerminal.js");
+  assert.match(source, /SALIDA SIN CARGO \(CUPÓN\)/);
+  assert.match(source, /CONFIRMAR SALIDA SIN CARGO/);
+  const card = source.slice(source.indexOf("async function handleCardPaymentSelection"), source.indexOf("async function handleCardPaymentSelection") + 600);
+  assert.match(card, /if \(isZeroTotalCouponCharge\(selectedVehicle\?\.quote\)\) return;/);
+  assert.match(source, /paymentStep === "MENU" && !tuuPendingForStay && !zeroTotalCoupon \?/);
 });
 
 test("receipt prints as soon as the payment is confirmed; terminal refresh runs in parallel (cash and card)", () => {
@@ -141,4 +171,33 @@ test("receipt prints as soon as the payment is confirmed; terminal refresh runs 
   assert.equal((source.match(cash) || []).length, 1);
   assert.equal((source.match(card) || []).length, 1);
   assert.doesNotMatch(source, /await loadTerminalState\(true\);\r?\n\r?\n\s*const printResult = receiptPayload/);
+});
+
+test("Leer QR Descuento: distingue cupón, ticket y QR ajeno", () => {
+  assert.deepEqual(classifyDiscountScan(`PFC-COUPON:${UUID}`), { kind: "coupon", token: `PFC-COUPON:${UUID}` });
+  assert.deepEqual(classifyDiscountScan(UUID), { kind: "ticket" });
+  assert.deepEqual(classifyDiscountScan(`https://pos.parkfacilapp.cl/t/${UUID}`), { kind: "ticket" });
+  assert.deepEqual(classifyDiscountScan("https://example.com/promo"), { kind: "foreign" });
+  // Un QR con 4 caracteres no es un cupón: el código corto solo se escribe a mano.
+  assert.deepEqual(classifyDiscountScan("K7M2"), { kind: "foreign" });
+  assert.deepEqual(classifyDiscountScan("PFC-COUPON:"), { kind: "foreign" });
+  assert.deepEqual(classifyDiscountScan(""), { kind: "foreign" });
+});
+
+test("mensajes del escáner: cancelado, permiso denegado y cámara no disponible", () => {
+  assert.deepEqual(discountScanFailureMessage({ ok: false, cancelled: true }), { type: "info", text: DISCOUNT_SCAN_MESSAGES.cancelled });
+  assert.deepEqual(discountScanFailureMessage({ ok: false, permissionDenied: true }), { type: "error", text: DISCOUNT_SCAN_MESSAGES.permissionDenied });
+  assert.deepEqual(discountScanFailureMessage({ ok: false, error: "launch_failed" }), { type: "error", text: DISCOUNT_SCAN_MESSAGES.unavailable });
+});
+
+test("total $0 solo por cupón firmado", () => {
+  assert.equal(isZeroTotalCouponCharge({ snapshot: { couponId: "c1", totalAmount: 0 } }), true);
+  assert.equal(isZeroTotalCouponCharge({ snapshot: { couponId: "c1", totalAmount: 500 } }), false);
+  assert.equal(isZeroTotalCouponCharge({ snapshot: { couponId: null, totalAmount: 0 } }), false);
+  assert.equal(isZeroTotalCouponCharge(null), false);
+});
+
+test("POS quote with a coupon never creates a Webpay quote (total $0 by coupon used to fail with INVALID_QUOTE_BREAKDOWN)", () => {
+  const source = read("../parkingStayQuoteService.js");
+  assert.match(source, /if \(publicQuote\.payable && !quote\.coupon && process\.env\.WEBPAY_QUOTE_HMAC_SECRET\) \{/);
 });
