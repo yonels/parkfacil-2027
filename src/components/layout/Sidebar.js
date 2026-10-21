@@ -24,7 +24,7 @@ const sectionDefinitions = [
   {
     id: "administracion",
     title: "Administración",
-    labels: ["Empresas", "Usuarios", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Dispositivos", "Facturación", "Reportes", "Administración", "Integraciones"],
+    labels: ["Empresas", "Usuarios", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Cupones y descuentos", "Dispositivos", "Facturación", "Reportes", "Administración", "Integraciones"],
   },
   {
     id: "soporte",
