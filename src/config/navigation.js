@@ -101,6 +101,7 @@ export function navigationForContext(context) {
     "Estacionamientos": "/estacionamientos", "Usuarios": "/usuarios", "Turnos": "/reportes-off-street?tab=turnos",
     "Recaudación": "/reportes-off-street?tab=recaudacion", "Medios de Pago": "/reportes-off-street?tab=recaudacion",
     "Reportes": "/reportes-off-street",
+    "Cupones y descuentos": "/cupones",
   };
   return navigationItems.filter((item) => clientPaths[item.label]).map((item) => ({ ...item, href: clientPaths[item.label] }));
 }
