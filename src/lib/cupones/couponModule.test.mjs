@@ -125,5 +125,6 @@ test("session/proxy add the module status only for the client portal on /cupones
   assert.match(read("../../components/layout/AppShell.js"), /couponModuleStatus: context\.couponModuleStatus/);
   const client = read("../../components/cupones/CouponsClient.js");
   assert.match(client, /const readOnly = Boolean\(moduleView && !moduleView\.active\)/);
-  assert.match(client, /actions=\{readOnly \? \[\] :/);
+  // SOL-2026-10-20-002: en Eliminar cupones tampoco hay acciones de creación.
+  assert.match(client, /actions=\{readOnly \|\| deleteMode \? \[\] :/);
 });

@@ -212,6 +212,8 @@ const ATTEMPT_ERRORS = Object.freeze({
   CARD_ATTEMPT_SCOPE_MISMATCH: [404, "No existe el ticket solicitado."],
   CARD_ATTEMPT_SHIFT_INVALID: [409, "Debes tener un turno abierto en este estacionamiento."],
   CARD_ATTEMPT_AMOUNT_INVALID: [409, "El monto a pagar no es válido."],
+  // Cupón eliminado o canjeado justo antes de reservar (disparador coupon_guard_card_attempt, 20261020170000).
+  CARD_ATTEMPT_COUPON_UNAVAILABLE: [409, "El cupón ya no está disponible. Quita el cupón y vuelve a calcular. No se inició ningún cobro."],
   CARD_ATTEMPT_AMOUNT_MISMATCH: [409, "El monto del pago no coincide con el monto reservado para este ticket."],
   CARD_ATTEMPT_NOT_FOUND: [404, "No existe el intento de pago solicitado."],
   CARD_ATTEMPT_FORBIDDEN: [403, "Este intento de pago pertenece a otro equipo u operador."],

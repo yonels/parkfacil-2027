@@ -218,6 +218,14 @@ test("cupones: solo administrador con Off Street contratado; Root siempre", () =
   assert.equal(canAccessPath({ portal: "root", role: ROLES.PLATFORM_ADMIN }, "/cupones"), true);
   assert.equal(navigationVisibleForRole({ href: "/cupones" }, admin), true);
   assert.equal(navigationVisibleForRole({ href: "/cupones" }, { portal: "client", role: ROLES.OPERATOR, enabledProducts: [PRODUCTS.OFF_STREET] }), false);
+  // SOL-2026-10-20-002: Crear y Eliminar con el mismo control que /cupones (también por URL directa).
+  for (const path of ["/cupones/crear", "/cupones/eliminar"]) {
+    assert.equal(canAccessPath(admin, path), true, path);
+    assert.equal(canAccessPath({ ...admin, couponModuleStatus: "NOT_CONTRACTED" }, path), false, path);
+    assert.equal(canAccessPath({ portal: "client", role: ROLES.OPERATOR, enabledProducts: [PRODUCTS.OFF_STREET] }, path), false, path);
+    assert.equal(canAccessPath({ portal: "root", role: ROLES.PLATFORM_ADMIN }, path), true, path);
+    assert.equal(navigationVisibleForRole({ href: path }, admin), true, path);
+  }
 });
 
 test("cupones: el ítem del menú está en el árbol Off Street y ya no en Administración", async () => {
@@ -225,7 +233,10 @@ test("cupones: el ítem del menú está en el árbol Off Street y ya no en Admin
   const nav = readFileSync(new URL("../../config/navigation.js", import.meta.url), "utf8");
   const offStreet = nav.slice(nav.indexOf('label: "Off Street"'), nav.indexOf('label: "On Street"') > nav.indexOf('label: "Off Street"') ? nav.indexOf('label: "On Street"') : nav.indexOf('label: "Administración"'));
   const admin = nav.slice(nav.indexOf('label: "Administración"'));
-  assert.match(offStreet, /\{ href: "\/cupones", label: "Cupones y descuentos", icon: TicketPercent \}/);
+  // SOL-2026-10-20-002: carpeta con Consultar, Crear y Eliminar.
+  assert.match(offStreet, /href: "\/cupones",\s*label: "Cupones y descuentos",\s*icon: TicketPercent,\s*activePrefix: "\/cupones",/);
+  assert.match(offStreet, /\{ href: "\/cupones", label: "Consultar cupones" \},\s*\{ href: "\/cupones\/crear", label: "Crear cupones" \},\s*\{ href: "\/cupones\/eliminar", label: "Eliminar cupones" \},/);
+  assert.doesNotMatch(nav, /Editar cupones/);
   assert.match(offStreet, /"\/pago-liberado", "\/cupones"\]/);
   assert.doesNotMatch(admin, /href: "\/cupones"/);
   assert.doesNotMatch(admin, /"\/cupones"/);

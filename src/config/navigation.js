@@ -114,7 +114,20 @@ export const navigationItems = [
       // Street, por eso viven en este árbol (antes en Administración). Solo
       // administrador y con Off Street contratado (COMPANY_ADMIN_PREFIXES y
       // PRODUCT_PREFIXES en permissions.mjs).
-      { href: "/cupones", label: "Cupones y descuentos", icon: TicketPercent },
+      // SOL-2026-10-20-002: carpeta con Consultar, Crear y Eliminar (la edición sigue
+      // deshabilitada). Una carpeta del árbol no enlaza a su href, por eso el
+      // listado tiene su propia opción.
+      {
+        href: "/cupones",
+        label: "Cupones y descuentos",
+        icon: TicketPercent,
+        activePrefix: "/cupones",
+        children: [
+          { href: "/cupones", label: "Consultar cupones" },
+          { href: "/cupones/crear", label: "Crear cupones" },
+          { href: "/cupones/eliminar", label: "Eliminar cupones" },
+        ],
+      },
       {
         label: "Tarifas",
         icon: BadgeDollarSign,

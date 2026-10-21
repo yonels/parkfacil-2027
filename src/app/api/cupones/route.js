@@ -27,7 +27,8 @@ export async function GET(request) {
     try { const state = await loadCouponModuleState(auth.db, actor.companyId); moduleView = adminModuleView(state.status, state.contract); }
     catch { moduleView = adminModuleView(null, null); }
   }
-  return NextResponse.json({ data: (data || []).map(mapCoupon), module: moduleView });
+  // canManage: la pantalla ofrece crear y eliminar solo a quien la API se lo permite.
+  return NextResponse.json({ data: (data || []).map(mapCoupon), module: moduleView, canManage: actor.isAdmin });
 }
 
 export async function POST(request) {
@@ -80,4 +81,36 @@ export async function PATCH(request) {
   const { data, error } = await query.select("id,delivered_at,delivery_method");
   if (error) return responseError("No fue posible registrar la entrega de los cupones.", 503);
   return NextResponse.json({ data });
+}
+
+// Eliminar cupones no utilizados (SOL-2026-10-20-002). La base decide en una sola
+// transacción (delete_unused_coupon, migración 20261020170000): empresa del
+// administrador, módulo activo, cupón sin canje ni estadía asociada y sin pago con
+// tarjeta en curso. Los utilizados se conservan en el historial y los reportes.
+const COUPON_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DELETE_ERRORS = Object.freeze({
+  COUPON_NOT_DELETABLE: [404, "El cupón no existe o no pertenece a tu empresa."],
+  COUPON_MODULE_INACTIVE: [403, COUPON_MODULE_INACTIVE_ERROR.error],
+  COUPON_USED: [409, "El cupón ya fue utilizado: se conserva en el historial y en los reportes."],
+  COUPON_LINKED: [409, "El cupón está asociado a una operación y se conserva en el historial."],
+  COUPON_PAYMENT_IN_PROGRESS: [409, "El cupón está en un pago con tarjeta en curso o por resolver. Intenta cuando ese pago se resuelva."],
+});
+
+export async function DELETE(request) {
+  if (!couponsEnabled()) return NextResponse.json(COUPONS_DISABLED_ERROR, { status: 403 });
+  const auth = await authorizeRemainingRequest(request, PERMISSIONS.COUPONS_MANAGE); if (auth.response) return auth.response;
+  const actor = remainingActor(auth.context);
+  // La empresa sale de la sesión, nunca del cuerpo; Root (sin empresa) tiene alcance global.
+  if (!actor.isPlatformAdmin && !actor.companyId) return responseError("Tu cuenta no tiene una empresa asociada.", 403);
+  const input = await request.json().catch(() => null);
+  const id = typeof input?.id === "string" ? input.id.trim() : "";
+  if (!COUPON_UUID_PATTERN.test(id)) return responseError("El cupón a eliminar no es válido.");
+  const { data, error } = await auth.db.rpc("delete_unused_coupon", { p_coupon_id: id, p_company_id: actor.isPlatformAdmin ? null : actor.companyId });
+  if (error) {
+    const known = Object.entries(DELETE_ERRORS).find(([code]) => String(error.message || "").includes(code));
+    if (known) return NextResponse.json({ error: known[1][1], code: known[0] }, { status: known[1][0] });
+    if (["PGRST202", "42883"].includes(error.code)) return responseError("La eliminación de cupones está pendiente de activación en la base de datos.", 503);
+    return responseError("No fue posible eliminar el cupón. Intenta nuevamente.", 503);
+  }
+  return NextResponse.json({ data: { id: data || id } });
 }
