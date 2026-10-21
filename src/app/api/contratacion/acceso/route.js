@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '@/lib/supabaseServer';
-import { boundedBody, enrollmentActor, rpc, issuedAt, ENROLLMENT_COOKIE, cookieOptions, publicFailure } from '@/lib/contratacion/server';
+import { boundedBody, enrollmentActor, rpc, issuedAt, ENROLLMENT_COOKIE, cookieOptions, publicFailure, revokeSessions } from '@/lib/contratacion/server';
 import { exchangeTemporaryPin } from '@/lib/contratacion/temporary-pin.mjs';
 import { accessScope } from '@/lib/contratacion/access-scope.mjs';
 export const dynamic='force-dynamic';
@@ -29,8 +29,8 @@ export async function POST(request){try{
   const record=await rpc(db,'contratacion_pin_attempt',{p_email:a.user.email,p_reauth_user:a.user.id});
   const {matchesPin}=await import('@/lib/contratacion/temporary-pin.mjs');if(record?.userId!==a.user.id||!await matchesPin(b.currentPin,record))throw Error('REAUTH_REQUIRED');
   await rpc(db,'contratacion_credential_begin',{p_user:a.user.id});
+  await revokeSessions(db,a.token);
   const saved=await db.auth.admin.updateUserById(a.user.id,{password,app_metadata:{...a.user.app_metadata,enrollment_credentials_changed:true}});if(saved.error)throw Error('PASSWORD_UNCONFIRMED');
-  const revoked=await db.auth.admin.signOut(a.token,'global');if(revoked.error)throw Error('SESSION_REVOCATION_UNCONFIRMED');
   await rpc(db,'contratacion_credential_finish',{p_user:a.user.id});
   const response=NextResponse.json({ok:true,mensaje:'Clave establecida. Ingrese nuevamente; el estado comercial de la empresa se conserva.'});response.cookies.set(ENROLLMENT_COOKIE,'',{...cookieOptions,maxAge:0});return response;
  }

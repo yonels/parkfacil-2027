@@ -12,6 +12,12 @@ export function crmOrigin(){
   const local=process.env.NODE_ENV!=='production'&&process.env.CONTRATACION_ENVIRONMENT==='local'&&url.protocol==='http:'&&['localhost','127.0.0.1'].includes(url.hostname);
   if(url.origin!==origin||(url.protocol!=='https:'&&!local))throw Error('CRM_ORIGIN_REQUIRED');return origin;
 }
+// Revoca todas las sesiones del usuario antes de cambiar su clave. Una sesión ya inexistente cuenta como revocada:
+// algunas versiones de Supabase Auth cierran las sesiones por su cuenta (hallado en la prueba integrada local 2026-10-21).
+export async function revokeSessions(db,accessToken){
+  const r=await db.auth.admin.signOut(accessToken,'global');
+  if(r.error&&r.error.name!=='AuthSessionMissingError'&&![401,403,404].includes(r.error.status))throw Error('SESSION_REVOCATION_UNCONFIRMED');
+}
 export function enabled() { if(process.env.CONTRATACION_INTEGRAL_ENABLED!=='true')throw Error('UNAVAILABLE'); }
 export async function boundedBody(request) {
   enabled();

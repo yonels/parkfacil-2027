@@ -53,6 +53,33 @@ step('contrato ficticio aceptado en el CRM', '3,5 UF + 10 UF servicios');
 const auth = await fetch(`${op.NEXT_PUBLIC_SUPABASE_URL.replace(/\/$/, '')}/auth/v1/token?grant_type=password`, { method: 'POST', headers: { apikey: op.NEXT_PUBLIC_SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: root.ROOT_LOCAL_EMAIL, password: root.ROOT_LOCAL_PASSWORD }) });
 const token = (await auth.json()).access_token; assert.ok(token, 'sesión Root local');
 const action = async payload => { const res = await fetch(`${OP}/api/contratacion/root`, { method: 'POST', headers: { 'Content-Type': 'application/json', origin: OP, authorization: `Bearer ${token}` }, body: JSON.stringify({ id, ...payload }) }); return { status: res.status, body: await res.json() }; };
+const recovery = async payload => { const res = await fetch(`${OP}/api/contratacion/recuperacion`, { method: 'POST', headers: { 'Content-Type': 'application/json', origin: OP, authorization: `Bearer ${token}` }, body: JSON.stringify(payload) }); return { status: res.status, body: await res.json() }; };
+const client = async (payload, cookie = '') => { const res = await fetch(`${OP}/api/contratacion/${payload.path || 'acceso'}`, { method: 'POST', headers: { 'Content-Type': 'application/json', origin: OP, ...(cookie ? { cookie } : {}) }, body: JSON.stringify(payload.body) });
+  const set = res.headers.getSetCookie().find(c => c.startsWith('pf_enrollment=')); return { status: res.status, body: await res.json(), cookie: set ? set.split(';')[0] : '' }; };
+const session = async cookie => { const res = await fetch(`${OP}/api/contratacion/acceso`, { headers: { cookie } }); return { status: res.status, body: await res.json() }; };
+const admin = opSql(`select id from auth.users where lower(email)=${lit(rep)}`);
+
+// 4a. Acceso comercial antes de activar: Root renueva el PIN (en local no se archivan PIN) y el representante ingresa.
+const renewed = await recovery({ action: 'renew_pin', userId: admin, identityConfirmed: true, reason: 'Entrega verificada al representante (prueba local)' });
+assert.equal(renewed.status, 200, JSON.stringify(renewed.body)); assert.match(renewed.body.pin, /^\d{4}$/); const pin = renewed.body.pin;
+step('Root renueva el PIN del representante', 'PIN de 4 dígitos entregado solo a Root');
+const wrongPin = await client({ body: { action: 'login', email: rep, password: pin === '0000' ? '0001' : '0000' } });
+assert.notEqual(wrongPin.body.ok, true); step('PIN incorrecto rechazado');
+const pinLogin = await client({ body: { action: 'login', email: rep, password: pin } });
+assert.equal(pinLogin.status, 200, JSON.stringify(pinLogin.body)); assert.ok(pinLogin.cookie);
+let me = await session(pinLogin.cookie);
+assert.equal(me.body.scope, 'commercial', JSON.stringify(me.body)); assert.equal(me.body.mustChangePassword, true); step('ingreso con PIN antes de activar', 'alcance comercial, debe cambiar clave');
+const operatorEmail = opSql(`select email from auth.users where raw_app_meta_data->>'enrollment_id'=${lit(id)} and lower(email)<>${lit(rep)} limit 1`);
+const operatorPin = await client({ body: { action: 'login', email: operatorEmail, password: pin } });
+assert.notEqual(operatorPin.body.ok, true); step('operador no ingresa antes de activar');
+const password1 = `Clave-Local-${tag}-1`;
+const badPolicy = await client({ body: { action: 'personal_password', currentPin: pin, password: 'corta', confirmPassword: 'corta' } }, pinLogin.cookie);
+assert.notEqual(badPolicy.body.ok, true); step('clave corta rechazada');
+const personal = await client({ body: { action: 'personal_password', currentPin: pin, password: password1, confirmPassword: password1 } }, pinLogin.cookie);
+assert.equal(personal.status, 200, JSON.stringify(personal.body)); step('clave personal establecida', personal.body.mensaje);
+assert.notEqual((await session(pinLogin.cookie)).body.ok, true); step('sesión con PIN revocada tras el cambio');
+assert.notEqual((await client({ body: { action: 'login', email: rep, password: pin } })).body.ok, true); step('PIN anterior ya no sirve');
+
 const quote = await action({ action: 'payment_quote' });
 assert.equal(quote.status, 200, JSON.stringify(quote.body)); assert.equal(quote.body.data.requiredAmount, '16.0650'); assert.equal(quote.body.data.contractId, contract);
 step('cuota consultada por Root', `${quote.body.data.requiredAmount} UF, UF del ${quote.body.data.ufDate}`);
@@ -75,4 +102,42 @@ assert.equal(active.status, 200, JSON.stringify(active.body)); step('servicio ac
 const after = opSql(`select c.status||'|'||(e.activated_at is not null) from public.web_enrollments e join public.companies c on c.id=e.company_id where e.id=${lit(id)}`);
 step('estado final en la operativa', after);
 assert.equal(after, 'active|true');
+
+// 6. Después de activar: ingreso operativo con la clave personal.
+const login1 = await client({ body: { action: 'login', email: rep, password: password1 } });
+assert.equal(login1.status, 200, JSON.stringify(login1.body)); me = await session(login1.cookie);
+assert.equal(me.body.scope, 'operational', JSON.stringify(me.body)); assert.equal(me.body.mustChangePassword, false); step('ingreso con clave personal tras activar', 'alcance operativo');
+
+// 7. Recuperación: solicitud pública genérica → Root emite enlace tras verificar identidad → nueva clave.
+const generic = await client({ path: 'recuperacion', body: { action: 'request', email: `nadie.${tag}@example.test` } });
+const asked = await client({ path: 'recuperacion', body: { action: 'request', email: rep } });
+assert.equal(asked.body.mensaje, generic.body.mensaje); step('solicitud de recuperación con respuesta genérica');
+const list = await action({ action: 'recoveries' }); const pending = (list.body.data || []).find(x => x.email === rep && x.state === 'pending');
+assert.ok(pending, JSON.stringify(list.body)); step('Root ve la recuperación pendiente');
+assert.notEqual((await recovery({ action: 'issue', id: pending.id, identityConfirmed: false, reason: 'Sin verificar identidad' })).body.ok, true); step('enlace sin verificar identidad rechazado');
+const issued = await recovery({ action: 'issue', id: pending.id, identityConfirmed: true, reason: 'Identidad verificada por teléfono (prueba local)' });
+assert.equal(issued.status, 200, JSON.stringify(issued.body)); const link = new URL(issued.body.url), recoveryToken = link.hash.replace('#recuperar=', '');
+assert.equal(link.origin, OP); step('Root emite enlace de recuperación', `${link.origin}${link.pathname}#recuperar=…`);
+const password2 = `Clave-Local-${tag}-2`;
+const completed = await client({ path: 'recuperacion', body: { action: 'complete', token: recoveryToken, password: password2, confirmPassword: password2 } });
+assert.equal(completed.status, 200, JSON.stringify(completed.body)); step('nueva clave por recuperación', completed.body.mensaje);
+assert.notEqual((await client({ path: 'recuperacion', body: { action: 'complete', token: recoveryToken, password: password2, confirmPassword: password2 } })).body.ok, true); step('enlace de recuperación de un solo uso');
+assert.notEqual((await session(login1.cookie)).body.ok, true); step('sesión anterior revocada por la recuperación');
+assert.notEqual((await client({ body: { action: 'login', email: rep, password: password1 } })).body.ok, true); step('clave anterior ya no sirve');
+const login2 = await client({ body: { action: 'login', email: rep, password: password2 } });
+assert.equal(login2.status, 200, JSON.stringify(login2.body)); assert.equal((await session(login2.cookie)).body.scope, 'operational'); step('ingreso con la nueva clave');
+
+// 7b. Operador tras la activación: Root renueva su PIN y el operador ingresa (debe cambiar clave).
+const operatorId = opSql(`select id from auth.users where lower(email)=${lit(operatorEmail)}`);
+const opRenew = await recovery({ action: 'renew_pin', userId: operatorId, identityConfirmed: true, reason: 'Entrega verificada al operador (prueba local)' });
+assert.equal(opRenew.status, 200, JSON.stringify(opRenew.body));
+const opLogin = await client({ body: { action: 'login', email: operatorEmail, password: opRenew.body.pin } });
+assert.equal(opLogin.status, 200, JSON.stringify(opLogin.body)); const opMe = await session(opLogin.cookie);
+assert.equal(opMe.body.scope, 'operational'); assert.equal(opMe.body.mustChangePassword, true); step('operador ingresa con PIN tras activar', 'alcance operativo, debe cambiar clave');
+
+// 8. Suspensión por Root: la sesión abierta deja de servir.
+const suspended = await action({ action: 'change_status', status: 'inactive', reason: 'Suspensión de prueba local' });
+assert.equal(suspended.status, 200, JSON.stringify(suspended.body)); step('Root suspende la empresa');
+assert.notEqual((await session(login2.cookie)).body.ok, true); assert.notEqual((await session(opLogin.cookie)).body.ok, true); step('sesiones abiertas (representante y operador) invalidadas por la suspensión');
+assert.notEqual((await client({ body: { action: 'login', email: rep, password: password2 } })).body.ok, true); step('ingreso bloqueado mientras está suspendida');
 console.log(`\nReferencia de prueba: ${id}`);

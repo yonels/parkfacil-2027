@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { temporaryPin,pinVerifier } from '@/lib/contratacion/temporary-pin.mjs';
 import { createClient } from '@supabase/supabase-js';
 import { getSupabaseAdminClient } from '@/lib/supabaseServer';
-import { boundedBody,rootActor,rpc,publicFailure } from '@/lib/contratacion/server';
+import { boundedBody,rootActor,rpc,publicFailure,revokeSessions } from '@/lib/contratacion/server';
 export const dynamic='force-dynamic';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const reply=body=>Response.json(body,{headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer'}});
@@ -36,8 +36,8 @@ export async function POST(request){try{
   const generated=await db.auth.admin.generateLink({type:'recovery',email:u.data.user.email});if(generated.error||generated.data?.user?.id!==claim.userId)throw Error('REVOCATION_SESSION_UNAVAILABLE');
   const isolated=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL,process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY||process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
   const verified=await isolated.auth.verifyOtp({token_hash:generated.data.properties.hashed_token,type:'recovery'});if(verified.error||verified.data?.user?.id!==claim.userId)throw Error('REVOCATION_SESSION_UNAVAILABLE');
+  await revokeSessions(db,verified.data.session.access_token);
   const changed=await db.auth.admin.updateUserById(claim.userId,{password,app_metadata:{...u.data.user.app_metadata,enrollment_credentials_changed:true}});if(changed.error)throw Error('PASSWORD_UNCONFIRMED');
-  const revoked=await db.auth.admin.signOut(verified.data.session.access_token,'global');if(revoked.error)throw Error('REVOCATION_UNCONFIRMED');
   await rpc(db,'contratacion_recovery_finish',{p_id:claim.requestId,p_user:claim.userId});
   return reply({ok:true,mensaje:'Clave establecida. Ingrese nuevamente; la recuperación no activa el servicio.'});
  }
