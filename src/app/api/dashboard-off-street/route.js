@@ -40,12 +40,6 @@ export async function GET(request) {
     if (!validation.ok) return fail(validation.message, 400, { code: "INVALID_FILTERS" });
 
     const scopedParkings = await listParkings(authorization.db, authorization.scope);
-    let companyIdentity = null;
-    if (authorization.context.portal === "client") {
-      const result = await authorization.db.from("companies").select("id,business_name,trade_name,rut_number,rut_dv").eq("id", authorization.context.companyId).single();
-      if (result.error) throw result.error;
-      companyIdentity = result.data;
-    }
     const offStreetInScope = scopedParkings.filter((parking) => parking.type === "OFF_STREET");
 
     // Capacidad (§8): resuelta para los parkings que realmente calzan con
@@ -66,7 +60,6 @@ export async function GET(request) {
     return NextResponse.json({
       data: {
         ...overview,
-        companyIdentity,
         // La ocupación real se resuelve aquí (no dentro de
         // getOffStreetDashboardOverview) porque su capacidad
         // (getDashboardCapacity) se calcula en paralelo, en un dominio

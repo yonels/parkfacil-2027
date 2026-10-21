@@ -54,6 +54,9 @@ export function toRevenueTransactionRow(stay, { timeZone = OPERATIONAL_TIME_ZONE
     shiftLabel,
     paymentMethod: classifiedPaymentMethod(stay),
     amount: Number(stay?.total_amount) || 0,
+    // Cupón (SOL-2026-10-19-002): código y descuento aplicado al pago.
+    couponCode: stay?.coupon_code || "",
+    discountAmount: Number(stay?.discount_amount) || 0,
     paymentCode: stay?.payment_code || "-",
     status: stay?.status || null,
   };
@@ -67,8 +70,14 @@ export function summarizeRevenueRows(rows) {
   let totalAmount = 0;
   let cashAmount = 0;
   let cardAmount = 0;
+  let couponCount = 0;
+  let couponDiscountAmount = 0;
   for (const row of list) {
     const amount = Number(row?.total_amount) || 0;
+    if (row?.coupon_code || row?.coupon_id) {
+      couponCount += 1;
+      couponDiscountAmount += Number(row?.discount_amount) || 0;
+    }
     totalAmount += amount;
     const method = String(row?.payment_method || "").toUpperCase();
     if (method === "CASH") cashAmount += amount;
@@ -82,6 +91,8 @@ export function summarizeRevenueRows(rows) {
     ...summarizeCardTypes(list),
     count,
     averageTicket: count > 0 ? Math.round(totalAmount / count) : 0,
+    couponCount,
+    couponDiscountAmount,
   };
 }
 
@@ -150,6 +161,9 @@ export function toRevenueClosureRow(row) {
     declaredCashAmount: row?.declared_cash_amount != null ? Number(row.declared_cash_amount) : null,
     cashDifference: row?.cash_difference != null ? Number(row.cash_difference) : null,
     differenceObservation: row?.difference_observation || "",
+    // Cupones del turno (SOL-2026-10-19-002): calculados desde las estadías del turno.
+    couponCount: Number(row?.coupon_count) || 0,
+    couponDiscountAmount: Number(row?.coupon_discount_amount) || 0,
     status: row?.closure_status || "CONFIRMED",
     confirmedBy: row?.confirmed_by || null,
     confirmedAt: row?.confirmed_at || null,

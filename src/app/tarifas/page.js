@@ -151,6 +151,12 @@ export default function TarifasPage() {
                 <p className="mt-1 flex items-center justify-between text-base font-bold text-[#041E42]">Pago liberado <ArrowRight className="h-4 w-4 text-[#3150D8]" /></p>
                 <p className="mt-1 text-sm text-slate-600">Estacionamiento liberado para patentes autorizadas, con cupos simultáneos. ParkFacil cobra un importe mensual + IVA que se define en cada propuesta.</p>
               </Link>
+              {/* Cupones y descuentos (SOL-2026-10-19-002, etapa C): módulo contratable por empresa. */}
+              <Link href="/tarifas/modulos/cupones" className="group rounded-2xl border border-slate-200 p-4 hover:border-[#3150D8] hover:bg-[#F5F9FF]">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Off Street</p>
+                <p className="mt-1 flex items-center justify-between text-base font-bold text-[#041E42]">Cupones y descuentos <ArrowRight className="h-4 w-4 text-[#3150D8]" /></p>
+                <p className="mt-1 text-sm text-slate-600">Cupones QR de un solo uso que las tiendas entregan y el POS canjea al cobrar. Se contrata por empresa: importe mensual + IVA definido en cada propuesta.</p>
+              </Link>
             </div>
           </section>
         ) : null}

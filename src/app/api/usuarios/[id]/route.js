@@ -15,6 +15,7 @@ function respuestaDetalle(result, id, context) {
       user,
       company,
       parkings,
+      availableParkings: user ? result.parkings.filter((item) => item.empresaId === user.empresaId) : [],
       canManageCredentials: [ROLES.PLATFORM_ADMIN, ROLES.COMPANY_ADMIN].includes(context.role),
       canSetDirectPassword: context.role === ROLES.PLATFORM_ADMIN && context.portal === "root",
     },
@@ -82,11 +83,52 @@ export async function PATCH(request, { params }) {
   }
 
   const { errors, memberUpdate, phone, email } = buildUserProfileUpdate(payload);
+  const parkingIds = Object.prototype.hasOwnProperty.call(payload, "parkingIds")
+    ? [...new Set(Array.isArray(payload.parkingIds) ? payload.parkingIds.filter(Boolean).map(String) : [])]
+    : undefined;
+  if (Object.prototype.hasOwnProperty.call(payload, "parkingIds") && !Array.isArray(payload.parkingIds)) {
+    errors.push("La asignación de estacionamientos no es válida.");
+  }
   if (errors.length) {
     return NextResponse.json({ error: errors[0], details: errors, code: "VALIDATION_ERROR" }, { status: 400 });
   }
-  if (!Object.keys(memberUpdate).length && phone === undefined && email === undefined) {
+  if (!Object.keys(memberUpdate).length && phone === undefined && email === undefined && parkingIds === undefined) {
     return NextResponse.json({ error: "No hay cambios para guardar.", code: "NO_CHANGES" }, { status: 400 });
+  }
+
+  if (parkingIds !== undefined) {
+    const currentAccess = await db.from("company_member_parkings").select("parking_id,access_level").eq("user_id", id);
+    if (currentAccess.error) {
+      return NextResponse.json({ error: "No fue posible leer los estacionamientos actuales.", code: "PARKINGS_READ_FAILED" }, { status: 500 });
+    }
+    if (parkingIds.length) {
+      const validParkings = await db.from("parkings").select("id").eq("company_id", member.company_id).in("id", parkingIds);
+      if (validParkings.error) {
+        return NextResponse.json({ error: "No fue posible validar los estacionamientos.", code: "PARKINGS_READ_FAILED" }, { status: 500 });
+      }
+      const validIds = new Set((validParkings.data || []).map((item) => item.id));
+      if (parkingIds.some((parkingId) => !validIds.has(parkingId))) {
+        return NextResponse.json({ error: "Algunos estacionamientos no pertenecen a la empresa del usuario.", code: "PARKING_SCOPE_INVALID" }, { status: 400 });
+      }
+    }
+
+    const removed = await db.from("company_member_parkings").delete().eq("user_id", id);
+    if (removed.error) {
+      return NextResponse.json({ error: "No fue posible actualizar los estacionamientos.", code: "PARKINGS_UPDATE_FAILED" }, { status: 500 });
+    }
+    if (parkingIds.length) {
+      const inserted = await db.from("company_member_parkings").insert(parkingIds.map((parkingId) => ({
+        user_id: id,
+        parking_id: parkingId,
+        access_level: member.role === ROLES.OPERATOR ? "POS_OPERATOR" : "ADMIN",
+      })));
+      if (inserted.error) {
+        if (currentAccess.data?.length) {
+          await db.from("company_member_parkings").insert(currentAccess.data.map((item) => ({ user_id: id, parking_id: item.parking_id, access_level: item.access_level })));
+        }
+        return NextResponse.json({ error: "No fue posible actualizar los estacionamientos.", code: "PARKINGS_UPDATE_FAILED" }, { status: 500 });
+      }
+    }
   }
 
   if (Object.keys(memberUpdate).length) {

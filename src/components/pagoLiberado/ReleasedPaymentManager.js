@@ -8,6 +8,9 @@ import { CONTRACT_TERMS_MONTHS, contractPeriodText, describeContract, formatUf, 
 import { authorizationPaymentStatus, currentPayment, describePayment, PAYMENT_METHOD_CODES, PAYMENT_METHODS, PAYMENT_STATUS, PAYMENT_STATUS_LABELS, validatePaymentInput } from "@/lib/releasedPayment/paymentCore.mjs";
 import { describeTerms, formatClp, quantityText, TARIFF_UNIT_CODES, TARIFF_UNITS, VAT_TREATMENT_LABELS } from "@/lib/releasedPayment/tariffCore.mjs";
 import { formatLocalDateTime, toLocalInputValue } from "@/lib/releasedPayment/zonedTime.mjs";
+import { summarizeEventValues as summarizeValues, tariffText } from "@/lib/releasedPayment/reportCore.mjs";
+import ReleasedPaymentRegularization from "./ReleasedPaymentRegularization";
+import ReleasedPaymentReports from "./ReleasedPaymentReports";
 
 // Off Street — Pago liberado, Etapa 1 (SOL-2026-10-16-003; modelo de
 // SOL-2026-10-05-002).
@@ -22,8 +25,8 @@ import { formatLocalDateTime, toLocalInputValue } from "@/lib/releasedPayment/zo
 //   una copia de lo acordado (tarifa × cantidad = total, inicio y término),
 //   y registra el PAGO RECIBIDO del total acordado (sin parciales).
 //   Ve la contratación, no la cambia.
-// - El POS aplica el beneficio desde la Etapa 2; los reportes llegan en la
-//   Etapa 3.
+// - El POS aplica el beneficio desde la Etapa 2; los reportes (Etapa 3) se
+//   generan por estacionamiento en ReleasedPaymentReports.
 // Toda regla se valida además en el servidor (rutas + RPC).
 
 const STATUS_STYLES = {
@@ -82,38 +85,6 @@ function Message({ state }) {
       {state.text}
     </div>
   );
-}
-
-function tariffText(tariff) {
-  const unit = TARIFF_UNITS[tariff.billingUnit];
-  return `${unit?.label || tariff.billingUnit}: ${formatClp(tariff.unitPrice)} por ${unit?.singular || "unidad"} (${VAT_TREATMENT_LABELS[tariff.vatTreatment] || tariff.vatTreatment})${tariff.label ? ` · ${tariff.label}` : ""}`;
-}
-
-function summarizeValues(values) {
-  if (!values || typeof values !== "object" || !Object.keys(values).length) return "—";
-  if ("enabled" in values) return values.enabled ? "Activo" : "Desactivado";
-  if ("retired" in values && Object.keys(values).length <= 2) return `Tarifa ${TARIFF_UNITS[values.billing_unit]?.label?.toLowerCase() || ""} retirada`;
-  if ("operational_spots" in values) return `${values.operational_spots ?? "sin configurar"} cupos`;
-  if ("amount" in values && "method" in values) {
-    const text = describePayment({ amount: Number(values.amount), method: values.method, paidAt: values.paid_at, reference: values.reference });
-    return values.status === "VOIDED" ? `${text} · anulado: ${values.void_reason || ""}` : text;
-  }
-  if ("unit_price" in values && "billing_unit" in values && !("license_plate" in values)) {
-    return `v${values.version} · ${tariffText({ billingUnit: values.billing_unit, unitPrice: Number(values.unit_price), vatTreatment: values.vat_treatment, label: values.label })}`;
-  }
-  if ("monthly_fee_uf" in values) {
-    return describeContract({
-      monthlyFeeUf: Number(values.monthly_fee_uf), termMonths: values.term_months,
-      baseMonthlyFeeUf: values.base_monthly_fee_uf === null || values.base_monthly_fee_uf === undefined ? null : Number(values.base_monthly_fee_uf),
-    }) + (values.contract_reference ? ` · referencia ${values.contract_reference}` : "");
-  }
-  if ("license_plate" in values) {
-    const terms = values.tariff_id
-      ? describeTerms({ billingUnit: values.billing_unit, quantity: values.quantity, unitPrice: Number(values.unit_price), totalAmount: Number(values.total_amount), netAmount: Number(values.net_amount), taxAmount: Number(values.tax_amount) })
-      : "sin condiciones comerciales";
-    return `${values.license_plate} · ${describeAuthorization({ kind: values.kind, validFrom: values.valid_from, validTo: values.valid_to, schedule: values.schedule })} · ${terms} · ${values.status === "REVOKED" ? "Revocada" : "Activa"}`;
-  }
-  return JSON.stringify(values);
 }
 
 // ------------------------------------------------------------------
@@ -753,6 +724,20 @@ function ParkingDetail({ parkingId, permissions, onChanged }) {
           ) : null}
         </section>
       ) : null}
+
+      {contract ? (
+        <ReleasedPaymentRegularization
+          parkingId={parkingId}
+          canEdit={permissions.isAdmin}
+          openStays={detail.openReleasedStays || []}
+          closedStays={detail.recentClosedReleasedStays || []}
+          regularizations={detail.regularizations || []}
+          authorizations={detail.authorizations}
+          onSaved={refresh}
+        />
+      ) : null}
+
+      {contract ? <ReleasedPaymentReports parkingId={parkingId} parkingLabel={detail.parking?.code || ""} /> : null}
 
       <section className={card}>
         <h3 className="text-lg font-bold text-[#041E42]">Historial</h3>

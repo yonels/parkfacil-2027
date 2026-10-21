@@ -22,6 +22,7 @@ import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import EstadoUsuarioBadge from "@/components/usuarios/EstadoUsuarioBadge";
 import PerfilUsuarioBadge from "@/components/usuarios/PerfilUsuarioBadge";
+import { UsuarioFichaModal } from "@/components/usuarios/UsuariosPorRolClient";
 import { getPerfilLabel } from "@/data/usuarios.mjs";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import { generateSecurePassword } from "@/lib/generateSecurePassword";
@@ -99,6 +100,7 @@ export default function UsuarioDetalleClient({ userId }) {
   const [editDraft, setEditDraft] = useState({ nombreCompleto: "", usuarioAcceso: "", recoveryEmail: "", telefono: "", estado: "active" });
   const [editError, setEditError] = useState("");
   const [editEnviando, setEditEnviando] = useState(false);
+  const [modalEdicionAbierto, setModalEdicionAbierto] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -151,6 +153,7 @@ export default function UsuarioDetalleClient({ userId }) {
   const usuario = data?.user || null;
   const empresa = data?.company || null;
   const estacionamientos = data?.parkings || [];
+  const estacionamientosDisponibles = data?.availableParkings || estacionamientos;
 
   if (!usuario || error) {
     const sessionExpired = error === "SESSION_EXPIRED";
@@ -342,15 +345,13 @@ export default function UsuarioDetalleClient({ userId }) {
                 <EstadoUsuarioBadge estado={usuario.estado} />
                 <PerfilUsuarioBadge perfil={usuario.perfilPrincipal} />
               </div>
-              {!editando ? (
-                <button type="button" onClick={abrirEdicion} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
+              <button type="button" onClick={() => setModalEdicionAbierto(true)} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
                   <Pencil className="h-4 w-4" /> Editar
-                </button>
-              ) : null}
+              </button>
             </div>
             <h3 className="mt-5 text-2xl font-semibold text-[#041E42]">Datos del usuario</h3>
 
-            {editando ? (
+            {false && editando ? (
               <form onSubmit={guardarEdicion} className="mt-6 space-y-4">
                 {editError ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{editError}</p> : null}
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -457,7 +458,9 @@ export default function UsuarioDetalleClient({ userId }) {
 
         {permisosFlags.canManageCredentials ? (
           <section className="rounded-3xl border-2 border-[#3150D8]/30 bg-white p-6 shadow-sm">
-            <div className="flex items-center gap-2 text-[#3150D8]"><KeyRound className="h-5 w-5" /><h3 className="text-xl font-semibold text-[#041E42]">Acceso y contraseña</h3></div>
+            <div className="flex items-center gap-2 text-[#3150D8]"><KeyRound className="h-5 w-5" /><h3 className="text-xl font-semibold text-[#041E42]">Seguridad</h3></div>
+            <p className="mt-4 text-sm text-slate-600">Correo de recuperación</p>
+            <strong className="mt-1 block break-words text-[#041E42] [overflow-wrap:anywhere]">{usuario.recoveryEmail || "Sin configurar"}</strong>
             <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
               <span>Estado:</span>
               <EstadoUsuarioBadge estado={usuario.estado} />
@@ -468,11 +471,11 @@ export default function UsuarioDetalleClient({ userId }) {
             {accionMensaje ? <p role="status" className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{accionMensaje}</p> : null}
 
             <div className="mt-5 flex flex-wrap gap-3">
-              <button type="button" onClick={enviarRecuperacion} disabled={recuperacionEnviando} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1E5EFF] disabled:opacity-60">
+              <button type="button" onClick={enviarRecuperacion} disabled={!usuario.recoveryEmail || recuperacionEnviando} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1E5EFF] disabled:cursor-not-allowed disabled:opacity-50">
                 {recuperacionEnviando ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {recuperacionEnviando ? "Enviando..." : "Enviar recuperación de contraseña"}
               </button>
-              <button type="button" onClick={generarClaveTemporal} disabled={claveTemporalGenerando} className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm font-semibold text-amber-800 transition hover:bg-amber-100 disabled:opacity-60">
+              <button type="button" onClick={generarClaveTemporal} disabled={claveTemporalGenerando} className="hidden">
                 {claveTemporalGenerando ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
                 {claveTemporalGenerando ? "Generando..." : "Generar clave temporal"}
               </button>
@@ -482,8 +485,9 @@ export default function UsuarioDetalleClient({ userId }) {
                 </button>
               ) : null}
             </div>
+            {!usuario.recoveryEmail ? <p className="mt-2 text-sm text-amber-700">Debes configurar un correo de recuperación antes de enviar el enlace.</p> : null}
 
-            {credencialResultado ? (
+            {false && credencialResultado ? (
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm font-semibold text-amber-900">{credencialResultado.mustChangePassword ? "Clave temporal generada" : "Clave establecida"}</p>
                 <code className="mt-2 block rounded-lg bg-white px-3 py-2 text-sm font-bold text-amber-900">{credencialResultado.temporaryPassword}</code>
@@ -495,7 +499,7 @@ export default function UsuarioDetalleClient({ userId }) {
               </div>
             ) : null}
 
-            {claveDirectaAbierta ? (
+            {false && claveDirectaAbierta ? (
               <form onSubmit={establecerClaveDirecta} className="mt-5 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
                 <h4 className="text-base font-semibold text-[#041E42]">Establecer nueva clave</h4>
                 {claveDirectaError ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{claveDirectaError}</p> : null}
@@ -565,6 +569,17 @@ export default function UsuarioDetalleClient({ userId }) {
               ))}
             </ul> : <p className="mt-3 text-sm text-slate-600">No hay turnos registrados para este operador.</p>}
           </section>
+        ) : null}
+        {modalEdicionAbierto ? (
+          <UsuarioFichaModal
+            mode="edit"
+            role={usuario.perfilPrincipal}
+            user={usuario}
+            companies={empresa ? [empresa] : []}
+            parkings={estacionamientosDisponibles}
+            onClose={() => setModalEdicionAbierto(false)}
+            onSaved={cargar}
+          />
         ) : null}
       </div>
     </AppShell>

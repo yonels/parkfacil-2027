@@ -6,9 +6,12 @@ import {
   ArrowUpAZ,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Download,
   GripVertical,
   LayoutList,
+  RotateCcw,
   Search,
 } from "lucide-react";
 
@@ -81,6 +84,25 @@ function sortIndicator(direction) {
   return <ChevronDown className="h-3.5 w-3.5 opacity-35" aria-hidden="true" />;
 }
 
+// serverMode (§7 de la auditoría 2026-08-28, paginación server-side de
+// Reportes On Street): extensión OPCIONAL y retrocompatible -- si no se
+// pasa, el comportamiento es idéntico al de siempre (100% client-side,
+// como usan Dashboard/Sesiones/Pagos/Fiscalizaciones/Inspectores hoy). Solo
+// Reportes (la tabla de gran volumen, §7.1) pasa serverMode=true. En ese
+// modo:
+//  - "rows" ya viene paginada/ordenada desde el servidor -- no se vuelve a
+//    filtrar/ordenar/paginar en el navegador (evita ordenar solo la página
+//    visible, que el brief prohíbe explícitamente).
+//  - la búsqueda global y los filtros por columna del grid se ocultan: el
+//    filtrado real ya es server-side vía los controles propios de la
+//    página (period/parking/área/etc.), filtrar solo la página visible
+//    aquí encima sería engañoso.
+//  - el pie de paginación (página X de Y, tamaño de página) se muestra y
+//    delega en onPageChange/onPageSizeChange/onSortChange.
+//  - los botones CSV/XLSX propios del grid se ocultan (exportarían solo la
+//    página visible): la página que use serverMode debe ofrecer su propio
+//    botón de exportación que pida el dataset COMPLETO filtrado al
+//    servidor (ver exportReportExcel en OnStreetReports.js).
 export default function ParkFacilDataGrid({
   storageKey,
   columns,
@@ -92,6 +114,24 @@ export default function ParkFacilDataGrid({
   emptyMessage = "Sin resultados.",
   exportFilename = "parkfacil_datos",
   exportSheetName = "Datos",
+  serverMode = false,
+  serverSort = null,
+  onSortChange,
+  pagination = null,
+  onPageChange,
+  onPageSizeChange,
+  pageSizeOptions = [25, 50, 100],
+  // renderMobileCard (2026-09-01, "cards móviles reutilizables"): función
+  // OPCIONAL y retrocompatible -- (row) => ReactNode. Si no se pasa, el
+  // comportamiento es IDÉNTICO al de siempre (tabla visible en todos los
+  // tamaños, con su propio scroll horizontal interno, ya corregido en el
+  // fix responsive anterior). Si se pasa, por debajo de "lg" se reemplaza
+  // la tabla por una lista de tarjetas (una por fila de `sortedRows`, ya
+  // filtradas/ordenadas/buscadas -- ningún dato ni lógica se duplica), y
+  // desde "lg" la tabla sigue exactamente igual. La navegación/acción de
+  // cada tarjeta es responsabilidad de quien la renderiza (mismo patrón
+  // que columns[].render), no de este componente.
+  renderMobileCard,
 }) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState({ key: null, direction: null });
@@ -101,6 +141,7 @@ export default function ParkFacilDataGrid({
   const [visibleKeys, setVisibleKeys] = useState(columns.map((column) => column.key));
   const [selectedIds, setSelectedIds] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const allCheckboxRef = useRef(null);
   const liveWidthRef = useRef({});
 
@@ -143,6 +184,7 @@ export default function ParkFacilDataGrid({
   }, [visibleColumns, widthByKey]);
 
   const filteredRows = useMemo(() => {
+    if (serverMode) return rows; // filtrado ya server-side, ver nota arriba.
     const query = String(search || "").trim().toLocaleLowerCase("es");
     return rows.filter((row) => {
       const globalText = typeof globalSearchAccessor === "function"
@@ -163,9 +205,10 @@ export default function ParkFacilDataGrid({
       }
       return true;
     });
-  }, [rows, search, globalSearchAccessor, visibleColumns, columns, filters]);
+  }, [serverMode, rows, search, globalSearchAccessor, visibleColumns, columns, filters]);
 
   const sortedRows = useMemo(() => {
+    if (serverMode) return filteredRows; // ya viene ordenada por el servidor -- ver nota arriba, nunca se reordena solo la página visible.
     if (!sort.key || !sort.direction) return filteredRows;
     const column = columns.find((item) => item.key === sort.key);
     if (!column) return filteredRows;
@@ -176,7 +219,7 @@ export default function ParkFacilDataGrid({
       const bv = toCellText(column, b);
       return compare(av, bv, a, b) * factor;
     });
-  }, [filteredRows, sort, columns]);
+  }, [serverMode, filteredRows, sort, columns]);
 
   const rowIds = useMemo(() => sortedRows.map((row) => String(row[rowIdKey])), [sortedRows, rowIdKey]);
   const selectedSet = useMemo(() => {
@@ -200,6 +243,12 @@ export default function ParkFacilDataGrid({
   };
 
   const cycleSort = (columnKey) => {
+    if (serverMode) {
+      const current = serverSort || {};
+      const next = current.key !== columnKey ? "asc" : current.direction === "asc" ? "desc" : current.direction === "desc" ? null : "asc";
+      onSortChange?.(next ? columnKey : null, next);
+      return;
+    }
     setSort((current) => {
       if (current.key !== columnKey) return { key: columnKey, direction: "asc" };
       if (current.direction === "asc") return { key: columnKey, direction: "desc" };
@@ -207,6 +256,7 @@ export default function ParkFacilDataGrid({
       return { key: columnKey, direction: "asc" };
     });
   };
+  const effectiveSort = serverMode ? (serverSort || { key: null, direction: null }) : sort;
 
   const onResizeStart = (event, column) => {
     event.preventDefault();
@@ -248,6 +298,24 @@ export default function ParkFacilDataGrid({
       storageSet(`parkfacil:grid:${storageKey}:order`, next);
       return next;
     });
+  };
+
+  // "Restablecer columnas" (§29 del brief): vuelve orden/ancho/visibilidad
+  // a los valores por defecto de la definición de columnas y borra las tres
+  // claves de localStorage de esta grilla — no toca orden/filtro/búsqueda
+  // de filas, solo la disposición de columnas.
+  const resetColumns = () => {
+    const defaultOrder = columns.map((column) => column.key);
+    setOrderedKeys(defaultOrder);
+    setWidthByKey({});
+    setVisibleKeys(defaultOrder);
+    try {
+      window.localStorage.removeItem(`parkfacil:grid:${storageKey}:order`);
+      window.localStorage.removeItem(`parkfacil:grid:${storageKey}:widths`);
+      window.localStorage.removeItem(`parkfacil:grid:${storageKey}:visible`);
+    } catch {
+      // Ignore storage removal failures.
+    }
   };
 
   const toggleVisibleColumn = (columnKey) => {
@@ -300,69 +368,158 @@ export default function ParkFacilDataGrid({
   return (
     <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-        <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
-          <Search className="h-4 w-4 text-[#3150D8]" />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={globalSearchPlaceholder}
-            className="w-full bg-transparent outline-none"
-            aria-label="Buscar en la grilla"
-          />
-        </div>
+        {serverMode ? (
+          <p className="min-w-[260px] flex-1 text-xs text-slate-500">Filtros aplicados en el panel de arriba (server-side).</p>
+        ) : (
+          <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            <Search className="h-4 w-4 text-[#3150D8]" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder={globalSearchPlaceholder}
+              className="w-full bg-transparent outline-none"
+              aria-label="Buscar en la grilla"
+            />
+          </div>
+        )}
 
-        <div className="flex items-center gap-2 text-xs text-slate-600">
-          <span className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold">{sortedRows.length} filas</span>
-          <span className="rounded-full bg-[#F5F9FF] px-3 py-1.5 font-semibold text-[#3150D8]">{selectedSet.size} seleccionadas</span>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 lg:flex-nowrap">
+          <span className="rounded-full bg-slate-100 px-3 py-1.5 font-semibold">
+            {serverMode && pagination ? `Mostrando ${pagination.totalRows ? (pagination.page - 1) * pagination.pageSize + 1 : 0}–${Math.min(pagination.page * pagination.pageSize, pagination.totalRows)} de ${pagination.totalRows.toLocaleString("es-CL")}` : `${sortedRows.length} filas`}
+          </span>
+          {/* En móvil, cuando existe vista de tarjetas (renderMobileCard), la
+             tabla con checkboxes de selección está oculta -- el contador
+             "seleccionadas" no aporta valor ahí, así que se oculta solo <lg
+             y solo para grillas que ya usan tarjetas (2026-09-01, "cabecera
+             móvil compacta"). Ninguna otra grilla ni el desktop cambian: ni
+             el estado `selectedSet` ni sus manejadores se tocan. */}
+          {!serverMode ? <span className={`rounded-full bg-[#F5F9FF] px-3 py-1.5 font-semibold text-[#3150D8] ${renderMobileCard ? "hidden lg:inline-flex" : ""}`}>{selectedSet.size} seleccionadas</span> : null}
 
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setMenuOpen((current) => !current)}
-              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold"
-            >
-              <LayoutList className="h-3.5 w-3.5" /> Columnas
+          {/* Desktop (>=lg): controles inline, comportamiento idéntico al de siempre. */}
+          <div className="hidden items-center gap-2 lg:flex">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setMenuOpen((current) => !current)}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold"
+              >
+                <LayoutList className="h-3.5 w-3.5" /> Columnas
+              </button>
+              {menuOpen ? (
+                <div className="absolute right-0 z-30 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
+                  {orderedColumns.map((column) => {
+                    if (column.key === "_selection") return null;
+                    const visible = visibleKeys.includes(column.key);
+                    const canHide = !column.required;
+                    return (
+                      <button
+                        key={column.key}
+                        type="button"
+                        disabled={!canHide}
+                        onClick={() => canHide && toggleVisibleColumn(column.key)}
+                        className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <span>{column.label}</span>
+                        <span className={`inline-flex h-5 w-5 items-center justify-center rounded border ${visible ? "border-[#3150D8] bg-[#3150D8] text-white" : "border-slate-300 text-transparent"}`}>
+                          <Check className="h-3.5 w-3.5" />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+
+            <button type="button" onClick={resetColumns} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold" title="Vuelve el orden, ancho y visibilidad de columnas a los valores por defecto">
+              <RotateCcw className="h-3.5 w-3.5" /> Restablecer columnas
             </button>
-            {menuOpen ? (
-              <div className="absolute right-0 z-30 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
-                {orderedColumns.map((column) => {
-                  if (column.key === "_selection") return null;
-                  const visible = visibleKeys.includes(column.key);
-                  const canHide = !column.required;
-                  return (
-                    <button
-                      key={column.key}
-                      type="button"
-                      disabled={!canHide}
-                      onClick={() => canHide && toggleVisibleColumn(column.key)}
-                      className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <span>{column.label}</span>
-                      <span className={`inline-flex h-5 w-5 items-center justify-center rounded border ${visible ? "border-[#3150D8] bg-[#3150D8] text-white" : "border-slate-300 text-transparent"}`}>
-                        <Check className="h-3.5 w-3.5" />
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+
+            {!serverMode ? (
+              <>
+                <button type="button" onClick={exportCsv} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold">
+                  <Download className="h-3.5 w-3.5" /> CSV
+                </button>
+                <button type="button" onClick={exportXlsx} className="inline-flex items-center gap-1 rounded-full bg-[#3150D8] px-3 py-1.5 font-semibold text-white">
+                  <Download className="h-3.5 w-3.5" /> XLSX
+                </button>
+              </>
             ) : null}
           </div>
 
-          <button type="button" onClick={exportCsv} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold">
-            <Download className="h-3.5 w-3.5" /> CSV
-          </button>
-          <button type="button" onClick={exportXlsx} className="inline-flex items-center gap-1 rounded-full bg-[#3150D8] px-3 py-1.5 font-semibold text-white">
-            <Download className="h-3.5 w-3.5" /> XLSX
-          </button>
+          {/* Mobile/tablet (<lg): Columnas/Restablecer/CSV/XLSX agrupados bajo
+             "Más" -- mismas acciones, mismos manejadores, solo agrupadas para
+             no competir por espacio con Buscar/filas en pantallas angostas. */}
+          <div className="relative lg:hidden">
+            <button
+              type="button"
+              onClick={() => setMoreOpen((current) => !current)}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold"
+              aria-expanded={moreOpen}
+            >
+              <LayoutList className="h-3.5 w-3.5" /> Más
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${moreOpen ? "rotate-180" : ""}`} aria-hidden="true" />
+            </button>
+            {moreOpen ? (
+              <div className="absolute right-0 z-30 mt-2 w-64 space-y-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen((current) => !current)}
+                    className="flex w-full items-center gap-1 rounded-xl px-2 py-2 text-left text-sm font-semibold hover:bg-slate-50"
+                  >
+                    <LayoutList className="h-3.5 w-3.5" /> Columnas
+                  </button>
+                  {menuOpen ? (
+                    <div className="mt-1 space-y-1 border-t border-slate-100 pt-1">
+                      {orderedColumns.map((column) => {
+                        if (column.key === "_selection") return null;
+                        const visible = visibleKeys.includes(column.key);
+                        const canHide = !column.required;
+                        return (
+                          <button
+                            key={column.key}
+                            type="button"
+                            disabled={!canHide}
+                            onClick={() => canHide && toggleVisibleColumn(column.key)}
+                            className="flex w-full items-center justify-between rounded-xl px-2 py-2 text-left text-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <span>{column.label}</span>
+                            <span className={`inline-flex h-5 w-5 items-center justify-center rounded border ${visible ? "border-[#3150D8] bg-[#3150D8] text-white" : "border-slate-300 text-transparent"}`}>
+                              <Check className="h-3.5 w-3.5" />
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+
+                <button type="button" onClick={resetColumns} className="flex w-full items-center gap-1 rounded-xl px-2 py-2 text-left text-sm font-semibold hover:bg-slate-50">
+                  <RotateCcw className="h-3.5 w-3.5" /> Restablecer columnas
+                </button>
+
+                {!serverMode ? (
+                  <>
+                    <button type="button" onClick={exportCsv} className="flex w-full items-center gap-1 rounded-xl px-2 py-2 text-left text-sm font-semibold hover:bg-slate-50">
+                      <Download className="h-3.5 w-3.5" /> CSV
+                    </button>
+                    <button type="button" onClick={exportXlsx} className="flex w-full items-center gap-1 rounded-xl bg-[#F5F9FF] px-2 py-2 text-left text-sm font-semibold text-[#3150D8] hover:bg-blue-50">
+                      <Download className="h-3.5 w-3.5" /> XLSX
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </header>
 
-      <div className="overflow-auto">
+      <div className={renderMobileCard ? "hidden overflow-auto lg:block" : "overflow-auto"}>
         <table className="min-w-full border-collapse text-left text-sm">
           <thead className="sticky top-0 z-20 bg-[#F7FAFF] text-[#041E42]">
             <tr>
               {visibleColumns.map((column) => {
-                const isSorted = sort.key === column.key;
+                const isSorted = effectiveSort.key === column.key;
                 const width = Number(widthByKey[column.key] || column.width || 180);
                 const sticky = column.pinned
                   ? { position: "sticky", left: `${pinnedOffsets[column.key]}px`, zIndex: 25, background: "#F7FAFF" }
@@ -397,7 +554,7 @@ export default function ParkFacilDataGrid({
                         >
                           <GripVertical className="h-3.5 w-3.5 text-slate-400" />
                           <span>{column.label}</span>
-                          {sortIndicator(isSorted ? sort.direction : null)}
+                          {sortIndicator(isSorted ? effectiveSort.direction : null)}
                         </button>
                       </div>
                     )}
@@ -414,7 +571,7 @@ export default function ParkFacilDataGrid({
               })}
             </tr>
 
-            <tr>
+            {!serverMode ? <tr>
               {visibleColumns.map((column) => {
                 const sticky = column.pinned
                   ? { position: "sticky", left: `${pinnedOffsets[column.key]}px`, zIndex: 24, background: "#F7FAFF" }
@@ -445,7 +602,7 @@ export default function ParkFacilDataGrid({
                   </th>
                 );
               })}
-            </tr>
+            </tr> : null}
           </thead>
 
           <tbody>
@@ -498,6 +655,53 @@ export default function ParkFacilDataGrid({
           </tbody>
         </table>
       </div>
+
+      {renderMobileCard ? (
+        <div className="grid gap-3 p-4 lg:hidden">
+          {sortedRows.map((row) => (
+            <div key={String(row[rowIdKey])}>{renderMobileCard(row)}</div>
+          ))}
+          {!sortedRows.length ? (
+            <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">{emptyMessage}</p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {serverMode && pagination ? (
+        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-xs text-slate-600">
+          <label className="flex items-center gap-2 font-semibold">
+            Filas por página
+            <select
+              value={pagination.pageSize}
+              onChange={(event) => onPageSizeChange?.(Number(event.target.value))}
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1"
+            >
+              {pageSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">Página {pagination.page} de {pagination.totalPages || 1}</span>
+            <button
+              type="button"
+              onClick={() => onPageChange?.(Math.max(1, pagination.page - 1))}
+              disabled={pagination.page <= 1}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Página anterior"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" /> Anterior
+            </button>
+            <button
+              type="button"
+              onClick={() => onPageChange?.(Math.min(pagination.totalPages || 1, pagination.page + 1))}
+              disabled={pagination.page >= (pagination.totalPages || 1)}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+              aria-label="Página siguiente"
+            >
+              Siguiente <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </footer>
+      ) : null}
     </section>
   );
 }

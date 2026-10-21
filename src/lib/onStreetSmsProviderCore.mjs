@@ -21,11 +21,17 @@ export const simulatedSmsProvider = {
 // contrato interno { ok, providerMessageId, providerStatus,
 // providerDescription, errorCode }. onStreetSmsService.js es quien
 // persiste esos campos — este adaptador no toca la base de datos.
-export const sentralandSmsProvider = {
-  name: "SENTRALAND",
+export function createSentralandSmsProvider({ getToken = sentralandGetToken, sendSms = sentralandSendSms, queryStatus = sentralandQueryStatus } = {}) {
+  return { name: "SENTRALAND",
   async send({ to, message }) {
-    const token = await sentralandGetToken();
-    const result = await sentralandSendSms({ fono: to, mensaje: message, token });
+    let token = await getToken();
+    let result;
+    try { result = await sendSms({ fono: to, mensaje: message, token }); }
+    catch (cause) {
+      if (cause?.code !== "SENTRALAND_HTTP_ERROR" || cause.status !== 401) throw cause;
+      token = await getToken();
+      result = await sendSms({ fono: to, mensaje: message, token });
+    }
     return {
       ok: result.ok,
       providerMessageId: result.idmensaje,
@@ -35,10 +41,12 @@ export const sentralandSmsProvider = {
     };
   },
   async checkStatus({ providerMessageId }) {
-    const status = await sentralandQueryStatus({ idmensaje: providerMessageId });
+    const status = await queryStatus({ idmensaje: providerMessageId });
     return { deliveryState: status.deliveryState, providerStatus: status.estado, providerDescription: status.descripcion };
   },
-};
+}; }
+
+export const sentralandSmsProvider = createSentralandSmsProvider();
 
 const PROVIDERS = Object.freeze({
   simulated: simulatedSmsProvider,

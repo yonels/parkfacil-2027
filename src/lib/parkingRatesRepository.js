@@ -1,7 +1,68 @@
 import { classifyRateCompliance } from "./parkingRates.mjs";
 
 const mapBlock = (row) => ({ id: row.id, sequence: row.sequence, durationSeconds: row.duration_seconds, amount: Number(row.amount), repeatAfter: row.repeat_after });
-function mapRate(row, blocks, usedRateIds = new Set()) {
+
+// Franjas horarias (SOL-2026-10-08-003). Un esquema sin la migración
+// 20261008100000 (tablas inexistentes) se trata como "sin franjas": las tarifas
+// clásicas siguen cotizando aunque el código llegue antes que la migración.
+const MISSING_SCHEMA_CODES = new Set(["42P01", "42703", "PGRST204", "PGRST205"]);
+export function isMissingTimeBandsSchema(error) {
+  return Boolean(error) && MISSING_SCHEMA_CODES.has(error.code);
+}
+
+const mapTimeBand = (row) => ({
+  id: row.id, sequence: row.sequence, label: row.label || "",
+  startMinute: Number(row.start_minute), endMinute: Number(row.end_minute),
+  minuteAmount: Number(row.minute_amount), capAmount: row.cap_amount == null ? null : Number(row.cap_amount),
+});
+
+function mapBandSets(rateId, sets, bands) {
+  return sets
+    .filter((set) => set.rate_id === rateId)
+    .sort((a, b) => a.sequence - b.sequence)
+    .map((set) => ({
+      id: set.id, sequence: set.sequence, label: set.label || "",
+      daysOfWeek: (set.days_of_week || []).map(Number).sort((a, b) => a - b),
+      appliesToHolidays: set.applies_to_holidays === true,
+      bands: bands.filter((band) => band.band_set_id === set.id).map(mapTimeBand).sort((a, b) => a.sequence - b.sequence),
+    }));
+}
+
+async function fetchTimeBands(db, rateIds) {
+  const { data: sets, error: setError } = await db.from("parking_rate_band_sets").select("*").in("rate_id", rateIds).order("sequence");
+  if (setError) {
+    if (isMissingTimeBandsSchema(setError)) return { sets: [], bands: [] };
+    throw setError;
+  }
+  if (!sets?.length) return { sets: [], bands: [] };
+  const { data: bands, error: bandError } = await db.from("parking_rate_time_bands").select("*").in("rate_id", rateIds).order("sequence");
+  if (bandError) throw bandError;
+  return { sets, bands: bands || [] };
+}
+
+function bandSetRows(rateId, bandSets) {
+  return (bandSets || []).map((set, setIndex) => ({
+    rate_id: rateId, sequence: setIndex + 1, label: set.label || "",
+    days_of_week: set.daysOfWeek || [], applies_to_holidays: set.appliesToHolidays === true,
+  }));
+}
+
+async function insertTimeBands(db, rateId, bandSets) {
+  if (!bandSets?.length) return;
+  const { data: insertedSets, error: setError } = await db.from("parking_rate_band_sets").insert(bandSetRows(rateId, bandSets)).select("id,sequence");
+  if (setError) throw setError;
+  const setIdBySequence = new Map((insertedSets || []).map((row) => [row.sequence, row.id]));
+  const bandRows = bandSets.flatMap((set, setIndex) => (set.bands || []).map((band, bandIndex) => ({
+    band_set_id: setIdBySequence.get(setIndex + 1), rate_id: rateId, sequence: bandIndex + 1, label: band.label || "",
+    start_minute: band.startMinute, end_minute: band.endMinute, minute_amount: band.minuteAmount,
+    cap_amount: band.capAmount == null ? null : band.capAmount,
+  })));
+  if (bandRows.some((row) => !row.band_set_id)) throw new Error("RATE_BAND_SET_INSERT_MISMATCH");
+  const { error: bandError } = await db.from("parking_rate_time_bands").insert(bandRows);
+  if (bandError) throw bandError;
+}
+
+function mapRate(row, blocks, usedRateIds = new Set(), timeBands = { sets: [], bands: [] }) {
   const hasCharges = usedRateIds.has(row.id);
   const rate = {
     id: row.id, parkingId: row.parking_id, areaId: row.area_id, name: row.name, billingMode: row.billing_mode,
@@ -16,6 +77,8 @@ function mapRate(row, blocks, usedRateIds = new Set()) {
     overnightFlatAmount: row.overnight_flat_amount == null ? null : Number(row.overnight_flat_amount),
     validFrom: row.valid_from, validUntil: row.valid_until, updatedAt: row.updated_at, status: row.status, notes: row.notes || "",
     blocks: blocks.filter((block) => block.rate_id === row.id).map(mapBlock).sort((a, b) => a.sequence - b.sequence),
+    timeBandsEnabled: row.time_bands_enabled === true,
+    bandSets: mapBandSets(row.id, timeBands.sets, timeBands.bands),
     hasCharges,
   };
   // Una tarifa solo se puede editar en el mismo registro mientras nunca haya estado ACTIVE
@@ -40,7 +103,8 @@ export async function listParkingRates(db, parkingId) {
   const { data: blocks, error: blockError } = await db.from("parking_rate_blocks").select("*").in("rate_id", rateIds).order("sequence");
   if (blockError) throw blockError;
   const usedRateIds = await fetchUsedRateIds(db, rateIds);
-  return (rates || []).map((rate) => mapRate(rate, blocks || [], usedRateIds));
+  const timeBands = await fetchTimeBands(db, rateIds);
+  return (rates || []).map((rate) => mapRate(rate, blocks || [], usedRateIds, timeBands));
 }
 
 export async function getParkingRate(db, parkingId, rateId) {
@@ -54,12 +118,23 @@ export async function createParkingRate(db, parkingId, input) {
   const requestedStatus = input.status;
   const { data: rate, error } = await db.from("parking_rates").insert({
     parking_id: parkingId, area_id: input.areaId || null, name: input.name, billing_mode: input.billingMode,
-    currency: "CLP", minute_amount: input.billingMode === "EFFECTIVE_MINUTE" ? input.minuteAmount : null,
+    currency: "CLP", minute_amount: input.billingMode === "EFFECTIVE_MINUTE" && !input.timeBandsEnabled ? input.minuteAmount : null,
     free_period_seconds: input.freePeriodSeconds, multiply_by_spaces: input.multiplyBySpaces,
     daily_flat_amount: input.dailyFlatAmount || null, valid_from: input.validFrom,
     valid_until: input.validUntil || null, status: "DRAFT", notes: input.notes,
+    ...(input.timeBandsEnabled ? { time_bands_enabled: true } : {}),
   }).select("*").single();
   if (error) throw error;
+  if (input.timeBandsEnabled) {
+    try {
+      await insertTimeBands(db, rate.id, input.bandSets);
+    } catch (bandError) {
+      // La tarifa queda en DRAFT y sin juegos: su clasificación es
+      // REQUIRES_REVIEW y nunca puede quedar vigente.
+      await db.from("parking_rate_band_sets").delete().eq("rate_id", rate.id);
+      throw bandError;
+    }
+  }
   if (input.billingMode === "EXPIRED_BLOCKS") {
     const { error: blockError } = await db.from("parking_rate_blocks").insert(input.blocks.map((block) => ({
       rate_id: rate.id, sequence: block.sequence, duration_seconds: block.durationSeconds,
@@ -99,12 +174,19 @@ export async function updateParkingRate(db, parkingId, rateId, input) {
 
   const { error: updateError } = await db.from("parking_rates").update({
     area_id: input.areaId || null, name: input.name, billing_mode: input.billingMode,
-    minute_amount: input.billingMode === "EFFECTIVE_MINUTE" ? input.minuteAmount : null,
+    minute_amount: input.billingMode === "EFFECTIVE_MINUTE" && !input.timeBandsEnabled ? input.minuteAmount : null,
     free_period_seconds: input.freePeriodSeconds, multiply_by_spaces: input.multiplyBySpaces,
     daily_flat_amount: input.dailyFlatAmount || null, valid_from: input.validFrom,
     valid_until: input.validUntil || null, notes: input.notes, updated_at: new Date().toISOString(),
+    ...(input.timeBandsEnabled || current.timeBandsEnabled ? { time_bands_enabled: input.timeBandsEnabled === true } : {}),
   }).eq("id", rateId).eq("status", "DRAFT");
   if (updateError) throw updateError;
+
+  if (input.timeBandsEnabled || current.timeBandsEnabled) {
+    const { error: setDeleteError } = await db.from("parking_rate_band_sets").delete().eq("rate_id", rateId);
+    if (setDeleteError) throw setDeleteError;
+    if (input.timeBandsEnabled) await insertTimeBands(db, rateId, input.bandSets);
+  }
 
   const { error: deleteError } = await db.from("parking_rate_blocks").delete().eq("rate_id", rateId);
   if (deleteError) throw deleteError;

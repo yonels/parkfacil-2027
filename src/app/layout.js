@@ -16,6 +16,11 @@ export const metadata = {
   description: "Plataforma base de ParkFacil 2027.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+};
+
 export default function RootLayout({ children }) {
   return (
     <html lang="es" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>

@@ -93,6 +93,49 @@ export function canChangeParkingType(parking, nextType) {
   return getIncompatibleSectors(parking, nextType).length === 0;
 }
 
+// Catálogo de códigos de Estacionamiento/Proyecto (corrección funcional
+// 2026-08-29): el usuario ya NO escribe parkings.code libremente -- lo
+// elige de un catálogo administrado por Root (parking_code_catalog, ver
+// migración 20260829120000). Estas funciones puras validan solo el ALTA de
+// un código nuevo al catálogo (acción de Root/Administración); la
+// disponibilidad real en el momento de crear un estacionamiento se valida
+// contra la base de datos (ver estacionamientosRepository.js), no aquí.
+export function sanitizeParkingCatalogCode(raw) {
+  return String(raw || "").trim().toUpperCase().slice(0, 40);
+}
+
+export function validateParkingCatalogCode(code, existingCodes = []) {
+  const errors = {};
+  if (!code) errors.code = "Ingresa un código.";
+  else if (existingCodes.some((item) => String(item).toUpperCase() === code)) errors.code = "Ese código ya existe en el catálogo.";
+  return errors;
+}
+
+// Reposición automática del catálogo (decisión aprobada 2026-08-29: cuando
+// quedan <=10 códigos AVAILABLE, generar 100 nuevos). Formato aprobado:
+// continuar la serie PF-XXX ya existente (histórica: PF-001/PF-002/PF-003)
+// desde el número más alto usado hasta ahora -- nunca reutiliza ni salta
+// números, y no trunca más allá de 3 dígitos (PF-999 -> PF-1000...), para
+// que la secuencia sea realmente infinita.
+const PF_CODE_PATTERN = /^PF-(\d+)$/;
+
+export function highestParkingCodeSequence(existingCodes = []) {
+  return existingCodes.reduce((max, code) => {
+    const match = PF_CODE_PATTERN.exec(String(code || "").trim().toUpperCase());
+    if (!match) return max;
+    return Math.max(max, Number(match[1]));
+  }, 0);
+}
+
+export function nextParkingCodeBatch(existingCodes = [], count = 100) {
+  const start = highestParkingCodeSequence(existingCodes);
+  const batch = [];
+  for (let i = 1; i <= count; i += 1) {
+    batch.push(`PF-${String(start + i).padStart(3, "0")}`);
+  }
+  return batch;
+}
+
 export function validateParkingInput(input, existingParkings = [], currentId = null) {
   const errors = {};
   const required = ["code", "name", "companyId", "type", "status", "address", "city"];

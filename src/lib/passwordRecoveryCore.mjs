@@ -30,6 +30,13 @@ export const RESPUESTA_ERROR =
 const ROLES_CLIENTE_PERMITIDOS = new Set(["company_admin", "operator"]);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+// Canal de entrega del correo de recuperación (§ auditoría 2026-08-28).
+// Ver resolverCanalEntregaRecuperacion() para las reglas completas.
+export const CANAL_ENTREGA_MAILPIT = "mailpit";
+export const CANAL_ENTREGA_MICROSOFT = "microsoft";
+
+const CANALES_ENTREGA_VALIDOS = new Set([CANAL_ENTREGA_MAILPIT, CANAL_ENTREGA_MICROSOFT]);
+
 export function normalizarEmail(valor) {
   return String(valor || "")
     .trim()
@@ -103,7 +110,28 @@ export function detectarPortal({ host, portalPrueba }) {
   return null;
 }
 
-export function construirRedirectTo(portal) {
+// Entorno local de desarrollo: mismo criterio de host que detectarPortal
+// (localhost/127.0.0.1, con o sin puerto). Gobierna EXCLUSIVAMENTE el
+// redirectTo del enlace de recuperación (antes quedaba hardcodeado al
+// dominio de Producción incluso en local, así que el enlace nunca podía
+// apuntar a localhost -- causa raíz de que el paso 8 de la prueba local
+// fuera estructuralmente imposible).
+//
+// El canal de ENVÍO del correo (Mailpit vs Microsoft Graph) ya NO depende
+// de esta función: se resuelve de forma explícita e independiente vía
+// PASSWORD_RECOVERY_DELIVERY (ver resolverCanalEntregaRecuperacion), para
+// poder probar el envío real por Microsoft Graph desde localhost sin dejar
+// de usar Mailpit por defecto en el resto de los casos locales.
+export function esEntornoLocal(host) {
+  const hostNormalizado = String(host || "").split(":")[0].trim().toLowerCase();
+  return hostNormalizado === "localhost" || hostNormalizado === "127.0.0.1";
+}
+
+export function construirRedirectTo(portal, { local = false, origin = null } = {}) {
+  if (local) {
+    return origin ? `${origin}/nueva-contrasena` : "http://localhost:3000/nueva-contrasena";
+  }
+
   if (portal === "root") {
     return "https://root.parkfacilapp.cl/nueva-contrasena";
   }
@@ -113,6 +141,68 @@ export function construirRedirectTo(portal) {
   }
 
   return null;
+}
+
+/**
+ * Resuelve, de forma explícita y auditable, el canal de entrega del correo
+ * de recuperación de contraseña a partir de PASSWORD_RECOVERY_DELIVERY.
+ *
+ * Deliberadamente NO decide el canal a partir del host de la solicitud
+ * (eso sigue gobernando únicamente redirectTo, ver
+ * construirRedirectTo/esEntornoLocal) -- así queda desacoplado "a qué URL
+ * vuelve el usuario" de "por qué canal se entrega el correo", permitiendo
+ * probar el envío real por Microsoft Graph desde localhost sin dejar de
+ * usar Mailpit por defecto en el resto de los casos locales.
+ *
+ * Reglas fail-secure:
+ *  - Producción (`nodeEnv === "production"`) exige
+ *    PASSWORD_RECOVERY_DELIVERY=microsoft explícito. Cualquier otro valor
+ *    (ausente, "mailpit", o inválido) lanza un error explícito -- jamás
+ *    cae en silencio a Mailpit en Producción.
+ *  - Fuera de Producción, un valor ausente usa el default documentado
+ *    "mailpit" (ver .env.example). Un valor explícito ("mailpit" o
+ *    "microsoft") siempre se respeta, incluso en local, para permitir la
+ *    prueba real controlada con Microsoft Graph descrita en el runbook.
+ *  - Cualquier valor que no sea "mailpit" ni "microsoft" es inválido y
+ *    lanza error explícito en cualquier entorno.
+ */
+export function resolverCanalEntregaRecuperacion({
+  valorEnv,
+  nodeEnv = process.env.NODE_ENV,
+} = {}) {
+  const valor = String(valorEnv || "").trim().toLowerCase();
+  const esProduccion = nodeEnv === "production";
+
+  if (!valor) {
+    if (esProduccion) {
+      throw Object.assign(
+        new Error("PASSWORD_RECOVERY_DELIVERY no está definido en Producción"),
+        { code: "PASSWORD_RECOVERY_DELIVERY_MISSING" }
+      );
+    }
+    return CANAL_ENTREGA_MAILPIT;
+  }
+
+  // Nota: el mensaje NUNCA repite `valor` -- PASSWORD_RECOVERY_DELIVERY
+  // solo debería contener "mailpit"/"microsoft", pero si alguien pegara
+  // ahí por error un secreto real, este mensaje (que sí puede llegar a
+  // logs) jamás debe reflejarlo. El código de error basta para
+  // diagnosticar sin exponer el valor recibido.
+  if (!CANALES_ENTREGA_VALIDOS.has(valor)) {
+    throw Object.assign(
+      new Error("PASSWORD_RECOVERY_DELIVERY tiene un valor inválido"),
+      { code: "PASSWORD_RECOVERY_DELIVERY_INVALID" }
+    );
+  }
+
+  if (esProduccion && valor !== CANAL_ENTREGA_MICROSOFT) {
+    throw Object.assign(
+      new Error(`PASSWORD_RECOVERY_DELIVERY="${valor}" no está permitido en Producción`),
+      { code: "PASSWORD_RECOVERY_DELIVERY_FORBIDDEN_IN_PRODUCTION" }
+    );
+  }
+
+  return valor;
 }
 
 export function usuarioAuthHabilitado(usuario) {
@@ -294,6 +384,12 @@ export function respuestaError() {
  * inexistente o no elegible), o (b) el correo fue efectivamente
  * enviado por el proveedor. Cualquier falla técnica intermedia
  * para una cuenta elegible devuelve `respuestaError()` (500).
+ *
+ * `canalEntrega` debe ser un valor ya resuelto por
+ * resolverCanalEntregaRecuperacion() (CANAL_ENTREGA_MAILPIT o
+ * CANAL_ENTREGA_MICROSOFT). Cualquier otro valor (incluido ausente) se
+ * trata como configuración no resuelta y responde `respuestaError()`,
+ * nunca cae en silencio a Mailpit.
  */
 export async function procesarRecuperacionContrasena({
   portal,
@@ -302,6 +398,7 @@ export async function procesarRecuperacionContrasena({
   email,
   supabase,
   enviarCorreo,
+  canalEntrega,
   diagnosticar = () => {},
 }) {
   diagnosticar("Portal identificado", portal);
@@ -346,6 +443,51 @@ export async function procesarRecuperacionContrasena({
     return respuestaGenerica();
   }
 
+  // Canal de entrega no resuelto a un valor válido: nunca se asume un
+  // default aquí (eso ya lo decidió resolverCanalEntregaRecuperacion, con
+  // sus propias reglas fail-secure). Un valor inesperado en este punto es
+  // un error de configuración/integración, no una solicitud descartable
+  // por antienumeración -- responde 500, nunca un falso éxito.
+  if (canalEntrega !== CANAL_ENTREGA_MAILPIT && canalEntrega !== CANAL_ENTREGA_MICROSOFT) {
+    diagnosticar("Error crítico", "canal de entrega no resuelto: " + JSON.stringify(canalEntrega));
+    return respuestaError();
+  }
+
+  // Canal Mailpit (§ auditoría 2026-08-28): nunca usa Microsoft Graph (un
+  // servicio externo real, que además solo puede entregarse a la cuenta de
+  // correo asociada al Auth user, no al recovery_email en perfil) ni el
+  // dominio de Producción en redirectTo (eso lo decide construirRedirectTo
+  // por separado). En su lugar se usa supabase.auth.resetPasswordForEmail,
+  // el mecanismo NATIVO de Supabase Auth: en local, ese mailer entrega
+  // automáticamente al servidor SMTP de prueba (Mailpit) que trae el propio
+  // stack de "supabase start", sin configurar nada adicional. Mantiene
+  // intactas las mismas verificaciones de elegibilidad/antienumeración de
+  // arriba -- solo cambia CÓMO se entrega el correo, nunca A QUIÉN se le
+  // permite pedirlo. Producción nunca resuelve a este canal (ver
+  // resolverCanalEntregaRecuperacion).
+  if (canalEntrega === CANAL_ENTREGA_MAILPIT) {
+    try {
+      const { error: errorEnvioLocal } = await supabase.auth.resetPasswordForEmail(emailNormalizado, { redirectTo });
+      if (errorEnvioLocal) throw errorEnvioLocal;
+    } catch (errorEnvioLocal) {
+      diagnosticar("Error crítico en envío local (mailer nativo de Supabase Auth)", {
+        type: errorEnvioLocal?.name || "AuthError",
+        code: errorEnvioLocal?.code || "LOCAL_RESET_EMAIL_FAILED",
+        status: errorEnvioLocal?.status || null,
+      });
+      return respuestaError();
+    }
+    diagnosticar("Resultado del envío", "correo enviado mediante el mailer local de Supabase Auth (Mailpit)");
+    return respuestaGenerica();
+  }
+
+  // A partir de aquí, canalEntrega === CANAL_ENTREGA_MICROSOFT (única
+  // alternativa posible tras el guard de arriba): se usa el mailer real de
+  // Microsoft Graph, sin importar si la solicitud vino de local o de
+  // Producción -- el destinatario puede pertenecer a cualquier proveedor
+  // válido (Outlook, Gmail, Yahoo, dominio corporativo, etc.), Microsoft
+  // Graph no distingue por proveedor del destinatario.
+  //
   // El destinatario siempre se resuelve server-side desde el perfil asociado
   // al mismo user_id: platform_admin_profiles para Root y company_members
   // para administradores de empresa/operadores.

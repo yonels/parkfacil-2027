@@ -162,3 +162,35 @@ Resolución (sin borrar historial, sin migrar migraciones históricas):
 - `src/app/api/data-entry/route.js` — consumo del motor en cotización (`QUOTE`) y salida (`EXIT`).
 - `supabase/migrations/20260807120000_parking_rate_legal_engine.sql` — defensa a nivel de base de datos.
 - Pruebas: `src/lib/parkingRates.test.mjs`, `src/lib/parkingRateInput.test.mjs`.
+
+## 13. Precio por franja horaria con tope (SOL-2026-10-08-003)
+
+Agregado el 2026-10-08. Diseño: `docs/solicitudes/SOL-2026-10-08-003/DISENO.md` (repositorio
+`parkfacil-2027`). Solo Off Street y solo **minuto efectivo**: cambia el precio del minuto según
+la hora; la modalidad sigue siendo la misma y no se agrega ningún cargo fijo.
+
+- **Configuración** (`parking_rates.time_bands_enabled` + `parking_rate_band_sets` +
+  `parking_rate_time_bands`): juegos de franjas por día de la semana (y feriados del cliente,
+  `parking_holidays`); cada juego cubre las 24 h sin huecos ni superposiciones; `minute_amount`
+  general queda `null`. Validación única en `validateTimeBandSets` (dominio) y
+  `parking_rate_time_bands_valid` (base, al activar).
+- **Cálculo** (`calculateTimeBandCharge`, `src/lib/parkingTimeBands.mjs`): minutos completos
+  menos el período gratuito (solo al ingreso); cada minuto al precio de la franja en que
+  comienza, en hora de Chile (incluye cambios de horario); la franja que cruza medianoche
+  pertenece al día en que comienza.
+- **Tope por franja**: limita el subtotal de cada pasada continua por una franja (por ejemplo,
+  máximo por noche). Solo **reduce** el monto: compatible con §6.
+- **Sin redondeo al alza**: minutos truncados; montos por pasada truncados a pesos enteros.
+- **Estadías ≥ 24 h**: con franjas se calculan con la misma regla; sin franjas siguen en revisión
+  administrativa (§ régimen ≥ 24 h). Límite de protección: 400 días.
+- **Valor plano nocturno**: sigue prohibido (§10); `overnight_flat_amount` se mantiene en 0.
+- **Evidencia**: el desglose firmado (`POS_STAY_QUOTE_V2`) se guarda en
+  `parking_stays.charge_breakdown`.
+
+### Salida sin pago (decisión del usuario D15)
+
+Cuando un vehículo se retira sin pagar, el operador lo marca en el POS (`UNPAID_PENDING`); el
+monto se calcula **hasta el cierre del turno** del operador y queda como deuda
+(`UNPAID_EXIT` + `parking_debts`). Esto difiere del principio de §1 (tiempo efectivo) porque la
+hora real de salida es desconocida; fue decisión expresa del usuario (D15) y se registra con
+`exit_source = 'SHIFT_CLOSE'` para poder recalcular a la baja con evidencia futura (D16).

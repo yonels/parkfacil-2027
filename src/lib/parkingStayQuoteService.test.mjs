@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { buildPosQuoteSnapshot, signPosQuoteSnapshot, toPagueAquiQuote, verifyPosQuoteSnapshot } from "./parkingStayQuoteService.js";
+import { buildPosQuoteSnapshot, signPosQuoteSnapshot, toPagueAquiQuote, verifyPosQuoteSnapshot, stableJsonStringify } from "./parkingStayQuoteService.js";
 
 const TEST_POS_QUOTE_HMAC_SECRET = process.env.POS_QUOTE_HMAC_SECRET || "TEST_POS_QUOTE_HMAC_SECRET_FOR_UNIT_TESTS_ONLY_2026";
 
@@ -81,7 +81,7 @@ test("el motor selecciona la tarifa vigente en el timestamp cotizado, nunca en l
   assert.doesNotMatch(source, /selectActiveRate\(rates\);/);
 });
 
-test("la snapshot POS se firma, expira a 30 segundos y rechaza manipulación", () => {
+test("la snapshot POS se firma, expira a 120 segundos y rechaza manipulación", () => {
   const calculatedAt = new Date("2026-08-11T16:44:58.638Z");
   const snapshot = buildPosQuoteSnapshot({
     stay: {
@@ -111,7 +111,7 @@ test("la snapshot POS se firma, expira a 30 segundos y rechaza manipulación", (
     calculatedAt,
   });
 
-  assert.equal(snapshot.expiresAt, "2026-08-11T16:45:28.638Z");
+  assert.equal(snapshot.expiresAt, "2026-08-11T16:46:58.638Z");
   assert.equal(snapshot.signature.length, 64);
   assert.equal(verifyPosQuoteSnapshot({ ...snapshot, signature: undefined }, snapshot.signature, TEST_POS_QUOTE_HMAC_SECRET), true);
   assert.equal(verifyPosQuoteSnapshot({ ...snapshot, totalAmount: 6400, signature: undefined }, snapshot.signature, TEST_POS_QUOTE_HMAC_SECRET), false);
@@ -144,4 +144,58 @@ test("la firma POS puede generarse con un secreto estable y no depende del clien
   const signature = signPosQuoteSnapshot(snapshot, TEST_POS_QUOTE_HMAC_SECRET);
   assert.equal(signature.length, 64);
   assert.equal(verifyPosQuoteSnapshot(snapshot, signature, TEST_POS_QUOTE_HMAC_SECRET), true);
+});
+
+// ---- SOL-2026-10-08-003: cotización V2 con desglose por franja firmado ----
+
+const BAND_QUOTE_STAY = { id: "stay-band", code: "ING-B", parking_id: "parking-1", updated_at: "2026-10-12T19:00:00.000Z", rate_id: null, rate_name: null, billing_mode: null };
+const BAND_QUOTE = {
+  elapsedMinutes: 960, subtotal: 13600, discount: 0, net: 11429, tax: 2171, total: 13600,
+  rate: { id: "rate-band", name: "Hábil por franjas", billingMode: "EFFECTIVE_MINUTE", currency: "CLP", updatedAt: "2026-10-01T00:00:00.000Z" },
+  breakdown: { version: 1, kind: "TIME_BANDS", passes: [{ label: "Noche", minutes: 840, grossAmount: 16800, capAmount: 10000, capApplied: true, amount: 10000 }] },
+};
+
+test("cotización con franjas se firma como V3 (desglose con claves ordenadas) e incluye el desglose", () => {
+  const snapshot = buildPosQuoteSnapshot({ stay: BAND_QUOTE_STAY, quote: BAND_QUOTE, calculatedAt: new Date("2026-10-13T11:00:00.000Z") });
+  assert.equal(snapshot.version, "POS_STAY_QUOTE_V3");
+  assert.deepEqual(snapshot.chargeBreakdown, BAND_QUOTE.breakdown);
+  assert.equal(verifyPosQuoteSnapshot(snapshot, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), true);
+});
+
+test("alterar el desglose firmado o bajar la versión invalida la cotización V2", () => {
+  const snapshot = buildPosQuoteSnapshot({ stay: BAND_QUOTE_STAY, quote: BAND_QUOTE, calculatedAt: new Date("2026-10-13T11:00:00.000Z") });
+  const tampered = { ...snapshot, chargeBreakdown: { ...snapshot.chargeBreakdown, passes: [] } };
+  assert.equal(verifyPosQuoteSnapshot(tampered, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), false);
+  const downgraded = { ...snapshot, version: "POS_STAY_QUOTE_V1" };
+  assert.equal(verifyPosQuoteSnapshot(downgraded, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), false);
+});
+
+test("una cotización sin franjas sigue siendo V1 y se firma igual que antes", () => {
+  const { breakdown: _ignored, ...classicQuote } = BAND_QUOTE;
+  const snapshot = buildPosQuoteSnapshot({ stay: BAND_QUOTE_STAY, quote: classicQuote, calculatedAt: new Date("2026-10-13T11:00:00.000Z") });
+  assert.equal(snapshot.version, "POS_STAY_QUOTE_V1");
+  assert.equal("chargeBreakdown" in snapshot, false);
+  const { signature, ...unsigned } = snapshot;
+  assert.equal(signature, signPosQuoteSnapshot(unsigned, process.env.POS_QUOTE_HMAC_SECRET));
+});
+
+// QA PRO2 2026-10-19 (SOL-2026-10-11-001): jsonb reordena las claves del desglose.
+function reorderKeysDeep(value) {
+  if (Array.isArray(value)) return value.map(reorderKeysDeep);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).reverse().map((key) => [key, reorderKeysDeep(value[key])]));
+  return value;
+}
+
+test("V3: la firma sigue verificando aunque el desglose cambie el orden de sus claves (jsonb)", () => {
+  const snapshot = buildPosQuoteSnapshot({ stay: BAND_QUOTE_STAY, quote: BAND_QUOTE, calculatedAt: new Date("2026-10-13T11:00:00.000Z") });
+  const reordered = JSON.parse(JSON.stringify({ ...snapshot, chargeBreakdown: reorderKeysDeep(snapshot.chargeBreakdown) }));
+  assert.notEqual(JSON.stringify(reordered.chargeBreakdown), JSON.stringify(snapshot.chargeBreakdown));
+  assert.equal(verifyPosQuoteSnapshot(reordered, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), true);
+  const tampered = { ...reordered, chargeBreakdown: { ...reordered.chargeBreakdown, passes: [] } };
+  assert.equal(verifyPosQuoteSnapshot(tampered, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), false);
+  assert.equal(verifyPosQuoteSnapshot({ ...reordered, version: "POS_STAY_QUOTE_V2" }, snapshot.signature, process.env.POS_QUOTE_HMAC_SECRET), false, "bajar a V2 invalida");
+});
+
+test("stableJsonStringify ordena claves en todos los niveles", () => {
+  assert.equal(stableJsonStringify({ b: 1, a: { d: [ { y: 2, x: 1 } ], c: null } }), '{"a":{"c":null,"d":[{"x":1,"y":2}]},"b":1}');
 });

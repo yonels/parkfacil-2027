@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
+import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { listDailyPosPayments } from "@/lib/posStaysService";
 
 function fail(message, status = 400, details) {
@@ -18,12 +19,15 @@ export async function GET(request) {
     authorization = await authorizeOperationRequest(request, PERMISSIONS.OPERATIONS_USE);
     if (authorization.response) return authorization.response;
 
-    const parkingId = authorization.assignedParkingIds?.[0] || null;
-    if (!parkingId) {
+    const resolved = await resolvePosOperationalParking(authorization);
+    if (resolved.status === POS_PARKING_RESOLUTION.SELECTION_REQUIRED) {
+      return NextResponse.json(posParkingSelectionRequiredResponse(), { status: 409 });
+    }
+    const parking = resolved.parking;
+    if (!parking) {
       return fail("El usuario no tiene un estacionamiento autorizado.", 404);
     }
 
-    const parking = await requireOperationalParking(authorization.db, authorization.context, authorization.scope, parkingId);
     const summary = await listDailyPosPayments(authorization.db, parking.id, { now: new Date() });
 
     return NextResponse.json({
@@ -32,7 +36,7 @@ export async function GET(request) {
         serverNow: summary.serverNow,
         payments: summary.payments,
         totals: summary.totals,
-        actor: { ...operationActor(authorization.context), parkingId: parking.id },
+        actor: { ...posOperationActor(authorization.context), parkingId: parking.id },
       },
     });
   } catch (error) {

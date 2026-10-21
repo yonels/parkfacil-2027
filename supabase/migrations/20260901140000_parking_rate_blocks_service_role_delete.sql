@@ -1,0 +1,16 @@
+-- Corrección de bug real detectado en la validación final On-Street QR en LOCAL
+-- (2026-09-01): editar una tarifa existente en el mismo registro (PATCH
+-- /api/estacionamientos/[id]/tarifas/[rateId]) fallaba con 500 -- "permission
+-- denied for table parking_rate_blocks" (42501, ver updateParkingRate en
+-- parkingRatesRepository.js), porque esa función reemplaza los tramos de la
+-- tarifa borrando primero (parking_rate_blocks.delete().eq("rate_id", rateId))
+-- antes de reinsertar -- pero el grant original
+-- (20260728200000_parking_model_and_chilean_rates.sql, línea "grant
+-- select,insert,update on ... parking_rate_blocks to service_role") nunca
+-- incluyó delete. Mismo patrón ya usado en
+-- 20260829120500_parking_code_catalog_grants.sql: completa el conjunto CRUD
+-- que service_role ya tenía implícitamente confiado para esta tabla (select +
+-- insert + update ya concedidos); RLS sigue intacta para authenticated --
+-- rate_blocks_write ya exige pf_can_manage_parking, sin cambios aquí. No
+-- afecta ninguna otra tabla ni política, y no altera el motor tarifario legal.
+grant delete on table public.parking_rate_blocks to service_role;

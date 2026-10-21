@@ -4,6 +4,29 @@ import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import { rateStatusBadge } from "@/lib/rateStatusBadge.mjs";
+import { CompanyHolidaysManager, TimeBandsEditor, TimeBandsSummary, bandSetsFromRate, defaultBandSets } from "./ParkingTimeBandsEditor";
+
+// nowAsDateTimeLocalValue (corrección de bug real detectado en validación final
+// On-Street QR en LOCAL, 2026-09-01): "Vigencia desde" usaba antes
+// `new Date().toISOString().slice(0, 16)` -- .toISOString() siempre devuelve
+// HORA UTC, pero <input type="datetime-local"> interpreta ese string como hora
+// LOCAL del navegador, sin conversión. Para un usuario en un huso horario detrás
+// de UTC (p. ej. Chile, UTC-3/UTC-4) esto adelanta "Vigencia desde" varias horas
+// respecto al momento real, dejando la tarifa recién creada/activada SIN
+// vigencia todavía (no aparece como vigente hasta que el reloj alcance esa hora
+// UTC) -- reproducido: el flujo público (/estacionar/[qrCode]) mostraba
+// "Estacionamiento no disponible" para una tarifa recién activada. Mismo
+// patrón de corrección ya usado en EstacionamientoForm.js (toDateTimeLocalValue,
+// getters LOCALES en vez de toISOString).
+function nowAsDateTimeLocalValue() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
 
 // Modelo legal: minuto efectivo (sin tramos) o tramo vencido con exactamente un tramo
 // inicial (mín. 30 min) y un tramo siguiente repetible (mín. 10 min). No existe un tercer
@@ -12,13 +35,16 @@ const initial = {
   mode: "create", sourceId: null,
   name: "", billingMode: "EFFECTIVE_MINUTE", minuteAmount: "", freePeriodMinutes: 0,
   multiplyBySpaces: false, legalComplianceAccepted: false,
-  validFrom: new Date().toISOString().slice(0, 16), validUntil: "",
+  validFrom: nowAsDateTimeLocalValue(), validUntil: "",
   status: "DRAFT", notes: "",
   initialBlockMinutes: 30, initialBlockAmount: "",
   nextBlockMinutes: 10, nextBlockAmount: "",
+  // Precio por franja horaria (SOL-2026-10-08-003): solo Off Street.
+  timeBandsEnabled: false, bandSets: [],
 };
 const money = new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 });
 const billingModeLabel = (mode) => mode === "EFFECTIVE_MINUTE" ? "Minuto efectivo" : mode === "EXPIRED_BLOCKS" ? "Tramo vencido" : "Modalidad no reconocida";
+const rateModeLabel = (rate) => rate.timeBandsEnabled ? "Minuto efectivo · por franja horaria" : billingModeLabel(rate.billingMode);
 
 // Reconstruye el formulario a partir de una tarifa existente, para "Editar" (mismo
 // registro, solo si rate.editable) y "Nueva versión" (reemplazo, ver replaceParkingRate).
@@ -26,13 +52,13 @@ const billingModeLabel = (mode) => mode === "EFFECTIVE_MINUTE" ? "Minuto efectiv
 // que siempre debe reconfirmarse antes de guardar.
 function formFromRate(rate, mode) {
   return {
-    mode, sourceId: rate.id,
+    mode, sourceId: rate.id, sourceName: rate.name,
     name: rate.name, billingMode: rate.billingMode,
     minuteAmount: rate.minuteAmount ?? "",
     freePeriodMinutes: Math.round((rate.freePeriodSeconds || 0) / 60),
     multiplyBySpaces: rate.multiplyBySpaces,
     legalComplianceAccepted: false,
-    validFrom: mode === "replace" ? new Date().toISOString().slice(0, 16) : String(rate.validFrom || "").slice(0, 16),
+    validFrom: mode === "replace" ? nowAsDateTimeLocalValue() : String(rate.validFrom || "").slice(0, 16),
     validUntil: String(rate.validUntil || "").slice(0, 16),
     status: rate.status === "ACTIVE" ? "ACTIVE" : "DRAFT",
     notes: rate.notes || "",
@@ -40,10 +66,18 @@ function formFromRate(rate, mode) {
     initialBlockAmount: rate.blocks?.[0]?.amount ?? "",
     nextBlockMinutes: rate.blocks?.[1] ? rate.blocks[1].durationSeconds / 60 : 10,
     nextBlockAmount: rate.blocks?.[1]?.amount ?? "",
+    timeBandsEnabled: rate.timeBandsEnabled === true,
+    bandSets: rate.timeBandsEnabled ? bandSetsFromRate(rate) : [],
   };
 }
 
-export default function ParkingRatesManager({ parking, showCreateButton = true, openSignal }) {
+// onRatesChange (cierre integral del flujo "Proyectos On Street" 2026-08-30):
+// permite que un padre (p. ej. la etapa Tarifas del constructor de Proyecto)
+// sepa en tiempo real si ya existe al menos una tarifa utilizable, sin
+// duplicar la lógica de carga/clasificación -- se reutiliza el mismo estado
+// `rates` que este componente ya mantiene. Opcional, no cambia nada para
+// los llamadores existentes que no lo pasan.
+export default function ParkingRatesManager({ parking, showCreateButton = true, openSignal, onRatesChange }) {
   const [rates, setRates] = useState([]);
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -52,6 +86,12 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
   const [requestError, setRequestError] = useState("");
   const endpoint = `/api/estacionamientos/${parking.code}/tarifas`;
   const lastOpenSignal = useRef(openSignal);
+
+  useEffect(() => {
+    if (!onRatesChange) return undefined;
+    const timer = window.setTimeout(() => onRatesChange(rates), 0);
+    return () => window.clearTimeout(timer);
+  }, [rates, onRatesChange]);
 
   // Permite que una acción externa (el encabezado contextual de la pestaña Tarifas)
   // abra este mismo formulario sin duplicar un segundo botón "Nueva tarifa".
@@ -72,6 +112,13 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
   }, [endpoint]);
 
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+  const offStreet = parking.type === "OFF_STREET";
+  const setTimeBandsEnabled = (enabled) => setForm((current) => ({
+    ...current,
+    timeBandsEnabled: enabled,
+    billingMode: enabled ? "EFFECTIVE_MINUTE" : current.billingMode,
+    bandSets: enabled && !current.bandSets?.length ? defaultBandSets() : current.bandSets,
+  }));
   const openCreate = () => { setErrors({}); setRequestError(""); setForm({ ...initial }); };
   const openEdit = (rate) => { setErrors({}); setRequestError(""); setForm(formFromRate(rate, "edit")); };
   const openReplace = (rate) => { setErrors({}); setRequestError(""); setForm(formFromRate(rate, "replace")); };
@@ -80,6 +127,8 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
     event.preventDefault(); setSaving(true); setErrors({}); setRequestError("");
     const payload = {
       ...form,
+      timeBandsEnabled: offStreet && form.timeBandsEnabled === true,
+      bandSets: offStreet && form.timeBandsEnabled ? form.bandSets : [],
       blocks: form.billingMode === "EXPIRED_BLOCKS" ? [
         { durationMinutes: form.initialBlockMinutes, amount: form.initialBlockAmount, repeatAfter: false },
         { durationMinutes: form.nextBlockMinutes, amount: form.nextBlockAmount, repeatAfter: true },
@@ -115,7 +164,12 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
     {loading ? <p className="rounded-3xl border border-slate-200 bg-white p-8 text-center text-slate-500">Cargando tarifas...</p> : <div className="grid gap-4 lg:grid-cols-2">{rates.map((rate) => <RateCard key={rate.id} rate={rate} onEdit={() => openEdit(rate)} onReplace={() => openReplace(rate)} />)}{!rates.length ? <p className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">No hay tarifas operacionales configuradas.</p> : null}</div>}
     {form ? <form onSubmit={submit} className="rounded-3xl border border-[#BFD2FF] bg-[#F5F9FF] p-5 sm:p-6">
       <div className="flex items-center justify-between"><h2 className="text-xl font-semibold text-[#041E42]">{formTitle}</h2><button type="button" onClick={() => setForm(null)}><X className="h-5 w-5" /></button></div>
-      {form.mode === "replace" ? <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-900">Esta tarifa ya estuvo activa o participó en cobros: no puede modificarse retroactivamente. Al guardar, la tarifa actual se cerrará hoy (queda &ldquo;Finalizada&rdquo;, íntegra) y esta será una tarifa nueva e independiente.</p> : null}
+      {form.mode === "replace" ? (
+        <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-900">
+          Estás creando una <strong>nueva versión de &ldquo;{form.sourceName}&rdquo;</strong>. Al guardar, &ldquo;{form.sourceName}&rdquo; quedará &ldquo;Finalizada&rdquo; (íntegra, sin borrarse) y esta versión la reemplazará.
+          <br />¿Buscabas otra tarifa totalmente distinta que coexista junto a las demás (p. ej. una tarifa Comercial o Nocturna aparte)? Cierra esto y usa el botón &ldquo;+ Nueva tarifa&rdquo; de arriba — esa acción no finaliza ninguna otra.
+        </p>
+      ) : null}
       {requestError ? <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{requestError}</p> : null}
 
       <fieldset className="mt-5">
@@ -125,22 +179,28 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
             <p className="font-bold text-[#041E42]">Minuto efectivo</p>
             <p className="mt-1 text-xs text-slate-500">Cobra exactamente el tiempo usado, sin tramos ni bloques.</p>
           </button>
-          <button type="button" onClick={() => set("billingMode", "EXPIRED_BLOCKS")} className={`rounded-2xl border-2 p-4 text-left transition ${form.billingMode === "EXPIRED_BLOCKS" ? "border-[#3150D8] bg-white" : "border-slate-200 bg-white/60 hover:border-slate-300"}`}>
+          <button type="button" disabled={form.timeBandsEnabled} onClick={() => set("billingMode", "EXPIRED_BLOCKS")} className={`rounded-2xl border-2 p-4 text-left transition ${form.billingMode === "EXPIRED_BLOCKS" ? "border-[#3150D8] bg-white" : "border-slate-200 bg-white/60 hover:border-slate-300"}`}>
             <p className="font-bold text-[#041E42]">Tramo vencido</p>
             <p className="mt-1 text-xs text-slate-500">Cobra por tramos de tiempo completamente cumplidos.</p>
           </button>
         </div>
         {errors.billingMode ? <p className="mt-1 text-xs font-semibold text-red-700">{errors.billingMode}</p> : null}
+        {offStreet && form.billingMode === "EFFECTIVE_MINUTE" ? <label className="mt-3 flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+          <input type="checkbox" checked={form.timeBandsEnabled} onChange={(e) => setTimeBandsEnabled(e.target.checked)} className="mt-1" data-testid="time-bands-toggle" />
+          <span><strong className="text-[#041E42]">Precio por franja horaria</strong><span className="mt-0.5 block text-xs text-slate-500">El valor por minuto cambia automáticamente según la hora y el día (por ejemplo, mañana, tarde y noche con tope).</span></span>
+        </label> : null}
       </fieldset>
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
         <Field label="Nombre" error={errors.name}><input value={form.name} onChange={(e) => set("name", e.target.value)} className={inputClass} /></Field>
-        {form.billingMode === "EFFECTIVE_MINUTE" ? <Field label="Valor por minuto" error={errors.minuteAmount}><input type="number" min="0.0001" step="0.0001" value={form.minuteAmount} onChange={(e) => set("minuteAmount", e.target.value)} className={inputClass} /></Field> : null}
+        {form.billingMode === "EFFECTIVE_MINUTE" && !form.timeBandsEnabled ? <Field label="Valor por minuto" error={errors.minuteAmount}><input type="number" min="0.0001" step="0.0001" value={form.minuteAmount} onChange={(e) => set("minuteAmount", e.target.value)} className={inputClass} /></Field> : null}
         <Field label="Período gratuito (minutos)" error={errors.freePeriodSeconds}><input type="number" min="0" step="1" value={form.freePeriodMinutes} onChange={(e) => set("freePeriodMinutes", e.target.value)} className={inputClass} /></Field>
         <Field label="Vigente desde" error={errors.validFrom}><input type="datetime-local" value={form.validFrom} onChange={(e) => set("validFrom", e.target.value)} className={inputClass} /></Field>
         <Field label="Vigente hasta" error={errors.validUntil}><input type="datetime-local" value={form.validUntil} onChange={(e) => set("validUntil", e.target.value)} className={inputClass} /></Field>
         <Field label="Estado"><select value={form.status} onChange={(e) => set("status", e.target.value)} className={inputClass}><option value="DRAFT">Borrador</option><option value="ACTIVE">Activa</option></select></Field>
       </div>
+
+      {offStreet && form.timeBandsEnabled ? <TimeBandsEditor value={form.bandSets} onChange={(bandSets) => set("bandSets", bandSets)} serverErrors={errors} freePeriodMinutes={form.freePeriodMinutes} /> : null}
 
       {form.billingMode === "EXPIRED_BLOCKS" ? <div className="mt-5 space-y-3">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -167,6 +227,7 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
       <label className="mt-4 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900"><input type="checkbox" checked={form.legalComplianceAccepted} onChange={(e) => set("legalComplianceAccepted", e.target.checked)} className="mt-1" /><span><strong>Confirmo que la tarifa publicada cumple la Ley 20.967.</strong>{errors.legalComplianceAccepted ? <span className="mt-1 block font-semibold text-red-700">{errors.legalComplianceAccepted}</span> : null}</span></label>
       <div className="mt-6 flex justify-end gap-2"><button type="button" onClick={() => setForm(null)} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold">Cancelar</button><button disabled={saving} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{submitLabel}</button></div>
     </form> : null}
+    {offStreet ? <CompanyHolidaysManager parking={parking} /> : null}
   </div>;
 }
 
@@ -181,12 +242,12 @@ function RateCard({ rate, onEdit, onReplace }) {
   const badgeClass = badgeToneClass[badge.tone] || badgeToneClass.draft;
   return <article className={`rounded-3xl border p-5 shadow-sm ${needsReview ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}>
     <div className="flex justify-between gap-3">
-      <div><p className="text-xs font-bold uppercase tracking-wider text-[#3150D8]">{billingModeLabel(rate.billingMode)}</p><h2 className="mt-1 text-lg font-semibold text-[#041E42]">{rate.name}</h2></div>
+      <div><p className="text-xs font-bold uppercase tracking-wider text-[#3150D8]">{rateModeLabel(rate)}</p><h2 className="mt-1 text-lg font-semibold text-[#041E42]">{rate.name}</h2></div>
       <span className={`h-fit rounded-full px-3 py-1 text-xs font-bold ${badgeClass}`}>{badge.label}</span>
     </div>
     {needsReview ? <p className="mt-3 rounded-xl bg-amber-100 p-2.5 text-xs font-semibold text-amber-900">Requiere revisión administrativa: {rate.compliance.reasons.join(" ")}</p> : null}
     <div className="mt-4 space-y-2 text-sm text-slate-600">
-      {rate.billingMode === "EFFECTIVE_MINUTE" ? <p><strong>{money.format(rate.minuteAmount)}</strong> por minuto efectivo</p> : (rate.blocks || []).map((block) => <p key={block.id}>Tramo {block.sequence}: {block.durationSeconds / 60} min · <strong>{money.format(block.amount)}</strong>{block.repeatAfter ? " · repetible" : ""}</p>)}
+      {rate.timeBandsEnabled ? <TimeBandsSummary rate={rate} /> : rate.billingMode === "EFFECTIVE_MINUTE" ? <p><strong>{money.format(rate.minuteAmount)}</strong> por minuto efectivo</p> : (rate.blocks || []).map((block) => <p key={block.id}>Tramo {block.sequence}: {block.durationSeconds / 60} min · <strong>{money.format(block.amount)}</strong>{block.repeatAfter ? " · repetible" : ""}</p>)}
       <p>Período gratuito: {rate.freePeriodSeconds / 60} minutos</p>
       <p>Factor por plazas: {rate.multiplyBySpaces ? "Sí" : "No"}</p>
       {vigenciaDesde ? <p>Vigente desde {vigenciaDesde}{vigenciaHasta ? ` hasta ${vigenciaHasta}` : " · sin fecha de término"}</p> : null}

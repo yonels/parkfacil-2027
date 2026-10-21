@@ -1,9 +1,13 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { authorizeRemainingRequest } from "@/lib/auth/remainingAuthorization";
-import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
+import { requireProduct } from "@/lib/auth/apiAuthorizationCore.mjs";
+import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
+import { authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
+import { PERMISSIONS, PRODUCTS, ROLES } from "@/lib/auth/permissions.mjs";
 import { authorizationFromDb } from "./authorizationCore.mjs";
-import { paymentFromDb } from "./paymentCore.mjs";
+import { regularizationFromDb } from "./regularizationCore.mjs";
+import { authorizationPaymentStatus, PAYMENT_STATUS, paymentFromDb } from "./paymentCore.mjs";
 import { tariffFromDb } from "./tariffCore.mjs";
 import { contractFromDb, moduleFromDb, MODULE_STATUS_LABELS, resolveModuleStatus } from "./releasedStayCore.mjs";
 
@@ -34,6 +38,15 @@ export async function authorizeReleasedPayment(request, mode) {
   if (mode === "root" && !isRoot) return { response: fail("Solo ParkFacil Root puede contratar, activar o desactivar Pago liberado.", 403, { code: "RELEASED_PAYMENT_FORBIDDEN" }) };
   if (mode === "admin" && !isAdmin) return { response: fail("Solo el administrador del estacionamiento gestiona las autorizaciones de Pago liberado.", 403, { code: "RELEASED_PAYMENT_FORBIDDEN" }) };
   if (mode === "read" && !isRoot && !isAdmin) return { response: fail("No tienes acceso a Pago liberado.", 403, { code: "RELEASED_PAYMENT_FORBIDDEN" }) };
+  // La empresa debe tener contratado Off Street (Root no está sujeto).
+  if (!isRoot) {
+    try {
+      requireProduct(context, PRODUCTS.OFF_STREET);
+    } catch (error) {
+      if (error instanceof AuthorizationError) return { response: authorizationErrorResponse(request, error, context) };
+      throw error;
+    }
+  }
   return { context, db, isRoot, isAdmin, actor: { id: context.userId, companyId: context.companyId } };
 }
 
@@ -56,11 +69,14 @@ export async function listScopedParkings(db, auth) {
   return data || [];
 }
 
-// Estadías liberadas abiertas por estacionamiento. En la Etapa 1 el POS aún
-// no registra ingresos con beneficio (no existen las columnas de estadía
-// liberada): siempre 0. La Etapa 2 la reemplaza por el conteo real.
-export async function countOpenReleasedStays(_db, _parkingIds) {
-  return new Map();
+// Estadías liberadas abiertas por estacionamiento (Etapa 2).
+export async function countOpenReleasedStays(db, parkingIds) {
+  if (!parkingIds.length) return new Map();
+  const { data, error } = await db.from("parking_stays").select("parking_id").eq("status", "OPEN").in("parking_id", parkingIds).not("released_payment_authorization_id", "is", null);
+  if (error) throw error;
+  const counts = new Map();
+  for (const row of data || []) counts.set(row.parking_id, (counts.get(row.parking_id) || 0) + 1);
+  return counts;
 }
 
 // Estado del módulo por estacionamiento (lista).
@@ -85,10 +101,17 @@ export async function loadModuleStates(db, parkingIds, now = new Date()) {
   return result;
 }
 
+// Autorizaciones activas de la patente en el estacionamiento, cada una con
+// `paid`: pago vigente registrado por el total acordado (el beneficio lo exige).
 export async function loadPlateAuthorizations(db, parkingId, plate) {
   const { data, error } = await db.from("released_payment_authorizations").select("*").eq("parking_id", parkingId).eq("license_plate", plate).eq("status", "ACTIVE");
   if (error) throw error;
-  return (data || []).map(authorizationFromDb);
+  const authorizations = (data || []).map(authorizationFromDb);
+  if (!authorizations.length) return authorizations;
+  const payments = await db.from("released_payment_beneficiary_payments").select("*").in("authorization_id", authorizations.map((item) => item.id)).eq("status", "REGISTERED");
+  if (payments.error) throw payments.error;
+  const registered = (payments.data || []).map(paymentFromDb);
+  return authorizations.map((item) => ({ ...item, paid: authorizationPaymentStatus(item, registered) === PAYMENT_STATUS.PAID }));
 }
 
 // Motivo de indisponibilidad antes de validar una autorización: módulo
@@ -138,6 +161,15 @@ const RPC_MESSAGES = {
   RELEASED_PAYMENT_TARIFF_PRICE_INVALID: [400, "El precio por unidad debe estar en pesos chilenos, sin decimales."],
   RELEASED_PAYMENT_TARIFF_UNCHANGED: [409, "La tarifa ya tiene ese valor."],
   RELEASED_PAYMENT_TARIFF_NOT_FOUND: [404, "No hay una tarifa vigente para esa unidad."],
+  RELEASED_PAYMENT_SPOTS_BELOW_OCCUPANCY: [409, "No puedes dejar menos cupos que las patentes liberadas que hoy están en el estacionamiento."],
+  RELEASED_PAYMENT_NO_SPOTS: [409, "Sin cupos liberados disponibles."],
+  RELEASED_PAYMENT_STAY_DUPLICATE: [409, "La patente ya tiene una estadía abierta."],
+  RELEASED_PAYMENT_CONTRACT_CHANGED: [409, "La contratación cambió. Vuelve a validar la patente."],
+  RELEASED_PAYMENT_CONTRACT_NOT_CURRENT: [409, "La contratación no está vigente."],
+  RELEASED_PAYMENT_AUTHORIZATION_INVALID: [409, "La autorización ya no es válida. Vuelve a validar la patente."],
+  RELEASED_PAYMENT_AUTHORIZATION_NOT_CURRENT: [409, "La autorización no aplica hoy."],
+  RELEASED_PAYMENT_AUTHORIZATION_UNPAID: [409, "La autorización tiene el pago pendiente."],
+  RELEASED_PAYMENT_SNAPSHOT_INVALID: [400, "Condiciones de ingreso inválidas."],
   RELEASED_PAYMENT_AUTHORIZATION_PAID: [409, "La autorización tiene un pago registrado: para cambiar tarifa, cantidad o inicio, anula primero el pago (con motivo)."],
   RELEASED_PAYMENT_PAYMENT_INVALID: [400, "Revisa el monto y la fecha del pago."],
   RELEASED_PAYMENT_PAYMENT_METHOD_INVALID: [400, "Selecciona el medio de pago: efectivo, transferencia, tarjeta u otro."],
@@ -147,6 +179,13 @@ const RPC_MESSAGES = {
   RELEASED_PAYMENT_PAYMENT_AMOUNT_MISMATCH: [409, "No se aceptan pagos parciales: el monto debe ser el total acordado de la autorización."],
   RELEASED_PAYMENT_PAYMENT_NOT_FOUND: [404, "No se encontró el pago."],
   RELEASED_PAYMENT_PAYMENT_ALREADY_VOIDED: [409, "El pago ya fue anulado."],
+  RELEASED_PAYMENT_REGULARIZATION_ACTION_INVALID: [400, "Selecciona una acción de regularización válida."],
+  RELEASED_PAYMENT_STAY_NOT_FOUND: [404, "No se encontró la estadía."],
+  RELEASED_PAYMENT_STAY_NOT_RELEASED: [409, "La estadía no tiene el beneficio de Pago liberado."],
+  RELEASED_PAYMENT_STAY_NOT_OPEN: [409, "La estadía ya no está abierta. Actualiza la pantalla."],
+  RELEASED_PAYMENT_BENEFIT_ALREADY_VOIDED: [409, "El beneficio de esta estadía ya fue anulado."],
+  RELEASED_PAYMENT_EXIT_AT_INVALID: [400, "La salida debe ser posterior al ingreso y no puede ser futura."],
+  CARD_PAYMENT_ATTEMPT_ACTIVE: [409, "La estadía tiene un cobro con tarjeta en curso en el POS. Espera a que termine."],
 };
 
 export function rpcErrorCode(error) {
@@ -163,6 +202,21 @@ export function rpcFailure(error, fallback) {
   }
   console.error("[released-payment]", error?.code, error?.message);
   return fail(fallback, 500, { code: "RELEASED_PAYMENT_FAILED" });
+}
+
+// Regularizaciones de estadías liberadas (Etapa 3). Si la base aún no tiene la
+// migración 20261018150000, se devuelve una lista vacía para no bloquear el
+// resto del módulo.
+export async function loadRegularizations(db, parkingId, { fromIso = null, toIso = null, limit = 500 } = {}) {
+  let query = db.from("released_payment_stay_regularizations").select("*").eq("parking_id", parkingId);
+  if (fromIso) query = query.gte("created_at", fromIso);
+  if (toIso) query = query.lt("created_at", toIso);
+  const { data, error } = await query.order("created_at", { ascending: false }).limit(limit);
+  if (error) {
+    if (STORAGE_MISSING.has(error.code)) return [];
+    throw error;
+  }
+  return (data || []).map(regularizationFromDb);
 }
 
 export function storageMissing(error) {

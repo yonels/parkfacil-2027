@@ -49,7 +49,6 @@ const EMPTY_DATA = {
   dateTo: "",
   parkings: [],
   companies: [],
-  companyIdentity: null,
 };
 
 export default function DashboardOffStreetPage() {
@@ -127,12 +126,6 @@ function DashboardContent() {
   return (
     <AppShell title="Dashboard Off Street" description="Vista ejecutiva real de operación, recaudación y caja">
       <div className="space-y-5">
-        {data.companyIdentity ? <section aria-label="Empresa de la cuenta" className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Tu empresa</p>
-          <h2 className="mt-1 text-xl font-bold text-[#041E42]">{data.companyIdentity.business_name}</h2>
-          <p className="mt-1 text-sm text-slate-600">RUT: {data.companyIdentity.rut_number && data.companyIdentity.rut_dv ? `${data.companyIdentity.rut_number}-${data.companyIdentity.rut_dv}` : "No informado"}</p>
-          {data.companyIdentity.trade_name ? <p className="mt-1 text-sm text-slate-600">{data.companyIdentity.trade_name}</p> : null}
-        </section> : null}
         <header className="flex flex-col gap-4 rounded-3xl border border-[#5271E8] bg-[#3150D8] p-6 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-cyan-200">Off Street</p>
@@ -155,8 +148,7 @@ function DashboardContent() {
 
         {period === "custom" ? <div className="flex flex-wrap gap-3"><label className="text-sm">Desde <input className="rounded-xl border border-slate-200 bg-white p-2" type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label><label className="text-sm">Hasta <input className="rounded-xl border border-slate-200 bg-white p-2" type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label></div> : null}
         <p className="text-xs text-slate-500">Zona horaria: {OPERATIONAL_TIME_ZONE} · Ocupación actual y actividad del período se muestran por separado.</p>
-        {error ? <p role="alert" className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
-        {!loading && !error && !data.parkings.length ? <p className="rounded-2xl bg-blue-50 px-4 py-3 text-sm text-blue-800">Tu empresa todavía no tiene estacionamientos Off Street disponibles.</p> : null}
+        {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
 
         {/* A. OCUPACIÓN -- no depende del período (siempre "ahora") */}
         <section>

@@ -126,6 +126,38 @@ test("teléfono inválido se rechaza antes de llamar al proveedor", async () => 
   });
 });
 
+test("solo acepta el formato canónico +569XXXXXXXX", async () => {
+  for (const fono of ["56912345678", "912345678", "+5656912345678"]) {
+    await withEnv(FULL_CONFIG_ENV, async () => {
+      const fetchImpl = fakeFetch({});
+      await assert.rejects(() => sentralandSendSms({ fono, mensaje: "hola", token: "t", fetchImpl }), { code: "SENTRALAND_PHONE_INVALID" });
+      assert.equal(fetchImpl.calls.length, 0);
+    });
+  }
+});
+
+// --- Orden de validación: el teléfono es un error de quien llama (input) y
+// debe identificarse como tal incluso si, además, falta configuración del
+// proveedor. Antes de la corrección, requireSentralandConfig() corría
+// primero y un teléfono inválido con config ausente devolvía
+// SENTRALAND_INSTITUCION_NOT_CONFIGURED en vez de SENTRALAND_PHONE_INVALID.
+test("teléfono inválido se rechaza aunque también falte configuración del proveedor", async () => {
+  await withEnv({ SENTRALAND_INSTITUCION: "", SENTRALAND_TIPO_SERVICIO: "", SENTRALAND_USUARIO: "", SENTRALAND_PASSWORD: "" }, async () => {
+    const fetchImpl = fakeFetch({});
+    await assert.rejects(() => sentralandSendSms({ fono: "no-es-un-fono", mensaje: "hola", token: "t", fetchImpl }), { code: "SENTRALAND_PHONE_INVALID" });
+    assert.equal(fetchImpl.calls.length, 0);
+  });
+});
+
+// --- Teléfono válido: solo entonces corresponde evaluar la configuración ---
+test("teléfono válido pero configuración ausente falla por configuración, no por teléfono", async () => {
+  await withEnv({ SENTRALAND_INSTITUCION: "", SENTRALAND_TIPO_SERVICIO: "", SENTRALAND_USUARIO: "", SENTRALAND_PASSWORD: "" }, async () => {
+    const fetchImpl = fakeFetch({});
+    await assert.rejects(() => sentralandSendSms({ fono: "+56912345678", mensaje: "hola", token: "t", fetchImpl }), { code: "SENTRALAND_INSTITUCION_NOT_CONFIGURED" });
+    assert.equal(fetchImpl.calls.length, 0);
+  });
+});
+
 test("mensaje sobre 160 caracteres se rechaza antes de llamar al proveedor", async () => {
   await withEnv(FULL_CONFIG_ENV, async () => {
     const fetchImpl = fakeFetch({});
@@ -168,6 +200,30 @@ test("estado 0 con descripcion distinta de DELIVRD no se asume entregado (ACCEPT
 test("idmensaje inexistente (estado 7) y datos inválidos (estado 104) mapean a UNKNOWN, nunca a DELIVERED", () => {
   assert.equal(mapSentralandDeliveryState("7", ""), "UNKNOWN");
   assert.equal(mapSentralandDeliveryState("104", ""), "UNKNOWN");
+});
+
+// --- 2026-09-03, "Reporte SMS Inspector": vocabulario SMPP estándar (best-effort, no documentado por Sentraland) ---
+test("UNDELIV/UNDELIVERED mapea a UNDELIVERED", () => {
+  assert.equal(mapSentralandDeliveryState("0", "UNDELIV"), "UNDELIVERED");
+  assert.equal(mapSentralandDeliveryState("8", "UNDELIVERED"), "UNDELIVERED");
+});
+
+test("EXPIRED mapea a EXPIRED", () => {
+  assert.equal(mapSentralandDeliveryState("0", "EXPIRED"), "EXPIRED");
+});
+
+test("REJECTD/REJECTED/DELETED mapean a REJECTED", () => {
+  assert.equal(mapSentralandDeliveryState("0", "REJECTD"), "REJECTED");
+  assert.equal(mapSentralandDeliveryState("0", "REJECTED"), "REJECTED");
+  assert.equal(mapSentralandDeliveryState("0", "DELETED"), "REJECTED");
+});
+
+test("es case-insensitive (minúsculas del proveedor igual se reconocen)", () => {
+  assert.equal(mapSentralandDeliveryState("0", "undeliv"), "UNDELIVERED");
+});
+
+test("un final state SMPP no documentado nunca cambia lo ya probado antes: ENROUTE sigue siendo ACCEPTED, no un nuevo estado inventado", () => {
+  assert.equal(mapSentralandDeliveryState("0", "ENROUTE"), "ACCEPTED");
 });
 
 test("sentralandQueryStatus exige idmensaje y no llama al proveedor sin él", async () => {
@@ -233,4 +289,29 @@ test("el punto de entrada real (sentralandClient.mjs) lleva la marca server-only
   const source = await import("node:fs/promises").then((fs) => fs.readFile(new URL("./sentralandClient.mjs", import.meta.url), "utf8"));
   assert.match(source, /import "server-only"/);
   assert.match(source, /export \* from ".\/sentralandCore\.mjs"/);
+});
+
+test("HTTP 500 al obtener token se reintenta una vez y luego puede recuperarse", async () => {
+  await withEnv(FULL_CONFIG_ENV, async () => {
+    let calls = 0;
+    const fetchImpl = async () => { calls += 1; return calls === 1 ? { ok: false, status: 500 } : { ok: true, status: 200, json: async () => ({ codigo: 0, descripcion: "token" }) }; };
+    assert.equal(await sentralandGetToken({ fetchImpl }), "token");
+    assert.equal(calls, 2);
+  });
+});
+
+test("timeout se clasifica y el token reintenta solo el maximo seguro", async () => {
+  await withEnv(FULL_CONFIG_ENV, async () => {
+    let calls = 0;
+    const fetchImpl = (_url, { signal }) => new Promise((_resolve, reject) => { calls += 1; signal.addEventListener("abort", () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }))); });
+    await assert.rejects(() => sentralandGetToken({ fetchImpl, timeoutMs: 5 }), { code: "SENTRALAND_TIMEOUT" });
+    assert.equal(calls, 2);
+  });
+});
+
+test("respuesta JSON invalida falla cerrada", async () => {
+  await withEnv(FULL_CONFIG_ENV, async () => {
+    const fetchImpl = async () => ({ ok: true, status: 200, json: async () => { throw new SyntaxError("bad json"); } });
+    await assert.rejects(() => sentralandSendSms({ fono: "+56912345678", mensaje: "hola", token: "t", fetchImpl }), { code: "SENTRALAND_RESPONSE_INVALID" });
+  });
 });

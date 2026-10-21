@@ -18,6 +18,29 @@
   --pf-color-brand-900: var(--pf-color-brand-deep);
   --pf-color-brand-border: #4867e8;
   --pf-color-brand-shadow: rgba(30, 53, 153, 0.35);
+
+  /* Identidad On Street: cobrizo, distinto del azul corporativo general
+     (Off Street/plataforma). Solo se usa como color identificador del
+     producto -- encabezado, botones principales, estado activo de
+     navegación, acentos -- nunca como fondo general de pantalla (ver §12/§13
+     de la auditoría de acceso por producto). Texto/iconografía sobre estos
+     fondos siempre en blanco: contraste verificado >= 5:1 (#A65A2E) y
+     >= 8:1 (#7C3F22) contra blanco, cumple WCAG AA. */
+  --pf-color-onstreet-primary: #a65a2e;
+  --pf-color-onstreet-primary-600: #954f28;
+  --pf-color-onstreet-primary-700: #7c3f22;
+  --pf-color-onstreet-primary-800: #5f2f19;
+  --pf-color-onstreet-border: #c17a4f;
+  --pf-color-onstreet-shadow: rgba(124, 63, 34, 0.35);
+  --pf-color-onstreet-tint: #fbf1ea;
+}
+
+/* Ajuste visual puntual — legibilidad del sidebar (ago-2026): tipografía Arial
+   explícita para todo el árbol de navegación (no depende implícitamente de la
+   fuente base de <body>, que podría cambiar en el futuro). Regla única,
+   heredada por todos los niveles -- no se repite por opción/nivel. */
+.pf-sidebar {
+  font-family: Arial, Helvetica, sans-serif;
 }
 
 .input {
@@ -44,6 +67,10 @@
   --color-brand-700: var(--pf-color-brand-700);
   --color-brand-800: var(--pf-color-brand-800);
   --color-brand-900: var(--pf-color-brand-900);
+  --color-onstreet-primary: var(--pf-color-onstreet-primary);
+  --color-onstreet-600: var(--pf-color-onstreet-primary-600);
+  --color-onstreet-700: var(--pf-color-onstreet-primary-700);
+  --color-onstreet-800: var(--pf-color-onstreet-primary-800);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -77,7 +104,87 @@ body {
 table { border-collapse: collapse; }
 table thead { background: #3150d8 !important; color: #ffffff !important; }
 table thead th { background: #3150d8 !important; border-color: #5271e8 !important; color: #ffffff !important; }
+/* Filtros dentro del encabezado (fondo blanco): sin esto heredan el blanco del
+   encabezado y lo escrito no se ve (QA 2026-10-19, SOL-2026-10-19-002). */
+table thead input, table thead select, table thead textarea { color: #041e42; }
 table th { border: 1px solid #5271e8; font-weight: 600; }
 table td { border: 1px solid #e2e8f0; }
 table tbody tr:nth-child(even) { background: #f8fafc; }
 table tbody tr:hover { background: #fff2cc !important; }
+
+/* POS: measured WebView height supplies Chrome 83's dynamic viewport fallback. */
+.pos-terminal, .pos-login { min-height: var(--pos-viewport-height, 100vh); overflow-x: hidden; }
+.pos-terminal-shell { min-height: var(--pos-viewport-height, 100vh); }
+@media (max-width: 600px) {
+  .pos-login-content { padding: 12px; align-items: flex-start; }
+  .pos-login-card { padding: 16px; border-radius: 16px; }
+  .pos-login-heading { display: none; }
+  .pos-login-title + p { display: none; }
+  .pos-login-title { margin-top: 12px; font-size: 24px; }
+  .pos-login .login-form { margin-top: 16px; }
+  .pos-login .login-form > * + * { margin-top: 12px; }
+  .pos-login .login-form input:not([type="checkbox"]) { padding-top: 12px; padding-bottom: 12px; font-size: 16px; }
+  .pos-terminal-content { padding: 6px; }
+  .pos-terminal-card { padding: 10px; border-radius: 16px; }
+  .pos-terminal-card > header { gap: 8px; padding-bottom: 8px; }
+  .pos-terminal-card > header > div:first-child { min-width: 0; }
+  .pos-terminal-card > header h1 { margin-top: 2px; font-size: 16px; line-height: 22px; }
+  .pos-terminal-card > header > div:first-child > p:last-child { display: none; }
+  .pos-terminal-card > header > div:last-child { flex-shrink: 0; }
+  .pos-terminal-body { margin-top: 10px; }
+  .pos-terminal-body > * + * { margin-top: 10px; }
+  .pos-terminal-context { gap: 6px; grid-template-columns: 1fr 1fr; }
+  .pos-terminal-context > article { padding: 8px; min-width: 0; overflow-wrap: anywhere; }
+  .pos-terminal-context > article > p:first-child { font-size: 10px; line-height: 14px; letter-spacing: 0; }
+  .pos-terminal-context > article:first-child p:last-child { display: none; }
+  .pos-home-actions { gap: 8px; }
+  .pos-home-actions > button { min-height: 64px; height: clamp(64px, calc(var(--pos-viewport-height, 100vh) * .14), 100px); padding: 8px; font-size: 15px; overflow-wrap: anywhere; }
+  .pos-terminal-card > p:last-child { margin-top: 8px; font-size: 9px; }
+  .pos-terminal input, .pos-terminal select { max-width: 100%; min-width: 0; }
+}
+
+/* POS surfaces fill the measured available screen; forms may scroll with the IME. */
+@media (max-width: 600px) {
+  .pos-login-content { padding: 0; align-items: stretch; }
+  .pos-login-card { max-width: none; min-height: var(--pos-viewport-height, 100vh); border-radius: 0; display: flex; flex-direction: column; }
+  .pos-login-card > div:last-child { flex: 1; display: flex; flex-direction: column; }
+  .pos-login .login-form { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 12px; }
+  .pos-terminal-content { display: flex; flex-direction: column; }
+  .pos-terminal-home { height: calc(var(--pos-viewport-height, 100vh) - 12px); min-height: calc(var(--pos-viewport-height, 100vh) - 12px); display: flex; flex-direction: column; }
+  .pos-terminal-home .pos-terminal-body { flex: 1; display: flex; flex-direction: column; }
+  .pos-home-panel { flex: 1; display: flex; flex-direction: column; }
+  .pos-home-actions { flex: 0 0 auto; grid-template-rows: repeat(2, 64px); }
+  .pos-home-actions > button { height: auto; min-height: 64px; }
+}
+
+.pos-home-panel { gap: 10px; }
+.pos-home-vehicles { display: flex; flex-direction: column; min-height: 184px; flex: 1 0 184px; border: 1px solid #cbd5e1; border-radius: 12px; padding: 8px; background: #fff; color: #0f172a; }
+.pos-home-vehicles h2 { margin: 0 0 6px; font-size: 14px; font-weight: 800; }
+.pos-home-occupancy { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; font-size: 11px; }
+.pos-home-occupancy > span { white-space: nowrap; }
+.pos-home-occupancy-track { flex: 1; min-width: 20px; height: 8px; border-radius: 8px; background: #e2e8f0; overflow: hidden; }
+.pos-home-occupancy-track > span { display: block; height: 100%; background: #059669; }
+.pos-home-vehicle-heading { display: grid; grid-template-columns: 40% 30% 30%; flex: 0 0 28px; align-items: center; background: #e2e8f0; border-radius: 6px; font-size: 12px; font-weight: 800; }
+.pos-home-vehicle-heading > span { padding: 0 4px; }
+.pos-home-vehicle-heading > span:last-child { text-align: right; }
+.pos-home-vehicle-rows { flex: 1; min-height: 44px; overflow: hidden; }
+.pos-home-vehicle-rows table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; }
+.pos-home-vehicle-rows td { height: 44px; padding: 0 4px; border: 0; box-shadow: inset 0 -1px #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pos-home-vehicle-rows td:first-child { width: 40%; font-weight: 800; }
+.pos-home-vehicle-rows td:nth-child(2) { width: 30%; }
+.pos-home-vehicle-rows td:last-child { width: 30%; text-align: right; }
+.pos-home-vehicle-rows tr:nth-child(even) { background: #f1f5f9; }
+.pos-home-vehicle-rows tr { cursor: pointer; }
+.pos-home-vehicle-rows button { display: block; width: 100%; min-height: 44px; text-align: left; }
+.pos-home-vehicle-rows button:focus-visible { outline: 2px solid #3150d8; outline-offset: -2px; }
+.pos-home-vehicle-pagination { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 4px; padding-top: 6px; font-size: 11px; }
+.pos-home-vehicle-pagination button { min-height: 44px; padding: 0 8px; border-radius: 8px; background: #3150d8; color: #fff; font-size: 12px; font-weight: 700; }
+.pos-home-vehicle-pagination button:disabled { background: #e2e8f0; color: #64748b; cursor: default; }
+.pos-home-empty { margin: 12px 4px; font-size: 13px; color: #475569; }
+@media (min-width: 601px) { .pos-home-vehicles { flex: 0 0 360px; height: 360px; } }
+
+@media (max-width: 600px) { .pos-login .login-form > * { margin-top: 0 !important; margin-bottom: 0 !important; } }
+@media (max-width: 600px) {
+  .pos-terminal-home .pos-terminal-body { gap: 10px; }
+  .pos-terminal-home .pos-terminal-body > * { margin-top: 0 !important; margin-bottom: 0 !important; }
+}

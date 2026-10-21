@@ -201,7 +201,7 @@ test("OCUPACIÓN: conteo de vehículos dentro agrupado por parking en una sola c
 // ============================================================
 
 test("PARIDAD FASE 1: getMovementsSummary(reportes) === getOperationsSummary(Fase 1) para el mismo fixture", async () => {
-  const { getOperationsSummary } = await import("./offStreetOperationsSummary.js");
+  const { getOperationsSummary } = await import("./posStaysService.js");
   const { offStreetParkings } = await import("./offStreetRevenueService.js");
   const db = createMockDb({ stays: STAYS });
 
@@ -211,7 +211,7 @@ test("PARIDAD FASE 1: getMovementsSummary(reportes) === getOperationsSummary(Fas
 });
 
 test("PARIDAD FASE 3: el conteo de vehículos dentro por parking (reportes, Ocupación) coincide con la suma que ve el Dashboard para el mismo scope", async () => {
-  const { getOperationsSummary } = await import("./offStreetOperationsSummary.js");
+  const { getOperationsSummary } = await import("./posStaysService.js");
   const { offStreetParkings } = await import("./offStreetRevenueService.js");
   const db = createMockDb({ stays: STAYS });
 

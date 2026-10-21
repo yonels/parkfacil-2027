@@ -3,6 +3,7 @@ import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { getCompany } from "@/lib/companiesRepository";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { requirePlatformAdmin } from "@/lib/auth/apiAuthorizationCore.mjs";
+import { PRODUCTS } from "@/lib/auth/permissions.mjs";
 
 const clean = (value) => String(value || "").trim();
 const numberOrNull = (value) => value === "" || value === null || value === undefined ? null : Number(value);
@@ -10,6 +11,17 @@ const emptyToNull = (value) => {
   const cleaned = clean(value);
   return cleaned ? cleaned : null;
 };
+// Solo se reasignan enabled_products si el body trae explícitamente la
+// clave `products` (arreglo). Así un PATCH de solo datos de contacto/contrato
+// -- que no la envía -- nunca vacía por accidente el producto habilitado de
+// una empresa (ver §33 de la auditoría: fuente única, cambios siempre
+// explícitos).
+function sanitizeProducts(value) {
+  if (!Array.isArray(value)) return null;
+  const sanitized = value.filter((product) => product === PRODUCTS.OFF_STREET || product === PRODUCTS.ON_STREET);
+  return [...new Set(sanitized)];
+}
+
 const planCode = {
   "Por definir": "UNASSIGNED",
   Esencial: "ESSENTIAL",
@@ -56,7 +68,9 @@ export async function PATCH(request, { params }) {
     return NextResponse.json({ error: "Los valores contractuales deben ser números iguales o mayores que cero.", code: "VALIDATION_ERROR" }, { status: 400 });
   }
 
+  const nextProducts = sanitizeProducts(input.products);
   const companyResult = await db.from("companies").update({
+    ...(nextProducts ? { enabled_products: nextProducts } : {}),
     trade_name: clean(input.name),
     business_name: clean(input.legalName),
     business_activity: clean(input.businessActivity),

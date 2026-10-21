@@ -2,17 +2,32 @@ import "server-only";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { requirePermission } from "@/lib/auth/apiAuthorizationCore.mjs";
 import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
+import { hasPermission, ROLES } from "@/lib/auth/permissions.mjs";
 import { assignedParkingIds } from "@/lib/auth/parkingAuthorization";
 import { parkingQueryScope } from "@/lib/auth/parkingAuthorizationCore.mjs";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
-import { getParking } from "@/lib/estacionamientosRepository";
+import { getParking, listParkings } from "@/lib/estacionamientosRepository";
 import { requireOperationRow, requireOwnShift } from "@/lib/auth/operationAuthorizationCore.mjs";
+import { chileOperationalDate } from "@/lib/posOperatorShiftService";
+import { POS_PARKING_RESOLUTION, resolvePosParking } from "@/lib/pos/posParkingResolution.mjs";
+import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
 
+// `permission` acepta un string (comportamiento histórico, exactamente igual
+// que antes vía requirePermission) o un arreglo de permisos alternativos
+// (basta con tener uno) -- usado por /api/operacion, donde tanto REPORTS_READ
+// (root/company_admin) como OPERATIONS_USE (operador ya expuesto a /operacion
+// en navigation.js) deben poder consultar, cada uno con su propio scope real.
 export async function authorizeOperationRequest(request, permission) {
   const authorization = await authorizeApiRequest(request);
   if (authorization.response) return authorization;
   try {
-    requirePermission(authorization.context, permission);
+    if (Array.isArray(permission)) {
+      if (!permission.some((item) => hasPermission(authorization.context?.role, item))) {
+        throw new AuthorizationError("PERMISSION_FORBIDDEN", 403, "No tienes permiso para realizar esta acción.", authorization.context);
+      }
+    } else {
+      requirePermission(authorization.context, permission);
+    }
     const db = getSupabaseAdminClient();
     const assigned = await assignedParkingIds(db, authorization.context);
     return { context: authorization.context, db, scope: parkingQueryScope(authorization.context, assigned || []), assignedParkingIds: assigned, response: null };
@@ -24,6 +39,88 @@ export async function authorizeOperationRequest(request, permission) {
 
 export async function requireOperationalParking(db, context, scope, id) {
   return requireOperationRow(context, await getParking(db, id, scope), "estacionamiento");
+}
+
+const POS_RESOLUTION_SHIFT_FIELDS = "id,operator_id,parking_id,shift_date,scheduled_start,scheduled_end,closed_at,status";
+
+// POS Entry/Exit — Fase 1: único punto que decide QUÉ estacionamiento opera
+// una sesión POS (reemplaza assignedParkingIds[0], ver
+// src/lib/pos/posParkingResolution.mjs para las reglas y su porqué). Todas
+// las APIs POS (/api/pos/* y las solicitudes terminal de /api/data-entry)
+// deben pasar por aquí para que entrada, salida, cotización, pagos, turno y
+// cierre usen SIEMPRE el mismo estacionamiento. Solo aplica a operadores:
+// cualquier otro rol queda UNASSIGNED (mismo resultado que tenía antes en
+// /api/pos/*, donde assignedParkingIds es null para no-operadores).
+export async function resolvePosOperationalParking(authorization, { now = new Date() } = {}) {
+  const { db, context, scope } = authorization;
+  if (context?.role !== ROLES.OPERATOR) {
+    return { status: POS_PARKING_RESOLUTION.UNASSIGNED, parkingId: null, parking: null, options: [], offStreetOptions: [] };
+  }
+
+  // Selector Off Street (SOL-2026-10-10-001): SOLO en el portal Terminal
+  // (POS) el operador puede elegir cualquier estacionamiento Off Street de
+  // su empresa, esté o no asignado a él. Nunca sin companyId (un scope sin
+  // empresa listaría estacionamientos de todas). Fuera del POS (operador en
+  // la Web Cliente) la resolución sigue acotada a sus asignaciones, y
+  // `authorization.scope` no se modifica en ningún caso.
+  const offStreetFlow = context.portal === "terminal" && Boolean(context.companyId);
+
+  const today = chileOperationalDate(now);
+  const [authorizedParkings, companyParkings, openResult, todayResult] = await Promise.all([
+    listParkings(db, scope),
+    offStreetFlow ? listParkings(db, { companyId: context.companyId, parkingIds: null }) : Promise.resolve(null),
+    db.from("operator_shifts").select(POS_RESOLUTION_SHIFT_FIELDS)
+      .eq("operator_id", context.userId).in("status", ["OPEN", "CLOSING"]).limit(1).maybeSingle(),
+    db.from("operator_shifts").select(POS_RESOLUTION_SHIFT_FIELDS)
+      .eq("operator_id", context.userId).eq("shift_date", today).in("status", ["PROGRAMMED", "CLOSED"]),
+  ]);
+  if (openResult.error) throw openResult.error;
+  if (todayResult.error) throw todayResult.error;
+
+  const offStreetParkings = offStreetFlow
+    ? companyParkings.filter((item) => item.type === "OFF_STREET" && item.companyId === context.companyId)
+    : null;
+  const todayShifts = todayResult.data || [];
+  const closedShifts = todayShifts.filter((shift) => shift.status === "CLOSED");
+  const resolution = resolvePosParking({
+    authorizedParkings,
+    openShift: openResult.data || null,
+    programmedShifts: todayShifts.filter((shift) => shift.status === "PROGRAMMED"),
+    closedShifts,
+    offStreetParkings,
+  });
+
+  if (resolution.status === POS_PARKING_RESOLUTION.SHIFT_PARKING_FORBIDDEN) {
+    throw new AuthorizationError("POS_SHIFT_PARKING_FORBIDDEN", 403, "Tu turno abierto corresponde a un estacionamiento que ya no tienes autorizado. Contacta a tu supervisor.", context);
+  }
+
+  const knownParkings = [...authorizedParkings, ...(offStreetParkings || []).filter((item) => !authorizedParkings.some((known) => known.id === item.id))];
+  const parking = resolution.parkingId ? knownParkings.find((item) => item.id === resolution.parkingId) || null : null;
+  // parkingScope: scope con el que las rutas POS revalidan el estacionamiento
+  // resuelto. Para un Off Street no asignado es ese único estacionamiento de
+  // la empresa del operador (nunca más amplio que eso).
+  const parkingScope = parking && offStreetFlow && !authorizedParkings.some((item) => item.id === parking.id)
+    ? { companyId: context.companyId, parkingIds: [parking.id] }
+    : scope;
+  // authorizedParkings: lista server-side (empresa + asignaciones del
+  // operador). selectableParkings: los Off Street activos del pulldown — la
+  // única lista contra la que se valida un parkingId elegido para iniciar un
+  // turno a pedido (nunca un id del cliente sin validar).
+  const selectableIds = new Set((resolution.offStreetOptions || []).map((option) => option.parkingId));
+  const selectableParkings = knownParkings.filter((item) => selectableIds.has(String(item.id)));
+  // Último turno cerrado hoy (ya no fija el estacionamiento en el flujo Off
+  // Street): se entrega para conservar la consulta/reimpresión del cierre.
+  const lastClosedShift = closedShifts
+    .filter((shift) => knownParkings.some((item) => item.id === shift.parking_id))
+    .sort((a, b) => String(b?.closed_at || "").localeCompare(String(a?.closed_at || "")))[0] || null;
+  return { ...resolution, parking, authorizedParkings, selectableParkings, parkingScope, offStreetFlow, lastClosedShift, knownParkings };
+}
+
+export function posParkingSelectionRequiredResponse() {
+  return {
+    error: "Tienes más de un estacionamiento asignado. Inicia el turno del estacionamiento que vas a operar.",
+    code: "PARKING_SELECTION_REQUIRED",
+  };
 }
 
 export async function requireOperationalShift(db, context, scope, shiftId, parkingId = null) {
@@ -46,6 +143,20 @@ export async function requireOperationalClosure(db, context, scope, identifier) 
 
 export function operationActor(context) {
   return { id: context.userId, name: context.email || context.userId, role: context.role, companyId: context.companyId, isAdmin: context.role !== "operator" };
+}
+
+// POS Entry/Exit — Fase 1: mismo actor que operationActor, pero con un
+// nombre visible apropiado para el operador y el ticket. operationActor usa
+// context.email, que en cuentas con "usuario de acceso" es el correo
+// técnico interno (@acceso.parkfacilapp.cl) -- no debe mostrarse ni quedar
+// impreso como nombre del operador. Se usa el nombre de la membresía
+// (company_members.full_name) y, si no existe, solo el usuario de acceso.
+// No reemplaza a operationActor en módulos ajenos al POS.
+export function posOperationActor(context) {
+  const base = operationActor(context);
+  const fullName = String(context?.membership?.fullName || "").trim();
+  const displayName = fullName || extractDisplayUsername(context?.email) || context?.userId;
+  return { ...base, name: displayName };
 }
 
 export function operationAuthorizationError(request, context, error) {

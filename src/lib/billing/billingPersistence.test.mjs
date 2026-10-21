@@ -23,7 +23,7 @@ test("persistencia de pagos tiene idempotencia por empresa", async () => {
 test("emision real queda encapsulada tras adaptador y usa Mock en esta etapa", async () => {
   const route = await read("../../app/api/billing/preinvoices/[id]/issue/route.js");
   assert.match(route, /PERMISSIONS\.BILLING_ISSUE/);
-  assert.match(route, /new MockBillingProviderAdapter\(\)/);
+  assert.match(route, /new MockBillingProviderAdapter\(/);
   assert.doesNotMatch(route, /fetch\(/);
 });
 

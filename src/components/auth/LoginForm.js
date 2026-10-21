@@ -1,17 +1,35 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, LoaderCircle, LockKeyhole, Mail } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
-import { getSafeDestination } from "@/lib/auth/loginDestination.mjs";
+import { getSafeDestination, getProductLoginDestination } from "@/lib/auth/loginDestination.mjs";
+import { buildTechnicalEmail } from "@/lib/auth/accessUsernameDomain.mjs";
 import Link from "next/link";
+import { getPosCredentialClient } from "@/lib/auth/posCredentials.mjs";
+
+// Portales cuyas cuentas iniciales pueden tener un "usuario de acceso"
+// generado (sin @) en vez de un correo real -- Root e Inspector siempre
+// usan su correo real y no entran aquí (ver diagnóstico "ajustar flujo de
+// creación de empresas" 2026-09-10, punto D). Si lo que la persona escribe
+// ya trae "@", se envía tal cual: ninguna cuenta existente con correo real
+// (todas las creadas antes de este cambio) se ve afectada.
+const PORTALS_WITH_GENERATED_USERNAME = new Set(["cliente", "terminal"]);
 
 export default function LoginForm({
   tipoAcceso,
   loginScope = "default",
   defaultDestination = "/",
   forcePosDestination = false,
+  forceInspectorDestination = false,
+  // "compactMobile" (2026-09-02, "login mobile optimizado"): opt-in,
+  // default false -- NINGÚN llamador existente (Root/POS/Cliente) pasa esta
+  // prop, así que sus 3 pantallas de login quedan con exactamente el mismo
+  // markup/clases de siempre, cero diff. Solo /inspector/login la activa,
+  // para reducir los espacios verticales entre bloques EXCLUSIVAMENTE en
+  // <md; en >=md el resultado es idéntico al de antes en los 4 portales.
+  compactMobile = false,
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -21,6 +39,37 @@ export default function LoginForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const [rememberCredentials, setRememberCredentials] = useState(false);
+  const [credentialClient, setCredentialClient] = useState(null);
+  const [credentialNotice, setCredentialNotice] = useState("");
+  const editedCredentials = useRef(false);
+  useEffect(() => {
+    if (tipoAcceso !== "terminal") return;
+    const client = getPosCredentialClient(window.ParkFacilCredentials);
+    if (!client) return;
+    let active = true;
+    client("read").then((saved) => {
+      if (!active) return;
+      setCredentialClient(() => client);
+      if (editedCredentials.current || !saved) return;
+      setEmail(saved.username || "");
+      setPassword(saved.password || "");
+      setRememberCredentials(true);
+    }).catch(() => { if (active) { setCredentialClient(() => client); setCredentialNotice("No se pudieron recuperar los datos guardados. Puedes ingresar manualmente."); } });
+    return () => { active = false; };
+  }, [tipoAcceso]);
+
+  async function forgetCredentials() {
+    try {
+      await credentialClient("forget");
+      editedCredentials.current = true;
+      setRememberCredentials(false);
+      setEmail("");
+      setPassword("");
+      setCredentialNotice("Datos guardados eliminados de este POS.");
+    } catch (error) { setCredentialNotice(error.message); }
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
@@ -28,12 +77,22 @@ export default function LoginForm({
     const requestedDestination = getSafeDestination(searchParams.get("next"));
     const destination = forcePosDestination
       ? (requestedDestination === "/pos" || requestedDestination.startsWith("/pos/") ? requestedDestination : "/pos")
+      : forceInspectorDestination
+      ? (requestedDestination === "/inspector" || requestedDestination.startsWith("/inspector/") ? requestedDestination : "/inspector")
       : (requestedDestination === "/" ? defaultDestination : requestedDestination);
 
     try {
       const supabase = getSupabaseBrowserClient();
+      // Cuentas de empresa (administrador/operadores) pueden tener un
+      // "usuario de acceso" generado en vez de un correo real -- si lo
+      // escrito no trae "@", se completa con el dominio técnico fijo antes
+      // de autenticar. Un correo real (con "@") nunca se toca.
+      const typedValue = email.trim();
+      const effectiveEmail = PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) && typedValue && !typedValue.includes("@")
+        ? buildTechnicalEmail(typedValue)
+        : typedValue;
       const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: effectiveEmail,
         password,
       });
       if (authError) throw authError;
@@ -42,16 +101,37 @@ export default function LoginForm({
         headers: {
           "content-type": "application/json",
           ...(tipoAcceso === "terminal" ? { "x-parkfacil-portal": "terminal" } : {}),
+          ...(tipoAcceso === "inspector" ? { "x-parkfacil-portal": "inspector" } : {}),
         },
         body: JSON.stringify({ accessToken: data.session?.access_token, scope: loginScope }),
       });
+      const sessionPayload = await sessionResponse.json().catch(() => ({}));
       if (!sessionResponse.ok) {
-        const payload = await sessionResponse.json().catch(() => ({}));
         await supabase.auth.signOut();
-        const nombrePortal = tipoAcceso === "cliente" ? "Portal Cliente" : tipoAcceso === "terminal" ? "ParkFacil Terminal" : "Portal Root";
-        throw new Error(payload.error || `Esta cuenta no puede acceder a ${nombrePortal}.`);
+        const nombrePortal = tipoAcceso === "cliente" ? "Portal Cliente" : tipoAcceso === "terminal" ? "ParkFacil Terminal" : tipoAcceso === "inspector" ? "ParkFacil Inspectores" : "Portal Root";
+        throw new Error(sessionPayload.error || `Esta cuenta no puede acceder a ${nombrePortal}.`);
       }
-      router.replace(destination);
+      // Portal Cliente con destino por defecto ("/"): en vez de la pantalla
+      // genérica, llevar directo al único producto habilitado -- una empresa
+      // con un solo producto no debe pasar por una pantalla intermedia (ver
+      // §5/§8/§29 de la auditoría de acceso por producto). Con ambos
+      // productos, o sin ninguno, se conserva "/" (selector/estado sin
+      // productos, ver Home).
+      const enabledProducts = Array.isArray(sessionPayload.data?.enabledProducts) ? sessionPayload.data.enabledProducts : [];
+      const singleProductDestination = getProductLoginDestination({
+        portal: tipoAcceso, destination, enabledProducts, role: sessionPayload.data?.role,
+      });
+      if (tipoAcceso === "terminal" && credentialClient) {
+        try {
+          if (rememberCredentials) await credentialClient("save", { username: typedValue, password });
+          else await credentialClient("forget");
+        } catch (storageError) {
+          await supabase.auth.signOut();
+          await fetch("/api/auth/session", { method: "DELETE" });
+          throw new Error(storageError.message);
+        }
+      }
+      router.replace(singleProductDestination);
     } catch (authError) {
       setError(
         authError?.message === "Invalid login credentials"
@@ -64,18 +144,18 @@ export default function LoginForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="login-form mt-8 space-y-5 text-white">
+    <form onSubmit={handleSubmit} className={`login-form text-white ${compactMobile ? "mt-5 space-y-3.5 md:mt-8 md:space-y-5" : "mt-8 space-y-5"}`}>
       <label className="block">
-        <span className="text-sm font-semibold text-white">Correo electrónico</span>
+        <span className="text-sm font-semibold text-white">{PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) ? "Usuario o correo electrónico" : "Correo electrónico"}</span>
         <span className="mt-2 flex items-center gap-3 rounded-2xl border border-white/35 bg-white/10 px-4 focus-within:border-white/80 focus-within:ring-4 focus-within:ring-white/20">
           <Mail className="h-5 w-5 shrink-0 text-white/80" />
           <input
-            type="email"
-            autoComplete="email"
+            type={PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) ? "text" : "email"}
+            autoComplete={PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) ? "username" : "email"}
             required
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="nombre@empresa.cl"
+            onChange={(event) => { editedCredentials.current = true; setEmail(event.target.value); }}
+            placeholder={PORTALS_WITH_GENERATED_USERNAME.has(tipoAcceso) ? "pfadmin7f3k o nombre@empresa.cl" : "nombre@empresa.cl"}
             className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-white placeholder:text-white/70 outline-none"
           />
         </span>
@@ -90,7 +170,7 @@ export default function LoginForm({
             autoComplete="current-password"
             required
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            onChange={(event) => { editedCredentials.current = true; setPassword(event.target.value); }}
             placeholder="Ingresa tu contraseña"
             className="min-w-0 flex-1 bg-transparent py-3.5 text-sm text-white placeholder:text-white/70 outline-none"
           />
@@ -100,9 +180,20 @@ export default function LoginForm({
         </span>
       </label>
 
+      {tipoAcceso === "terminal" && credentialClient ? (
+        <div className="space-y-2 text-sm">
+          <label className="flex min-h-11 items-center gap-2">
+            <input type="checkbox" checked={rememberCredentials} disabled={submitting} onChange={(event) => setRememberCredentials(event.target.checked)} />
+            Recordar usuario y contraseña en este POS
+          </label>
+          <button type="button" disabled={submitting} onClick={() => void forgetCredentials()} className="min-h-11 underline">Olvidar datos guardados</button>
+        </div>
+      ) : null}
+      {credentialNotice ? <p role="status" className="text-sm text-white">{credentialNotice}</p> : null}
+
       <div className="-mt-1 flex justify-end">
   <Link
-    href="/recuperar-contrasena"
+    href={`/recuperar-contrasena?portal=${tipoAcceso === "root" ? "root" : "cliente"}`}
     className="text-sm font-semibold text-white underline decoration-white/50 underline-offset-4 transition hover:text-white/85 hover:decoration-white"
   >
     Recuperar contraseña

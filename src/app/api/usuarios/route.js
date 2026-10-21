@@ -25,6 +25,7 @@ function normalizeCreatePayload(input) {
     recoveryEmail: normalizeEmail(input?.recoveryEmail),
     phone: String(input?.phone || "").trim(),
     role: String(input?.role || "").trim(),
+    status: input?.status === "pending" ? "invited" : (["active", "invited", "inactive"].includes(input?.status) ? input.status : "active"),
     companyId: String(input?.companyId || "").trim(),
     parkingIds: Array.isArray(input?.parkingIds) ? input.parkingIds.filter(Boolean).map((id) => String(id)) : [],
   };
@@ -128,7 +129,7 @@ export async function POST(request) {
       company_id: targetCompanyId,
       full_name: payload.fullName,
       role: payload.role,
-      status: "active",
+      status: payload.status,
       pos_only: payload.role === ROLES.OPERATOR,
       must_change_password: true,
       recovery_email: payload.recoveryEmail,

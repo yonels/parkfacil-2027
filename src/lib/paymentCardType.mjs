@@ -14,7 +14,7 @@ export function classifiedPaymentMethod(row) {
 }
 
 export function paymentMethodDisplay(method) {
-  return ({ CASH: "Efectivo", CREDIT: "Crédito", DEBIT: "Débito", CARD: "Tarjeta sin clasificar", CARD_UNCLASSIFIED: "Tarjeta sin clasificar" })[method] || "—";
+  return ({ CASH: "Efectivo", CREDIT: "Crédito", DEBIT: "Débito", CARD: "Tarjeta sin clasificar", CARD_UNCLASSIFIED: "Tarjeta sin clasificar", RELEASED: "Liberado" })[method] || "—";
 }
 
 export function matchesRevenueMethod(row, method) {

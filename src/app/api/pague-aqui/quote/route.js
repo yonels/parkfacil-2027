@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { quoteParkingStayById } from "@/lib/parkingStayQuoteService";
+import { isInternalServiceKeyValid } from "@/lib/internalServiceAuth.mjs";
 import { getSupabaseAdminClient, isSupabaseConfigurationError } from "@/lib/supabaseServer";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -11,9 +12,8 @@ function isValidUuid(value) {
 
 function isAuthorized(request) {
   const sent = String(request.headers.get("x-parkfacil-service-key") || "");
-  const expected = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "");
-
-  return Boolean(sent && expected && sent === expected);
+  const expected = String(process.env.PARKFACIL_INTERNAL_SERVICE_KEY || "");
+  return isInternalServiceKeyValid(sent, expected);
 }
 
 export async function POST(request) {

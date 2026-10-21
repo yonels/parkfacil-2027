@@ -40,3 +40,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local task and diagnostic output
+/.build-*.log
+/.lint-*.log
+/lint-output*.txt
+/.vercel-*.json
+/artifacts/
+/.claude/
+/scripts/_tmp-*.mjs

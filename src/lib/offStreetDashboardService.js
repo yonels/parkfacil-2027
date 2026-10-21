@@ -8,7 +8,7 @@
 // intestable con mocks -- ver ese archivo para el porqué y la auditoría de
 // capacidad completa.
 import { fetchAllMatchingRows, getRevenueOverview, offStreetParkings, resolveQueryParkingIds, searchRevenueClosures } from "./offStreetRevenueService.js";
-import { getOperationsSummary } from "./offStreetOperationsSummary.js";
+import { getOperationsSummary } from "./posStaysService.js";
 import { filterRowsByExactOperationalDateRange, addDaysToIsoDate } from "./pos/activityReportCore.mjs";
 import { buildDailyMovementsSeries, computeOccupancy, resolveDashboardRange } from "./offStreetDashboardCore.mjs";
 

@@ -3,6 +3,7 @@ import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
 import { getAuthenticatedContext, SESSION_COOKIE } from "@/lib/auth/authenticatedContext";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { hasPermission, PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
+import { withCouponModuleStatus } from "@/lib/cupones/couponModuleSession";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -18,6 +19,9 @@ function publicContext(context) {
     portal: context.portal,
     role: context.role,
     companyId: context.companyId,
+    enabledProducts: context.enabledProducts,
+    // Módulo Cupones (SOL-2026-10-19-002): el menú lo usa vía canAccessPath.
+    ...(context.couponModuleStatus ? { couponModuleStatus: context.couponModuleStatus } : {}),
     membership: context.membership,
   };
 }
@@ -49,14 +53,30 @@ async function validatePosOperatorScope(context) {
   if (assignmentResult.error) {
     throw new AuthorizationError("PARKING_ASSIGNMENT_LOOKUP_FAILED", 500, "No fue posible validar la asignación de estacionamiento.");
   }
-  if (!assignmentResult.data?.length) {
+  if (assignmentResult.data?.length) return;
+
+  // Selector Off Street (SOL-2026-10-10-001): sin asignación previa el
+  // operador igual puede operar si su empresa tiene al menos un
+  // estacionamiento Off Street activo (lo elige en el POS).
+  const offStreetResult = await db
+    .from("parkings")
+    .select("id")
+    .eq("company_id", context.companyId)
+    .eq("type", "OFF_STREET")
+    .eq("status", "ACTIVE")
+    .limit(1);
+  if (offStreetResult.error) {
+    throw new AuthorizationError("PARKING_ASSIGNMENT_LOOKUP_FAILED", 500, "No fue posible validar la asignación de estacionamiento.");
+  }
+  if (!offStreetResult.data?.length) {
     throw new AuthorizationError("PARKING_ASSIGNMENT_REQUIRED", 403, "No tiene un estacionamiento asignado para operar.");
   }
 }
 
 export async function GET(request) {
   try {
-    return NextResponse.json({ data: publicContext(await getAuthenticatedContext(request)) });
+    // Módulo Cupones: el menú del Portal Cliente lo necesita (canAccessPath).
+    return NextResponse.json({ data: publicContext(await withCouponModuleStatus(await getAuthenticatedContext(request), "/cupones")) });
   } catch (error) {
     return failure(error);
   }

@@ -4,6 +4,9 @@ import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import QRCode from "qrcode";
 import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
+import { couponsActiveForCompany } from "@/lib/cupones/couponModuleServer";
+import { COUPON_MODULE_INACTIVE_ERROR } from "@/lib/cupones/couponModuleCore.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +14,7 @@ const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (character
 const validEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
 export async function POST(request) {
+  if (!couponsEnabled()) return NextResponse.json(COUPONS_DISABLED_ERROR, { status: 403 });
   const authorization = await authorizeRemainingRequest(request, PERMISSIONS.COUPONS_MANAGE);
   if (authorization.response) return authorization.response;
   const actor = remainingActor(authorization.context);
@@ -26,6 +30,7 @@ export async function POST(request) {
     const { data: coupon, error } = await couponQuery.maybeSingle();
     if (!validEmail(destinatario)) return NextResponse.json({ ok: false, message: "Ingresa un correo destinatario válido." }, { status: 400 });
     if (error || !coupon) return NextResponse.json({ ok: false, message: "El cupón no existe." }, { status: 404 });
+    if (!(await couponsActiveForCompany(getSupabaseAdminClient(), coupon.company_id))) return NextResponse.json({ ok: false, message: COUPON_MODULE_INACTIVE_ERROR.error, code: COUPON_MODULE_INACTIVE_ERROR.code }, { status: 403 });
     const payload = `PFC-COUPON:${coupon.qr_token}`;
     const qrBase64 = (await QRCode.toBuffer(payload, { type: "png", width: 420, margin: 2, errorCorrectionLevel: "M" })).toString("base64");
     const benefit = coupon.benefit_type === "FREE_MINUTES" ? `${Number(coupon.benefit_value)} minutos gratis` : coupon.benefit_type === "FIXED_AMOUNT" ? `$${Number(coupon.benefit_value).toLocaleString("es-CL")} de descuento` : `${Number(coupon.benefit_value)}% de descuento`;

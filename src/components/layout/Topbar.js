@@ -7,7 +7,6 @@ import Breadcrumbs from "@/components/layout/Breadcrumbs";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 
 const roleLabels = {
-  company_admin: "Administrador de empresa",
   platform_admin: "Administrador de plataforma",
   organization_admin: "Administrador de organización",
   admin: "Administrador",
@@ -22,7 +21,7 @@ const BANNER_SOURCES = [
   "/images/inicio-parkfacil.png",
 ];
 
-export default function Topbar({ title, description, onMenuClick, userContext, sessionResolved, onBack }) {
+export default function Topbar({ title, description, onMenuClick, userContext, sessionResolved, onBack, hideBannerOnMobile = false }) {
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const [bannerSourceIndex, setBannerSourceIndex] = useState(0);
@@ -60,7 +59,7 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
               <span>Notificaciones</span>
             </div>
           </div>
-          <div className={`flex items-center gap-2 rounded-full border px-3 py-2 text-sm lg:w-fit lg:ml-auto ${userContext ? "border-[#BFD2FF] bg-[#EEF4FF] text-[#3150D8]" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+          <div className={`flex flex-wrap items-center gap-2 rounded-full border px-3 py-2 text-sm lg:w-fit lg:ml-auto lg:flex-nowrap ${userContext ? "border-[#BFD2FF] bg-[#EEF4FF] text-[#3150D8]" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
             <UserCircle2 className="h-4 w-4 shrink-0" />
             {userContext ? (
               <>
@@ -82,7 +81,7 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
           </div>
         </div>
       </div>
-      {userContext?.portal !== "client" && <div className="mx-auto mt-4 w-full max-w-7xl overflow-hidden rounded-2xl border border-[#5271E8] bg-[#3150D8] shadow-sm">
+      <div className={`mx-auto mt-4 w-full max-w-7xl overflow-hidden rounded-2xl border border-[#5271E8] bg-[#3150D8] shadow-sm ${hideBannerOnMobile ? "hidden lg:block" : ""}`}>
         <NextImage
           key={bannerSourceIndex}
           src={BANNER_SOURCES[bannerSourceIndex]}
@@ -97,7 +96,7 @@ export default function Topbar({ title, description, onMenuClick, userContext, s
             setBannerSourceIndex((current) => Math.min(current + 1, BANNER_SOURCES.length - 1));
           }}
         />
-      </div>}
+      </div>
     </header>
   );
 }

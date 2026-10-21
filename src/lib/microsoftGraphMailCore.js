@@ -72,6 +72,11 @@ export function buildGraphAttachments(attachments = []) {
       name: String(item.name),
       contentType: item.contentType || "application/octet-stream",
       contentBytes: String(item.contentBytes),
+      // Imagen insertada en el HTML (<img src="cid:...">), p. ej. el QR del cupón
+      // (SOL-2026-10-19-001). Sin estos campos Graph la envía como adjunto común y
+      // el lector de correo muestra la imagen rota.
+      ...(item.isInline ? { isInline: true } : {}),
+      ...(item.contentId ? { contentId: String(item.contentId) } : {}),
     }));
 }
 

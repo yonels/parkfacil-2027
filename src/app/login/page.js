@@ -12,7 +12,7 @@ export const metadata = {
 
 // Rutas internas que corresponden al Terminal operativo. El destino ya pasó por
 // getSafeDestination(), por lo que un `next` externo o inválido nunca llega hasta aquí.
-const TERMINAL_ROUTES = new Set(["/data-entry", "/data-entry/pos"]);
+const TERMINAL_ROUTES = new Set(["/pos", "/data-entry", "/data-entry/pos"]);
 
 const CONFIGURACION_ACCESO = {
   root: {

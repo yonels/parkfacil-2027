@@ -85,3 +85,47 @@ test("sanitize nunca produce bloques para minuto efectivo, aunque el cliente los
   const input = legalMinutePayload({ blocks: [{ durationMinutes: 30, amount: 1000 }] });
   assert.deepEqual(input.blocks, []);
 });
+
+// ---- SOL-2026-10-08-003: franjas horarias desde el formulario ----
+
+const BAND_FORM = {
+  name: "Hábil por franjas", billingMode: "EFFECTIVE_MINUTE", minuteAmount: 20, timeBandsEnabled: true,
+  legalComplianceAccepted: true, validFrom: "2026-10-12T00:00:00.000Z", status: "ACTIVE",
+  bandSets: [
+    { label: "Todos los días", daysOfWeek: [1, 2, 3, 4, 5, 6, 7], appliesToHolidays: false, bands: [
+      { label: "Día", start: "07:00", end: "17:00", minuteAmount: "35", capAmount: "" },
+      { label: "Noche", start: "17:00", end: "07:00", minuteAmount: "20", capAmount: "10000" },
+    ] },
+  ],
+};
+
+test("franjas: el formulario se convierte a minutos y se anula el valor por minuto general", () => {
+  const input = sanitizeRateInput(BAND_FORM);
+  assert.equal(input.timeBandsEnabled, true);
+  assert.equal(input.minuteAmount, null);
+  assert.deepEqual(input.bandSets[0].bands.map((b) => [b.startMinute, b.endMinute, b.minuteAmount, b.capAmount]), [[420, 1020, 35, null], [1020, 420, 20, 10000]]);
+  assert.deepEqual(validateRateInput(input, { parkingType: "OFF_STREET" }), {});
+});
+
+test("franjas: solo Off Street; horas inválidas y cobertura incompleta se rechazan", () => {
+  const input = sanitizeRateInput(BAND_FORM);
+  assert.ok(validateRateInput(input, { parkingType: "ON_STREET" }).timeBands);
+  const badHour = sanitizeRateInput({ ...BAND_FORM, bandSets: [{ ...BAND_FORM.bandSets[0], bands: [{ start: "25:00", end: "07:00", minuteAmount: 1 }] }] });
+  assert.ok(Object.keys(validateRateInput(badHour)).length > 0);
+  const gap = sanitizeRateInput({ ...BAND_FORM, bandSets: [{ ...BAND_FORM.bandSets[0], bands: [
+    { start: "07:00", end: "16:00", minuteAmount: 35 }, { start: "17:00", end: "07:00", minuteAmount: 20 },
+  ] }] });
+  assert.match(Object.values(validateRateInput(gap)).join(" "), /sin huecos/);
+});
+
+test("franjas: tramo vencido no admite franjas", () => {
+  const input = sanitizeRateInput({ ...BAND_FORM, billingMode: "EXPIRED_BLOCKS", blocks: [{ durationMinutes: 30, amount: 1000 }] });
+  assert.ok(validateRateInput(input).timeBands);
+});
+
+test("tarifa clásica sin cambios: minuto efectivo conserva su valor por minuto", () => {
+  const input = sanitizeRateInput({ ...BAND_FORM, timeBandsEnabled: false });
+  assert.equal(input.minuteAmount, 20);
+  assert.deepEqual(input.bandSets, []);
+  assert.deepEqual(validateRateInput(input), {});
+});

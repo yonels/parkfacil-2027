@@ -8,7 +8,7 @@
 // directamente (Fase 2), cero backend nuevo para esos dos.
 import { addDaysToIsoDate, filterRowsByExactOperationalDateRange, normalizePagination } from "./pos/activityReportCore.mjs";
 import { fetchAllMatchingRows, offStreetParkings, resolveQueryParkingIds } from "./offStreetRevenueService.js";
-import { getOperationsSummary } from "./offStreetOperationsSummary.js";
+import { getOperationsSummary } from "./posStaysService.js";
 import { movementDateField, operationalTodayIso, toOperationRow } from "./offStreetOperationsCore.mjs";
 import { elapsedMinutesSince, toShiftReportRow } from "./offStreetReportsCore.mjs";
 

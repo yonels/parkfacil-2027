@@ -16,12 +16,18 @@ const companyFields = [
 export default function EmpresaEditButton({ empresa }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState(() => ({ ...empresa, contrato: empresa.contrato ? { ...empresa.contrato } : null }));
+  const [form, setForm] = useState(() => ({ ...empresa, contrato: empresa.contrato ? { ...empresa.contrato } : null, productosHabilitados: [...(empresa.productosHabilitados || [])] }));
   const [parkingSpaces, setParkingSpaces] = useState(() => Object.fromEntries((empresa.estacionamientos || []).map((parking) => [parking.id, parking.plazasContratadas ?? ""])));
   const [status, setStatus] = useState({ saving: false, error: "" });
 
   const change = (key, value) => setForm((current) => ({ ...current, [key]: value }));
   const changeContract = (key, value) => setForm((current) => ({ ...current, contrato: { ...current.contrato, [key]: value } }));
+  const toggleProduct = (product) => setForm((current) => ({
+    ...current,
+    productosHabilitados: current.productosHabilitados.includes(product)
+      ? current.productosHabilitados.filter((item) => item !== product)
+      : [...current.productosHabilitados, product],
+  }));
 
   async function save(event) {
     event.preventDefault();
@@ -36,7 +42,7 @@ export default function EmpresaEditButton({ empresa }) {
           contact: form.contactoPrincipal, email: form.correo, phone: form.telefono,
           legalRepresentative: form.representanteLegal, address: form.direccion, district: form.comuna,
           city: form.ciudad, region: form.region, country: form.pais, notes: form.observaciones,
-          plan: form.plan, status: form.estado,
+          plan: form.plan, status: form.estado, products: form.productosHabilitados,
           contract: contract ? {
             id: contract.id, currency: contract.moneda, taxLabel: contract.impuesto,
             monthlyValue: contract.valorMensual, startsOn: contract.fechaInicio, endsOn: contract.fechaTermino,
@@ -90,6 +96,14 @@ export default function EmpresaEditButton({ empresa }) {
           {companyFields.map(([key, label, type = "text"]) => <label key={key} className="text-sm font-semibold text-slate-600"><span className="mb-1.5 block">{label}</span><input required={["nombreFantasia", "razonSocial"].includes(key)} type={type} value={form[key] || ""} onChange={(event) => change(key, event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal outline-none focus:border-[#3150D8]" /></label>)}
           <label className="text-sm font-semibold text-slate-600"><span className="mb-1.5 block">Plan</span><select value={form.plan || "Por definir"} onChange={(event) => change("plan", event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal"><option>Por definir</option><option>Esencial</option><option>Profesional</option><option>Enterprise</option><option>Personalizado</option></select></label>
           <label className="text-sm font-semibold text-slate-600"><span className="mb-1.5 block">Estado</span><select value={form.estado || "active"} onChange={(event) => change("estado", event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal"><option value="active">Activa</option><option value="onboarding">En implementación</option><option value="inactive">Inactiva</option></select></label>
+          <fieldset className="text-sm font-semibold text-slate-600 sm:col-span-2">
+            <span className="mb-1.5 block">Productos habilitados</span>
+            <p className="mb-2 text-xs font-normal text-slate-500">Determina si esta empresa ve Off Street, On Street o ambos al iniciar sesión en el Portal Cliente. Una empresa sin ningún producto no podrá operar.</p>
+            <div className="flex flex-wrap gap-3">
+              <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 font-normal"><input type="checkbox" checked={form.productosHabilitados.includes("OFF_STREET")} onChange={() => toggleProduct("OFF_STREET")} /> Off Street</label>
+              <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5 font-normal"><input type="checkbox" checked={form.productosHabilitados.includes("ON_STREET")} onChange={() => toggleProduct("ON_STREET")} /> On Street</label>
+            </div>
+          </fieldset>
           <label className="text-sm font-semibold text-slate-600 sm:col-span-2"><span className="mb-1.5 block">Observaciones</span><textarea rows="3" value={form.observaciones || ""} onChange={(event) => change("observaciones", event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal outline-none focus:border-[#3150D8]" /></label>
           {form.contrato ? <fieldset className="grid gap-4 border-t border-slate-200 pt-5 sm:col-span-2 sm:grid-cols-3">
             <legend className="px-2 font-bold text-[#041E42]">Contrato {form.contrato.numero}</legend>

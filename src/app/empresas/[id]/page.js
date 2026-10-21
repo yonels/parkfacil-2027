@@ -10,6 +10,7 @@ import TipoRelacionBadge from "@/components/empresas/TipoRelacionBadge";
 import { formatearRut } from "@/data/empresas.mjs";
 import { getCompanyPageData } from "@/lib/companiesServer";
 import EmpresaEditButton from "@/components/empresas/EmpresaEditButton";
+import EmpresaEnrolamientoPanel from "@/components/empresas/EmpresaEnrolamientoPanel";
 
 function DetailItem({ label, value }) {
   return (
@@ -144,6 +145,7 @@ export default async function EmpresaDetallePage({ params }) {
               <DetailItem label="Nombre de fantasía" value={empresa.nombreFantasia} />
               <DetailItem label="RUT" value={formatearRut(`${empresa.rutNumero}-${empresa.rutDv}`)} />
               <DetailItem label="Giro" value={empresa.giro} />
+              <DetailItem label="Productos habilitados" value={(empresa.productosHabilitados || []).length ? empresa.productosHabilitados.map((product) => product === "ON_STREET" ? "On Street" : "Off Street").join(" · ") : "Ninguno — sin acceso operativo"} />
             </div>
           </div>
           <div className="rounded-3xl border border-slate-200 bg-[#F5F9FF] p-6 shadow-sm">
@@ -189,7 +191,11 @@ export default async function EmpresaDetallePage({ params }) {
                   <div key={contacto.id || `${contacto.nombreCompleto}-${contacto.correo}`} className="rounded-xl border border-slate-200 bg-white px-4 py-3">
                     <p className="font-semibold text-[#041E42]">{contacto.nombreCompleto || "Sin nombre informado"}</p>
                     <p className="mt-1 text-xs text-slate-500">{contactRoleLabel(contacto.rol)} · {contactStatusLabel(contacto.estado)}</p>
-                    <p className="mt-2 text-sm text-slate-600">{contacto.correo || "Sin correo informado"}</p>
+                    {contacto.esCorreoTecnico ? (
+                      <p className="mt-2 text-sm text-slate-600"><span className="font-semibold text-slate-500">Usuario:</span> {contacto.usuario}</p>
+                    ) : (
+                      <p className="mt-2 text-sm text-slate-600"><span className="font-semibold text-slate-500">Correo:</span> {contacto.correo || "Sin correo informado"}</p>
+                    )}
                     <p className="text-sm text-slate-600">{contacto.telefono || "Sin telefono informado"}</p>
                   </div>
                 ))}
@@ -197,6 +203,8 @@ export default async function EmpresaDetallePage({ params }) {
             </div>
           </div>
         </section>
+
+        <EmpresaEnrolamientoPanel companyId={id} />
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="text-xl font-semibold text-[#041E42]">Documentos y seguimiento</h3>

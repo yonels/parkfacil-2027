@@ -62,14 +62,14 @@ test("vencimiento contractual: con término el módulo vence aunque siga activo;
   const plazo = { ...oneTime, termMonths: 12, startsAt: local("2025-10-01T00:00"), endsAt: local("2026-10-01T00:00") };
   assert.equal(resolveModuleStatus({ module: moduleOn, contract: plazo, now: local("2026-10-05T10:00") }), MODULE_STATUS.EXPIRED, "no basta con el estado activo");
   assert.equal(resolveModuleStatus({ module: moduleOn, contract: { ...plazo, startsAt: local("2026-11-01T00:00"), endsAt: local("2027-11-01T00:00") }, now: local("2026-10-05T10:00") }), MODULE_STATUS.NOT_STARTED);
-  const auth = { id: "a1", status: "ACTIVE", kind: "CONTINUOUS", validFrom: local("2026-09-30T07:00"), validTo: local("2026-10-06T12:00"), schedule: [], version: 1 };
+  const auth = { id: "a1", status: "ACTIVE", paid: true, kind: "CONTINUOUS", validFrom: local("2026-09-30T07:00"), validTo: local("2026-10-06T12:00"), schedule: [], version: 1 };
   const vencida = evaluateReleasedEntry({ module: moduleOn, contract: plazo, authorizations: [auth], now: local("2026-10-05T10:00") });
   assert.equal(vencida.decision, ENTRY_DECISION.MODULE_UNAVAILABLE);
   assert.match(vencida.message, /Contratación vencida/);
 });
 
 test("cupos del cliente: el ingreso usa los cupos del estacionamiento, no los de la contratación", () => {
-  const auth = { id: "a1", status: "ACTIVE", kind: "CONTINUOUS", validFrom: local("2026-10-05T07:00"), validTo: local("2026-10-05T12:00"), schedule: [], version: 1 };
+  const auth = { id: "a1", status: "ACTIVE", paid: true, kind: "CONTINUOUS", validFrom: local("2026-10-05T07:00"), validTo: local("2026-10-05T12:00"), schedule: [], version: 1 };
   const now = local("2026-10-05T08:00");
   assert.equal(evaluateReleasedEntry({ module: { enabled: true, operationalSpots: 1 }, contract: oneTime, authorizations: [auth], openReleasedStays: 1, now }).decision, ENTRY_DECISION.NO_SPOTS);
   assert.equal(evaluateReleasedEntry({ module: { enabled: true, operationalSpots: null }, contract: oneTime, authorizations: [auth], openReleasedStays: 0, now }).decision, ENTRY_DECISION.NO_SPOTS, "sin configurar = sin ingresos con beneficio");
@@ -160,7 +160,7 @@ test("estado del módulo: desactivado, sin iniciar, vencido o activo", () => {
 });
 
 test("ingreso: patente liberada solo con módulo activo, autorización vigente y cupo disponible", () => {
-  const auth = { id: "a1", status: "ACTIVE", kind: "RECURRING", validFrom: local("2026-10-05T00:00"), validTo: local("2026-10-31T00:00"), schedule: [{ days: [1, 2, 3, 4, 5], start: "08:30", end: "12:30" }], version: 1, terms: { tariffId: "t-MONTH", tariffVersion: 1, billingUnit: "MONTH", quantity: 1, unitPrice: 30000, totalAmount: 30000 } };
+  const auth = { id: "a1", status: "ACTIVE", paid: true, kind: "RECURRING", validFrom: local("2026-10-05T00:00"), validTo: local("2026-10-31T00:00"), schedule: [{ days: [1, 2, 3, 4, 5], start: "08:30", end: "12:30" }], version: 1, terms: { tariffId: "t-MONTH", tariffVersion: 1, billingUnit: "MONTH", quantity: 1, unitPrice: 30000, totalAmount: 30000 } };
   const now = local("2026-10-05T08:00");
   assert.equal(evaluateReleasedEntry({ module: moduleOn, contract, authorizations: [], now }).decision, ENTRY_DECISION.NOT_AUTHORIZED);
   const ok = evaluateReleasedEntry({ module: moduleOn, contract, authorizations: [auth], openReleasedStays: 1, now });
@@ -180,12 +180,13 @@ test("ingreso: patente liberada solo con módulo activo, autorización vigente y
 
   // Ingreso 08:00 con franja desde 08:30, salida 12:00: se cobran 30 minutos.
   const coverage = releasedStayCoverage(ok.snapshot, now, local("2026-10-05T12:00"));
-  assert.deepEqual(coverage, { elapsedSeconds: 4 * 3600, coveredSeconds: 3.5 * 3600, chargeableSeconds: 1800 });
+  assert.deepEqual({ ...coverage, uncovered: undefined }, { elapsedSeconds: 4 * 3600, coveredSeconds: 3.5 * 3600, chargeableSeconds: 1800, uncovered: undefined });
+  assert.deepEqual(coverage.uncovered, [[new Date(now).getTime(), new Date(local("2026-10-05T08:30")).getTime()]], "el intervalo no cubierto es 08:00–08:30");
 });
 
 test("condiciones congeladas: el vencimiento de la contratación limita la cobertura sin efecto retroactivo", () => {
   const corto = { ...contract, endsAt: local("2026-10-05T10:00") };
-  const auth = { id: "a1", status: "ACTIVE", kind: "CONTINUOUS", validFrom: local("2026-10-05T08:00"), validTo: local("2026-10-05T10:00"), schedule: [], version: 1 };
+  const auth = { id: "a1", status: "ACTIVE", paid: true, kind: "CONTINUOUS", validFrom: local("2026-10-05T08:00"), validTo: local("2026-10-05T10:00"), schedule: [], version: 1 };
   const decision = evaluateReleasedEntry({ module: moduleOn, contract: corto, authorizations: [auth], now: local("2026-10-05T08:00") });
   const coverage = releasedStayCoverage(decision.snapshot, local("2026-10-05T08:00"), local("2026-10-05T11:00"));
   assert.deepEqual([coverage.coveredSeconds, coverage.chargeableSeconds], [7200, 3600]);

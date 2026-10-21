@@ -1,21 +1,19 @@
+// Estados reales de parking_stays (constraint en
+// supabase/migrations/20260731130000_parking_stays_tickets.sql): OPEN/PAID/
+// CANCELLED. Ver src/lib/offStreetOperationsCore.mjs (statusLabel) para la
+// misma correspondencia usada del lado servidor.
 export default function EstadoTicketBadge({ estado }) {
   const labels = {
-    open: "Abierto",
-    closed: "Cerrado",
-    cancelled: "Cancelado",
-    pending_review: "Pendiente de revisión",
-    lost: "Extraviado",
-    exempt: "Exento",
+    OPEN: "Abierto",
+    PAID: "Pagado",
+    CANCELLED: "Anulado",
   };
 
   const tones = {
-    open: "bg-emerald-100 text-emerald-700",
-    closed: "bg-slate-100 text-slate-700",
-    cancelled: "bg-rose-100 text-rose-700",
-    pending_review: "bg-amber-100 text-amber-700",
-    lost: "bg-orange-100 text-orange-700",
-    exempt: "bg-violet-100 text-violet-700",
+    OPEN: "bg-emerald-100 text-emerald-700",
+    PAID: "bg-[#EEF4FF] text-[#3150D8]",
+    CANCELLED: "bg-rose-100 text-rose-700",
   };
 
-  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${tones[estado] || "bg-slate-100 text-slate-700"}`}>{labels[estado] || estado}</span>;
+  return <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${tones[estado] || "bg-slate-100 text-slate-700"}`}>{labels[estado] || estado || "—"}</span>;
 }

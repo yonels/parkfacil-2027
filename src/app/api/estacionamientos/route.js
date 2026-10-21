@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { classifyParkingPersistenceError, sanitizeParkingInput, validateParkingInput } from "@/lib/estacionamientos.mjs";
-import { listParkings, parkingRowInput } from "@/lib/estacionamientosRepository";
+import { listParkings, createParkingWithCatalogCode, CatalogCodeNotAvailableError } from "@/lib/estacionamientosRepository";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { assignedParkingIds } from "@/lib/auth/parkingAuthorization";
 import { parkingQueryScope } from "@/lib/auth/parkingAuthorizationCore.mjs";
 import { requirePermission } from "@/lib/auth/apiAuthorizationCore.mjs";
-import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
+import { hasEnabledProduct, PERMISSIONS, PRODUCTS, ROLES } from "@/lib/auth/permissions.mjs";
 
 function fail(error, fallback = "No fue posible procesar los estacionamientos.") {
   console.error("[parking:collection]", error);
@@ -20,7 +20,16 @@ export async function GET(request) {
     requirePermission(auth.context, PERMISSIONS.PARKINGS_READ);
     const db = getSupabaseAdminClient();
     const ids = await assignedParkingIds(db, auth.context);
-    return NextResponse.json({ data: await listParkings(db, parkingQueryScope(auth.context, ids || [])) });
+    const parkings = await listParkings(db, parkingQueryScope(auth.context, ids || []));
+    // Defensa en profundidad: además de que el árbol de navegación ya no
+    // ofrece esta pantalla a una empresa sin Off Street/On Street, el propio
+    // listado nunca debe entregar estacionamientos de un producto que la
+    // empresa no tiene habilitado, aunque se invoque la API directamente
+    // (Root queda exento -- ver §7/§28 de la auditoría de acceso por producto).
+    const data = auth.context.role === ROLES.PLATFORM_ADMIN
+      ? parkings
+      : parkings.filter((parking) => hasEnabledProduct(auth.context.enabledProducts, parking.type === "ON_STREET" ? PRODUCTS.ON_STREET : PRODUCTS.OFF_STREET));
+    return NextResponse.json({ data });
   } catch (error) { if (error?.status) return authorizationErrorResponse(request, error, auth.context); return fail(error, "No fue posible obtener los estacionamientos."); }
 }
 
@@ -37,8 +46,14 @@ export async function POST(request) {
     const company = await supabase.from("companies").select("id,status,relationship_type").eq("id", payload.companyId).maybeSingle();
     if (company.error) throw company.error;
     if (!company.data || company.data.status !== "active" || company.data.relationship_type !== "client") return NextResponse.json({ error: "No se encontró la empresa solicitada.", code: "RESOURCE_NOT_FOUND" }, { status: 404 });
-    const { data, error } = await supabase.from("parkings").insert(parkingRowInput(payload)).select("*").limit(1);
-    if (error) throw error;
-    return NextResponse.json({ data: data[0] }, { status: 201 });
-  } catch (error) { return fail(error, "No fue posible crear el estacionamiento."); }
+    // Código de Estacionamiento/Proyecto desde catálogo (corrección
+    // funcional 2026-08-29): ya no es un insert directo -- createParkingWithCatalogCode
+    // valida y consume el código del catálogo, con respaldo transaccional
+    // contra condición de carrera (ver estacionamientosRepository.js).
+    const parking = await createParkingWithCatalogCode(supabase, payload);
+    return NextResponse.json({ data: parking }, { status: 201 });
+  } catch (error) {
+    if (error instanceof CatalogCodeNotAvailableError) return NextResponse.json({ error: "El código seleccionado ya fue asignado. Selecciona otro.", code: "CATALOG_CODE_NOT_AVAILABLE" }, { status: 409 });
+    return fail(error, "No fue posible crear el estacionamiento.");
+  }
 }

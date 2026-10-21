@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
 import EmpresaResumen from "@/components/empresas/EmpresaResumen";
 import EmpresasTable from "@/components/empresas/EmpresasTable";
+import EmpresaCreateButton from "@/components/empresas/EmpresaCreateButton";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 
 const estados = ["Todos", "active", "inactive", "onboarding"];
@@ -83,6 +84,14 @@ export default function EmpresasPage() {
 
   const ciudades = useMemo(() => ["Todos", ...new Set(empresas.map((empresa) => empresa.ciudad))], [empresas]);
 
+  // Refresco sin recarga manual (§8 del encargo "Crear empresa"): la empresa
+  // recién creada se agrega directo al estado ya cargado, con el mismo
+  // formato que ya entrega GET /api/empresas (companiesRepository.mapCompany).
+  const handleEmpresaCreada = (empresa) => {
+    if (!empresa) return;
+    setEmpresas((current) => [...current.filter((item) => item.id !== empresa.id), empresa]);
+  };
+
   const resultados = useMemo(() => {
     const query = busqueda.trim().toLowerCase();
     const base = mergeCompanyFallback(empresas).filter((empresa) => [
@@ -117,10 +126,7 @@ export default function EmpresasPage() {
           title="Empresas"
           description="Administración de organizaciones, datos tributarios, contactos y estacionamientos asociados."
           actions={[
-            <button key="nueva" className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#1E5EFF]">
-              <Plus className="h-4 w-4" />
-              Crear empresa
-            </button>,
+            <EmpresaCreateButton key="nueva" existingEmpresas={empresas} onCreated={handleEmpresaCreada} />,
           ]}
         />
 

@@ -4,3 +4,10 @@
 export function getSafeDestination(value) {
   return value?.startsWith("/") && !value.startsWith("//") ? value : "/";
 }
+
+export function getProductLoginDestination({ portal, destination, enabledProducts = [], role }) {
+  if (portal !== "cliente" || destination !== "/" || enabledProducts.length !== 1) return destination;
+  if (enabledProducts[0] === "ON_STREET") return "/on-street-qr";
+  if (enabledProducts[0] === "OFF_STREET") return role === "company_admin" ? "/dashboard-off-street" : "/estacionamientos";
+  return destination;
+}

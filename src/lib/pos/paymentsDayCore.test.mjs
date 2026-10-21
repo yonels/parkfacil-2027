@@ -27,11 +27,11 @@ test("PAGOS DEL DÍA: totales se calculan solo desde CASH; débito/crédito no s
     { total_amount: 1200, payment_method: "CARD" }, // no distinguible como débito/crédito hoy
   ];
   const totals = summarizeDailyPayments(stays);
-  assert.deepEqual(totals, { totalAmount: 6700, totalCash: 5500, totalDebit: 0, totalCredit: 0, count: 3 });
+  assert.deepEqual(totals, { totalAmount: 6700, totalCash: 5500, totalDebit: 0, totalCredit: 0, totalUnclassifiedCard: 1200, count: 3 });
 });
 
 test("PAGOS DEL DÍA: totales en cero cuando no hay pagos", () => {
-  assert.deepEqual(summarizeDailyPayments([]), { totalAmount: 0, totalCash: 0, totalDebit: 0, totalCredit: 0, count: 0 });
+  assert.deepEqual(summarizeDailyPayments([]), { totalAmount: 0, totalCash: 0, totalDebit: 0, totalCredit: 0, totalUnclassifiedCard: 0, count: 0 });
 });
 
 test("PAGOS DEL DÍA: proyecta fila mínima (patente, hora, medio, monto)", () => {
@@ -53,4 +53,35 @@ test("PAGOS DEL DÍA: proyecta fila mínima (patente, hora, medio, monto)", () =
     ticketNumber: "ING-1234",
     paymentCode: "PAG-5678",
   });
+});
+
+test("IMPRIMIR PAGOS DEL DÍA: payload PAYMENTS_DAY con los totales/filas del servidor", async () => {
+  const { buildPaymentsDayPrintPayload } = await import("./paymentsDayCore.mjs");
+  const parking = { name: "Clínica Ramis Central", code: "PF-001", company: { business_name: "Clínica Ramis SpA" } };
+  const payments = [{ plate: "CXPY93", time: "17:10", paymentMethod: "CASH", amount: 1240, ticketNumber: "ING-1" }];
+  const totals = { totalAmount: 1240, totalCash: 1240, totalDebit: 0, totalCredit: 0, count: 1 };
+  const payload = buildPaymentsDayPrintPayload({ payments, totals, parking, now: new Date("2026-09-28T22:30:00Z") });
+  assert.equal(payload.type, "PAYMENTS_DAY");
+  assert.equal(payload.companyName, "Clínica Ramis SpA");
+  assert.equal(payload.parkingName, "Clínica Ramis Central");
+  assert.equal(payload.generatedDate, "28-09-2026");
+  assert.equal(payload.generatedTime, "19:30");
+  assert.equal(payload.totalAmount, 1240);
+  assert.equal(payload.count, 1);
+  assert.deepEqual(payload.payments[0], { plate: "CXPY93", time: "17:10", paymentMethod: "CASH", amount: 1240, ticketNumber: "ING-1" });
+  assert.equal(buildPaymentsDayPrintPayload({ payments, totals, parking: null }), null);
+  assert.equal(buildPaymentsDayPrintPayload({ payments: [], totals: null, parking }).count, 0);
+});
+
+test("PAGOS DEL DÍA: salida de patente liberada sin cobro se muestra e imprime como Liberado", async () => {
+  const { buildPaymentsDayPrintPayload, RELEASED_METHOD } = await import("./paymentsDayCore.mjs");
+  const { paymentMethodDisplay } = await import("../paymentCardType.mjs");
+  const row = toDailyPaymentRow({ id: "s2", license_plate: "QARD-04", exit_at: "2026-10-18T13:03:00.000Z", payment_method: null, total_amount: 0, code: "ING-9", payment_code: "LIB-1", released_payment_authorization_id: "a1" });
+  assert.equal(row.paymentMethod, RELEASED_METHOD);
+  assert.equal(paymentMethodDisplay(row.paymentMethod), "Liberado");
+  // Una liberada con excedente pagado conserva su medio real.
+  assert.equal(toDailyPaymentRow({ license_plate: "QARC-03", exit_at: "2026-10-18T13:40:00.000Z", payment_method: "CASH", total_amount: 875, released_payment_authorization_id: "a2" }).paymentMethod, "CASH");
+  const parking = { name: "Clínica Ramis Central", code: "PF-001", company: { business_name: "Clínica Ramis SpA" } };
+  const payload = buildPaymentsDayPrintPayload({ payments: [row], totals: summarizeDailyPayments([]), parking, now: new Date("2026-10-18T14:00:00.000Z") });
+  assert.equal(payload.payments[0].paymentMethod, "Liberado");
 });

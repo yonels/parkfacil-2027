@@ -1,12 +1,36 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { classifiedPaymentMethod, paymentMethodDisplay } from "@/lib/paymentCardType.mjs";
+import PosPlateInput from "@/components/pos/PosPlateInput";
+import PosHomeVehicles from "@/components/pos/PosHomeVehicles";
+import { stampStaysReceivedAt } from "@/lib/pos/homeVehicles.mjs";
+
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LoaderCircle, LogOut, Menu, RefreshCw, X } from "lucide-react";
 
+import PosViewport from "@/components/pos/PosViewport";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 import { splitChileTaxFromTotal, toOperationalDateTimeParts } from "@/lib/dataEntry.mjs";
+import { ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
+import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
+import { buildPrintableEntryPayload, entryPhotoRequirementMessage, resolvePlatePhotoPrintDecision } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
+import { buildAgentEntryTicketPayload } from "@/lib/pos/entryTicketPayload.mjs";
+import { photoToTicketRaster } from "@/lib/pos/ticketPhotoRaster.mjs";
+import { TUU_METHOD, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, isValidTuuSequenceNumber, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
+import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
+import QrTicketScanner from "@/components/pos/QrTicketScanner";
+import { ChargeBreakdownList, ClosedUnpaidExitsSummary, DebtNoticeBanner, UnpaidExitAction, UnpaidExitsReview } from "@/components/pos/PosUnpaidExit";
+import { summarizeChargeBreakdown } from "@/lib/parkingTimeBands.mjs";
+import { receiptChargeLines, receiptExitInstant, receiptRateDescription } from "@/lib/pos/paymentReceiptCore.mjs";
+import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } from "@/lib/pos/qrExitCore.mjs";
+import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
+import { couponTokenForRequest, isCouponQrPayload } from "@/lib/cupones/couponInput.mjs";
+import { COUPON_IN_TICKET_SCAN_MESSAGE, couponViewFromQuote, receiptCouponLine } from "@/lib/pos/posCoupon.mjs";
+import { buildPaymentsDayPrintPayload } from "@/lib/pos/paymentsDayCore.mjs";
+import { classifyEntryFailure, entryErrorMessage, isPlateAlreadyInside, PLATE_SOURCES } from "@/lib/pos/entryPlateCore.mjs";
+import { preloadPlateOcr, recognizePlate, releasePlateOcr } from "@/lib/pos/plateOcr";
+import { detectLocalVoiceSupport, installLocalVoice, listenForPlate } from "@/lib/pos/plateVoice";
 
 const POS_VIEWS = {
   HOME: "HOME",
@@ -20,6 +44,7 @@ const POS_VIEWS = {
   CIERRE_CAJA: "CIERRE_CAJA",
   ESTADO_DISPOSITIVO: "ESTADO_DISPOSITIVO",
   PAGOS_DEL_DIA: "PAGOS_DEL_DIA",
+  TURNO: "TURNO",
 };
 
 const POS_PLATE_REGEX = /^[A-Z0-9]{4}-[0-9]{2}$/;
@@ -67,10 +92,20 @@ function buildEntryPrintPayload(stay, parkingResponse) {
   const normalizedDateTime = formatBridgeEntryDateTime(stay.entry_at);
   if (!normalizedDateTime) return null;
 
+  // Razón social/RUT/dirección/teléfono: mismo helper que ya usaba el
+  // ticket histórico (dataEntryPresentation.mjs), con sus mismos fallbacks
+  // ("No informado") — no se inventa formato nuevo para el encabezado.
+  const header = ticketHeaderData(parkingResponse, stay, true);
+
   const payload = {
     type: "ENTRY",
     companyName: String(parkingResponse?.company?.business_name || parkingResponse?.company_name || "").trim(),
+    razonSocial: header.businessName,
+    rut: header.rut,
+    direccion: header.address,
+    telefono: header.phone,
     parkingName: String(parkingResponse?.name || "").trim(),
+    parkingCode: String(parkingResponse?.code || "").trim(),
     operator: String(stay?.entry_operator_name || "").trim(),
     plate: formatTicketPlate(stay?.license_plate),
     entryDate: normalizedDateTime.entryDate,
@@ -83,6 +118,14 @@ function buildEntryPrintPayload(stay, parkingResponse) {
     return null;
   }
 
+  // Ticket del agente local (PT-210 / MTP-II): formato aprobado físicamente,
+  // con datos de empresa opcionales y fecha con segundos -- se arma aquí,
+  // con la MISMA estadía/parking que confirmó el backend, para que la
+  // reimpresión reutilice exactamente el mismo contenido. El bridge nativo
+  // (SUNMI) ignora este campo.
+  const agentTicket = buildAgentEntryTicketPayload(stay, parkingResponse);
+  if (agentTicket) payload.agentTicket = agentTicket;
+
   return payload;
 }
 
@@ -90,10 +133,12 @@ function buildEntryPrintPayload(stay, parkingResponse) {
 // que el backend devolvió tras confirmar el pago (stay/quote/parking del
 // EXIT) — nunca el monto u otros valores que haya tenido el frontend antes
 // de esa respuesta.
-function buildPaymentReceiptPayload(stay, quote, parkingResponse) {
+function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod = "CASH") {
   if (!stay || !quote || !parkingResponse) return null;
   const entryDateTime = formatBridgeEntryDateTime(stay.entry_at);
-  const exitDateTime = formatBridgeEntryDateTime(stay.exit_at);
+  // «Salida» = hora del cálculo de cobro (entrada + minutos cobrados), no la
+  // confirmación del pago: así cuadra con «Tiempo» (SOL-2026-10-18-001).
+  const exitDateTime = formatBridgeEntryDateTime(receiptExitInstant(stay, quote));
   if (!entryDateTime || !exitDateTime) return null;
 
   // El monto del comprobante es siempre el TOTAL ya confirmado por el
@@ -102,11 +147,18 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse) {
   // implementará en una tarea aparte — no se toca aquí el mecanismo real.
   const amount = Number(quote?.total ?? stay?.total_amount ?? 0);
   const breakdown = getTaxBreakdown(amount);
+  const header = ticketHeaderData(parkingResponse, stay, false);
 
   const payload = {
     type: "PAYMENT_RECEIPT",
     companyName: String(parkingResponse?.company?.business_name || parkingResponse?.company_name || "").trim(),
+    razonSocial: header.businessName,
+    rut: header.rut,
+    direccion: header.address,
+    telefono: header.phone,
     parkingName: String(parkingResponse?.name || "").trim(),
+    parkingCode: String(parkingResponse?.code || "").trim(),
+    operator: String(stay?.exit_operator_name || "").trim(),
     plate: formatTicketPlate(stay?.license_plate),
     ticketNumber: String(stay?.code || "").trim(),
     entryDate: entryDateTime.entryDate,
@@ -114,11 +166,18 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse) {
     exitDate: exitDateTime.entryDate,
     exitTime: exitDateTime.entryTime,
     minutes: Number.isFinite(Number(quote?.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
-    rateDescription: String(quote?.rate?.name || stay?.rate_name || "").trim(),
+    // SOL-2026-10-08-003: con franjas horarias se agrega un resumen del
+    // desglose en la misma línea "Tarifa" (el formato impreso es fijo en la APK).
+    // «Tarifa: Azul 2026 · $20 por minuto efectivo» (SOL-2026-10-18-001).
+    rateDescription: receiptRateDescription(quote?.rate?.name || stay?.rate_name, quote?.snapshot?.chargeBreakdown, summarizeChargeBreakdown(quote?.snapshot?.chargeBreakdown)),
+    // Detalle por franja horaria (APK con soporte de chargeLines; las anteriores lo ignoran).
+    chargeLines: receiptChargeLines(quote?.snapshot?.chargeBreakdown),
+    // Cupón aplicado (SOL-2026-10-19-002; APK 0.5.3+, las anteriores lo ignoran).
+    coupon: receiptCouponLine(stay, quote),
     netAmount: breakdown.netAmount,
     vatAmount: breakdown.vatAmount,
     amount: breakdown.totalAmount,
-    paymentMethod: "CASH",
+    paymentMethod: classifiedPaymentMethod(stay) || paymentMethod,
     paymentId: String(stay?.payment_code || "").trim(),
   };
 
@@ -228,6 +287,105 @@ function getNativePrinterBridge() {
   return bridge;
 }
 
+// Ajuste final, §20: datos razonables del dispositivo para la evidencia
+// (manufacturer/model/versión de app) -- reutiliza getDeviceInfo(), YA
+// expuesto por el bridge nativo (ver ParkFacilDeviceBridge.kt), nunca un
+// segundo mecanismo de identificación. Sin bridge (navegador/PC), se
+// entrega el descriptor mínimo ya usado por WebDeviceAdapter.getDeviceInfo()
+// -- ningún identificador extra, best-effort (nunca bloquea el ingreso).
+async function collectDeviceInfoForEntry() {
+  const bridge = typeof window !== "undefined" ? window?.ParkFacilDevice : null;
+  if (bridge && typeof bridge.getDeviceInfo === "function") {
+    try {
+      const raw = await bridge.getDeviceInfo();
+      return typeof raw === "string" ? JSON.parse(raw) : raw;
+    } catch {
+      // Cae al descriptor web de abajo -- nunca bloquea el ingreso por esto.
+    }
+  }
+  if (typeof navigator === "undefined") return null;
+  return { platform: "web", userAgent: navigator.userAgent };
+}
+
+// ParkFacil POS -> TUU PRO2 (ambiente DEV): mismo criterio de
+// feature-detection que getNativePrinterBridge -- nunca asume soporte, solo
+// lo confirma comprobando que el método exista en window.ParkFacilDevice
+// (ver payWithTuu en ParkFacilDeviceBridge.kt, repo parkfacil-pos-android).
+function getTuuPaymentBridge() {
+  if (typeof window === "undefined") return null;
+  const bridge = window?.ParkFacilDevice;
+  if (!bridge || typeof bridge.payWithTuu !== "function") return null;
+  return bridge;
+}
+
+// payWithTuu() del bridge nativo es síncrono (como el resto del bridge) y
+// solo confirma que el Intent de pago se lanzó -- el resultado real del pago
+// es asíncrono (Activity Result de Android) y llega después, por separado,
+// vía window.ParkFacilTuuResult(...) (ver MainActivity.deliverTuuResultToWeb
+// en parkfacil-pos-android). Esta función envuelve ambas partes en una sola
+// Promise para que el llamador pueda usar await de principio a fin, con un
+// tope defensivo (TUU_RESULT_TIMEOUT_MS) para nunca quedar colgada si TUU no
+// responde.
+function startTuuPayment(payloadJson) {
+  const bridge = getTuuPaymentBridge();
+  if (!bridge) {
+    return Promise.resolve({
+      delivered: false,
+      code: "TUU_BRIDGE_UNAVAILABLE",
+      message: "Este dispositivo no tiene el bridge de pago TUU disponible.",
+    });
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+    const previousCallback = typeof window !== "undefined" ? window.ParkFacilTuuResult : undefined;
+
+    const finish = (outcome) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      if (typeof window !== "undefined") {
+        window.ParkFacilTuuResult = previousCallback;
+      }
+      resolve(outcome);
+    };
+
+    if (typeof window !== "undefined") {
+      window.ParkFacilTuuResult = (resultJson) => {
+        finish({ delivered: true, result: parseTuuResult(resultJson) });
+      };
+    }
+
+    timer = setTimeout(() => {
+      finish({ delivered: false, code: "NO_RESPONSE", message: "TUU no respondió dentro del tiempo esperado." });
+    }, TUU_RESULT_TIMEOUT_MS);
+
+    let ack;
+    try {
+      const raw = bridge.payWithTuu(payloadJson);
+      ack = typeof raw === "string" ? JSON.parse(raw) : raw;
+    } catch (error) {
+      finish({
+        delivered: false,
+        code: "TUU_BRIDGE_EXCEPTION",
+        message: error instanceof Error ? error.message : String(error ?? "Error desconocido"),
+      });
+      return;
+    }
+
+    if (!ack?.ok) {
+      finish({
+        delivered: false,
+        code: ack?.code || "TUU_LAUNCH_FAILED",
+        message: ack?.message || "No fue posible iniciar el pago TUU.",
+      });
+    }
+    // Si ack.ok === true, no se resuelve todavía: se espera
+    // window.ParkFacilTuuResult(...) o el timeout de arriba.
+  });
+}
+
 async function executeNativePrint(payload) {
   const bridge = getNativePrinterBridge();
   if (!bridge || !payload) return { attempted: false, ok: false };
@@ -264,14 +422,183 @@ async function executeNativePrint(payload) {
   }
 }
 
+// Agente local de impresión (piloto Windows/PC): mismo rol que el bridge
+// Android nativo, pero para dispositivos sin ese bridge. Es un proceso
+// aparte que escucha solo en 127.0.0.1, en la misma máquina — el detalle
+// de impresora/puerto es responsabilidad exclusiva del agente, no de este
+// componente (ver C:\proyectos\parkfacil-print-agent).
+const PRINT_AGENT_URL = "http://127.0.0.1:19100/print";
+// Token de emparejamiento del agente local (piloto, no es un secreto de
+// producción: el agente solo escucha en localhost de esta misma máquina).
+// Antes de un despliegue Android/TUU real esto debe reforzarse (rotación,
+// no hardcodeo), según quedó documentado en el diseño del agente.
+const PRINT_AGENT_TOKEN = "p9tMJvWWvuN70lKB4JLiGK98wS9o-buE";
+
+async function tryLocalAgentPrint(agentPayload) {
+  if (!agentPayload) return { attempted: false, ok: false };
+
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller ? setTimeout(() => controller.abort(), 15000) : null;
+
+  try {
+    const response = await fetch(PRINT_AGENT_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-parkfacil-agent-token": PRINT_AGENT_TOKEN },
+      body: JSON.stringify(agentPayload),
+      signal: controller?.signal,
+    });
+    const result = await response.json().catch(() => ({}));
+    return {
+      attempted: true,
+      ok: response.ok && Boolean(result.ok),
+      code: result.code ? String(result.code) : "",
+      message: result.message ? String(result.message) : "",
+    };
+  } catch (error) {
+    return {
+      attempted: true,
+      ok: false,
+      code: "AGENT_UNREACHABLE",
+      message: error instanceof Error ? error.message : "El agente local de impresión no respondió.",
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+// Traduce el payload histórico de impresión (pensado para el bridge
+// Android) al esquema que espera el agente local — sin cambiar el payload
+// original, que sigue siendo lo que recibe el bridge nativo tal cual.
+function toAgentEntryPayload(payload) {
+  if (!payload) return null;
+  // Formato definitivo PT-210 (ver buildAgentEntryTicketPayload). El mapeo
+  // de abajo queda solo para payloads construidos antes de este cambio.
+  if (payload.agentTicket) return { ...payload.agentTicket };
+  return {
+    type: "ENTRY",
+    razonSocial: payload.razonSocial,
+    rut: payload.rut,
+    direccion: payload.direccion,
+    telefono: payload.telefono,
+    parkingName: payload.parkingName,
+    parkingCode: payload.parkingCode || undefined,
+    patente: payload.plate,
+    ticketNumber: payload.ticketNumber,
+    fechaIngreso: payload.entryDate,
+    horaIngreso: payload.entryTime,
+    operador: payload.operator || undefined,
+    qrValue: payload.qrValue,
+  };
+}
+
+function toAgentExitPayload(payload) {
+  if (!payload) return null;
+  return {
+    type: "EXIT",
+    razonSocial: payload.razonSocial,
+    rut: payload.rut,
+    direccion: payload.direccion,
+    telefono: payload.telefono,
+    parkingName: payload.parkingName,
+    parkingCode: payload.parkingCode || undefined,
+    patente: payload.plate,
+    ticketNumber: payload.paymentId,
+    fechaHoraIngreso: `${payload.entryDate} ${payload.entryTime}`,
+    fechaHoraSalida: `${payload.exitDate} ${payload.exitTime}`,
+    tiempoTotal: Number.isFinite(payload.minutes) ? `${payload.minutes} minutos` : undefined,
+    tarifa: payload.rateDescription || undefined,
+    neto: formatCurrency(payload.netAmount),
+    iva: formatCurrency(payload.vatAmount),
+    monto: formatCurrency(payload.amount),
+    medioPago: formatPaymentMethodLabel(payload.paymentMethod),
+    operador: payload.operator || undefined,
+    qrValue: payload.paymentId || undefined,
+  };
+}
+
+// Fase 6 (fotografía de patente en el ticket): ni el bridge Android nativo
+// ni el agente local de PC implementados en este repo soportan imágenes hoy
+// (ver diagnóstico — ambos son de solo texto). Este es el único punto de
+// feature-detection: "printWithImage" es un método hipotético que un bridge
+// real (TUU u otro) tendría que exponer explícitamente. Mientras eso no
+// exista, esto siempre resuelve a false y el ticket se imprime en texto
+// solamente — nunca se asume soporte que no fue declarado por el bridge.
+function bridgeSupportsPlatePhoto(bridge) {
+  return Boolean(bridge && typeof bridge.printWithImage === "function");
+}
+
+// Intenta imprimir con fotografía cuando corresponde; si el bridge no
+// declara soporte, o lo declara pero la llamada falla, se cae SIEMPRE al
+// ticket de texto normal (§9 del encargo: un fallo de impresión gráfica
+// nunca invalida un ingreso ya confirmado).
+async function executeNativePrintWithPlatePhoto(payload, photoBase64, printPlatePhotoOnTicket) {
+  const bridge = getNativePrinterBridge();
+  if (!bridge || !payload) return { attempted: false, ok: false };
+
+  const decision = buildPrintableEntryPayload(payload, {
+    photoBase64,
+    printOnTicket: printPlatePhotoOnTicket,
+    bridgeSupportsImage: bridgeSupportsPlatePhoto(bridge),
+  });
+
+  if (decision.includePhoto) {
+    try {
+      const raw = await bridge.printWithImage(JSON.stringify(decision.payload));
+      const response = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (response?.ok) return { attempted: true, ok: true, code: "", message: "", photoIncluded: true };
+    } catch {
+      // El bridge declaró soporte pero falló al imprimir la imagen: se cae
+      // a texto sin propagar este error (fallback obligatorio, §9).
+    }
+  }
+
+  const textResult = await executeNativePrint(payload);
+  return { ...textResult, photoIncluded: false, photoSkippedReason: decision.reason || "IMAGE_PRINT_FAILED_FALLBACK_TEXT" };
+}
+
+// Resuelve el medio de impresión disponible en este dispositivo: primero
+// el bridge Android nativo (POS real); si no existe, el agente local
+// (Windows/PC). "toAgentPayload" traduce el payload histórico al esquema
+// del agente solo cuando corresponde usarlo. El agente local de PC no tiene
+// (hoy) ningún soporte de imagen -- siempre recibe el ticket de texto.
+async function executeAutoPrint(payload, toAgentPayload, platePhoto) {
+  const bridge = getNativePrinterBridge();
+  if (bridge) {
+    if (platePhoto?.photoBase64) {
+      return executeNativePrintWithPlatePhoto(payload, platePhoto.photoBase64, platePhoto.printOnTicket);
+    }
+    return executeNativePrint(payload);
+  }
+  // Agente local (PT-210 / MTP-II): SÍ imprime la fotografía (raster ESC/POS
+  // validado físicamente). Misma regla de decisión que el bridge nativo
+  // (resolvePlatePhotoPrintDecision: configuración del parking + foto
+  // disponible). Si la foto no se puede convertir, el ticket sale igual con
+  // la patente en texto grande.
+  const agentPayload = toAgentPayload(payload);
+  if (agentPayload?.type === "ENTRY" && platePhoto?.photoBase64) {
+    const decision = resolvePlatePhotoPrintDecision({
+      printOnTicket: Boolean(platePhoto.printOnTicket),
+      hasPhoto: true,
+      bridgeSupportsImage: true,
+    });
+    const fotoRaster = decision.includePhoto ? await photoToTicketRaster(platePhoto.photoBase64) : null;
+    if (fotoRaster) {
+      const result = await tryLocalAgentPrint({ ...agentPayload, fotoRaster });
+      return { ...result, photoIncluded: Boolean(result.ok) };
+    }
+  }
+  return tryLocalAgentPrint(toAgentPayload(payload));
+}
+
 async function getSessionContext() {
   const response = await fetch("/api/auth/session", {
     headers: { "x-parkfacil-portal": "terminal" },
     cache: "no-store",
   });
-  if (!response.ok) return { ok: false, status: response.status, payload: {} };
+  // Fase 1: también en error se lee el cuerpo ({ error, code }) -- el
+  // código distingue un acceso revocado de una falla transitoria.
   const payload = await response.json().catch(() => ({}));
-  return { ok: true, status: response.status, payload };
+  return { ok: response.ok, status: response.status, payload: payload || {} };
 }
 
 async function getPosVehicleSummary() {
@@ -283,8 +610,15 @@ async function getPosVehicleSummary() {
   return { ok: response.ok, status: response.status, payload };
 }
 
-async function getPosVehicleQuote(stayId) {
-  const response = await fetch(`/api/pos/stays/${encodeURIComponent(stayId)}/quote`, {
+// Con couponToken (SOL-2026-10-19-002) recalcula con el cupón por POST: el token
+// del cupón no viaja en la URL.
+async function getPosVehicleQuote(stayId, couponToken = null) {
+  const response = await fetch(`/api/pos/stays/${encodeURIComponent(stayId)}/quote`, couponToken ? {
+    method: "POST",
+    headers: { "x-parkfacil-portal": "terminal", "content-type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ couponToken }),
+  } : {
     headers: { "x-parkfacil-portal": "terminal" },
     cache: "no-store",
   });
@@ -335,14 +669,66 @@ async function postStartShift(shiftId) {
   return { ok: response.ok, status: response.status, payload };
 }
 
+// Inicio de turno a pedido (sin turno programado): el servidor crea y abre el
+// turno de hoy. parkingId solo aplica con varios estacionamientos y se valida
+// server-side contra los autorizados.
+async function postStartOnDemandShift(parkingId = null) {
+  const response = await fetch("/api/pos/shift/start", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-parkfacil-portal": "terminal" },
+    cache: "no-store",
+    body: JSON.stringify(parkingId ? { onDemand: true, parkingId } : { onDemand: true }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, payload };
+}
+
 function formatCurrency(value) {
   if (!Number.isFinite(Number(value))) return "—";
   return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(Number(value));
 }
 
+// El estado del vehículo mezcla dos formas de cotización distintas según su
+// origen: la del listado (quoteParkingStay: blocked/total/rate.name) y la
+// del detalle recién refrescado (toPagueAquiQuote: payable/amount/rateName,
+// además del snapshot firmado). Sin este adaptador, leer directamente
+// .blocked/.total/.rate.name contra una cotización en la forma pública
+// siempre da "no pagable"/"sin tarifa", aunque el backend sí tenga un total
+// válido — por eso se centraliza aquí en vez de repetir el chequeo de forma
+// en cada lugar que lee la cotización.
+function normalizeQuoteView(quote) {
+  if (!quote) return null;
+  // Pago liberado: minutos liberados/cobrables y salida sin cobro (total 0).
+  const released = quote.released
+    ? {
+      coveredMinutes: Number(quote.released.coveredMinutes ?? Math.floor(Number(quote.released.coveredSeconds || 0) / 60)),
+      chargeableMinutes: Number(quote.released.chargeableMinutes ?? Math.floor(Number(quote.released.chargeableSeconds || 0) / 60)),
+    }
+    : null;
+  if ("payable" in quote || "amount" in quote) {
+    return {
+      payable: Boolean(quote.payable),
+      total: Number.isFinite(Number(quote.amount)) ? Number(quote.amount) : null,
+      rateName: quote.rateName || null,
+      elapsedMinutes: Number.isFinite(Number(quote.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
+      released,
+      releasedNoCharge: quote.blockedReason === "RELEASED_NO_CHARGE",
+    };
+  }
+  return {
+    payable: !quote.blocked,
+    total: Number.isFinite(Number(quote.total)) ? Number(quote.total) : null,
+    rateName: quote.rate?.name || null,
+    elapsedMinutes: Number.isFinite(Number(quote.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
+    released,
+    releasedNoCharge: Boolean(released) && !quote.blocked && Number(quote.total) === 0,
+  };
+}
+
 function formatQuoteAmount(quote) {
-  if (!quote || quote.blocked) return "—";
-  return formatCurrency(quote.total);
+  const view = normalizeQuoteView(quote);
+  if (!view || !view.payable || view.total === null) return "—";
+  return formatCurrency(view.total);
 }
 
 // Desglose tributario (Neto/IVA) a partir del TOTAL que ya calculó el
@@ -362,14 +748,90 @@ function formatMinuteCount(quote) {
 }
 
 function formatPaymentMethodLabel(method) {
-  if (method === "CASH") return "EFECTIVO";
-  if (method === "CARD") return "TARJETA";
-  return method || "-";
+  return paymentMethodDisplay(method).toUpperCase();
+}
+
+// POS Entry/Exit — Fase 1 (sesión y navegación). Toda salida hacia el login
+// usa navegación "dura" (location.replace): descarta de una vez el estado en
+// memoria del terminal (vehículo seleccionado, cobro en pantalla, etc.) y
+// reemplaza la entrada del historial, para que "Atrás" no vuelva a una
+// pantalla operativa. El motivo es una lista cerrada que /pos/login traduce
+// a un mensaje (ver POS_LOGIN_REASONS en src/app/pos/login/page.js).
+const POS_SESSION_REVALIDATE_MS = 60000;
+
+function redirectToPosLogin(reason) {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams({ next: "/pos" });
+  if (reason) params.set("motivo", reason);
+  window.location.replace(`/pos/login?${params.toString()}`);
+}
+
+// 401 = sesión expirada/cuenta deshabilitada. En 403 solo los códigos que
+// REALMENTE revocan el acceso (membresía inactiva/vencida, empresa
+// suspendida, rol/portal/permiso no permitido) envían al login: un 403
+// MEMBERSHIP_LOOKUP_FAILED/COMPANY_LOOKUP_FAILED es una falla transitoria
+// de base de datos y nunca debe expulsar al operador en pleno turno.
+const POS_REVOKED_ACCESS_CODES = new Set([
+  "MEMBERSHIP_INACTIVE",
+  "COMPANY_INACTIVE",
+  "ACCESS_EXPIRED",
+  "ROLE_FORBIDDEN",
+  "PORTAL_FORBIDDEN",
+  "PERMISSION_FORBIDDEN",
+]);
+
+function posLoginReasonForSessionStatus(status, code) {
+  if (status === 401) return "sesion-expirada";
+  if (status === 403 && POS_REVOKED_ACCESS_CODES.has(String(code || ""))) return "acceso-revocado";
+  return null;
+}
+
+// Revalidación periódica: un 401 aislado puede ser un corte momentáneo de
+// Supabase Auth -- se exige que se repita en revalidaciones consecutivas.
+const POS_SESSION_UNAUTHORIZED_THRESHOLD = 2;
+
+// Nunca se muestra el correo técnico interno (@acceso.parkfacilapp.cl):
+// nombre de la membresía, o en su defecto solo el usuario de acceso.
+function formatOperatorDisplayName(context) {
+  const fullName = String(context?.membership?.fullName || "").trim();
+  return fullName || extractDisplayUsername(context?.email) || "-";
+}
+
+function formatPosRoleLabel(role) {
+  if (role === "operator") return "Operador POS";
+  if (role === "company_admin") return "Administrador";
+  return role || "-";
+}
+
+function formatDeviceInfoLabel(info) {
+  if (!info) return "No disponible";
+  if (info.platform === "web") return "Navegador web";
+  const model = [info.manufacturer, info.model].filter(Boolean).join(" ");
+  return model || "Dispositivo Android";
 }
 
 export default function PosTerminal() {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
+  // Fase 1 — entorno POS: selección explícita de estacionamiento (varios
+  // autorizados), cierre de sesión en curso y datos del dispositivo.
+  const [parkingSelectionRequired, setParkingSelectionRequired] = useState(false);
+  const [parkingOptions, setParkingOptions] = useState([]);
+  // Estacionamientos (varios autorizados) donde se puede abrir turno a pedido.
+  const [onDemandParkings, setOnDemandParkings] = useState([]);
+  // Selector Off Street: pulldown con los Off Street activos de la empresa,
+  // estacionamiento del último cierre (para consultarlo/reimprimirlo cuando
+  // ya no hay estacionamiento activo) y aviso de turno restaurado al volver
+  // a ingresar con un turno abierto.
+  const [offStreetParkings, setOffStreetParkings] = useState([]);
+  const [selectedOffStreetParkingId, setSelectedOffStreetParkingId] = useState("");
+  const [offStreetSelectionError, setOffStreetSelectionError] = useState("");
+  const [lastClosedParking, setLastClosedParking] = useState(null);
+  // null = sin turno abierto; true = turno abierto restaurado al ingresar;
+  // false = turno iniciado en esta misma sesión (no se avisa).
+  const [shiftRestoredNotice, setShiftRestoredNotice] = useState(null);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [deviceInfo, setDeviceInfo] = useState(null);
+  const operationBusyRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState(POS_VIEWS.HOME);
@@ -379,6 +841,9 @@ export default function PosTerminal() {
   const [vehiclesInside, setVehiclesInside] = useState(0);
   const [activeStays, setActiveStays] = useState([]);
   const [selectedVehicle, setSelectedVehicle] = useState(null);
+  // SOL-2026-10-08-003: confirmación de "se retiró sin pagar" y resumen del cierre.
+  const [unpaidFlash, setUnpaidFlash] = useState("");
+  const [closedUnpaidExits, setClosedUnpaidExits] = useState(null);
   const [selectedVehicleLoading, setSelectedVehicleLoading] = useState(false);
   const [selectedVehicleError, setSelectedVehicleError] = useState("");
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -386,8 +851,44 @@ export default function PosTerminal() {
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [paymentMessage, setPaymentMessage] = useState("");
   const [paymentResult, setPaymentResult] = useState(null);
+  // Pago con tarjeta (TUU DEV): estado propio del paso "CARD_PAYMENT" --
+  // PROCESSING/APPROVED son transitorios (llevan directo a PRINT_PROMPT o al
+  // cierre del flujo, igual que EFECTIVO); DECLINED/CANCELLED/NOT_INSTALLED/
+  // ERROR/CHARGED_NOT_REGISTERED son terminales y se muestran en el modal.
+  // cardPaymentLockRef es una guarda SÍNCRONA (a diferencia de paymentSubmitting,
+  // que es estado de React y no se actualiza al instante) para impedir un
+  // doble clic que dispare dos pagos TUU en paralelo.
+  const [cardPaymentStatus, setCardPaymentStatus] = useState("");
+  const [cardPaymentMessage, setCardPaymentMessage] = useState("");
+  const cardPaymentLockRef = useRef(false);
   const [entryOpen, setEntryOpen] = useState(false);
   const [entryPlate, setEntryPlate] = useState("");
+  // Fase 2 — Entrada V2: PLATE (capturar/escribir) -> CONFIRM (confirmar
+  // o corregir, obligatorio) -> PHOTO (solo si la foto no está DISABLED) ->
+  // registro. entryConfirmedPlate es la ÚNICA llave para registrar: se fija
+  // al tocar CONFIRMAR (y se pasa explícitamente a submitEntry cuando la
+  // foto está DISABLED, sin esperar un render); submitEntry se niega a
+  // enviar otra patente distinta -- ni el OCR ni la voz registran solos.
+  const [entryStep, setEntryStep] = useState("PLATE");
+  const [entryPlateSource, setEntryPlateSource] = useState(PLATE_SOURCES.MANUAL);
+  const [entryProposalNotice, setEntryProposalNotice] = useState("");
+  const [entryErrorCode, setEntryErrorCode] = useState("");
+  const [entryConfirmedPlate, setEntryConfirmedPlate] = useState("");
+  // Guarda SÍNCRONA contra doble toque/latencia (entrySubmitting es estado
+  // de React y no se actualiza al instante): un segundo toque nunca lanza
+  // un segundo POST de ENTRY.
+  const entrySubmitLockRef = useRef(false);
+  // OCR: la imagen capturada para LEER la patente (temporal, nunca se
+  // sube por sí sola). Solo pasa a ser evidencia si el operador elige
+  // explícitamente "USAR FOTO DE LA LECTURA" en el paso de fotografía.
+  const [ocrCaptureOpen, setOcrCaptureOpen] = useState(false);
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrPhoto, setOcrPhoto] = useState(null);
+  // Voz: IDLE | CHECKING | LISTENING | INSTALLING. voiceInstallLang != null
+  // cuando el modelo local se puede descargar (acción del operador).
+  const [voiceState, setVoiceState] = useState("IDLE");
+  const [voiceInstallLang, setVoiceInstallLang] = useState(null);
+  const [voiceController, setVoiceController] = useState(null);
   const [entrySubmitting, setEntrySubmitting] = useState(false);
   const [entryError, setEntryError] = useState("");
   const [entrySuccess, setEntrySuccess] = useState(null);
@@ -395,6 +896,36 @@ export default function PosTerminal() {
   const [entryPrintBusy, setEntryPrintBusy] = useState(false);
   const [entryPrintStatus, setEntryPrintStatus] = useState("");
   const [nativePrintAvailable, setNativePrintAvailable] = useState(false);
+  // Fase 6 — fotografía de patente: modo/flag configurados por estacionamiento
+  // (DISABLED por defecto, ver GET /api/data-entry -> platePhotoSettings).
+  // entryPhoto es la foto ya comprimida elegida en el formulario (antes de
+  // enviar); entryPhotoForPrint conserva sus bytes tras un ENTRY exitoso,
+  // exclusivamente para poder incluirla al imprimir/reimprimir el ticket.
+  const [platePhotoMode, setPlatePhotoMode] = useState("DISABLED");
+  const [printPlatePhotoOnTicket, setPrintPlatePhotoOnTicket] = useState(false);
+  // Ajuste final: GPS configurable por proyecto, mismo enum DISABLED/
+  // OPTIONAL/REQUIRED que platePhotoMode (§18/§19 del encargo) -- nunca se
+  // solicita ubicación por esta funcionalidad si viene DISABLED.
+  const [platePhotoGpsMode, setPlatePhotoGpsMode] = useState("DISABLED");
+  // D2 (SOL-2026-10-18-001): DÉBITO/CRÉDITO solo si el servidor los habilita (apagados en producción).
+  const [cardPaymentsEnabled, setCardPaymentsEnabled] = useState(false);
+  // Cupones (SOL-2026-10-19-002): APLICAR CUPÓN solo si el servidor los habilita
+  // (apagados en producción). appliedCouponToken = cupón del cálculo vigente.
+  const [couponsEnabled, setCouponsEnabled] = useState(false);
+  const [appliedCouponToken, setAppliedCouponToken] = useState(null);
+  const [couponEntryOpen, setCouponEntryOpen] = useState(false);
+  const [couponCodeInput, setCouponCodeInput] = useState("");
+  const [couponBusy, setCouponBusy] = useState(false);
+  const [couponMessage, setCouponMessage] = useState(null);
+  const [entryPhoto, setEntryPhoto] = useState(null);
+  // Pago liberado: resultado de RELEASED_CHECK para la patente confirmada.
+  // Una patente liberada exige foto nueva aunque el estacionamiento tenga la
+  // foto desactivada u opcional. CONFIRMAR pasa el resultado recién
+  // obtenido a submitEntry para no depender de un estado aún sin actualizar.
+  const [entryReleased, setEntryReleased] = useState(null);
+  const [releasedExitBusy, setReleasedExitBusy] = useState(false);
+  const [photoCaptureOpen, setPhotoCaptureOpen] = useState(false);
+  const [entryPhotoForPrint, setEntryPhotoForPrint] = useState(null);
   const [receiptPrintPayload, setReceiptPrintPayload] = useState(null);
   const [receiptPrintBusy, setReceiptPrintBusy] = useState(false);
   const [receiptPrintStatus, setReceiptPrintStatus] = useState("");
@@ -402,10 +933,30 @@ export default function PosTerminal() {
   const [paymentsTodayTotals, setPaymentsTodayTotals] = useState(null);
   const [paymentsTodayLoading, setPaymentsTodayLoading] = useState(false);
   const [paymentsTodayError, setPaymentsTodayError] = useState("");
+  const [paymentsDayPrintBusy, setPaymentsDayPrintBusy] = useState(false);
+  const [paymentsDayPrintStatus, setPaymentsDayPrintStatus] = useState("");
   // Recuerda si el listado de vehículos (compartido por VEHÍCULOS EN EL
   // PARKING y SALIDA) se abrió con intención de consulta o de salida/pago,
   // para que VOLVER desde el detalle regrese a la pantalla de origen.
   const [vehicleListOrigin, setVehicleListOrigin] = useState(POS_VIEWS.VEHICULOS);
+
+  // SALIDA: búsqueda por patente (no lista automáticamente todas las
+  // permanencias abiertas — eso sigue siendo exclusivo de "Vehículos en el
+  // parking"). salidaSearchStatus.type: "not-found" | "conflict" | "invalid".
+  const [salidaPlate, setSalidaPlate] = useState("");
+  const [salidaSearchStatus, setSalidaSearchStatus] = useState(null);
+  const [salidaSuggestionsOpen, setSalidaSuggestionsOpen] = useState(false);
+  // Salida por QR: lectura del QR del ticket de entrada -> cotización -> cobro.
+  const [qrExitStatus, setQrExitStatus] = useState(null);
+  const [qrManualCode, setQrManualCode] = useState("");
+  const [qrScanKey, setQrScanKey] = useState(0);
+  const [qrBusy, setQrBusy] = useState(false);
+  // APK con scanQr de stub (antiguo): se vuelve a la cámara del navegador.
+  const [qrNativeUnsupported, setQrNativeUnsupported] = useState(false);
+  // BUSCAR TICKET / REIMPRIMIR TICKET: misma vista; "reprint" solo cambia el título.
+  const [buscarQuery, setBuscarQuery] = useState("");
+  const [buscarIntent, setBuscarIntent] = useState("search");
+  const [buscarLoading, setBuscarLoading] = useState(false);
 
   // CIERRE DE CAJA
   const [shiftLoading, setShiftLoading] = useState(false);
@@ -441,8 +992,11 @@ export default function PosTerminal() {
     try {
       const session = await getSessionContext();
       if (!session.ok) {
-        if (session.status === 401) {
-          router.replace("/pos/login?next=/pos");
+        // Fase 1: sesión expirada (401) o cuenta/membresía/empresa ya no
+        // habilitada (403) -> nunca se deja al operador en el terminal.
+        const reason = posLoginReasonForSessionStatus(session.status, session.payload?.code);
+        if (reason) {
+          redirectToPosLogin(reason);
           return;
         }
         setError("No fue posible validar la sesión del terminal.");
@@ -452,7 +1006,18 @@ export default function PosTerminal() {
       const summary = await getPosVehicleSummary();
       if (!summary.ok) {
         if (summary.status === 401) {
-          router.replace("/pos/login?next=/pos");
+          redirectToPosLogin("sesion-expirada");
+          return;
+        }
+        // Fase 1: varios estacionamientos autorizados y ningún turno que
+        // defina cuál se opera -- no es un error: el gate de turno ofrece
+        // elegir el turno programado a iniciar (ver loadShiftState).
+        if (summary.status === 409 && summary.payload?.code === "PARKING_SELECTION_REQUIRED") {
+          setContext(session.payload?.data || null);
+          setParking(null);
+          setVehiclesInside(0);
+          setActiveStays([]);
+          setParkingSelectionRequired(true);
           return;
         }
         if (summary.status === 403) {
@@ -466,15 +1031,22 @@ export default function PosTerminal() {
   const stays = Array.isArray(summary.payload?.data?.stays) ? summary.payload.data.stays : [];
       setContext(session.payload?.data || null);
       setParking(summary.payload?.data?.parking || null);
+      setParkingSelectionRequired(false);
       setVehiclesInside(stays.length);
-      setActiveStays(stays);
+      setActiveStays(stampStaysReceivedAt(stays));
+      const photoSettings = summary.payload?.data?.platePhotoSettings || null;
+      setPlatePhotoMode(photoSettings?.mode || "DISABLED");
+      setPrintPlatePhotoOnTicket(Boolean(photoSettings?.printOnTicket));
+      setPlatePhotoGpsMode(photoSettings?.gpsMode || "DISABLED");
+      setCardPaymentsEnabled(summary.payload?.data?.cardPaymentsEnabled === true);
+      setCouponsEnabled(summary.payload?.data?.couponsEnabled === true);
     } catch {
       setError("Error de red al cargar el terminal POS.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [router]);
+  }, []);
 
   const loadPaymentsToday = useCallback(async () => {
     setPaymentsTodayLoading(true);
@@ -484,7 +1056,7 @@ export default function PosTerminal() {
       const result = await getPosPaymentsToday();
       if (!result.ok) {
         if (result.status === 401) {
-          router.replace("/pos/login?next=/pos");
+          redirectToPosLogin("sesion-expirada");
           return;
         }
         setPaymentsTodayError(result.payload?.error || "No fue posible cargar los pagos del día.");
@@ -498,7 +1070,7 @@ export default function PosTerminal() {
     } finally {
       setPaymentsTodayLoading(false);
     }
-  }, [router]);
+  }, []);
 
   // Abre (si no existe) o recupera el turno POS del operador y trae, según
   // corresponda, la vista previa server-side (turno abierto) o el cierre ya
@@ -511,7 +1083,7 @@ export default function PosTerminal() {
       const result = await getPosShift();
       if (!result.ok) {
         if (result.status === 401) {
-          router.replace("/pos/login?next=/pos");
+          redirectToPosLogin("sesion-expirada");
           return;
         }
         setShiftError(result.payload?.error || "No fue posible cargar el turno del operador.");
@@ -525,24 +1097,43 @@ export default function PosTerminal() {
       setShiftClosure(data.closure || null);
       setShiftPreview(data.preview || null);
       setShiftServerNow(data.serverNow || null);
+      setParkingOptions(Array.isArray(data.parkingOptions) ? data.parkingOptions : []);
+      setOnDemandParkings(Array.isArray(data.onDemandParkings) ? data.onDemandParkings : []);
+      const offStreet = Array.isArray(data.offStreetParkings) ? data.offStreetParkings : [];
+      setOffStreetParkings(offStreet);
+      setSelectedOffStreetParkingId((current) => (offStreet.some((option) => option.parkingId === current) ? current : ""));
+      // Sin estacionamiento activo (selector) el último cierre de hoy sigue
+      // disponible para consulta y reimpresión.
+      if (data.state === "PARKING_SELECTION_REQUIRED" && data.lastClosure?.closure) {
+        setShift(data.lastClosure.shift || null);
+        setShiftClosed(true);
+        setShiftClosure(data.lastClosure.closure);
+        setLastClosedParking(data.lastClosure.parking || null);
+      }
+      setShiftRestoredNotice((current) => (data.state === "OPEN" ? (current === null ? true : current) : null));
     } catch {
       setShiftError("Error de red al cargar el turno del operador.");
     } finally {
       setShiftLoading(false);
     }
-  }, [router]);
+  }, []);
 
-  async function startProgrammedShift() {
-    if (!shift?.id || shiftStartBusy) return;
+  // selectedShiftId: solo en la selección explícita de estacionamiento
+  // (PARKING_SELECTION_REQUIRED). El servidor lo valida contra los turnos
+  // programados que él mismo calculó -- nunca se envía un parkingId.
+  async function startProgrammedShift(selectedShiftId = null) {
+    const targetShiftId = selectedShiftId || shift?.id;
+    if (!targetShiftId || shiftStartBusy) return;
     setShiftStartBusy(true);
     setShiftError("");
     try {
-      const result = await postStartShift(shift.id);
+      const result = await postStartShift(targetShiftId);
       if (!result.ok) {
-        if (result.status === 401) router.replace("/pos/login?next=/pos");
+        if (result.status === 401) redirectToPosLogin("sesion-expirada");
         else setShiftError(result.payload?.error || "No fue posible iniciar el turno.");
         return;
       }
+      setShiftRestoredNotice(false);
       await loadShiftState();
       await loadTerminalState(true);
     } catch {
@@ -552,11 +1143,57 @@ export default function PosTerminal() {
     }
   }
 
+  // Selector Off Street: inicia el turno en el estacionamiento elegido en el
+  // pulldown. El servidor valida el id contra los Off Street activos de la
+  // empresa y rechaza si ya existe otro turno abierto.
+  function startSelectedOffStreetShift() {
+    if (!selectedOffStreetParkingId) {
+      setOffStreetSelectionError("Elige un estacionamiento para iniciar el turno.");
+      return;
+    }
+    setOffStreetSelectionError("");
+    void startOnDemandShift(selectedOffStreetParkingId);
+  }
+
+  // Inicio de turno a pedido: mismo flujo de refresco que un turno programado.
+  async function startOnDemandShift(parkingId = null) {
+    if (shiftStartBusy) return;
+    setShiftStartBusy(true);
+    setShiftError("");
+    try {
+      const result = await postStartOnDemandShift(parkingId);
+      if (!result.ok) {
+        if (result.status === 401) redirectToPosLogin("sesion-expirada");
+        else setShiftError(result.payload?.error || "No fue posible iniciar el turno.");
+        return;
+      }
+      setShiftRestoredNotice(false);
+      await loadShiftState();
+      await loadTerminalState(true);
+    } catch {
+      setShiftError("Error de red al iniciar el turno.");
+    } finally {
+      setShiftStartBusy(false);
+    }
+  }
+
+  // Fase 1: el cierre de sesión nunca queda a medias. Antes, si
+  // supabase.auth.signOut() fallaba (p. ej. sin red), la excepción cortaba
+  // la función y el operador seguía dentro del terminal con la cookie de
+  // sesión intacta. Ahora cada paso es best-effort y la salida al login
+  // ocurre siempre. No se permite salir con un cobro con tarjeta en curso
+  // (TUU ya puede estar cobrando): paymentSubmitting permanece en true
+  // durante todo handleCardPaymentSelection, incluido el registro del EXIT.
   async function logout() {
-    const supabase = getSupabaseBrowserClient();
-    await supabase.auth.signOut();
+    if (loggingOut || paymentSubmitting) return;
+    setLoggingOut(true);
+    try {
+      await getSupabaseBrowserClient().auth.signOut();
+    } catch {
+      // Se continúa igual: la cookie httpOnly se invalida abajo.
+    }
     await fetch("/api/auth/session", { method: "DELETE" }).catch(() => null);
-    router.replace("/pos/login");
+    redirectToPosLogin("sesion-cerrada");
   }
 
   function openSidebar() {
@@ -571,6 +1208,17 @@ export default function PosTerminal() {
     setCurrentView(section);
     setSidebarOpen(false);
 
+    if (section === POS_VIEWS.QR) {
+      // Cada entrada a Salida por QR parte con el lector nuevo y sin mensajes;
+      // con escáner nativo (APK) se abre de inmediato.
+      setQrExitStatus(null);
+      setQrManualCode("");
+      setQrScanKey((value) => value + 1);
+      if (shiftReadyForOperations && usesNativeQrScanner()) void startNativeQrScan();
+    }
+
+    if (section === POS_VIEWS.BUSCAR) setBuscarQuery("");
+
     if (section !== POS_VIEWS.VEHICULO_DETALLE) {
       setSelectedVehicle(null);
       setSelectedVehicleLoading(false);
@@ -583,6 +1231,9 @@ export default function PosTerminal() {
     }
 
     if (section !== POS_VIEWS.INGRESO) {
+      // Fase 2: salir de INGRESO corta la escucha de voz y descarta la
+      // captura V2 en curso (nada se registra).
+      if (entryOpen) resetEntryCapture();
       setEntryOpen(false);
       setEntryError("");
       setEntrySuccess(null);
@@ -590,11 +1241,23 @@ export default function PosTerminal() {
     }
 
     if (section === POS_VIEWS.PAGOS_DEL_DIA) {
+      setPaymentsDayPrintStatus("");
       void loadPaymentsToday();
     }
 
     if (section === POS_VIEWS.VEHICULOS || section === POS_VIEWS.SALIDA) {
       setVehicleListOrigin(section);
+    }
+
+    if (section === POS_VIEWS.SALIDA) {
+      // Refresca activeStays al entrar para que la búsqueda por patente
+      // corra contra datos frescos (mismo alcance ya limitado al
+      // estacionamiento asignado — ver loadTerminalState).
+      void loadTerminalState(true);
+    } else {
+      setSalidaPlate("");
+      setSalidaSearchStatus(null);
+      setSalidaSuggestionsOpen(false);
     }
 
     if (section === POS_VIEWS.CIERRE_CAJA) {
@@ -614,27 +1277,338 @@ export default function PosTerminal() {
     }
   }
 
+  // Fase 2: estado de la captura V2 limpio (se usa al abrir y al cerrar el
+  // formulario). Libera los object URLs de las imágenes temporales.
+  function setEntryReleasedState(value) {
+    setEntryReleased(value);
+  }
+
+  function resetEntryCapture() {
+    setEntryReleasedState(null);
+    voiceController?.cancel();
+    setVoiceController(null);
+    if (ocrPhoto?.previewUrl) URL.revokeObjectURL(ocrPhoto.previewUrl);
+    if (entryPhoto?.previewUrl && entryPhoto !== ocrPhoto) URL.revokeObjectURL(entryPhoto.previewUrl);
+    setEntryConfirmedPlate("");
+    setEntryStep("PLATE");
+    setEntryPlateSource(PLATE_SOURCES.MANUAL);
+    setEntryProposalNotice("");
+    setEntryErrorCode("");
+    setOcrCaptureOpen(false);
+    setOcrBusy(false);
+    setOcrPhoto(null);
+    setVoiceState("IDLE");
+    setVoiceInstallLang(null);
+  }
+
   function openEntryForm() {
+    resetEntryCapture();
     setCurrentView(POS_VIEWS.INGRESO);
     setEntrySuccess(null);
     setEntryPrintPayload(null);
     setEntryPrintStatus("");
     setEntryError("");
     setEntryPlate("");
+    setEntryPhoto(null);
+    setEntryPhotoForPrint(null);
+    setPhotoCaptureOpen(false);
     setEntryOpen(true);
     setSidebarOpen(false);
   }
 
   function closeEntryForm() {
+    resetEntryCapture();
     setEntryOpen(false);
     setEntryError("");
     setEntrySuccess(null);
     setEntryPrintStatus("");
+    setEntryPhoto(null);
+    setEntryPhotoForPrint(null);
+    setPhotoCaptureOpen(false);
     setCurrentView(POS_VIEWS.HOME);
   }
 
+  function capturedPlatePhoto(photo) {
+    // Libera el object URL de una captura anterior (p. ej. "Cambiar foto")
+    // antes de reemplazarla -- evita acumular blobs sin liberar durante un
+    // turno largo de POS. La imagen de la lectura OCR se conserva (puede
+    // volver a elegirse) y se libera al cerrar el formulario.
+    if (entryPhoto?.previewUrl && entryPhoto !== ocrPhoto) URL.revokeObjectURL(entryPhoto.previewUrl);
+    setEntryPhoto(photo);
+    setPhotoCaptureOpen(false);
+    setEntryError("");
+  }
+
+  // detail: diagnóstico técnico opcional (p. ej. por qué no cargó el OCR).
+  function setEntryFailure(code, detail = "") {
+    setEntryErrorCode(code);
+    setEntryError(detail ? `${entryErrorMessage(code)} (Detalle: ${detail})` : entryErrorMessage(code));
+  }
+
+  function clearEntryFailure() {
+    setEntryErrorCode("");
+    setEntryError("");
+  }
+
+  // Toda patente propuesta (manual, OCR o voz) pasa SIEMPRE por la
+  // confirmación explícita del operador. Nunca registra.
+  function proposeEntryPlate(plate, source, notice = "") {
+    setEntryReleasedState(null);
+    setEntryConfirmedPlate("");
+    setEntryPlate(formatPosPlateInput(plate));
+    setEntryPlateSource(source);
+    setEntryProposalNotice(notice);
+    clearEntryFailure();
+    setEntryStep("CONFIRM");
+  }
+
+  function continueManualPlate() {
+    const formatted = formatPosPlateInput(entryPlate);
+    if (!POS_PLATE_REGEX.test(formatted)) {
+      setEntryFailure("INVALID_PLATE");
+      return;
+    }
+    // En el paso PLATE la patente siempre es manual: OCR y voz proponen y
+    // saltan directo a CONFIRM.
+    proposeEntryPlate(formatted, PLATE_SOURCES.MANUAL);
+  }
+
+  // CORREGIR: vuelve al campo con la patente propuesta para editarla; nada
+  // se registra. Desde aquí la patente pasa a ser manual.
+  function correctEntryPlate() {
+    setEntryReleasedState(null);
+    setEntryConfirmedPlate("");
+    setEntryPlateSource(PLATE_SOURCES.MANUAL);
+    setEntryProposalNotice("");
+    clearEntryFailure();
+    setEntryStep("PLATE");
+  }
+
+  // CONFIRMAR: fija la patente confirmada. Con foto DISABLED registra de
+  // inmediato; si no, pasa al paso de fotografía (REQUIRED u OPTIONAL).
+  async function checkReleasedPlate(plate) {
+    try {
+      const response = await fetch("/api/data-entry", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-parkfacil-portal": "terminal" },
+        cache: "no-store",
+        body: JSON.stringify({ action: "RELEASED_CHECK", plate }),
+      });
+      if (response.status === 401) {
+        redirectToPosLogin("sesion-expirada");
+        return null;
+      }
+      const payload = await response.json().catch(() => ({}));
+      return response.ok ? payload?.data || null : null;
+    } catch {
+      // Sin respuesta: el servidor vuelve a evaluar la patente al registrar.
+      return null;
+    }
+  }
+
+  async function confirmEntryPlate() {
+    if (entrySubmitting || entrySubmitLockRef.current) return;
+    const formatted = formatPosPlateInput(entryPlate);
+    if (!POS_PLATE_REGEX.test(formatted)) {
+      correctEntryPlate();
+      setEntryFailure("INVALID_PLATE");
+      return;
+    }
+    const confirmedPlate = toBackendPlate(formatted);
+    clearEntryFailure();
+    // Pago liberado: la patente se valida al confirmar. Si tiene
+    // autorización pero el beneficio no aplica (módulo desactivado, sin
+    // vigencia o sin cupo), el operador lo ve y confirma de nuevo para
+    // ingresar con cobro normal.
+    const previous = entryReleased;
+    let released = previous?.plate === confirmedPlate ? previous : null;
+    if (!released) {
+      entrySubmitLockRef.current = true;
+      setEntrySubmitting(true);
+      released = await checkReleasedPlate(confirmedPlate);
+      entrySubmitLockRef.current = false;
+      setEntrySubmitting(false);
+      setEntryReleasedState(released ? { ...released, plate: confirmedPlate, acknowledged: false } : null);
+      if (released && !released.released && released.decision !== "NOT_AUTHORIZED") return;
+    } else if (!released.released && released.decision !== "NOT_AUTHORIZED" && !released.acknowledged) {
+      setEntryReleasedState({ ...released, acknowledged: true });
+    }
+    setEntryConfirmedPlate(confirmedPlate);
+    const photoMode = released?.released ? "REQUIRED" : platePhotoMode;
+    // Foto ya tomada en el paso Patente ("Tomar foto"): registra directo, sin
+    // volver a pedirla.
+    if (entryPhoto && photoMode !== "DISABLED") {
+      void submitEntry(null, confirmedPlate, released);
+      return;
+    }
+    if (photoMode === "DISABLED") {
+      void submitEntry(null, confirmedPlate, released);
+      return;
+    }
+    setEntryStep("PHOTO");
+  }
+
+  // OCR (cámara): misma cámara/encuadre/recorte que la evidencia, pero la
+  // imagen es TEMPORAL -- solo sirve para leer la patente. GPS nunca
+  // bloquea la lectura (REQUIRED se trata como OPTIONAL aquí; si la foto se
+  // reutiliza como evidencia se vuelve a exigir abajo).
+  async function handleOcrCapture(photo) {
+    setOcrCaptureOpen(false);
+    if (ocrPhoto?.previewUrl && ocrPhoto !== entryPhoto) URL.revokeObjectURL(ocrPhoto.previewUrl);
+    setOcrPhoto(photo);
+    setOcrBusy(true);
+    clearEntryFailure();
+    try {
+      const result = await recognizePlate(photo.base64);
+      if (!result.ok) {
+        setEntryFailure(result.code, result.detail || "");
+        return;
+      }
+      const confidence = Number.isFinite(result.proposal?.confidence) ? ` (confianza ${Math.round(result.proposal.confidence)}%)` : "";
+      proposeEntryPlate(
+        result.proposal.plate,
+        PLATE_SOURCES.OCR,
+        result.proposal.lowConfidence ? entryErrorMessage("OCR_LOW_CONFIDENCE") : `Leída con la cámara${confidence}. Verifica antes de confirmar.`
+      );
+    } finally {
+      setOcrBusy(false);
+    }
+  }
+
+  // Voz: solo reconocimiento EN EL DISPOSITIVO (ver plateVoice.js). Nunca
+  // escucha permanentemente: una frase, con tope de tiempo y botón Cancelar.
+  async function startVoiceCapture() {
+    if (voiceState !== "IDLE") return;
+    clearEntryFailure();
+    setVoiceState("CHECKING");
+    const support = await detectLocalVoiceSupport();
+    if (support.status === "DOWNLOADABLE") {
+      setVoiceInstallLang(support.lang);
+      setVoiceState("IDLE");
+      setEntryFailure("VOICE_LOCAL_UNAVAILABLE");
+      return;
+    }
+    if (support.status !== "AVAILABLE") {
+      setVoiceState("IDLE");
+      setEntryFailure(support.status === "UNSUPPORTED" ? "VOICE_UNSUPPORTED" : "VOICE_LOCAL_UNAVAILABLE");
+      return;
+    }
+    setVoiceState("LISTENING");
+    let finishedSynchronously = false;
+    const controller = listenForPlate({
+      lang: support.lang,
+      onDone: (outcome) => {
+        finishedSynchronously = true;
+        setVoiceController(null);
+        setVoiceState("IDLE");
+        if (outcome.ok) {
+          proposeEntryPlate(outcome.plate, PLATE_SOURCES.VOICE, `Dictado: "${outcome.transcript}". Verifica antes de confirmar.`);
+        } else {
+          setEntryFailure(outcome.code);
+        }
+      },
+    });
+    // Si el micrófono falló al arrancar, onDone ya corrió: no queda nada
+    // que cancelar.
+    if (!finishedSynchronously) setVoiceController(controller);
+  }
+
+  function cancelVoiceCapture() {
+    voiceController?.cancel();
+    setVoiceController(null);
+    setVoiceState("IDLE");
+  }
+
+  async function installVoiceModel() {
+    if (!voiceInstallLang || voiceState !== "IDLE") return;
+    setVoiceState("INSTALLING");
+    const installed = await installLocalVoice(voiceInstallLang);
+    setVoiceState("IDLE");
+    if (installed) {
+      setVoiceInstallLang(null);
+      clearEntryFailure();
+    } else {
+      setEntryFailure("VOICE_LOCAL_UNAVAILABLE");
+    }
+  }
+
+  // Un solo <form> para toda la captura: Enter/submit avanza según el paso
+  // (PLATE -> CONFIRM -> registrar). El registro real sigue siendo
+  // exclusivamente submitEntry.
+  function handleEntryFormSubmit(event) {
+    event.preventDefault();
+    if (entryStep === "PLATE") {
+      continueManualPlate();
+      return;
+    }
+    if (entryStep === "CONFIRM") {
+      confirmEntryPlate();
+      return;
+    }
+    void submitEntry(event);
+  }
+
+  // Búsqueda por patente exclusiva de SALIDA. Nunca llama a una API nueva:
+  // filtra activeStays, que ya viene acotado al estacionamiento asignado al
+  // operador (mismo alcance/aislamiento que ya usa "Vehículos en el
+  // parking" — ver loadTerminalState/getPosVehicleSummary). La
+  // normalización reutiliza toBackendPlate/formatPosPlateInput/
+  // POS_PLATE_REGEX, las mismas que ya usa el formulario de INGRESO — sin
+  // segunda lógica paralela.
+  function searchSalidaPlate() {
+    const formatted = formatPosPlateInput(salidaPlate);
+    if (!POS_PLATE_REGEX.test(formatted)) {
+      setSalidaSearchStatus({ type: "invalid", message: "Ingresa una patente válida. Ejemplo: CXPY-93." });
+      return;
+    }
+
+    const query = toBackendPlate(formatted);
+    const matches = activeStays.filter((stay) => toBackendPlate(stay?.license_plate) === query);
+
+    if (matches.length === 0) {
+      setSalidaSearchStatus({
+        type: "not-found",
+        message: "No se encontró un vehículo activo con esa patente en este estacionamiento.",
+      });
+      return;
+    }
+
+    if (matches.length > 1) {
+      // Anomalía real (más de una permanencia OPEN con la misma patente):
+      // nunca se elige una silenciosamente ni se continúa hacia el cobro.
+      setSalidaSearchStatus({
+        type: "conflict",
+        message: `Se encontraron ${matches.length} permanencias abiertas con esta patente. No se puede continuar automáticamente — contacta a soporte antes de cobrar.`,
+      });
+      return;
+    }
+
+    setSalidaSearchStatus(null);
+    void openVehicleDetail(matches[0]);
+  }
+
+  // Sugerencias en vivo para el desplegable de SALIDA: mismo filtro de
+  // activeStays que searchSalidaPlate (sin fetch nuevo), pero con
+  // startsWith en vez de igualdad exacta, para que se vayan acotando a
+  // medida que se escribe cada letra. Vacío mientras no haya texto.
+  const salidaSuggestions = (() => {
+    const query = toBackendPlate(salidaPlate);
+    if (!query) return [];
+    return activeStays
+      .filter((stay) => toBackendPlate(stay?.license_plate).startsWith(query))
+      .slice(0, 8);
+  })();
+
+  function selectSalidaSuggestion(stay) {
+    setSalidaPlate(formatPosPlateInput(stay?.license_plate));
+    setSalidaSearchStatus(null);
+    setSalidaSuggestionsOpen(false);
+    void openVehicleDetail(stay);
+  }
+
+  // Devuelve el detalle cotizado (o null) -- lo usa Salida por QR para abrir el cobro.
   async function openVehicleDetail(stay) {
-    if (!stay?.id) return;
+    if (!stay?.id) return null;
     setCurrentView(POS_VIEWS.VEHICULO_DETALLE);
     setSidebarOpen(false);
     setSelectedVehicleLoading(true);
@@ -645,12 +1619,13 @@ export default function PosTerminal() {
     setPaymentMessage("");
     setPaymentResult(null);
     setSelectedVehicle({ stay, quote: stay.quote || null, parking: parking || null, serverNow: stay.serverNow || null });
+    resetCouponEntry();
 
     try {
       const response = await getPosVehicleQuote(stay.id);
       if (!response.ok) {
         if (response.status === 401) {
-          router.replace("/pos/login?next=/pos");
+          redirectToPosLogin("sesion-expirada");
           return;
         }
         setSelectedVehicleError(response.payload?.error || "No fue posible actualizar la cotización del vehículo.");
@@ -659,11 +1634,203 @@ export default function PosTerminal() {
 
       const detail = response.payload?.data || null;
       setSelectedVehicle(detail);
+      return detail;
     } catch {
       setSelectedVehicleError("Error de red al cotizar el vehículo.");
     } finally {
       setSelectedVehicleLoading(false);
     }
+  }
+
+  // Salida por QR: siempre con la lista fresca de estadías OPEN del servidor
+  // (el ticket pudo emitirse en otro equipo), mismo resolvedor para el QR
+  // leído y para el código escrito a mano. Con la estadía ubicada, cotiza y
+  // abre directo el cobro cuando la cotización quedó cargada.
+  async function handleQrTicket(raw) {
+    if (qrBusy) return;
+    if (isCouponQrPayload(raw)) {
+      setQrExitStatus({ type: "info", message: COUPON_IN_TICKET_SCAN_MESSAGE });
+      return;
+    }
+    setQrBusy(true);
+    setQrExitStatus(null);
+    try {
+      const summary = await getPosVehicleSummary();
+      if (!summary.ok) {
+        if (summary.status === 401) {
+          redirectToPosLogin("sesion-expirada");
+          return;
+        }
+        setQrExitStatus({ type: "error", message: summary.payload?.error || "No fue posible consultar los vehículos dentro." });
+        return;
+      }
+      const stays = Array.isArray(summary.payload?.data?.stays) ? summary.payload.data.stays : [];
+      setActiveStays(stampStaysReceivedAt(stays));
+      setVehiclesInside(stays.length);
+      const result = resolveStayFromQr(stays, raw);
+      if (result.status !== QR_EXIT_STATUS.FOUND) {
+        setQrExitStatus({ type: result.status === QR_EXIT_STATUS.CONFLICT ? "conflict" : "error", message: qrExitMessage(result) });
+        return;
+      }
+      setQrManualCode("");
+      const detail = await openVehicleDetail(result.stay);
+      if (detail) openPaymentModal();
+    } catch {
+      setQrExitStatus({ type: "error", message: "Error de red al buscar el ticket." });
+    } finally {
+      setQrBusy(false);
+    }
+  }
+
+  function restartQrScan() {
+    setQrExitStatus(null);
+    setQrScanKey((value) => value + 1);
+  }
+
+  // TUU PRO2: el QR se lee con la cámara nativa del APK (la del WebView 83
+  // cerraba la app). El texto leído sigue el mismo camino que el lector web.
+  async function startNativeQrScan() {
+    setQrExitStatus(null);
+    const result = await scanQrWithNativeScanner(window);
+    if (result.ok) {
+      await handleQrTicket(result.value);
+      return;
+    }
+    if (result.unsupported) {
+      setQrNativeUnsupported(true);
+      return;
+    }
+    if (result.cancelled) {
+      setQrExitStatus({ type: "info", message: "Lectura cancelada. Pulsa ESCANEAR QR DEL TICKET para intentar de nuevo." });
+      return;
+    }
+    setQrExitStatus({ type: "error", message: "No fue posible abrir el escáner de QR. Escribe el código del ticket." });
+  }
+
+  // BUSCAR / REIMPRIMIR TICKET: abre la vista con la lista fresca de
+  // estadías OPEN del estacionamiento (el ticket pudo emitirse en otro equipo).
+  function openBuscar(intent) {
+    setBuscarIntent(intent);
+    goToSection(POS_VIEWS.BUSCAR);
+    void refreshActiveStaysForBuscar();
+  }
+
+  async function refreshActiveStaysForBuscar() {
+    setBuscarLoading(true);
+    try {
+      const summary = await getPosVehicleSummary();
+      if (summary.status === 401) {
+        redirectToPosLogin("sesion-expirada");
+        return;
+      }
+      if (!summary.ok) return;
+      const stays = Array.isArray(summary.payload?.data?.stays) ? summary.payload.data.stays : [];
+      setActiveStays(stampStaysReceivedAt(stays));
+      setVehiclesInside(stays.length);
+    } catch {
+      // Sin red: se busca en la última lista cargada.
+    } finally {
+      setBuscarLoading(false);
+    }
+  }
+
+  // Reimprime el ticket de ENTRADA de la estadía elegida, armado con los
+  // mismos datos que el ingreso (buildEntryPrintPayload). photoBase64 "" (no
+  // null): nunca debe usarse la foto del último ingreso en otro ticket.
+  function reprintStayTicket(stay) {
+    const payload = buildEntryPrintPayload(stay, parking);
+    if (!payload) {
+      setEntryPrintStatus("No fue posible armar el ticket de este vehículo.");
+      return;
+    }
+    void printLastEntryTicket(payload, { photoBase64: "" });
+  }
+
+  function usesNativeQrScanner() {
+    return typeof window !== "undefined" && hasNativeQrScanner(window) && !qrNativeUnsupported;
+  }
+
+  function resetCouponEntry() {
+    setAppliedCouponToken(null);
+    setCouponEntryOpen(false);
+    setCouponCodeInput("");
+    setCouponBusy(false);
+    setCouponMessage(null);
+  }
+
+  // APLICAR CUPÓN (SOL-2026-10-19-002): el servidor valida el cupón y devuelve un
+  // cálculo firmado nuevo con subtotal, descuento y total. El cupón se canjea
+  // recién al registrar el pago (efectivo o tarjeta).
+  async function applyCoupon(raw) {
+    const stayId = selectedVehicle?.stay?.id;
+    if (!stayId || couponBusy) return;
+    const couponToken = couponTokenForRequest(raw);
+    if (!couponToken) {
+      setCouponMessage({ type: "error", text: "El código no corresponde a un cupón. Revisa el código de 4 caracteres impreso en el cupón." });
+      return;
+    }
+    setCouponBusy(true);
+    setCouponMessage(null);
+    try {
+      const response = await getPosVehicleQuote(stayId, couponToken);
+      if (response.status === 401) {
+        redirectToPosLogin("sesion-expirada");
+        return;
+      }
+      if (!response.ok || !response.payload?.data) {
+        setCouponMessage({ type: "error", text: response.payload?.error || "No fue posible aplicar el cupón." });
+        return;
+      }
+      setSelectedVehicle(response.payload.data);
+      setAppliedCouponToken(couponToken);
+      setCouponEntryOpen(false);
+      setCouponCodeInput("");
+      setPaymentStep("MENU");
+      setPaymentMessage("");
+      setCouponMessage({ type: "success", text: "Cupón aplicado. Revisa el nuevo total antes de cobrar." });
+    } catch {
+      setCouponMessage({ type: "error", text: "Error de red al aplicar el cupón." });
+    } finally {
+      setCouponBusy(false);
+    }
+  }
+
+  async function removeCoupon() {
+    const stayId = selectedVehicle?.stay?.id;
+    if (!stayId || couponBusy) return;
+    setCouponBusy(true);
+    setCouponMessage(null);
+    try {
+      const response = await getPosVehicleQuote(stayId);
+      if (response.ok && response.payload?.data) {
+        setSelectedVehicle(response.payload.data);
+        setAppliedCouponToken(null);
+        setPaymentStep("MENU");
+        setCouponMessage({ type: "info", text: "Cupón quitado." });
+      } else {
+        setCouponMessage({ type: "error", text: response.payload?.error || "No fue posible quitar el cupón." });
+      }
+    } catch {
+      setCouponMessage({ type: "error", text: "Error de red al quitar el cupón." });
+    } finally {
+      setCouponBusy(false);
+    }
+  }
+
+  // Mismo escáner nativo del APK que el QR del ticket; sin él, se escribe el código.
+  async function scanCouponQr() {
+    if (couponBusy) return;
+    setCouponMessage(null);
+    const result = await scanQrWithNativeScanner(window);
+    if (result.ok) {
+      await applyCoupon(result.value);
+      return;
+    }
+    if (result.cancelled) {
+      setCouponMessage({ type: "info", text: "Lectura cancelada. Puedes escanear de nuevo o escribir el código." });
+      return;
+    }
+    setCouponMessage({ type: "error", text: "No fue posible abrir el escáner. Escribe el código del cupón." });
   }
 
   function openPaymentModal() {
@@ -681,19 +1848,83 @@ export default function PosTerminal() {
     setPaymentResult(null);
     setReceiptPrintPayload(null);
     setReceiptPrintStatus("");
+    setCardPaymentStatus("");
+    setCardPaymentMessage("");
+  }
+
+  // Obtiene una cotización nueva (misma llamada que ya usa el rechazo
+  // server-side QUOTE_SNAPSHOT_EXPIRED), actualiza el vehículo seleccionado
+  // y exige una nueva confirmación explícita del operador — nunca cobra ni
+  // sustituye el importe en silencio. Se usa tanto si la cotización llegó
+  // vencida al cliente como si el servidor la rechaza por vencida.
+  async function refreshExpiredQuote(reasonPrefix, { targetStep = "CASH_CONFIRM" } = {}) {
+    let refreshedQuote = await getPosVehicleQuote(selectedVehicle.stay.id, appliedCouponToken);
+    // El cupón dejó de ser válido (usado, vencido): se recalcula sin él y se avisa.
+    if (appliedCouponToken && !refreshedQuote.ok && String(refreshedQuote.payload?.code || "").startsWith("COUPON_")) {
+      setAppliedCouponToken(null);
+      setCouponMessage({ type: "error", text: `${refreshedQuote.payload?.error || "El cupón ya no es válido."} Se quitó el cupón.` });
+      refreshedQuote = await getPosVehicleQuote(selectedVehicle.stay.id);
+    }
+    if (refreshedQuote.ok && refreshedQuote.payload?.data) {
+      const detail = refreshedQuote.payload.data;
+      setSelectedVehicle(detail);
+      const refreshedAmount = normalizeQuoteView(detail?.quote)?.total ?? 0;
+      setPaymentStep(targetStep);
+      setPaymentMessage(`${reasonPrefix} Nuevo total: ${formatCurrency(refreshedAmount)}. Confirma nuevamente para cobrar.`);
+    } else {
+      setPaymentMessage("La cotización venció y no se pudo actualizar automáticamente. Vuelve a abrir el detalle del vehículo.");
+    }
+  }
+
+  // Pago liberado: salida sin excedente ($0). El servidor recalcula con las
+  // condiciones congeladas al ingreso; si hubiera excedente, lo rechaza y el
+  // operador cobra con PAGAR.
+  async function registerReleasedExit() {
+    const stay = selectedVehicle?.stay;
+    if (!stay?.id || releasedExitBusy) return;
+    setReleasedExitBusy(true);
+    setSelectedVehicleError("");
+    try {
+      const response = await fetch("/api/data-entry", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-parkfacil-portal": "terminal" },
+        cache: "no-store",
+        body: JSON.stringify({ action: "RELEASED_EXIT", stayId: stay.id }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (response.status === 401) {
+        redirectToPosLogin("sesion-expirada");
+        return;
+      }
+      if (!response.ok) {
+        setSelectedVehicleError(payload?.error || "No fue posible registrar la salida.");
+        if (payload?.details?.code === "RELEASED_EXCESS_DUE") void openVehicleDetail(stay);
+        return;
+      }
+      setSelectedVehicle(null);
+      setVehiclesInside((current) => Math.max(0, current - 1));
+      setCurrentView(POS_VIEWS.HOME);
+      void loadTerminalState(true);
+      void loadPaymentsToday();
+    } catch {
+      setSelectedVehicleError("Error de red al registrar la salida.");
+    } finally {
+      setReleasedExitBusy(false);
+    }
   }
 
   async function confirmCashPayment() {
     if (!selectedVehicle?.stay?.id || paymentSubmitting) return;
     const quoteSnapshot = selectedVehicle?.quote?.snapshot || null;
 
-    if (!quoteSnapshot?.signature) {
-      setPaymentMessage("La cotización del vehículo expiró o no es válida. Actualiza el detalle antes de cobrar.");
-      return;
-    }
-
-    if (isQuoteSnapshotExpired(quoteSnapshot)) {
-      setPaymentMessage("La cotización del vehículo expiró. Vuelve a cargar el detalle antes de cobrar.");
+    if (!quoteSnapshot?.signature || isQuoteSnapshotExpired(quoteSnapshot)) {
+      setPaymentSubmitting(true);
+      setPaymentMessage("");
+      try {
+        await refreshExpiredQuote("La cotización del vehículo expiró.");
+      } finally {
+        setPaymentSubmitting(false);
+      }
       return;
     }
 
@@ -708,23 +1939,20 @@ export default function PosTerminal() {
           "x-parkfacil-portal": "terminal",
         },
         cache: "no-store",
-        body: JSON.stringify({ action: "EXIT", stayId: selectedVehicle.stay.id, paymentMethod: "CASH", quoteSnapshot }),
+        body: JSON.stringify({ action: "EXIT", stayId: selectedVehicle.stay.id, paymentMethod: "CASH", quoteSnapshot, ...(appliedCouponToken && quoteSnapshot?.couponId ? { couponToken: appliedCouponToken } : {}) }),
       });
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        // Fase 1: con 401 el backend NO registró el pago (la autorización
+        // ocurre antes de cualquier escritura) -- se vuelve al login.
+        if (response.status === 401) {
+          redirectToPosLogin("sesion-expirada");
+          return;
+        }
         const errorCode = payload?.details?.code || payload?.code || "";
         if (errorCode === "QUOTE_SNAPSHOT_EXPIRED") {
-          const refreshedQuote = await getPosVehicleQuote(selectedVehicle.stay.id);
-          if (refreshedQuote.ok && refreshedQuote.payload?.data) {
-            const detail = refreshedQuote.payload.data;
-            setSelectedVehicle(detail);
-            const refreshedAmount = Number(detail?.quote?.total || detail?.quote?.amount || 0);
-            setPaymentStep("CASH_CONFIRM");
-            setPaymentMessage(`La cotización venció. Nuevo total: ${formatCurrency(refreshedAmount)}. Confirma nuevamente para cobrar.`);
-          } else {
-            setPaymentMessage("La cotización venció y no se pudo actualizar automáticamente. Vuelve a abrir el detalle del vehículo.");
-          }
+          await refreshExpiredQuote("La cotización venció.");
           return;
         }
         setPaymentMessage(payload?.error || "No fue posible registrar el pago en efectivo.");
@@ -732,10 +1960,11 @@ export default function PosTerminal() {
       }
 
       // A partir de aquí el pago YA quedó registrado y la permanencia YA
-      // quedó cerrada en el backend (respuesta 2xx de /api/data-entry). No
-      // se imprime automáticamente: se muestra el comprobante y se pregunta
-      // al operador si desea imprimir el recibo (paymentStep PRINT_PROMPT).
-      // La decisión SÍ/NO nunca vuelve a tocar el pago ni la permanencia.
+      // quedó cerrada en el backend (respuesta 2xx de /api/data-entry). La
+      // impresión ocurre automáticamente DESPUÉS de esta confirmación, nunca
+      // antes, y una falla de impresión nunca vuelve a tocar el pago ni la
+      // permanencia — solo se reutiliza el mismo receiptPrintPayload ya
+      // armado con lo que confirmó el backend (ver printLastReceipt).
       const stay = payload?.data?.stay || null;
       const quote = payload?.data?.quote || null;
       const parkingResponse = payload?.data?.parking || parking;
@@ -743,12 +1972,21 @@ export default function PosTerminal() {
       setPaymentResult({
         plate: stay?.license_plate || selectedVehicle.stay.license_plate,
         total: amount,
-        paymentMethod: payload?.data?.stay?.payment_method || "CASH",
+        paymentMethod: classifiedPaymentMethod(stay) || "CASH",
       });
-      setReceiptPrintPayload(buildPaymentReceiptPayload(stay, quote, parkingResponse));
+      const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse);
+      setReceiptPrintPayload(receiptPayload);
       setReceiptPrintStatus("");
-      setPaymentStep("PRINT_PROMPT");
       await loadTerminalState(true);
+
+      const printResult = receiptPayload ? await printLastReceipt(receiptPayload) : null;
+      const printFailedOnDevice = Boolean(printResult?.attempted && !printResult.ok);
+
+      if (printFailedOnDevice) {
+        setPaymentStep("PRINT_PROMPT");
+      } else {
+        finishPaidFlow();
+      }
     } catch {
       setPaymentMessage("Error de red al registrar el pago en efectivo.");
     } finally {
@@ -784,36 +2022,200 @@ export default function PosTerminal() {
     if (method === "CASH") {
       setPaymentStep("CASH_CONFIRM");
       setPaymentMessage("");
-      return;
-    }
-
-    if (method === "CARD") {
-      setPaymentStep("CARD_NOTICE");
-      setPaymentMessage("Pago con tarjeta pendiente de integración TUU.");
     }
   }
 
-  async function printLastEntryTicket(payload) {
+  // Pago con tarjeta vía TUU PRO2 (ambiente DEV). tuuMethod distingue
+  // DÉBITO(2)/CRÉDITO(1) -- dato real que ya existían como dos botones
+  // separados en el MENU, nunca inventado acá (ver TUU_METHOD en
+  // src/lib/pos/tuuPayment.mjs).
+  //
+  // Protección contra doble cobro: cardPaymentLockRef se verifica y fija de
+  // forma SÍNCRONA antes de cualquier await -- un segundo clic mientras hay
+  // una transacción en curso nunca llega a lanzar un segundo Intent hacia
+  // TUU. El candado se libera SOLO en el finally de este función, que cubre
+  // tanto el pago TUU como el registro de la salida en el backend (fase
+  // posterior al cobro real) -- nunca se libera antes de que ambas partes
+  // terminen.
+  async function handleCardPaymentSelection(tuuMethod) {
+    if (cardPaymentLockRef.current || paymentSubmitting) return;
+    if (!selectedVehicle?.stay?.id) return;
+
+    cardPaymentLockRef.current = true;
+    setPaymentSubmitting(true);
+    setPaymentMessage("");
+
+    try {
+      const quoteSnapshot = selectedVehicle?.quote?.snapshot || null;
+
+      // La cotización se valida ANTES de cobrar con TUU (nunca después): una
+      // vez que TUU cobra la tarjeta, esa cobranza ya es real y no se puede
+      // deshacer desde acá -- por eso este chequeo es más estricto que en
+      // EFECTIVO (donde el backend recién cobra al confirmar).
+      if (!quoteSnapshot?.signature || isQuoteSnapshotExpired(quoteSnapshot)) {
+        await refreshExpiredQuote("La cotización del vehículo expiró.", { targetStep: "MENU" });
+        return;
+      }
+
+      if (selectedVehicle.cardTypeCaptureAvailable !== true) {
+        setPaymentStep("MENU");
+        setPaymentMessage("Falta habilitar el registro de Crédito y Débito. No se inició ningún cobro.");
+        return;
+      }
+      const paymentCardType = tuuMethod === TUU_METHOD.CREDIT ? "CREDIT" : tuuMethod === TUU_METHOD.DEBIT ? "DEBIT" : null;
+      const amount = normalizeQuoteView(selectedVehicle.quote)?.total;
+      if (!Number.isFinite(Number(amount)) || Number(amount) <= 0) {
+        console.error("[pos:tuu:status]", { status: "ERROR", reason: "invalid_amount" });
+        setPaymentStep("CARD_PAYMENT");
+        setCardPaymentStatus("ERROR");
+        setCardPaymentMessage("No hay un total válido para cobrar. Vuelve a abrir el detalle del vehículo.");
+        return;
+      }
+
+      setPaymentStep("CARD_PAYMENT");
+      setCardPaymentStatus("PROCESSING");
+      setCardPaymentMessage("Procesando pago...");
+
+      let tuuPayload;
+      try {
+        const netAmount = getTaxBreakdown(amount).netAmount;
+        tuuPayload = buildTuuPaymentPayload({ amount, method: tuuMethod, netAmount });
+      } catch (error) {
+        console.error("[pos:tuu:payload]", { message: error instanceof Error ? error.message : String(error) });
+        setCardPaymentStatus("ERROR");
+        setCardPaymentMessage("Error de comunicación con TUU.");
+        return;
+      }
+
+      console.info("[pos:tuu:start]", { package: TUU_PACKAGE_DEV, amount: tuuPayload.amount, method: tuuMethod });
+      const outcome = await startTuuPayment(JSON.stringify(tuuPayload));
+      console.info("[pos:tuu:outcome]", { delivered: Boolean(outcome?.delivered), code: outcome?.code || null });
+
+      if (!outcome?.delivered) {
+        if (outcome?.code === "TUU_NOT_INSTALLED" || outcome?.code === "TUU_BRIDGE_UNAVAILABLE") {
+          console.info("[pos:tuu:status]", { status: "NOT_INSTALLED", code: outcome?.code || null });
+          setCardPaymentStatus("NOT_INSTALLED");
+          setCardPaymentMessage("TUU no está instalada en este dispositivo.");
+        } else {
+          console.error("[pos:tuu:status]", { status: "ERROR", code: outcome?.code || null });
+          setCardPaymentStatus("ERROR");
+          setCardPaymentMessage("Error de comunicación con TUU.");
+        }
+        return;
+      }
+
+      const tuuResult = outcome.result;
+      if (!tuuResult?.success) {
+        if (tuuResult?.cancelled) {
+          console.info("[pos:tuu:status]", { status: "CANCELLED", responseCode: tuuResult?.responseCode || null });
+          setCardPaymentStatus("CANCELLED");
+          setCardPaymentMessage("Pago cancelado.");
+        } else {
+          console.info("[pos:tuu:status]", { status: "DECLINED", responseCode: tuuResult?.responseCode || null });
+          setCardPaymentStatus("DECLINED");
+          setCardPaymentMessage(tuuResult?.responseMessage || "Pago rechazado.");
+        }
+        return;
+      }
+
+      // A partir de aquí TUU YA cobró la tarjeta -- lo que sigue es registrar
+      // la salida en ParkFacil. Cualquier falla desde este punto NUNCA vuelve
+      // a MENU ni permite reintentar (evita un segundo cobro real): queda en
+      // CHARGED_NOT_REGISTERED para que el operador contacte soporte.
+      console.info("[pos:tuu:status]", { status: "APPROVED", transactionId: tuuResult?.transactionId || null });
+      setCardPaymentStatus("APPROVED");
+      setCardPaymentMessage("Pago aprobado. Registrando salida...");
+
+      // sequenceNumber de TUU: se guarda en la estadía para conciliar. Si no
+      // vino o no tiene 12 dígitos, la salida se registra igual (el cobro ya
+      // es real) y la referencia queda solo en el log.
+      const tuuReference = isValidTuuSequenceNumber(tuuResult?.transactionId) ? tuuResult.transactionId : null;
+      const tuuReferenceText = tuuReference ? ` Referencia TUU: ${tuuReference}.` : "";
+
+      let response;
+      try {
+        response = await fetch("/api/data-entry", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-parkfacil-portal": "terminal",
+          },
+          cache: "no-store",
+          body: JSON.stringify({
+            action: "EXIT",
+            stayId: selectedVehicle.stay.id,
+            paymentMethod: "CARD",
+            paymentCardType,
+            quoteSnapshot,
+            cardPayment: tuuReference ? { provider: "TUU", reference: tuuReference } : null,
+          }),
+        });
+      } catch {
+        console.error("[pos:tuu:status]", { status: "CHARGED_NOT_REGISTERED", reason: "network_error" });
+        setCardPaymentStatus("CHARGED_NOT_REGISTERED");
+        setCardPaymentMessage(`El pago fue aprobado por TUU pero hubo un error de red al registrar la salida. Contacta a soporte antes de reintentar.${tuuReferenceText}`);
+        return;
+      }
+
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        console.error("[pos:tuu:status]", { status: "CHARGED_NOT_REGISTERED", reason: payload?.error || "backend_error" });
+        setCardPaymentStatus("CHARGED_NOT_REGISTERED");
+        setCardPaymentMessage(
+          `El pago fue aprobado por TUU pero no se pudo registrar la salida (${payload?.error || "error desconocido"}). Contacta a soporte antes de reintentar.${tuuReferenceText}`
+        );
+        return;
+      }
+
+      const stay = payload?.data?.stay || null;
+      const quote = payload?.data?.quote || null;
+      const parkingResponse = payload?.data?.parking || parking;
+      const confirmedAmount = Number(quote?.total || 0);
+      setPaymentResult({
+        plate: stay?.license_plate || selectedVehicle.stay.license_plate,
+        total: confirmedAmount,
+        paymentMethod: classifiedPaymentMethod(stay) || "CARD",
+      });
+      const receiptPayload = buildPaymentReceiptPayload(stay, quote, parkingResponse, "CARD");
+      setReceiptPrintPayload(receiptPayload);
+      setReceiptPrintStatus("");
+      await loadTerminalState(true);
+
+      const printResult = receiptPayload ? await printLastReceipt(receiptPayload) : null;
+      const printFailedOnDevice = Boolean(printResult?.attempted && !printResult.ok);
+
+      if (printFailedOnDevice) {
+        setPaymentStep("PRINT_PROMPT");
+      } else {
+        finishPaidFlow();
+      }
+    } finally {
+      cardPaymentLockRef.current = false;
+      setPaymentSubmitting(false);
+    }
+  }
+
+  async function printLastEntryTicket(payload, photoOptions) {
     const printPayload = payload || entryPrintPayload;
     if (!printPayload) {
       setEntryPrintStatus("No hay un ticket disponible para reimpresión.");
       return { attempted: false, ok: false, code: "NO_TICKET", message: "No hay ticket disponible." };
     }
 
-    const bridge = getNativePrinterBridge();
-    if (!bridge) {
-      setEntryPrintStatus("Impresión disponible solo desde el dispositivo POS.");
-      return { attempted: false, ok: false, code: "BRIDGE_UNAVAILABLE", message: "Bridge no disponible." };
-    }
-
     setEntryPrintBusy(true);
     setEntryPrintStatus("Imprimiendo...");
 
     try {
-      const result = await executeNativePrint(printPayload);
+      const photoBase64 = photoOptions?.photoBase64 ?? entryPhotoForPrint;
+      const result = await executeAutoPrint(printPayload, toAgentEntryPayload, {
+        photoBase64,
+        printOnTicket: printPlatePhotoOnTicket,
+      });
 
       if (result.ok) {
-        setEntryPrintStatus("Ticket impreso.");
+        setEntryPrintStatus(
+          result.photoIncluded ? "Ticket impreso con fotografía de patente." : "Ticket impreso."
+        );
       } else {
         const details = [];
         if (result.code) details.push(`Código: ${result.code}`);
@@ -822,6 +2224,13 @@ export default function PosTerminal() {
           "Entrada registrada. No fue posible imprimir el ticket.",
           ...details,
         ].join("\n"));
+      }
+
+      // La fotografía se pidió imprimir pero el bridge no la soporta: no es
+      // un error de impresión (el ticket de texto sí se imprimió bien), solo
+      // una limitación informativa para el operador (§9 del encargo).
+      if (result.ok && photoBase64 && printPlatePhotoOnTicket && !result.photoIncluded) {
+        setEntryPrintStatus((current) => `${current}\nFotografía no impresa: el dispositivo no admite impresión de imágenes.`);
       }
 
       return result;
@@ -841,17 +2250,11 @@ export default function PosTerminal() {
       return { attempted: false, ok: false, code: "NO_RECEIPT", message: "No hay recibo disponible." };
     }
 
-    const bridge = getNativePrinterBridge();
-    if (!bridge) {
-      setReceiptPrintStatus("Impresión disponible solo desde el dispositivo POS.");
-      return { attempted: false, ok: false, code: "BRIDGE_UNAVAILABLE", message: "Bridge no disponible." };
-    }
-
     setReceiptPrintBusy(true);
     setReceiptPrintStatus("Imprimiendo...");
 
     try {
-      const result = await executeNativePrint(printPayload);
+      const result = await executeAutoPrint(printPayload, toAgentExitPayload);
 
       if (result.ok) {
         setReceiptPrintStatus("Recibo impreso.");
@@ -900,7 +2303,7 @@ export default function PosTerminal() {
 
       if (!result.ok) {
         if (result.status === 401) {
-          router.replace("/pos/login?next=/pos");
+          redirectToPosLogin("sesion-expirada");
           return;
         }
         setCloseError(result.payload?.error || "No fue posible cerrar el turno.");
@@ -908,6 +2311,7 @@ export default function PosTerminal() {
       }
 
       const closure = result.payload?.data?.closure || null;
+      setClosedUnpaidExits(result.payload?.data?.unpaidExits || null);
       setShiftClosure(closure);
       setShiftClosed(true);
       setShift((current) => (current ? { ...current, status: "CLOSED", closedAt: closure?.shiftClosedAt || current.closedAt } : current));
@@ -920,6 +2324,11 @@ export default function PosTerminal() {
       ));
       setClosureReceiptStatus("");
       setClosurePrintPrompt(true);
+      // Tras el cierre ya no hay turno abierto: el estado del turno vuelve al
+      // servidor (selector si hay varios Off Street). Se conserva el
+      // estacionamiento del cierre para el resumen y la reimpresión.
+      setLastClosedParking(parking);
+      void loadShiftState();
       void loadTerminalState(true);
     } catch {
       setCloseError("Error de red al cerrar el turno.");
@@ -987,7 +2396,7 @@ export default function PosTerminal() {
   function reprintShiftClosure() {
     const payload = buildShiftClosureReceiptPayload(
       shiftClosure,
-      parking,
+      parking || lastClosedParking,
       context?.membership?.fullName || context?.email,
       context?.email
     );
@@ -1009,6 +2418,36 @@ export default function PosTerminal() {
     setListadoPrintPrompt(false);
     setListadoPrintPayload(null);
     setListadoPrintStatus("");
+  }
+
+  // IMPRIMIR PAGOS DEL DÍA: imprime exactamente lo que muestra la pantalla
+  // (totales y filas de /api/pos/payments), una vez por clic.
+  async function printPaymentsDay() {
+    if (paymentsDayPrintBusy) return;
+    const payload = buildPaymentsDayPrintPayload({ payments: paymentsToday, totals: paymentsTodayTotals, parking });
+    if (!payload) {
+      setPaymentsDayPrintStatus("No hay datos del estacionamiento para imprimir el reporte.");
+      return;
+    }
+    if (!getNativePrinterBridge()) {
+      setPaymentsDayPrintStatus("Impresión disponible solo desde el dispositivo POS.");
+      return;
+    }
+    setPaymentsDayPrintBusy(true);
+    setPaymentsDayPrintStatus("Imprimiendo...");
+    try {
+      const result = await executeNativePrint(payload);
+      if (result.ok) {
+        setPaymentsDayPrintStatus("Reporte de pagos del día impreso.");
+      } else {
+        const details = [];
+        if (result.code) details.push(`Código: ${result.code}`);
+        if (result.message) details.push(`Detalle: ${result.message}`);
+        setPaymentsDayPrintStatus(["No fue posible imprimir el reporte.", ...details].join("\n"));
+      }
+    } finally {
+      setPaymentsDayPrintBusy(false);
+    }
   }
 
   async function confirmListadoPrint() {
@@ -1045,19 +2484,45 @@ export default function PosTerminal() {
     }
   }
 
-  async function submitEntry(event) {
-    event.preventDefault();
+  async function submitEntry(event, confirmedPlateOverride = null, releasedOverride = undefined) {
+    event?.preventDefault?.();
+    // Fase 2: doble toque / respuesta lenta -> nunca un segundo POST.
+    if (entrySubmitLockRef.current) return;
     const formattedPlate = formatPosPlateInput(entryPlate);
     if (!POS_PLATE_REGEX.test(formattedPlate)) {
-      setEntryError("Ingresa una patente válida. Ejemplo: CXPY-93.");
+      setEntryFailure("INVALID_PLATE");
       return;
     }
     const plate = toBackendPlate(formattedPlate);
+    // Fase 2: confirmación explícita obligatoria. Solo se registra la
+    // patente que el operador confirmó con CONFIRMAR (ni el OCR ni la voz
+    // llegan aquí sin pasar por ese paso).
+    const confirmedPlate = confirmedPlateOverride ?? entryConfirmedPlate;
+    if (!confirmedPlate || confirmedPlate !== plate) {
+      setEntryConfirmedPlate("");
+      setEntryStep("CONFIRM");
+      return;
+    }
+    // Gate de UX (regla real la vuelve a exigir /api/data-entry): en modo
+    // REQUIRED no se ni siquiera intenta enviar sin fotografía ya capturada.
+    const releasedForEntry = releasedOverride !== undefined ? releasedOverride : entryReleased?.plate === confirmedPlate ? entryReleased : null;
+    const effectivePhotoMode = releasedForEntry?.released ? "REQUIRED" : platePhotoMode;
+    if (effectivePhotoMode === "REQUIRED" && !entryPhoto) {
+      setEntryErrorCode("PLATE_PHOTO_REQUIRED");
+      setEntryError(releasedForEntry?.released ? "Patente liberada: la foto de la patente es obligatoria en cada ingreso." : entryPhotoRequirementMessage(platePhotoMode));
+      setEntryStep("PHOTO");
+      return;
+    }
 
+    entrySubmitLockRef.current = true;
     setEntrySubmitting(true);
-    setEntryError("");
+    clearEntryFailure();
 
     try {
+      // deviceInfo se recolecta siempre (§20), incluso sin fotografía --
+      // best-effort, nunca bloquea el ENTRY; el backend igual lo descarta
+      // si no hay evidencia a la que asociarlo.
+      const deviceInfo = await collectDeviceInfoForEntry();
       const response = await fetch("/api/data-entry", {
         method: "POST",
         headers: {
@@ -1065,27 +2530,88 @@ export default function PosTerminal() {
           "x-parkfacil-portal": "terminal",
         },
         cache: "no-store",
-        body: JSON.stringify({ action: "ENTRY", plate, source: "POS" }),
+        body: JSON.stringify({
+          action: "ENTRY",
+          plate,
+          source: "POS",
+          deviceInfo,
+          expectReleased: Boolean(releasedForEntry?.released),
+          ...(entryPhoto
+            ? {
+                platePhotoBase64: entryPhoto.base64,
+                platePhotoMimeType: entryPhoto.mimeType,
+                platePhotoCapturedAt: entryPhoto.capturedAt || null,
+                platePhotoLatitude: entryPhoto.latitude ?? null,
+                platePhotoLongitude: entryPhoto.longitude ?? null,
+                platePhotoGpsAccuracyM: entryPhoto.gpsAccuracyM ?? null,
+              }
+            : {}),
+        }),
       });
       const payload = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        setEntryError(payload?.error || "No fue posible registrar el ingreso.");
+        // Fase 1: sesión vencida durante la operación -> nunca se deja al
+        // operador en una pantalla operativa sin sesión válida.
+        if (response.status === 401) {
+          redirectToPosLogin("sesion-expirada");
+          return;
+        }
+        // Fase 2: cada rechazo con su mensaje y acción (un 409 de vehículo
+        // ya ingresado nunca se muestra como error genérico).
+        if (payload?.details?.code === "RELEASED_PAYMENT_CHANGED") {
+          // La condición cambió entre la validación y el registro (cupo,
+          // vigencia, módulo): se muestra el nuevo estado y se vuelve a
+          // confirmar.
+          const fresh = payload?.details?.releasedPayment || null;
+          setEntryReleasedState(fresh ? { ...fresh, plate, acknowledged: false } : null);
+          setEntryStep("CONFIRM");
+          setEntryErrorCode("RELEASED_PAYMENT_CHANGED");
+          setEntryError(payload?.error || "La patente cambió de condición. Vuelve a confirmar.");
+          return;
+        }
+        const failureCode = classifyEntryFailure(response.status, payload);
+        setEntryErrorCode(failureCode);
+        setEntryError(failureCode === "UNEXPECTED" && payload?.error ? payload.error : entryErrorMessage(failureCode));
+        if (failureCode === "VEHICLE_ALREADY_INSIDE") void loadTerminalState(true);
         return;
       }
 
       const stay = payload?.data?.stay || null;
       const parkingResponse = payload?.data?.parking || parking;
-      setEntrySuccess(stay ? { stay, parking: parkingResponse } : null);
+      setEntryConfirmedPlate("");
+      if (ocrPhoto?.previewUrl && ocrPhoto !== entryPhoto) URL.revokeObjectURL(ocrPhoto.previewUrl);
+      setOcrPhoto(null);
+      setEntryStep("PLATE");
+      setEntrySuccess(stay ? { stay, parking: parkingResponse, debtNotice: payload?.data?.debtNotice || null } : null);
       const printPayload = buildEntryPrintPayload(stay, parkingResponse);
+      // Ticket "PAGO LIBERADO": leyenda para el agente de impresión y el
+      // bridge nativo (cada impresora la muestra si la soporta).
+      if (printPayload && payload?.data?.releasedPayment?.applied) {
+        printPayload.ticketLabel = "PAGO LIBERADO";
+        if (printPayload.agentTicket) printPayload.agentTicket = { ...printPayload.agentTicket, ticketLabel: "PAGO LIBERADO" };
+      }
+      setEntryReleasedState(null);
       setEntryPrintPayload(printPayload);
+      // Los bytes de la foto ya están en el cliente (recién comprimidos) --
+      // se conservan para poder incluirlos al imprimir/reimprimir el
+      // ticket, independientemente de si el registro de metadata en
+      // servidor (parking_stay_evidence) llegó a vincularse o no. Se usa la
+      // variable local (no el state, que todavía no se actualizó) para la
+      // impresión inmediata de abajo.
+      const capturedPhotoBase64 = entryPhoto?.base64 || null;
+      setEntryPhotoForPrint(capturedPhotoBase64);
+      if (entryPhoto?.previewUrl) URL.revokeObjectURL(entryPhoto.previewUrl);
+      setEntryPhoto(null);
       setEntryPlate("");
       setEntryOpen(false);
       setCurrentView(POS_VIEWS.INGRESO);
       setVehiclesInside((current) => current + 1);
       void loadTerminalState(true);
 
-      const printResult = printPayload ? await printLastEntryTicket(printPayload) : null;
+      const printResult = printPayload
+        ? await printLastEntryTicket(printPayload, { photoBase64: capturedPhotoBase64 })
+        : null;
       // Solo se bloquea el retorno a HOME cuando existe bridge nativo y la
       // impresión se intentó pero falló (regla 3). Sin bridge (PC/navegador,
       // regla 2) o con impresión exitosa (regla 1), el ingreso ya es un
@@ -1100,26 +2626,25 @@ export default function PosTerminal() {
         setCurrentView(POS_VIEWS.HOME);
       }
     } catch {
-      setEntryError("Error de red al registrar el ingreso.");
+      setEntryFailure("NETWORK_ERROR");
     } finally {
+      entrySubmitLockRef.current = false;
       setEntrySubmitting(false);
     }
   }
 
   const navItems = [
     { label: "INICIO", onSelect: () => goToSection(POS_VIEWS.HOME) },
+    // Después de INICIO: iniciar (o ver) el turno del operador.
+    // (misma condición que shiftReadyForOperations, que se declara más abajo)
+    { label: shiftState === "OPEN" && shift?.status !== "CLOSING" ? "TURNO ACTIVO" : "INICIO DE TURNO", onSelect: () => goToSection(POS_VIEWS.TURNO) },
     { label: "INGRESO DE VEHÍCULO", onSelect: openEntryForm },
     { label: "SALIDA DE VEHÍCULO", onSelect: () => goToSection(POS_VIEWS.SALIDA) },
     { label: "VEHÍCULOS EN EL PARKING", onSelect: () => goToSection(POS_VIEWS.VEHICULOS) },
     { label: "CÓDIGO QR", onSelect: () => goToSection(POS_VIEWS.QR) },
-    { label: "BUSCAR TICKET", onSelect: () => goToSection(POS_VIEWS.BUSCAR) },
-    {
-      label: "REIMPRIMIR TICKET",
-      onSelect: () => {
-        goToSection(POS_VIEWS.INGRESO);
-        void printLastEntryTicket(entryPrintPayload);
-      },
-    },
+    { label: "BUSCAR TICKET", onSelect: () => openBuscar("search") },
+    // Elegir qué ticket reimprimir (antes reimprimía siempre el último).
+    { label: "REIMPRIMIR TICKET", onSelect: () => openBuscar("reprint") },
     { label: "IMPRIMIR VEHÍCULOS EN EL PARKING", onSelect: () => goToSection(POS_VIEWS.IMPRIMIR_LISTADO) },
     { label: "PAGOS DEL DÍA", onSelect: () => goToSection(POS_VIEWS.PAGOS_DEL_DIA) },
     { label: "CIERRE DE CAJA", onSelect: () => goToSection(POS_VIEWS.CIERRE_CAJA) },
@@ -1140,14 +2665,258 @@ export default function PosTerminal() {
     },
   ];
 
-  function renderHomePanel() {
+  // Indica si INGRESO/SALIDA pueden habilitarse: solo con turno realmente
+  // OPEN (no CLOSING). Es una mejora de UX preventiva — la autoridad real
+  // sigue siendo requireOpenPosShift() en /api/data-entry, que exige
+  // status='OPEN' exacto y rechaza igual aunque este chequeo se omita.
+  const shiftReadyForOperations = shiftState === "OPEN" && shift?.status !== "CLOSING";
+
+  // Gate reutilizable de turno para INGRESO y SALIDA (Home ya resuelve su
+  // propio bloqueo con shiftReadyForOperations sobre los botones). Devuelve
+  // null cuando el turno está OPEN y no en CLOSING — en ese caso el panel
+  // real se renderiza normalmente. No duplica la lógica de
+  // renderCierreCajaPanel: cubre el mismo conjunto de estados
+  // (loading/error/PROGRAMMED/CLOSING/sin turno) para los paneles nuevos.
+  function renderShiftGate(title, { hideVolver = false } = {}) {
+    if (shiftReadyForOperations) return null;
+
+    const volverButton = hideVolver ? null : (
+      <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-4 rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
+    );
+
+    if (shiftLoading && !shift) {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          <div className="flex items-center gap-3">
+            <LoaderCircle className="h-5 w-5 animate-spin text-slate-600" />
+            <p className="text-sm font-semibold">Cargando turno del operador...</p>
+          </div>
+        </section>
+      );
+    }
+
+    if (shiftError) {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-700">{shiftError}</div>
+          {volverButton}
+        </section>
+      );
+    }
+
+    // Fase 1: varios estacionamientos autorizados -> el operador elige
+    // explícitamente qué turno programado iniciar. Las opciones vienen del
+    // servidor (solo estacionamientos autorizados de su empresa); una vez
+    // iniciado, el turno abierto fija el estacionamiento para toda la sesión.
+    if (shiftState === "PARKING_SELECTION_REQUIRED" && offStreetParkings.length) {
+      // Selector Off Street: pulldown con todos los Off Street activos de la
+      // empresa (no depende de las asignaciones del operador). parkingOptions
+      // solo trae aquí turnos On Street programados hoy, que se inician igual
+      // que antes.
+      const selectedOffStreet = offStreetParkings.find((option) => option.parkingId === selectedOffStreetParkingId) || null;
+      return (
+        <section className="rounded-3xl border border-sky-300 bg-white p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sky-950">
+            <p className="text-xs font-black uppercase tracking-[0.1em] text-sky-700">Seleccione estacionamiento</p>
+            <p className="mt-1 text-sm font-semibold">Elige dónde vas a operar. El estacionamiento quedará fijo hasta que hagas el cierre de caja.</p>
+          </div>
+          <label htmlFor="pos-offstreet-parking" className="mt-4 block text-xs font-black uppercase tracking-[0.08em] text-slate-600">Estacionamiento</label>
+          <select
+            id="pos-offstreet-parking"
+            value={selectedOffStreetParkingId}
+            onChange={(event) => { setSelectedOffStreetParkingId(event.target.value); setOffStreetSelectionError(""); }}
+            disabled={shiftStartBusy}
+            className="mt-1 min-h-14 w-full rounded-2xl border border-slate-400 bg-white px-3 py-3 text-base font-bold text-slate-900 disabled:opacity-60"
+          >
+            <option value="">Elige un estacionamiento</option>
+            {offStreetParkings.map((option) => (
+              <option key={option.parkingId} value={option.parkingId}>
+                {option.parkingName || option.parkingCode}{option.parkingName && option.parkingCode ? ` · ${option.parkingCode}` : ""}
+              </option>
+            ))}
+          </select>
+          {selectedOffStreet ? (
+            <div className="mt-3 rounded-2xl border border-emerald-300 bg-emerald-50 p-3 text-sm font-semibold text-emerald-950">
+              <p>Vas a operar en <span className="font-black">{selectedOffStreet.parkingName || selectedOffStreet.parkingCode}</span>.</p>
+              {selectedOffStreet.parkingAddress ? <p className="mt-1 text-xs text-emerald-900">{selectedOffStreet.parkingAddress}</p> : null}
+            </div>
+          ) : null}
+          {offStreetSelectionError ? <p role="alert" className="mt-3 text-sm font-bold text-rose-700">{offStreetSelectionError}</p> : null}
+          <button type="button" onClick={startSelectedOffStreetShift} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+            {shiftStartBusy ? "Iniciando..." : "INICIAR TURNO"}
+          </button>
+          {parkingOptions.length ? (
+            <div className="mt-4 space-y-3">
+              <p className="text-xs font-black uppercase tracking-[0.08em] text-slate-600">Turnos programados</p>
+              {parkingOptions.map((option) => (
+                <button
+                  key={option.shiftId}
+                  type="button"
+                  onClick={() => void startProgrammedShift(option.shiftId)}
+                  disabled={shiftStartBusy}
+                  className="flex min-h-16 w-full flex-col items-start justify-center rounded-2xl bg-emerald-700 px-4 py-3 text-left text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="text-base font-black uppercase tracking-[0.04em]">{shiftStartBusy ? "Iniciando..." : `Iniciar turno · ${option.parkingName || option.parkingCode}`}</span>
+                  <span className="text-xs font-semibold text-emerald-50">Código {option.parkingCode || "-"} · Horario {option.scheduledStart || "-"}–{option.scheduledEnd || "-"}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {shiftClosed && shiftClosure && currentView !== POS_VIEWS.CIERRE_CAJA ? (
+            <button type="button" onClick={() => goToSection(POS_VIEWS.CIERRE_CAJA)} className="mt-4 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100">
+              Ver último cierre de caja
+            </button>
+          ) : null}
+          {volverButton}
+        </section>
+      );
+    }
+
+    if (shiftState === "PARKING_SELECTION_REQUIRED") {
+      return (
+        <section className="rounded-3xl border border-sky-300 bg-white p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sky-950">
+            <p className="text-xs font-black uppercase tracking-[0.1em] text-sky-700">Selecciona estacionamiento</p>
+            <p className="mt-1 font-black">Tienes más de un estacionamiento asignado.</p>
+            <p className="mt-1 text-sm font-semibold">
+              {parkingOptions.length || onDemandParkings.length
+                ? "Elige el turno que vas a iniciar. El estacionamiento quedará fijo hasta cerrar el turno."
+                : "No tienes turnos programados hoy. Contacta a tu supervisor."}
+            </p>
+          </div>
+          {!parkingOptions.length && onDemandParkings.length ? (
+            <div className="mt-4 space-y-3">
+              {onDemandParkings.map((option) => (
+                <button
+                  key={option.parkingId}
+                  type="button"
+                  onClick={() => void startOnDemandShift(option.parkingId)}
+                  disabled={shiftStartBusy}
+                  className="flex min-h-16 w-full flex-col items-start justify-center rounded-2xl bg-emerald-700 px-4 py-3 text-left text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="text-base font-black uppercase tracking-[0.04em]">{shiftStartBusy ? "Iniciando..." : `Iniciar turno · ${option.parkingName || option.parkingCode}`}</span>
+                  <span className="text-xs font-semibold text-emerald-50">Código {option.parkingCode || "-"}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {parkingOptions.length ? (
+            <div className="mt-4 space-y-3">
+              {parkingOptions.map((option) => (
+                <button
+                  key={option.shiftId}
+                  type="button"
+                  onClick={() => void startProgrammedShift(option.shiftId)}
+                  disabled={shiftStartBusy}
+                  className="flex min-h-16 w-full flex-col items-start justify-center rounded-2xl bg-emerald-700 px-4 py-3 text-left text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="text-base font-black uppercase tracking-[0.04em]">{shiftStartBusy ? "Iniciando..." : `Iniciar turno · ${option.parkingName || option.parkingCode}`}</span>
+                  <span className="text-xs font-semibold text-emerald-50">Código {option.parkingCode || "-"} · Horario {option.scheduledStart || "-"}–{option.scheduledEnd || "-"}</span>
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {volverButton}
+        </section>
+      );
+    }
+
+    if (shiftState === "PROGRAMMED") {
+      return (
+        <section className="rounded-3xl border border-sky-300 bg-white p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sky-950">
+            <p className="text-xs font-black uppercase tracking-[0.1em] text-sky-700">Turno programado</p>
+            <p className="mt-1 font-black">Tienes un turno programado pendiente de inicio.</p>
+            <p className="mt-1 text-sm font-semibold">Fecha: {shift?.date || "-"} · Horario: {shift?.scheduledStart || "-"}–{shift?.scheduledEnd || "-"}</p>
+          </div>
+          <button type="button" onClick={() => void startProgrammedShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+            {shiftStartBusy ? "Iniciando..." : "INICIAR TURNO"}
+          </button>
+          {volverButton}
+        </section>
+      );
+    }
+
+    if (shiftState === "OPEN" && shift?.status === "CLOSING") {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+            El turno está en proceso de cierre. Espera a que se confirme el cierre de caja antes de continuar.
+          </div>
+          {volverButton}
+        </section>
+      );
+    }
+
+    if (shiftState === "CLOSED") {
+      return (
+        <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+          {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+            Tu turno de hoy en este estacionamiento ya fue cerrado.
+          </div>
+          <button type="button" onClick={() => void startOnDemandShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+            {shiftStartBusy ? "Iniciando..." : "INICIAR NUEVO TURNO"}
+          </button>
+          {volverButton}
+        </section>
+      );
+    }
+
+    // UNASSIGNED (sin turno programado hoy para este estacionamiento) o
+    // cualquier otro estado no contemplado explícitamente: bloquear.
     return (
-      <section className="mx-auto w-full max-w-4xl">
-        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+      <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
+        {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
+        <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+          No tienes un turno programado para este estacionamiento.
+          {parking ? " Puedes iniciar tu turno ahora." : ""}
+        </div>
+        {parking ? (
+          <button type="button" onClick={() => void startOnDemandShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+            {shiftStartBusy ? "Iniciando..." : "INICIAR TURNO"}
+          </button>
+        ) : null}
+        {volverButton}
+      </section>
+    );
+  }
+
+  function renderHomePanel() {
+    // A diferencia del gate de INGRESO/SALIDA (que reemplaza el panel
+    // completo), en HOME el aviso de turno se muestra junto a los botones:
+    // VEHÍCULOS EN EL PARKING y CÓDIGO QR siguen disponibles porque son
+    // consulta, y por eso no hay "Volver" (ya estamos en HOME).
+    const homeShiftGate = renderShiftGate("Inicio de turno", { hideVolver: true });
+
+    return (
+      <section className="pos-home-panel mx-auto w-full max-w-4xl">
+        {shiftReadyForOperations ? (
+          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-black uppercase tracking-[0.08em] text-emerald-800">
+            <span className="h-2 w-2 rounded-full bg-emerald-500" /> Turno activo
+          </div>
+        ) : null}
+
+        {shiftReadyForOperations && shiftRestoredNotice === true && parking?.name ? (
+          <div role="status" className="mb-3 rounded-2xl border border-sky-300 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-950">
+            Tienes un turno abierto en <span className="font-black">{parking.name}</span>.
+          </div>
+        ) : null}
+
+        {homeShiftGate ? <div className="mb-4">{homeShiftGate}</div> : null}
+
+        <div className="pos-home-actions grid grid-cols-2 gap-3 sm:gap-4">
           <button
             type="button"
             onClick={openEntryForm}
-            className="flex min-h-[clamp(6.6rem,18vh,10rem)] w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-4 text-center text-lg font-black uppercase tracking-[0.05em] text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500"
+            disabled={!shiftReadyForOperations}
+            aria-disabled={!shiftReadyForOperations}
+            className="flex min-h-[clamp(6.6rem,18vh,10rem)] w-full items-center justify-center rounded-2xl bg-emerald-600 px-4 py-4 text-center text-lg font-black uppercase tracking-[0.05em] text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
           >
             INGRESO
           </button>
@@ -1155,7 +2924,9 @@ export default function PosTerminal() {
           <button
             type="button"
             onClick={() => goToSection(POS_VIEWS.SALIDA)}
-            className="flex min-h-[clamp(6.6rem,18vh,10rem)] w-full items-center justify-center rounded-2xl bg-rose-600 px-4 py-4 text-center text-lg font-black uppercase tracking-[0.05em] text-white shadow-lg shadow-rose-200 transition hover:bg-rose-500"
+            disabled={!shiftReadyForOperations}
+            aria-disabled={!shiftReadyForOperations}
+            className="flex min-h-[clamp(6.6rem,18vh,10rem)] w-full items-center justify-center rounded-2xl bg-rose-600 px-4 py-4 text-center text-lg font-black uppercase tracking-[0.05em] text-white shadow-lg shadow-rose-200 transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 disabled:shadow-none"
           >
             SALIDA
           </button>
@@ -1176,14 +2947,286 @@ export default function PosTerminal() {
             CÓDIGO QR
           </button>
         </div>
+        <PosHomeVehicles
+          key={parking?.id || "no-parking"}
+          stays={activeStays}
+          capacity={parking?.configuredCapacity}
+          onSelect={(stay) => { setVehicleListOrigin(POS_VIEWS.HOME); void openVehicleDetail(stay); }}
+          formatEntry={formatEntryDate}
+          formatPlate={formatTicketPlate}
+        />
       </section>
     );
   }
 
+  // Fase 2 — Entrada V2. Tres pasos dentro de un solo <form>:
+  // PLATE (escribir / leer con cámara / dictar) -> CONFIRM (CONFIRMAR o
+  // CORREGIR, obligatorio para toda fuente) -> PHOTO (solo si la foto no
+  // está DISABLED). Ningún paso registra por sí solo salvo CONFIRMAR con
+  // foto DISABLED o REGISTRAR INGRESO en el paso de foto, ambos vía
+  // submitEntry.
+  function renderEntryV2Form() {
+    const displayPlate = formatTicketPlate(entryPlate) || "—";
+    const busy = entrySubmitting || ocrBusy || voiceState === "CHECKING" || voiceState === "INSTALLING";
+    const alreadyInside = entryStep !== "PLATE" && isPlateAlreadyInside(entryPlate, activeStays);
+    const sourceLabel = entryPlateSource === PLATE_SOURCES.OCR ? "Leída con cámara" : entryPlateSource === PLATE_SOURCES.VOICE ? "Dictada por voz" : "Ingresada manualmente";
+    const canReuseOcrPhoto = Boolean(ocrPhoto) && (platePhotoGpsMode !== "REQUIRED" || (ocrPhoto?.latitude != null && ocrPhoto?.longitude != null));
+    const stepLabel = entryStep === "PLATE" ? "Paso 1 de 3 · Patente" : entryStep === "CONFIRM" ? "Paso 2 de 3 · Confirmar" : "Paso 3 de 3 · Fotografía";
+    const errorIsDuplicate = entryErrorCode === "VEHICLE_ALREADY_INSIDE";
+
+    return (
+      <form onSubmit={handleEntryFormSubmit} className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Ingreso · {stepLabel}</p>
+            <h2 className="mt-1 text-xl font-black text-slate-800">Registrar vehículo</h2>
+            <p className="mt-1 text-sm text-slate-600">Se usará el estacionamiento asignado a tu sesión. La hora oficial la registra el servidor.</p>
+          </div>
+          <button
+            type="button"
+            onClick={closeEntryForm}
+            disabled={entrySubmitting}
+            className="min-h-11 rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-white disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+        </div>
+
+        {entryStep === "PLATE" ? (
+          <div className="mt-5">
+            <PosPlateInput value={entryPlate} onChange={(value) => {
+              setEntryPlate(formatPosPlateInput(value));
+              if (entryError) clearEntryFailure();
+            }} disabled={busy} invalid={entryErrorCode === "INVALID_PLATE"} />
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Formato: CXPY-93 o AB-1234</p>
+              {entryPlate ? (
+                <button type="button" onClick={() => { setEntryPlate(""); clearEntryFailure(); }} disabled={busy} className="min-h-11 rounded-xl px-3 text-sm font-bold text-slate-600 hover:bg-white">
+                  Borrar
+                </button>
+              ) : null}
+            </div>
+
+            {entryPhoto?.previewUrl ? (
+              <div className="mt-3 overflow-hidden rounded-2xl border border-emerald-300 bg-black">
+                {/* eslint-disable-next-line @next/next/no-img-element -- blob: local, no optimizable */}
+                <img src={entryPhoto.previewUrl} alt="Foto de la patente" className="block h-auto w-full" />
+                <p className="bg-emerald-50 px-3 py-1 text-center text-xs font-black uppercase tracking-wide text-emerald-800">Foto tomada · escribe la patente</p>
+              </div>
+            ) : null}
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {/* "Tomar foto": foto de evidencia con el marco de patente (sin
+                  OCR). Se usa al confirmar, sin volver a pedirla. El OCR
+                  (handleOcrCapture) queda en el código sin botón que lo abra. */}
+              {platePhotoMode !== "DISABLED" ? (
+                <button
+                  type="button"
+                  onClick={() => { clearEntryFailure(); setPhotoCaptureOpen(true); }}
+                  disabled={busy || voiceState === "LISTENING"}
+                  className="min-h-16 rounded-2xl border border-sky-300 bg-sky-50 px-3 py-3 text-base font-black uppercase tracking-[0.04em] text-sky-900 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {entryPhoto ? "Repetir foto" : "Tomar foto"}
+                </button>
+              ) : <span />}
+              {voiceState === "LISTENING" ? (
+                <button
+                  type="button"
+                  onClick={cancelVoiceCapture}
+                  className="min-h-16 rounded-2xl border border-rose-300 bg-rose-50 px-3 py-3 text-base font-black uppercase tracking-[0.04em] text-rose-800"
+                  aria-live="polite"
+                >
+                  Escuchando… Cancelar
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void startVoiceCapture()}
+                  disabled={busy}
+                  className="min-h-16 rounded-2xl border border-violet-300 bg-violet-50 px-3 py-3 text-base font-black uppercase tracking-[0.04em] text-violet-900 hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {voiceState === "CHECKING" ? "Verificando micrófono..." : voiceState === "INSTALLING" ? "Instalando voz..." : "Dictar patente"}
+                </button>
+              )}
+            </div>
+
+            {voiceInstallLang ? (
+              <button
+                type="button"
+                onClick={() => void installVoiceModel()}
+                disabled={busy}
+                className="mt-3 min-h-11 w-full rounded-2xl border border-violet-200 bg-white px-4 py-2 text-sm font-bold text-violet-800 disabled:opacity-60"
+              >
+                Instalar reconocimiento de voz local ({voiceInstallLang})
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {entryStep === "CONFIRM" || entryStep === "PHOTO" ? (
+          <div className="mt-5 rounded-2xl border-2 border-emerald-300 bg-white p-4 text-center">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">
+              {entryStep === "CONFIRM" ? "Patente detectada / ingresada" : "Patente confirmada"}
+            </p>
+            <p className="mt-2 text-4xl font-black tracking-[0.18em] text-slate-900">{displayPlate}</p>
+            <p className="mt-2 text-xs font-bold uppercase tracking-wide text-slate-500">{sourceLabel}</p>
+            {entryReleased?.released ? (
+              <div className="mt-3 rounded-xl border-2 border-emerald-500 bg-emerald-50 px-3 py-2 text-left text-sm font-semibold text-emerald-950" role="status">
+                <p className="text-base font-black uppercase tracking-wide">Patente liberada</p>
+                <p>Foto obligatoria · ocupa un cupo liberado{entryReleased.spots?.total ? ` (${entryReleased.spots.used} de ${entryReleased.spots.total} en uso)` : ""}.</p>
+                {entryReleased.authorization?.beneficiaryName ? <p>Beneficiario: {entryReleased.authorization.beneficiaryName}</p> : null}
+                {entryReleased.authorization?.description ? <p className="text-xs">{entryReleased.authorization.description}</p> : null}
+                <p className="text-xs">Fuera del horario autorizado se cobra la tarifa normal.</p>
+              </div>
+            ) : entryReleased && entryReleased.decision !== "NOT_AUTHORIZED" ? (
+              <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-left text-sm font-semibold text-amber-950" role="alert">
+                <p className="font-black uppercase tracking-wide">Pago liberado no aplica</p>
+                <p>{entryReleased.message}</p>
+                <p className="text-xs">Presiona CONFIRMAR para ingresar con cobro normal.</p>
+              </div>
+            ) : null}
+            {entryProposalNotice && entryStep === "CONFIRM" ? (
+              <p className={`mt-3 rounded-xl px-3 py-2 text-sm font-semibold ${entryPlateSource !== PLATE_SOURCES.MANUAL && entryProposalNotice === entryErrorMessage("OCR_LOW_CONFIDENCE") ? "bg-amber-50 text-amber-900" : "bg-slate-50 text-slate-700"}`}>
+                {entryProposalNotice}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {alreadyInside ? (
+          <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+            <p className="font-black uppercase tracking-wide">Vehículo ya ingresado</p>
+            <p className="mt-1 text-sm font-semibold">Esta patente figura dentro del estacionamiento. Revisa la patente o búscala en SALIDA.</p>
+            <button type="button" onClick={() => void loadTerminalState(true)} className="mt-2 min-h-11 rounded-xl border border-amber-300 bg-white px-3 text-sm font-bold text-amber-900">
+              Actualizar lista
+            </button>
+          </div>
+        ) : null}
+
+        {entryStep === "PHOTO" && (platePhotoMode !== "DISABLED" || entryReleased?.released) ? (
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm font-bold text-slate-700">
+                Fotografía de patente {platePhotoMode === "REQUIRED" || entryReleased?.released ? "(obligatoria)" : "(opcional)"}
+              </span>
+              {entryPhoto ? <span className="text-xs font-black uppercase text-emerald-600">Lista</span> : null}
+            </div>
+
+            {entryPhoto ? (
+              <div className="mt-3 flex items-center gap-3">
+                <img
+                  src={entryPhoto.previewUrl}
+                  alt={`Fotografía de la patente ${displayPlate}`}
+                  className="h-20 w-28 rounded-xl border border-slate-200 object-cover"
+                />
+                <button
+                  type="button"
+                  onClick={() => setPhotoCaptureOpen(true)}
+                  disabled={entrySubmitting}
+                  className="min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                >
+                  Cambiar foto
+                </button>
+              </div>
+            ) : (
+              <div className="mt-3 grid gap-3">
+                {canReuseOcrPhoto ? (
+                  <button
+                    type="button"
+                    onClick={() => capturedPlatePhoto(ocrPhoto)}
+                    className="min-h-12 w-full rounded-xl border border-sky-300 bg-sky-50 px-4 py-3 text-sm font-bold text-sky-900"
+                  >
+                    Usar la foto de la lectura
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setPhotoCaptureOpen(true)}
+                  className="min-h-12 w-full rounded-xl border border-dashed border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:border-emerald-400 hover:text-emerald-700"
+                >
+                  Tomar fotografía
+                </button>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {entryError ? (
+          <div
+            role="alert"
+            className={`mt-4 rounded-2xl border p-4 text-sm font-semibold ${errorIsDuplicate ? "border-amber-300 bg-amber-50 text-amber-950" : "border-rose-300 bg-rose-50 text-rose-700"}`}
+          >
+            {entryError}
+          </div>
+        ) : null}
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          {entryStep === "PLATE" ? (
+            <button
+              type="submit"
+              disabled={busy || voiceState === "LISTENING"}
+              className="min-h-16 rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Continuar
+            </button>
+          ) : null}
+
+          {entryStep === "CONFIRM" ? (
+            <>
+              <button
+                type="submit"
+                disabled={entrySubmitting || alreadyInside}
+                className="min-h-16 rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {entrySubmitting ? "Registrando..." : "CONFIRMAR"}
+              </button>
+              <button
+                type="button"
+                onClick={correctEntryPlate}
+                disabled={entrySubmitting}
+                className="min-h-16 rounded-2xl border border-slate-300 bg-white px-4 py-4 text-lg font-black text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                CORREGIR
+              </button>
+            </>
+          ) : null}
+
+          {entryStep === "PHOTO" ? (
+            <>
+              <button
+                type="submit"
+                disabled={entrySubmitting || alreadyInside || ((platePhotoMode === "REQUIRED" || entryReleased?.released) && !entryPhoto)}
+                className="min-h-16 rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {entrySubmitting ? "Registrando..." : entryPhoto || platePhotoMode === "REQUIRED" || entryReleased?.released ? "REGISTRAR INGRESO" : "REGISTRAR SIN FOTO"}
+              </button>
+              <button
+                type="button"
+                onClick={correctEntryPlate}
+                disabled={entrySubmitting}
+                className="min-h-16 rounded-2xl border border-slate-300 bg-white px-4 py-4 text-lg font-black text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                CORREGIR PATENTE
+              </button>
+            </>
+          ) : null}
+        </div>
+      </form>
+    );
+  }
+
   function renderIngresoPanel() {
+    // El gate no debe ocultar la confirmación de un ingreso ya registrado
+    // (p. ej. si el turno cambió de estado justo después de confirmar).
+    if (!entrySuccess) {
+      const gate = renderShiftGate("Ingreso de vehículo");
+      if (gate) return gate;
+    }
+
     if (entrySuccess) {
       return (
         <article className="rounded-3xl border border-emerald-300 bg-emerald-50 p-5 text-emerald-950 shadow-sm">
+          <DebtNoticeBanner notice={entrySuccess.debtNotice} />
           <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">Ingreso registrado</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <div>
@@ -1208,7 +3251,7 @@ export default function PosTerminal() {
             </div>
             <div>
               <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Operador</p>
-              <p className="mt-1 font-bold">{entrySuccess.stay?.entry_operator_name || context?.email || "-"}</p>
+              <p className="mt-1 font-bold">{entrySuccess.stay?.entry_operator_name || formatOperatorDisplayName(context)}</p>
             </div>
             <div className="sm:col-span-2">
               <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Empresa</p>
@@ -1218,6 +3261,12 @@ export default function PosTerminal() {
               <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">QR</p>
               <p className="mt-1 break-all font-mono text-sm font-bold">{entrySuccess.stay?.qr_token || "-"}</p>
             </div>
+            {platePhotoMode !== "DISABLED" ? (
+              <div className="sm:col-span-2">
+                <p className="text-xs font-bold uppercase tracking-wide text-emerald-700">Fotografía de patente</p>
+                <p className="mt-1 font-bold">{entryPhotoForPrint ? "Capturada" : "No capturada"}</p>
+              </div>
+            ) : null}
           </div>
 
           {entryPrintStatus ? (
@@ -1243,68 +3292,7 @@ export default function PosTerminal() {
     }
 
     if (entryOpen) {
-      return (
-        <form onSubmit={submitEntry} className="rounded-3xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">Ingreso</p>
-              <h2 className="mt-1 text-xl font-black text-slate-800">Registrar vehículo</h2>
-              <p className="mt-1 text-sm text-slate-600">Se usará el estacionamiento asignado a tu sesión.</p>
-            </div>
-            <button
-              type="button"
-              onClick={closeEntryForm}
-              className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold text-slate-700 hover:bg-white"
-            >
-              Cancelar
-            </button>
-          </div>
-
-          <label className="mt-5 block">
-            <span className="mb-2 block text-sm font-bold text-slate-700">Patente</span>
-            <input
-              value={entryPlate}
-              onChange={(event) => setEntryPlate(formatPosPlateInput(event.target.value))}
-              inputMode="text"
-              autoCapitalize="characters"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              placeholder="CXPY-93"
-              maxLength={7}
-              className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-4 text-2xl font-black tracking-[0.16em] text-slate-900 outline-none ring-0 placeholder:text-slate-400 focus:border-emerald-500"
-            />
-          </label>
-
-          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-            Formato sugerido: CXPY-93
-          </p>
-
-          {entryError ? (
-            <div className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-700">
-              {entryError}
-            </div>
-          ) : null}
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            <button
-              type="submit"
-              disabled={entrySubmitting}
-              className="rounded-2xl bg-emerald-600 px-4 py-4 text-lg font-black text-white shadow-lg shadow-emerald-200 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {entrySubmitting ? "Registrando..." : "Confirmar ingreso"}
-            </button>
-            <button
-              type="button"
-              onClick={closeEntryForm}
-              disabled={entrySubmitting}
-              className="rounded-2xl border border-slate-300 px-4 py-4 text-lg font-black text-slate-700 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Cancelar
-            </button>
-          </div>
-        </form>
-      );
+      return renderEntryV2Form();
     }
 
     return (
@@ -1322,7 +3310,7 @@ export default function PosTerminal() {
           <button
             type="button"
             onClick={() => goToSection(POS_VIEWS.HOME)}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
           >
             Volver
           </button>
@@ -1370,7 +3358,7 @@ export default function PosTerminal() {
                     aria-label={`Abrir detalle de ${stay?.license_plate || "vehículo"}`}
                     className="cursor-pointer bg-white transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-inset"
                   >
-                    <td className="px-3 py-3 font-black text-rose-950">{stay?.license_plate || "-"}</td>
+                    <td className="px-3 py-3 font-black text-rose-950">{stay?.license_plate || "-"}{stay?.releasedPayment ? <span className="ml-2 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-black uppercase text-white">Liberada</span> : null}</td>
                     <td className="px-3 py-3 font-semibold text-rose-900">{entry.time}</td>
                     <td className="px-3 py-3 font-semibold text-rose-900">{formatMinuteCount(stay?.quote)}</td>
                     <td className="px-3 py-3 font-black text-rose-950">{formatQuoteAmount(stay?.quote)}</td>
@@ -1395,6 +3383,7 @@ export default function PosTerminal() {
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">Patente</p>
                     <p className="mt-1 text-xl font-black text-rose-950">{stay?.license_plate || "-"}</p>
+                    {stay?.releasedPayment ? <span className="mt-1 inline-block rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-black uppercase text-white">Liberada</span> : null}
                   </div>
                   <div className="text-right">
                     <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">Monto</p>
@@ -1459,7 +3448,20 @@ export default function PosTerminal() {
                 <p className="text-[10px] font-black uppercase tracking-[0.08em] text-emerald-700">Total crédito</p>
                 <p className="mt-1 text-lg font-black text-emerald-950">{formatCurrency(paymentsTodayTotals?.totalCredit ?? 0)}</p>
               </div>
+              {Number(paymentsTodayTotals?.totalUnclassifiedCard) > 0 ? <div className="rounded-2xl border border-slate-200 bg-white p-3"><p className="text-[10px] font-black uppercase text-slate-600">Tarjeta sin clasificar</p><p className="mt-1 text-lg font-black">{formatCurrency(paymentsTodayTotals.totalUnclassifiedCard)}</p></div> : null}
             </div>
+
+            <button
+              type="button"
+              onClick={() => void printPaymentsDay()}
+              disabled={paymentsDayPrintBusy || paymentsTodayLoading}
+              className="mt-4 w-full rounded-xl bg-emerald-800 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {paymentsDayPrintBusy ? "Imprimiendo..." : "Imprimir pagos del día"}
+            </button>
+            {paymentsDayPrintStatus ? (
+              <div className="mt-3 whitespace-pre-line rounded-2xl border border-emerald-200 bg-white p-3 text-sm font-bold text-emerald-800">{paymentsDayPrintStatus}</div>
+            ) : null}
 
             <div className="mt-4 space-y-3">
               {!paymentsToday.length ? (
@@ -1744,6 +3746,7 @@ export default function PosTerminal() {
 
         {renderClosureTotals(closure)}
         {renderPendingVehiclesList(closure.pendingVehiclesSnapshot)}
+        <ClosedUnpaidExitsSummary summary={closedUnpaidExits} />
 
         {closurePrintPrompt ? (
           renderShiftPrintPrompt()
@@ -1787,6 +3790,11 @@ export default function PosTerminal() {
       <div className="mt-4 space-y-4">
         {renderClosureTotals(displayTotals)}
         {renderPendingVehiclesList(preview.pendingVehicles)}
+        <UnpaidExitsReview
+          rows={preview.unpaidExits}
+          onSessionExpired={() => redirectToPosLogin("sesion-expirada")}
+          onChanged={() => { void loadShiftState(); void loadTerminalState(true); }}
+        />
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
           <label className="block text-sm font-bold text-slate-700">
@@ -1879,7 +3887,7 @@ export default function PosTerminal() {
             <button
               type="button"
               onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
             >
               Volver
             </button>
@@ -1888,6 +3896,15 @@ export default function PosTerminal() {
       );
     }
 
+    // Selector Off Street: sin estacionamiento activo, el último cierre de
+    // hoy se sigue mostrando (con REIMPRIMIR CIERRE); al continuar se vuelve
+    // al selector.
+    const showsLastClosure = shiftState === "PARKING_SELECTION_REQUIRED" && shiftClosed && Boolean(shiftClosure) && Boolean(shift);
+    if (shiftState === "PARKING_SELECTION_REQUIRED" && !showsLastClosure) {
+      return renderShiftGate("Cierre de caja");
+    }
+    const closureParking = parking || lastClosedParking;
+
     if (shiftState === "UNASSIGNED" || !shift) {
       return (
         <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
@@ -1895,7 +3912,7 @@ export default function PosTerminal() {
           <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
             No tienes un turno asignado para hoy en este estacionamiento.
           </div>
-          <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-4 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
+          <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-4 rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
         </section>
       );
     }
@@ -1911,12 +3928,12 @@ export default function PosTerminal() {
           <button type="button" onClick={() => void startProgrammedShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:opacity-60">
             {shiftStartBusy ? "Iniciando..." : "Iniciar turno"}
           </button>
-          <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-3 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
+          <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-3 rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
         </section>
       );
     }
 
-    const operatorFullName = context?.membership?.fullName || context?.email || "-";
+    const operatorFullName = formatOperatorDisplayName(context);
     const companyName = context?.membership?.company?.business_name || context?.membership?.company?.trade_name || "-";
     const openedParts = formatBridgeEntryDateTime(shift.openedAt);
     const nowParts = formatBridgeEntryDateTime(shiftServerNow || new Date().toISOString());
@@ -1934,7 +3951,7 @@ export default function PosTerminal() {
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Usuario / correo</p>
-            <p className="mt-1 break-all text-sm font-bold text-slate-800">{context?.email || "-"}</p>
+            <p className="mt-1 break-all text-sm font-bold text-slate-800">{extractDisplayUsername(context?.email) || "-"}</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Empresa</p>
@@ -1942,11 +3959,11 @@ export default function PosTerminal() {
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Estacionamiento</p>
-            <p className="mt-1 text-sm font-bold text-slate-800">{parking?.name || "-"}</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{closureParking?.name || "-"}</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Código</p>
-            <p className="mt-1 text-sm font-bold text-slate-800">{parking?.code || "-"}</p>
+            <p className="mt-1 text-sm font-bold text-slate-800">{closureParking?.code || "-"}</p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-3">
             <p className="text-[10px] font-black uppercase tracking-[0.08em] text-slate-500">Turno</p>
@@ -1972,9 +3989,9 @@ export default function PosTerminal() {
           <button
             type="button"
             onClick={() => goToSection(POS_VIEWS.HOME)}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
           >
-            Volver
+            {showsLastClosure ? "Continuar" : "Volver"}
           </button>
         </div>
       </section>
@@ -2115,7 +4132,7 @@ export default function PosTerminal() {
             <button
               type="button"
               onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
             >
               Volver
             </button>
@@ -2148,9 +4165,19 @@ export default function PosTerminal() {
 
     const stay = selectedVehicle?.stay;
     const quote = selectedVehicle?.quote;
+    const quoteView = normalizeQuoteView(quote);
     const entry = formatEntryDate(stay?.entry_at);
-    const tariffName = quote?.rate?.name || stay?.rate_name || "Sin tarifa vigente";
+    const tariffName = quoteView?.rateName || stay?.rate_name || "Sin tarifa vigente";
     const amount = formatQuoteAmount(quote);
+    // PAGAR solo puede habilitarse con un total numérico real — nunca solo
+    // porque el campo de "bloqueado" no vino marcado explícitamente. Evita
+    // que un total vacío/"—" quede acompañado de un botón habilitado.
+    const hasPayableQuote = Boolean(quoteView) && quoteView.payable && quoteView.total !== null;
+    // Mismo desglose Neto/IVA que ya usa el modal de pago (getTaxBreakdown
+    // sobre el TOTAL que ya calculó el backend, nunca recalculado aparte).
+    const detailBreakdown = hasPayableQuote ? getTaxBreakdown(quoteView.total) : null;
+    const releasedView = quoteView?.released || null;
+    const releasedNoCharge = Boolean(quoteView?.releasedNoCharge);
 
     return (
       <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-950 shadow-sm">
@@ -2172,13 +4199,38 @@ export default function PosTerminal() {
             <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">Tiempo consumido</p>
             <p className="mt-1 font-bold text-rose-900">{formatMinuteCount(quote)} minutos</p>
           </div>
+          {releasedView ? (
+            <div className="rounded-2xl border-2 border-emerald-500 bg-emerald-50 p-3 text-sm font-semibold text-emerald-950">
+              <p className="text-base font-black uppercase tracking-wide">Patente liberada</p>
+              <p>Tiempo liberado: {releasedView.coveredMinutes} min · fuera de la autorización: {releasedView.chargeableMinutes} min.</p>
+              <p className="text-xs">{releasedNoCharge ? "Sin excedente: la salida no tiene cobro y libera el cupo." : "Se cobra solo el tiempo fuera de la autorización, con la tarifa del estacionamiento."}</p>
+            </div>
+          ) : null}
           <div>
             <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">Tarifa aplicada</p>
-            <p className="mt-1 font-bold text-rose-900">{tariffName}</p>
+            <p className="mt-1 font-bold text-rose-900">{releasedNoCharge ? "Pago liberado" : tariffName}</p>
           </div>
+          <ChargeBreakdownList breakdown={hasPayableQuote ? quote?.snapshot?.chargeBreakdown : null} />
           <div>
             <p className="text-xs font-black uppercase tracking-[0.08em] text-rose-700">TOTAL A PAGAR</p>
-            <p className="mt-1 text-3xl font-black text-rose-950">{amount}</p>
+            {detailBreakdown ? (
+              <div className="mt-1 space-y-1">
+                <div className="flex items-center justify-between gap-3 text-sm font-semibold text-rose-800">
+                  <span>Neto</span>
+                  <span className="font-bold text-rose-950">{formatCurrency(detailBreakdown.netAmount)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 text-sm font-semibold text-rose-800">
+                  <span>IVA (19%)</span>
+                  <span className="font-bold text-rose-950">{formatCurrency(detailBreakdown.vatAmount)}</span>
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-3 border-t border-rose-200 pt-1">
+                  <span className="text-xs font-black uppercase tracking-[0.06em] text-rose-900">Total</span>
+                  <span className="text-2xl font-black text-rose-950">{formatCurrency(detailBreakdown.totalAmount)}</span>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-1 text-3xl font-black text-rose-950">{releasedNoCharge ? formatCurrency(0) : amount}</p>
+            )}
           </div>
           {selectedVehicleError ? (
             <div className="rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
@@ -2188,17 +4240,40 @@ export default function PosTerminal() {
         </div>
 
         <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-          <button
-            type="button"
-            onClick={openPaymentModal}
-            disabled={selectedVehicleLoading || !quote || quote.blocked}
-            className="rounded-xl bg-rose-900 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
-          >
-            PAGAR
-          </button>
+          {releasedNoCharge ? (
+            <button
+              type="button"
+              onClick={() => void registerReleasedExit()}
+              disabled={selectedVehicleLoading || releasedExitBusy}
+              className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+            >
+              {releasedExitBusy ? "Registrando..." : "REGISTRAR SALIDA SIN COBRO"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={openPaymentModal}
+              disabled={selectedVehicleLoading || !hasPayableQuote}
+              className="rounded-xl bg-rose-900 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+            >
+              PAGAR
+            </button>
+          )}
           <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
-            {quote?.blocked ? "No existe una tarifa activa para esta estadía." : "Preparado para seleccionar medio de pago."}
+            {releasedNoCharge ? "Patente liberada sin excedente." : hasPayableQuote ? "Preparado para seleccionar medio de pago." : "No existe una tarifa activa para esta estadía."}
           </div>
+          <UnpaidExitAction
+            stay={stay}
+            disabled={selectedVehicleLoading || !stay?.id}
+            onSessionExpired={() => redirectToPosLogin("sesion-expirada")}
+            onDone={() => {
+              setUnpaidFlash(`Salida sin pago registrada: ${stay?.license_plate || ""}. El cupo quedó libre; el monto se calculará al cierre del turno.`);
+              setSelectedVehicle(null);
+              goToSection(vehicleListOrigin);
+              void loadTerminalState(true);
+              void loadShiftState();
+            }}
+          />
           <button
             type="button"
             onClick={() => goToSection(vehicleListOrigin)}
@@ -2216,12 +4291,16 @@ export default function PosTerminal() {
 
     const stay = selectedVehicle.stay;
     const quote = selectedVehicle.quote;
-    // Desglose Neto/IVA a partir del TOTAL que ya cotizó el backend
-    // (quote.total) — ver getTaxBreakdown. El pago confirmado más abajo
-    // (paymentBreakdown) usa el total que confirmó el backend en la
-    // respuesta del EXIT, no este valor pre-pago.
-    const quoteBreakdown = quote && !quote.blocked ? getTaxBreakdown(quote.total) : null;
+    const quoteView = normalizeQuoteView(quote);
+    // Desglose Neto/IVA a partir del TOTAL que ya cotizó el backend — ver
+    // getTaxBreakdown. El pago confirmado más abajo (paymentBreakdown) usa
+    // el total que confirmó el backend en la respuesta del EXIT, no este
+    // valor pre-pago.
+    const quoteBreakdown = quoteView?.payable && quoteView.total !== null ? getTaxBreakdown(quoteView.total) : null;
     const paymentBreakdown = paymentResult ? getTaxBreakdown(paymentResult.total) : null;
+    const couponView = couponViewFromQuote(quote);
+    // Cupones: no aplican a Pago liberado (regla del servidor) ni con un pago con tarjeta pendiente.
+    const couponControlsVisible = couponsEnabled && quoteView?.payable && !quote?.released && paymentStep === "MENU";
 
     return (
       <div className="fixed inset-0 z-50 grid place-items-center bg-rose-950/55 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) closePaymentModal(); }}>
@@ -2242,6 +4321,20 @@ export default function PosTerminal() {
               <p className="mt-1 text-2xl font-black text-slate-900">{stay?.license_plate || "-"}</p>
               {quoteBreakdown ? (
                 <div className="mt-3 space-y-1">
+                  {couponView ? (
+                    <>
+                      {couponView.subtotal !== null ? (
+                        <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700">
+                          <span>Subtotal</span>
+                          <span className="font-bold text-slate-900">{formatCurrency(couponView.subtotal)}</span>
+                        </div>
+                      ) : null}
+                      <div className="flex items-center justify-between gap-3 text-sm font-semibold text-emerald-700">
+                        <span>Cupón {couponView.code}{couponView.benefit ? ` · ${couponView.benefit}` : ""}</span>
+                        <span className="font-bold">{couponView.discount > 0 ? `-${formatCurrency(couponView.discount)}` : ""}</span>
+                      </div>
+                    </>
+                  ) : null}
                   <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700">
                     <span>Neto</span>
                     <span className="font-bold text-slate-900">{formatCurrency(quoteBreakdown.netAmount)}</span>
@@ -2260,17 +4353,54 @@ export default function PosTerminal() {
               )}
             </div>
 
+            {couponControlsVisible ? (
+              <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3">
+                {couponView ? (
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-black text-emerald-900">CUPÓN {couponView.code} APLICADO</p>
+                    <button type="button" onClick={() => void removeCoupon()} disabled={couponBusy} className="rounded-xl border border-emerald-300 bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.06em] text-emerald-900 disabled:opacity-60">
+                      {couponBusy ? "..." : "QUITAR CUPÓN"}
+                    </button>
+                  </div>
+                ) : couponEntryOpen ? (
+                  <div className="space-y-2">
+                    {usesNativeQrScanner() ? (
+                      <button type="button" onClick={() => void scanCouponQr()} disabled={couponBusy} className="w-full rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.06em] text-white disabled:opacity-60">
+                        ESCANEAR QR DEL CUPÓN
+                      </button>
+                    ) : null}
+                    <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); void applyCoupon(couponCodeInput); }}>
+                      <input value={couponCodeInput} onChange={(event) => setCouponCodeInput(event.target.value.toUpperCase())} placeholder="Código (4 caracteres)" maxLength={12} autoCapitalize="characters" autoComplete="off" spellCheck={false} className="min-w-0 flex-1 rounded-xl border border-emerald-300 bg-white px-3 py-2 font-mono text-sm font-bold tracking-wider text-slate-900" aria-label="Código del cupón" />
+                      <button type="submit" disabled={couponBusy || !couponCodeInput.trim()} className="rounded-xl bg-emerald-700 px-3 py-2 text-xs font-black uppercase tracking-[0.06em] text-white disabled:opacity-60">
+                        {couponBusy ? "..." : "APLICAR"}
+                      </button>
+                    </form>
+                    <button type="button" onClick={() => { setCouponEntryOpen(false); setCouponMessage(null); }} disabled={couponBusy} className="text-xs font-bold text-emerald-900 underline">Cancelar</button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => { setCouponEntryOpen(true); setCouponMessage(null); }} className="w-full rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.06em] text-emerald-900 hover:bg-emerald-100">
+                    APLICAR CUPÓN
+                  </button>
+                )}
+                {couponMessage ? <p className={`text-xs font-semibold ${couponMessage.type === "error" ? "text-rose-700" : "text-emerald-800"}`}>{couponMessage.text}</p> : null}
+              </div>
+            ) : null}
+
             {paymentStep === "MENU" ? (
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className={`grid gap-3 ${cardPaymentsEnabled ? "sm:grid-cols-3" : ""}`}>
                 <button type="button" onClick={() => handlePaymentSelection("CASH")} className="min-h-20 rounded-2xl bg-emerald-600 px-4 py-5 text-lg font-black text-white transition hover:bg-emerald-500">
                   EFECTIVO
                 </button>
-                <button type="button" onClick={() => handlePaymentSelection("CARD")} className="min-h-20 rounded-2xl bg-sky-600 px-4 py-5 text-lg font-black text-white transition hover:bg-sky-500">
-                  DÉBITO
-                </button>
-                <button type="button" onClick={() => handlePaymentSelection("CARD")} className="min-h-20 rounded-2xl bg-indigo-600 px-4 py-5 text-lg font-black text-white transition hover:bg-indigo-500">
-                  CRÉDITO
-                </button>
+                {cardPaymentsEnabled ? (
+                  <>
+                    <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.DEBIT)} className="min-h-20 rounded-2xl bg-sky-600 px-4 py-5 text-lg font-black text-white transition hover:bg-sky-500">
+                      DÉBITO
+                    </button>
+                    <button type="button" onClick={() => void handleCardPaymentSelection(TUU_METHOD.CREDIT)} className="min-h-20 rounded-2xl bg-indigo-600 px-4 py-5 text-lg font-black text-white transition hover:bg-indigo-500">
+                      CRÉDITO
+                    </button>
+                  </>
+                ) : null}
               </div>
             ) : null}
 
@@ -2301,9 +4431,10 @@ export default function PosTerminal() {
             {/*
               El pago YA está confirmado y la permanencia YA está cerrada
               antes de llegar a este paso (confirmCashPayment ya resolvió
-              /api/data-entry). SÍ/NO solo deciden si se intenta imprimir el
-              recibo — nunca vuelven a cobrar, cerrar la permanencia ni
-              generan una nueva operación.
+              /api/data-entry e intentó imprimir automáticamente). Solo se
+              llega aquí cuando esa impresión automática falló — este panel
+              es exclusivamente recuperación de la impresión, nunca vuelve a
+              cobrar, cerrar la permanencia ni genera una nueva operación.
             */}
             {paymentStep === "PRINT_PROMPT" ? (
               <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
@@ -2328,67 +4459,78 @@ export default function PosTerminal() {
                   ) : null}
                 </div>
 
-                {!receiptPrintStatus ? (
-                  <>
-                    <p className="text-lg font-black text-emerald-950">¿DESEA IMPRIMIR EL RECIBO?</p>
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <button
-                        type="button"
-                        onClick={() => void confirmReceiptPrint()}
-                        disabled={receiptPrintBusy}
-                        className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {receiptPrintBusy ? "Imprimiendo..." : "SÍ"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={declineReceiptPrint}
-                        disabled={receiptPrintBusy}
-                        className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        NO
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="whitespace-pre-line rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-sm font-semibold text-amber-900">
-                      {receiptPrintStatus}
-                    </div>
-                    <div className="flex flex-col gap-3 sm:flex-row">
-                      <button
-                        type="button"
-                        onClick={() => void confirmReceiptPrint()}
-                        disabled={receiptPrintBusy}
-                        className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {receiptPrintBusy ? "Imprimiendo..." : "REINTENTAR IMPRESIÓN"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={declineReceiptPrint}
-                        disabled={receiptPrintBusy}
-                        className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        FINALIZAR
-                      </button>
-                    </div>
-                  </>
-                )}
+                <div className="whitespace-pre-line rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-sm font-semibold text-amber-900">
+                  {receiptPrintStatus || "No fue posible imprimir el ticket."}
+                </div>
+                <div className="flex flex-col gap-3 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => void confirmReceiptPrint()}
+                    disabled={receiptPrintBusy}
+                    className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {receiptPrintBusy ? "Imprimiendo..." : "REINTENTAR IMPRESIÓN"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={declineReceiptPrint}
+                    disabled={receiptPrintBusy}
+                    className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    FINALIZAR
+                  </button>
+                </div>
               </div>
             ) : null}
 
-            {paymentStep === "CARD_NOTICE" ? (
-              <div className="space-y-4 rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                <p className="text-lg font-black text-sky-950">{paymentMessage || "Pago con tarjeta pendiente de integración TUU."}</p>
-                <div className="flex flex-col gap-3 sm:flex-row">
-                  <button type="button" onClick={() => { setPaymentStep("MENU"); setPaymentMessage(""); }} className="rounded-xl bg-sky-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-sky-600">
-                    VOLVER
-                  </button>
-                  <button type="button" onClick={closePaymentModal} className="rounded-xl border border-sky-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-sky-900 transition hover:bg-sky-100">
-                    CERRAR
-                  </button>
-                </div>
+            {/*
+              PROCESSING/APPROVED son transitorios: TUU está cobrando o ya
+              cobró y se está registrando la salida (mismo criterio que
+              EFECTIVO, que tampoco tiene una pantalla intermedia de
+              "aprobado" -- va directo a PRINT_PROMPT o al cierre del flujo).
+              Los demás son estados terminales que sí requieren una acción
+              del operador.
+            */}
+            {paymentStep === "CARD_PAYMENT" ? (
+              <div className={`space-y-4 rounded-2xl border p-4 ${
+                cardPaymentStatus === "CHARGED_NOT_REGISTERED" || cardPaymentStatus === "ERROR"
+                  ? "border-red-300 bg-red-50"
+                  : cardPaymentStatus === "DECLINED"
+                    ? "border-amber-300 bg-amber-50"
+                    : "border-sky-200 bg-sky-50"
+              }`}>
+                {cardPaymentStatus === "PROCESSING" || cardPaymentStatus === "APPROVED" ? (
+                  <div className="flex items-center gap-3">
+                    <LoaderCircle className="h-5 w-5 animate-spin text-sky-700" />
+                    <p className="text-lg font-black text-sky-950">{cardPaymentMessage || "Procesando pago..."}</p>
+                  </div>
+                ) : (
+                  <p className={`text-lg font-black ${cardPaymentStatus === "CHARGED_NOT_REGISTERED" || cardPaymentStatus === "ERROR" ? "text-red-950" : "text-sky-950"}`}>
+                    {cardPaymentStatus === "DECLINED" && "PAGO RECHAZADO"}
+                    {cardPaymentStatus === "CANCELLED" && "PAGO CANCELADO"}
+                    {cardPaymentStatus === "NOT_INSTALLED" && "TUU NO ESTÁ INSTALADA"}
+                    {cardPaymentStatus === "ERROR" && "ERROR DE COMUNICACIÓN CON TUU"}
+                    {cardPaymentStatus === "CHARGED_NOT_REGISTERED" && "ATENCIÓN: PAGO COBRADO, SALIDA NO REGISTRADA"}
+                    {cardPaymentMessage ? <span className="mt-2 block text-sm font-semibold">{cardPaymentMessage}</span> : null}
+                  </p>
+                )}
+
+                {cardPaymentStatus && cardPaymentStatus !== "PROCESSING" && cardPaymentStatus !== "APPROVED" ? (
+                  <div className="flex flex-col gap-3 sm:flex-row">
+                    {cardPaymentStatus !== "CHARGED_NOT_REGISTERED" ? (
+                      <button
+                        type="button"
+                        onClick={() => { setPaymentStep("MENU"); setCardPaymentStatus(""); setCardPaymentMessage(""); }}
+                        className="rounded-xl bg-sky-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-sky-600"
+                      >
+                        REINTENTAR
+                      </button>
+                    ) : null}
+                    <button type="button" onClick={closePaymentModal} className="rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-slate-800 transition hover:bg-slate-100">
+                      CERRAR
+                    </button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -2408,23 +4550,139 @@ export default function PosTerminal() {
       return renderVehicleDetailPanel();
     }
 
-    // SALIDA y VEHÍCULOS EN EL PARKING comparten exactamente el mismo listado
-    // de permanencias OPEN, la misma selección (openVehicleDetail) y el mismo
-    // detalle/cotización/pago (renderVehicleDetailPanel + el modal de pago):
-    // no hay una segunda implementación — solo cambia el título/descripción
-    // según la intención con la que se entró (consulta vs. salida/pago).
-    if (currentView === POS_VIEWS.SALIDA || currentView === POS_VIEWS.VEHICULOS) {
-      const isSalida = currentView === POS_VIEWS.SALIDA;
+    // SALIDA: búsqueda por patente, exclusiva de la salida/cobro. Nunca
+    // lista automáticamente todas las permanencias abiertas — eso es
+    // exclusivo de "Vehículos en el parking" (rama separada más abajo).
+    // INICIO DE TURNO (menú): sin turno abierto muestra la misma pantalla de
+    // turno que HOME (iniciar programado o a pedido); con turno abierto, su detalle.
+    if (currentView === POS_VIEWS.TURNO) {
+      const gate = renderShiftGate("Inicio de turno");
+      if (gate) return gate;
+      const opened = formatEntryDate(shift?.openedAt);
+      return (
+        <section className="rounded-3xl border border-emerald-300 bg-emerald-50 p-5 text-emerald-950 shadow-sm">
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Turno activo</h2>
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-white p-4 text-sm font-semibold">
+            <p>Estacionamiento: <span className="font-black">{parking?.name || "-"}</span></p>
+            <p className="mt-1">Inicio: <span className="font-black">{opened.date} {opened.time}</span></p>
+            <p className="mt-1">Vehículos dentro: <span className="font-black">{vehiclesInside}</span></p>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="rounded-xl bg-emerald-700 px-4 py-3 text-sm font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600">
+              Ir al inicio
+            </button>
+            <button type="button" onClick={() => goToSection(POS_VIEWS.CIERRE_CAJA)} className="rounded-xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black uppercase tracking-[0.06em] text-emerald-900 hover:bg-emerald-100">
+              Cierre de caja
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    if (currentView === POS_VIEWS.SALIDA) {
+      // El gate de turno aplica: requiere turno OPEN para cobrar.
+      const gate = renderShiftGate("Salida de vehículo");
+      if (gate) return gate;
+
       return (
         <section className="rounded-3xl border border-rose-300 bg-rose-50 p-5 text-rose-950 shadow-sm">
-          <h2 className="text-xl font-black uppercase tracking-[0.08em]">
-            {isSalida ? "Salida de vehículo" : "Vehículos en el parking"}
-          </h2>
-          <p className="mt-2 text-sm font-semibold">
-            {isSalida
-              ? "Selecciona el vehículo que va a salir para cotizar y cobrar su permanencia."
-              : "Permanencias OPEN reales del estacionamiento asignado al operador."}
-          </p>
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Salida de vehículo</h2>
+          <p className="mt-2 text-sm font-semibold">Ingresa la patente del vehículo que va a salir y pulsa Buscar.</p>
+
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <div className="relative min-w-0 flex-1">
+              <input
+                type="text"
+                inputMode="text"
+                autoCapitalize="characters"
+                autoComplete="off"
+                value={salidaPlate}
+                onChange={(event) => {
+                  const formatted = formatPosPlateInput(event.target.value);
+                  setSalidaPlate(formatted);
+                  setSalidaSearchStatus(null);
+                  setSalidaSuggestionsOpen(Boolean(formatted));
+                }}
+                onFocus={() => {
+                  if (salidaPlate) setSalidaSuggestionsOpen(true);
+                }}
+                onBlur={() => {
+                  // Retraso breve: el blur del input dispara antes que el
+                  // click de una sugerencia, así que se cierra el
+                  // desplegable después de dar tiempo a que el click se
+                  // registre (si no, la lista desaparece antes del onClick).
+                  window.setTimeout(() => setSalidaSuggestionsOpen(false), 150);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    setSalidaSuggestionsOpen(false);
+                    searchSalidaPlate();
+                  }
+                  if (event.key === "Escape") {
+                    setSalidaSuggestionsOpen(false);
+                  }
+                }}
+                placeholder="CXPY-93"
+                className="w-full rounded-xl border border-rose-300 bg-white px-4 py-3 text-lg font-black uppercase tracking-widest text-rose-950 focus:border-rose-500 focus:outline-none"
+              />
+              {salidaSuggestionsOpen && salidaSuggestions.length > 0 ? (
+                <ul className="absolute left-0 right-0 top-full z-10 mt-1 max-h-64 overflow-y-auto rounded-xl border border-rose-300 bg-white text-left shadow-lg">
+                  {salidaSuggestions.map((stay, index) => (
+                    <li key={stay?.id || `${stay?.license_plate}-${index}`}>
+                      <button
+                        type="button"
+                        onClick={() => selectSalidaSuggestion(stay)}
+                        className="block w-full px-4 py-2 text-left text-base font-black uppercase tracking-widest text-rose-950 hover:bg-rose-100"
+                      >
+                        {formatPosPlateInput(stay?.license_plate)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={searchSalidaPlate}
+              className="rounded-xl bg-rose-900 px-6 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-rose-800"
+            >
+              BUSCAR
+            </button>
+          </div>
+
+          {salidaSearchStatus ? (
+            <div
+              className={`mt-4 rounded-2xl border p-4 text-sm font-semibold ${
+                salidaSearchStatus.type === "conflict"
+                  ? "border-red-400 bg-red-50 text-red-900"
+                  : "border-amber-300 bg-amber-50 text-amber-900"
+              }`}
+            >
+              {salidaSearchStatus.message}
+            </div>
+          ) : null}
+
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => goToSection(POS_VIEWS.HOME)}
+              className="rounded-xl border border-rose-300 bg-white px-4 py-2 text-sm font-bold text-rose-800 hover:bg-rose-100"
+            >
+              Volver
+            </button>
+          </div>
+        </section>
+      );
+    }
+
+    // VEHÍCULOS EN EL PARKING: vista de consulta, lista completa de
+    // permanencias OPEN. No requiere turno (solo lectura).
+    if (currentView === POS_VIEWS.VEHICULOS) {
+      return (
+        <section className="rounded-3xl border border-rose-300 bg-rose-50 p-5 text-rose-950 shadow-sm">
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Vehículos en el parking</h2>
+          <p className="mt-2 text-sm font-semibold">Permanencias OPEN reales del estacionamiento asignado al operador.</p>
           <p className="mt-3 text-sm font-bold">Vehículos actualmente dentro: {vehiclesInside}</p>
           <div className="mt-4 space-y-4">
             {renderVehiclesPreparedList()}
@@ -2443,10 +4701,74 @@ export default function PosTerminal() {
     }
 
     if (currentView === POS_VIEWS.QR) {
+      // Salida por QR: cobra, así que exige turno OPEN (igual que SALIDA).
+      const gate = renderShiftGate("Salida por código QR");
+      if (gate) return gate;
+
       return (
         <section className="rounded-3xl border border-amber-300 bg-amber-50 p-5 text-amber-950 shadow-sm">
-          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Código QR</h2>
-          <p className="mt-2 text-sm font-semibold">Acceso visual preparado. La lectura QR futura mostrará ticket y permitirá decisión del operador sin ejecutar salida automática.</p>
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Salida por código QR</h2>
+          <p className="mt-2 text-sm font-semibold">Lee el QR del ticket de entrada: se ubica el vehículo, se calcula el monto y se abre el cobro.</p>
+
+          <div className="mt-4">
+            {qrBusy ? (
+              <div className="rounded-2xl border border-amber-300 bg-white p-4 text-sm font-bold text-amber-900">Buscando ticket y calculando monto...</div>
+            ) : qrExitStatus ? (
+              <div className="space-y-3">
+                <div
+                  className={`rounded-2xl border p-4 text-sm font-semibold ${
+                    qrExitStatus.type === "conflict" ? "border-red-400 bg-red-50 text-red-900" : "border-amber-300 bg-white text-amber-900"
+                  }`}
+                >
+                  {qrExitStatus.message}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => (usesNativeQrScanner() ? void startNativeQrScan() : restartQrScan())}
+                  className="w-full rounded-xl bg-amber-700 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white hover:bg-amber-800"
+                >
+                  {usesNativeQrScanner() ? "Escanear QR del ticket" : "Leer otro QR"}
+                </button>
+              </div>
+            ) : usesNativeQrScanner() ? (
+              <button
+                type="button"
+                onClick={() => void startNativeQrScan()}
+                className="w-full rounded-xl bg-amber-700 px-4 py-5 text-base font-black uppercase tracking-[0.08em] text-white hover:bg-amber-800"
+              >
+                Escanear QR del ticket
+              </button>
+            ) : (
+              <QrTicketScanner key={qrScanKey} onDetected={(value) => void handleQrTicket(value)} />
+            )}
+          </div>
+
+          <form
+            className="mt-4 flex flex-col gap-3 sm:flex-row"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleQrTicket(qrManualCode);
+            }}
+          >
+            <input
+              type="text"
+              inputMode="text"
+              autoCapitalize="characters"
+              autoComplete="off"
+              value={qrManualCode}
+              onChange={(event) => setQrManualCode(event.target.value)}
+              placeholder="Código del ticket (si el QR no se lee)"
+              className="min-w-0 flex-1 rounded-xl border border-amber-300 bg-white px-4 py-3 text-base font-bold uppercase text-amber-950 focus:border-amber-500 focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={qrBusy}
+              className="rounded-xl bg-amber-900 px-6 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-amber-800 disabled:opacity-60"
+            >
+              BUSCAR
+            </button>
+          </form>
+
           <div className="mt-4">
             <button
               type="button"
@@ -2463,13 +4785,80 @@ export default function PosTerminal() {
     if (currentView === POS_VIEWS.BUSCAR) {
       return (
         <section className="rounded-3xl border border-slate-300 bg-slate-50 p-5 text-slate-800 shadow-sm">
-          <h2 className="text-xl font-black uppercase tracking-[0.08em]">Buscar ticket</h2>
-          <p className="mt-2 text-sm font-semibold">Módulo preparado para búsqueda operacional de tickets.</p>
+          <h2 className="text-xl font-black uppercase tracking-[0.08em]">{buscarIntent === "reprint" ? "Reimprimir ticket" : "Buscar ticket"}</h2>
+          <p className="mt-2 text-sm font-semibold">
+            {buscarIntent === "reprint"
+              ? "Elige el vehículo cuyo ticket de entrada quieres reimprimir. Puedes filtrar por patente o código."
+              : "Busca un vehículo dentro por patente o código de ticket."}
+          </p>
+
+          <input
+            type="text"
+            inputMode="text"
+            autoCapitalize="characters"
+            autoComplete="off"
+            value={buscarQuery}
+            onChange={(event) => setBuscarQuery(event.target.value)}
+            placeholder="Patente o código (ej: CXPY-93)"
+            className="mt-4 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-lg font-black uppercase tracking-widest text-slate-900 focus:border-slate-500 focus:outline-none"
+          />
+
+          {entryPrintStatus ? (
+            <div className="mt-3 whitespace-pre-line rounded-2xl border border-emerald-200 bg-white p-3 text-sm font-bold text-emerald-800">{entryPrintStatus}</div>
+          ) : null}
+
+          <div className="mt-4 space-y-3">
+            {(() => {
+              const results = searchActiveStays(activeStays, buscarQuery);
+              if (buscarLoading && results.length === 0) {
+                return <p className="text-sm font-semibold text-slate-600">Cargando vehículos...</p>;
+              }
+              if (results.length === 0) {
+                return (
+                  <p className="rounded-2xl border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">
+                    {buscarQuery.trim() ? "No hay vehículos dentro con esa patente o código." : "No hay vehículos dentro del estacionamiento."}
+                  </p>
+                );
+              }
+              return results.map((stay) => {
+                const entry = formatEntryDate(stay?.entry_at);
+                const minutes = Number(stay?.quote?.elapsedMinutes);
+                return (
+                  <article key={stay.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <p className="text-lg font-black uppercase tracking-widest text-slate-900">{formatPosPlateInput(stay?.license_plate)}</p>
+                    <p className="mt-1 break-all font-mono text-xs font-bold text-slate-600">{stay?.code}</p>
+                    <p className="mt-1 text-sm font-semibold text-slate-700">
+                      Entrada: {entry.date} {entry.time}
+                      {Number.isFinite(minutes) ? ` · ${minutes} min` : ""}
+                    </p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => reprintStayTicket(stay)}
+                        disabled={entryPrintBusy}
+                        className="rounded-xl bg-slate-800 px-3 py-3 text-xs font-black uppercase tracking-[0.06em] text-white hover:bg-slate-700 disabled:opacity-60"
+                      >
+                        {entryPrintBusy ? "Imprimiendo..." : "Reimprimir"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void openVehicleDetail(stay)}
+                        className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-3 text-xs font-black uppercase tracking-[0.06em] text-rose-900 hover:bg-rose-100"
+                      >
+                        Cobrar salida
+                      </button>
+                    </div>
+                  </article>
+                );
+              });
+            })()}
+          </div>
+
           <div className="mt-4">
             <button
               type="button"
               onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
             >
               Volver
             </button>
@@ -2503,12 +4892,23 @@ export default function PosTerminal() {
               <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Versión POS</p>
               <p className="mt-1 text-sm font-black text-slate-800">{POS_FRONTEND_VERSION}</p>
             </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Dispositivo</p>
+              <p className="mt-1 text-sm font-black text-slate-800">{formatDeviceInfoLabel(deviceInfo)}</p>
+              {deviceInfo?.androidVersion ? <p className="text-xs text-slate-600">Android {deviceInfo.androidVersion}</p> : null}
+              {deviceInfo?.appVersion ? <p className="text-xs text-slate-600">App {deviceInfo.appVersion}{deviceInfo.runtimeVersion ? ` · runtime ${deviceInfo.runtimeVersion}` : ""}</p> : null}
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-3">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Identificador de terminal</p>
+              <p className="mt-1 text-sm font-black text-slate-800">No registrado</p>
+              <p className="text-xs text-slate-600">Los movimientos quedan asociados al operador y a su turno.</p>
+            </div>
           </div>
           <div className="mt-4">
             <button
               type="button"
               onClick={() => goToSection(POS_VIEWS.HOME)}
-              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-800 hover:bg-slate-100"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100"
             >
               Volver
             </button>
@@ -2531,6 +4931,14 @@ export default function PosTerminal() {
     void loadTerminalState(false);
   }, [loadTerminalState]);
 
+  // El estado del turno se necesita desde HOME (para habilitar/bloquear
+  // INGRESO y SALIDA) y no solo al entrar a CIERRE DE CAJA como antes:
+  // se carga también al montar el terminal.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadShiftState();
+  }, [loadShiftState]);
+
   useEffect(() => {
     // Se detecta después del montaje: leer window.ParkFacilDevice durante el
     // render podría diferir entre SSR y el primer render del cliente (p. ej.
@@ -2540,17 +4948,130 @@ export default function PosTerminal() {
     setNativePrintAvailable(Boolean(getNativePrinterBridge()));
   }, []);
 
+  // Fase 2 — al salir del terminal se libera el worker del OCR (memoria
+  // WASM) y se corta cualquier escucha de voz pendiente.
+  useEffect(() => () => {
+    void releasePlateOcr();
+  }, []);
+
+  // Corta la escucha si el controlador se reemplaza o el terminal se desmonta.
+  useEffect(() => () => {
+    voiceController?.cancel();
+  }, [voiceController]);
+
+  // Fase 1 — identificación del dispositivo (best-effort, mismo
+  // getDeviceInfo() que ya usa la evidencia de patente). Solo se muestra en
+  // ESTADO DEL DISPOSITIVO; no existe todavía un ID persistente de terminal.
+  useEffect(() => {
+    let cancelled = false;
+    void collectDeviceInfoForEntry().then((info) => {
+      if (!cancelled) setDeviceInfo(info || null);
+    }).catch(() => null);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fase 1 — una operación en curso (cobro, ingreso, cierre, inicio de
+  // turno) nunca se interrumpe con una redirección por revalidación.
+  useEffect(() => {
+    operationBusyRef.current = paymentSubmitting || entrySubmitting || closeSubmitting || shiftStartBusy;
+  }, [paymentSubmitting, entrySubmitting, closeSubmitting, shiftStartBusy]);
+
+  // Fase 1 — sesión expirada/revocada con el POS abierto: antes solo se
+  // detectaba al próximo request. Se revalida periódicamente y al volver a
+  // primer plano (p. ej. tras abrir TUU); 401/403 -> login con motivo. Un
+  // error de red NO se interpreta como sesión inválida. Además, si el
+  // navegador restaura la página desde el back/forward cache (Atrás tras
+  // cerrar sesión), se recarga para que el proxy vuelva a validar.
+  useEffect(() => {
+    let cancelled = false;
+    let consecutiveUnauthorized = 0;
+
+    async function revalidateSession() {
+      if (cancelled || operationBusyRef.current || cardPaymentLockRef.current) return;
+      if (document.visibilityState === "hidden") return;
+      try {
+        const session = await getSessionContext();
+        if (session.ok) {
+          consecutiveUnauthorized = 0;
+          return;
+        }
+        const reason = posLoginReasonForSessionStatus(session.status, session.payload?.code);
+        if (session.status === 401) {
+          consecutiveUnauthorized += 1;
+          if (consecutiveUnauthorized < POS_SESSION_UNAUTHORIZED_THRESHOLD) return;
+        } else {
+          consecutiveUnauthorized = 0;
+        }
+        if (!cancelled && reason && !operationBusyRef.current && !cardPaymentLockRef.current) redirectToPosLogin(reason);
+      } catch {
+        // Sin red: se reintenta en el próximo ciclo.
+      }
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") void revalidateSession();
+    }
+
+    function onPageShow(event) {
+      if (event.persisted) window.location.reload();
+    }
+
+    const timer = setInterval(() => void revalidateSession(), POS_SESSION_REVALIDATE_MS);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, []);
+
   return (
-    <main className="min-h-screen bg-slate-100 text-slate-900">
+    <main className="pos-terminal min-h-screen bg-slate-100 text-slate-900">
+      <PosViewport />
+      {unpaidFlash ? (
+        <div className="mx-3 mt-3 flex items-start justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="status" data-testid="pos-unpaid-flash">
+          <span>{unpaidFlash}</span>
+          <button type="button" onClick={() => setUnpaidFlash("")} aria-label="Cerrar aviso" className="font-black">×</button>
+        </div>
+      ) : null}
       {paymentModalOpen ? renderPaymentModal() : null}
+
+      {photoCaptureOpen ? (
+        <PlatePhotoCapture
+          plate={formatTicketPlate(entryPlate)}
+          required={platePhotoMode === "REQUIRED" || Boolean(entryReleased?.released)}
+          gpsMode={platePhotoGpsMode}
+          onCapture={capturedPlatePhoto}
+          onCancel={() => setPhotoCaptureOpen(false)}
+        />
+      ) : null}
+
+      {/* Fase 2: misma cámara/recorte para LEER la patente (OCR local). La
+          imagen es temporal; GPS nunca bloquea la lectura (REQUIRED se
+          degrada a OPTIONAL aquí y se vuelve a exigir si la imagen se
+          reutiliza como evidencia). Con foto DISABLED no se pide ubicación. */}
+      {ocrCaptureOpen ? (
+        <PlatePhotoCapture
+          purpose="OCR"
+          plate=""
+          required={false}
+          gpsMode={platePhotoMode === "DISABLED" || platePhotoGpsMode === "DISABLED" ? "DISABLED" : "OPTIONAL"}
+          onCapture={(photo) => void handleOcrCapture(photo)}
+          onCancel={() => setOcrCaptureOpen(false)}
+        />
+      ) : null}
 
       {sidebarOpen ? (
         <div className="fixed inset-0 z-40 bg-slate-950/45 lg:hidden" onClick={closeSidebar}>
           <aside className="h-full w-[84%] max-w-xs overflow-y-auto border-r border-slate-300 bg-white p-4 shadow-2xl" onClick={(event) => event.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3">
               <p className="text-sm font-black uppercase tracking-[0.16em] text-slate-700">Menú POS</p>
-              <button type="button" onClick={closeSidebar} className="rounded-lg border border-slate-300 p-2 text-slate-700">
-                <X className="h-4 w-4" />
+              <button type="button" onClick={closeSidebar} aria-label="Cerrar menú" className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-slate-300 p-2 text-slate-700">
+                <X className="h-5 w-5" />
               </button>
             </div>
             <div className="space-y-2">
@@ -2559,7 +5080,7 @@ export default function PosTerminal() {
                   key={item.label}
                   type="button"
                   onClick={() => item.onSelect()}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"
+                  className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"
                 >
                   {item.label}
                 </button>
@@ -2569,7 +5090,7 @@ export default function PosTerminal() {
         </div>
       ) : null}
 
-      <div className="mx-auto flex min-h-screen w-full max-w-7xl">
+      <div className="pos-terminal-shell mx-auto flex min-h-screen w-full max-w-7xl">
         <aside className="hidden w-80 shrink-0 border-r border-slate-300 bg-white p-4 shadow-sm lg:block">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">ParkFacil POS</p>
           <h2 className="mt-2 text-xl font-black text-slate-800">Navegación</h2>
@@ -2579,17 +5100,17 @@ export default function PosTerminal() {
                 key={item.label}
                 type="button"
                 onClick={() => item.onSelect()}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"
+                className="min-h-12 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-left text-sm font-bold text-slate-800 hover:bg-slate-100"
               >
                 {item.label}
               </button>
             ))}
           </div>
-          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Versión {POS_FRONTEND_VERSION}</p>
+          <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Versión {POS_FRONTEND_VERSION}{deviceInfo?.appVersion ? ` · APK ${deviceInfo.appVersion}` : ""}</p>
         </aside>
 
-        <section className="min-w-0 flex-1 p-3 sm:p-4 md:p-6">
-          <div className="rounded-3xl border border-slate-300 bg-white p-4 shadow-xl sm:p-5">
+        <section className="pos-terminal-content min-w-0 flex-1 p-3 sm:p-4 md:p-6">
+          <div className={`pos-terminal-card ${currentView === POS_VIEWS.HOME ? "pos-terminal-home" : ""} rounded-3xl border border-slate-300 bg-white p-4 shadow-xl sm:p-5`}>
             <header className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
               <div>
                 <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-500">ParkFacil POS</p>
@@ -2601,7 +5122,7 @@ export default function PosTerminal() {
                 <button
                   type="button"
                   onClick={openSidebar}
-                  className="inline-flex items-center justify-center rounded-xl border border-slate-300 p-2 text-slate-700 lg:hidden"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-slate-300 p-2 text-slate-700 lg:hidden"
                   aria-label="Abrir menú"
                 >
                   <Menu className="h-5 w-5" />
@@ -2609,11 +5130,13 @@ export default function PosTerminal() {
 
                 <button
                   type="button"
-                  onClick={logout}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50"
+                  onClick={() => void logout()}
+                  disabled={loggingOut || paymentSubmitting}
+                  aria-label="Cerrar sesión"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-rose-700 hover:bg-rose-50 disabled:cursor-wait disabled:opacity-60"
                 >
-                  <LogOut className="h-4 w-4" />
-                  <span className="hidden sm:inline">Cerrar sesión</span>
+                  {loggingOut ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                  <span className="hidden sm:inline">{loggingOut ? "Cerrando..." : "Cerrar sesión"}</span>
                 </button>
               </div>
             </header>
@@ -2628,18 +5151,19 @@ export default function PosTerminal() {
                 {error}
               </div>
             ) : (
-              <div className="mt-5 space-y-4">
-                <div className="grid gap-3 sm:grid-cols-3">
+              <div className="pos-terminal-body mt-5 space-y-4">
+                <div className="pos-terminal-context grid gap-3 sm:grid-cols-3">
                   <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Operador</p>
-                    <p className="mt-1 break-all text-sm font-bold text-slate-800">{context?.email || "-"}</p>
-                    <p className="text-xs text-slate-600">Rol: {context?.role || "-"}</p>
+                    <p className="mt-1 break-words text-sm font-bold text-slate-800">{formatOperatorDisplayName(context)}</p>
+                    <p className="text-xs text-slate-600">Rol: {formatPosRoleLabel(context?.role)}</p>
                   </article>
 
                   <article className="rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:col-span-2">
                     <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Estacionamiento activo</p>
-                    <p className="mt-1 text-sm font-bold text-slate-800">{parking?.name || "Sin asignación"}</p>
+                    <p className="mt-1 text-sm font-bold text-slate-800">{parking?.name || (parkingSelectionRequired ? "Pendiente de selección" : "Sin asignación")}</p>
                     <p className="text-xs text-slate-600">Código: {parking?.code || "-"}</p>
+                    <p className="text-xs text-slate-600">Empresa: {context?.membership?.company?.trade_name || context?.membership?.company?.business_name || "-"}</p>
                   </article>
                 </div>
 
@@ -2650,7 +5174,7 @@ export default function PosTerminal() {
                     type="button"
                     onClick={() => void loadTerminalState(true)}
                     disabled={refreshing}
-                    className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+                    className="inline-flex items-center gap-2 min-h-11 rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-60"
                   >
                     <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
                     Actualizar
@@ -2660,7 +5184,7 @@ export default function PosTerminal() {
             )}
 
             <p className="mt-5 text-center text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
-              ParkFacil POS · Versión 0.1.1
+              ParkFacil POS · Versión {POS_FRONTEND_VERSION}{deviceInfo?.appVersion ? ` · APK ${deviceInfo.appVersion}` : ""}
             </p>
           </div>
         </section>

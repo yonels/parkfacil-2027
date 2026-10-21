@@ -62,8 +62,8 @@ test("summarizeRevenueRows: total/efectivo/tarjeta/cantidad/ticket promedio calc
 });
 
 test("summarizeRevenueRows con lista vacía nunca lanza ni infla números", () => {
-  assert.deepEqual(summarizeRevenueRows([]), { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0 });
-  assert.deepEqual(summarizeRevenueRows(undefined), { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0 });
+  assert.deepEqual(summarizeRevenueRows([]), { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0, couponCount: 0, couponDiscountAmount: 0 });
+  assert.deepEqual(summarizeRevenueRows(undefined), { totalAmount: 0, cashAmount: 0, cardAmount: 0, creditAmount: 0, debitAmount: 0, unclassifiedCardAmount: 0, count: 0, averageTicket: 0, couponCount: 0, couponDiscountAmount: 0 });
 });
 
 test("buildDailyRevenueSeries incluye todos los días del rango (incluso recaudación 0), en orden ascendente", () => {

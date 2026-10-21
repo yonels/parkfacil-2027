@@ -1,10 +1,11 @@
+import { classifiedPaymentMethod, summarizeCardTypes } from "../paymentCardType.mjs";
 import { OPERATIONAL_TIME_ZONE, toOperationalDateTimeParts } from "../dataEntry.mjs";
 
-// Métodos de pago que hoy existen en parking_stays.payment_method. No hay
-// distinción entre débito y crédito en el esquema actual (solo CASH/CARD),
-// así que esos totales se exponen siempre en 0 en vez de inventar un reparto:
-// ver summarizeDailyPayments.
+// Los métodos base siguen siendo CASH/CARD; payment_card_type conserva
+// CREDIT/DEBIT desde su habilitación. Los históricos sin tipo permanecen
+// sin clasificar.
 const CASH_METHOD = "CASH";
+export const RELEASED_METHOD = "RELEASED";
 
 // Filtra estadías PAID cuyo exit_at cae dentro del día operacional
 // (America/Santiago) de `now`. Compara el día calendario ya resuelto en la
@@ -23,10 +24,7 @@ export function filterPaidStaysForOperationalDay(stays, { now = new Date(), time
 }
 
 // Calcula los totales del día a partir de estadías PAID ya filtradas.
-// totalDebit/totalCredit quedan siempre en 0: el esquema actual no distingue
-// débito de crédito dentro de CARD, y la instrucción explícita es no
-// inventar ese reparto — cuando exista esa distinción en el backend, esta
-// función es el único lugar a actualizar.
+// Solo usa el tipo persistido; no se infiere a partir del monto o la tarjeta.
 export function summarizeDailyPayments(stays) {
   const list = Array.isArray(stays) ? stays : [];
 
@@ -41,11 +39,13 @@ export function summarizeDailyPayments(stays) {
     }
   }
 
+  const cards = summarizeCardTypes(list);
   return {
     totalAmount,
     totalCash,
-    totalDebit: 0,
-    totalCredit: 0,
+    totalDebit: cards.debitAmount,
+    totalCredit: cards.creditAmount,
+    totalUnclassifiedCard: cards.unclassifiedCardAmount,
     count: list.length,
   };
 }
@@ -58,9 +58,44 @@ export function toDailyPaymentRow(stay, { timeZone = OPERATIONAL_TIME_ZONE } = {
     id: stay?.id || null,
     plate: stay?.license_plate || "-",
     time: exitParts?.entryTime || "-",
-    paymentMethod: stay?.payment_method || "-",
+    // Pago liberado: salida sin cobro (sin medio de pago) → "Liberado".
+    paymentMethod: stay?.released_payment_authorization_id && !stay?.payment_method ? RELEASED_METHOD : classifiedPaymentMethod(stay) || "-",
     amount: Number(stay?.total_amount) || 0,
     ticketNumber: stay?.code || "-",
     paymentCode: stay?.payment_code || "-",
+  };
+}
+
+// IMPRIMIR PAGOS DEL DÍA (type PAYMENTS_DAY): mismos totales y filas que ya
+// devolvió /api/pos/payments para la pantalla — nunca un cálculo nuevo en el
+// frontend. Hora de generación en la zona operacional.
+export function buildPaymentsDayPrintPayload({ payments, totals, parking, now = new Date(), timeZone = OPERATIONAL_TIME_ZONE } = {}) {
+  if (!parking) return null;
+  const generated = toOperationalDateTimeParts(now, timeZone);
+  const companyName = String(parking?.company?.business_name || parking?.company_name || "").trim();
+  const parkingName = String(parking?.name || "").trim();
+  if (!generated || !companyName || !parkingName) return null;
+  const list = Array.isArray(payments) ? payments : [];
+  return {
+    type: "PAYMENTS_DAY",
+    companyName,
+    parkingName,
+    parkingCode: String(parking?.code || "").trim(),
+    generatedDate: generated.entryDate,
+    generatedTime: generated.entryTime,
+    count: Number.isFinite(Number(totals?.count)) ? Number(totals.count) : list.length,
+    totalAmount: Number(totals?.totalAmount) || 0,
+    totalCash: Number(totals?.totalCash) || 0,
+    totalDebit: Number(totals?.totalDebit) || 0,
+    totalCredit: Number(totals?.totalCredit) || 0,
+    payments: list.map((payment) => ({
+      plate: String(payment?.plate || "-"),
+      time: String(payment?.time || "-"),
+      // El bridge imprime el texto recibido para medios que no conoce: la
+      // salida liberada viaja ya como "Liberado" (sirve con la APK actual).
+      paymentMethod: payment?.paymentMethod === RELEASED_METHOD ? "Liberado" : String(payment?.paymentMethod || "-"),
+      amount: Number(payment?.amount) || 0,
+      ticketNumber: String(payment?.ticketNumber || "-"),
+    })),
   };
 }

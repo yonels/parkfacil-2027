@@ -7,7 +7,10 @@ import { OPERATIONAL_SOURCE_ERROR, sanitizeClosureInput, ShiftClosureError } fro
 
 const read = p => readFileSync(new URL(p, import.meta.url), "utf8");
 // Execute the real service with its Next.js-only marker removed.
+// Alineación release → main: el servicio de release importa parkingDebtsRepository (deudas, SOL-2026-10-08-003);
+// en este módulo data: se reemplaza por un stub sin salidas sin pago.
 const serviceSource = read("./posOperatorShiftService.js").replace('import "server-only";', "")
+  .replace('import { listPendingUnpaidStaysForShift } from "./parkingDebtsRepository.js";', "const listPendingUnpaidStaysForShift = async () => [];")
   .replace('"./posOperatorShiftCore.mjs"', JSON.stringify(new URL("./posOperatorShiftCore.mjs", import.meta.url).href));
 const { loadOperatorShiftPreview } = await import(`data:text/javascript;base64,${Buffer.from(serviceSource).toString("base64")}`);
 const shift = { id:"s1", parkingId:"p1", operatorId:"u1" };

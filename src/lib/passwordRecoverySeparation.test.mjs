@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  CANAL_ENTREGA_MICROSOFT,
   construirRedirectTo,
   procesarRecuperacionContrasena,
   RESPUESTA_GENERICA,
@@ -79,6 +80,7 @@ async function requestRecovery(mock, loginIdentifier = AUTH_USER.email) {
     loginIdentifier,
     supabase: mock.db,
     enviarCorreo: mock.enviarCorreo,
+    canalEntrega: CANAL_ENTREGA_MICROSOFT,
   });
 }
 

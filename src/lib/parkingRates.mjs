@@ -1,3 +1,5 @@
+import { calculateTimeBandCharge, validateTimeBandSets } from "./parkingTimeBands.mjs";
+
 export const BILLING_MODES = {
   EFFECTIVE_MINUTE: "EFFECTIVE_MINUTE",
   EXPIRED_BLOCKS: "EXPIRED_BLOCKS",
@@ -26,7 +28,14 @@ export function validateOperationalRate(rate) {
     return errors;
   }
 
-  if (mode === BILLING_MODES.EFFECTIVE_MINUTE) {
+  // Precio por franja horaria (SOL-2026-10-08-003): sigue siendo minuto efectivo;
+  // el precio por minuto vive en las franjas (rate.bandSets), no en minuteAmount.
+  if (rate?.timeBandsEnabled === true) {
+    if (mode !== BILLING_MODES.EFFECTIVE_MINUTE) errors.timeBands = "Las franjas horarias solo aplican a minuto efectivo.";
+    if (rate.minuteAmount != null) errors.minuteAmount = "Con franjas horarias el valor por minuto se define en cada franja.";
+    if (Array.isArray(rate.blocks) && rate.blocks.length > 0) errors.blocks = "Minuto efectivo no admite tramos ni bloques.";
+    Object.assign(errors, validateTimeBandSets(rate.bandSets));
+  } else if (mode === BILLING_MODES.EFFECTIVE_MINUTE) {
     if (!(Number(rate.minuteAmount) > 0)) errors.minuteAmount = "El valor por minuto debe ser mayor que cero.";
     if (Array.isArray(rate.blocks) && rate.blocks.length > 0) errors.blocks = "Minuto efectivo no admite tramos ni bloques.";
   }
@@ -82,11 +91,27 @@ export function classifyRateCompliance(rate) {
 // Punto de entrada por timestamps: unico calculo, para toda estadia inferior a 24 horas,
 // segun la modalidad exclusiva de la tarifa (minuto efectivo o tramo vencido). No aplica
 // ningun cargo adicional fuera de esas dos modalidades (ver validateOperationalRate).
-export function calculateScheduledParkingCharge(rate, entryAt, exitAt) {
+// Una tarifa con franjas horarias necesita los instantes reales (la hora de cada minuto
+// define su precio) y los feriados del cliente (options.holidays, fechas YYYY-MM-DD).
+export function calculateScheduledParkingCharge(rate, entryAt, exitAt, options = {}) {
   const entry = new Date(entryAt);
   const exit = new Date(exitAt);
   if (!(exit > entry)) return { valid: false, errors: { stay: "La salida debe ser posterior al ingreso." } };
   const elapsedSeconds = Math.floor((exit - entry) / 1000);
+  if (rate?.timeBandsEnabled === true) {
+    const errors = validateOperationalRate(rate);
+    if (Object.keys(errors).length) return { valid: false, errors };
+    return {
+      ...calculateTimeBandCharge({
+        sets: rate.bandSets,
+        freePeriodSeconds: rate.freePeriodSeconds,
+        entryAt: entry,
+        exitAt: exit,
+        holidays: options.holidays || [],
+      }),
+      elapsedSeconds,
+    };
+  }
   return { ...calculateParkingCharge(rate, elapsedSeconds), elapsedSeconds };
 }
 
@@ -113,6 +138,11 @@ export function selectActiveRate(rates = [], now = Date.now()) {
 export function calculateParkingCharge(rate, elapsedSeconds, spacesUsed = 1) {
   const errors = validateOperationalRate(rate);
   if (Object.keys(errors).length) return { valid: false, errors };
+  if (rate.timeBandsEnabled === true) {
+    // Sin instantes no se puede saber en qué franja cae cada minuto: nunca se
+    // aproxima con un precio único (usar calculateScheduledParkingCharge).
+    return { valid: false, errors: { timeBands: "Las franjas horarias requieren la hora de ingreso y salida." } };
+  }
   const elapsed = Math.max(0, Math.floor(Number(elapsedSeconds) || 0));
   const spaces = Math.max(1, Math.floor(Number(spacesUsed) || 1));
   const chargeableSeconds = Math.max(0, elapsed - Number(rate.freePeriodSeconds || 0));

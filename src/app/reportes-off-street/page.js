@@ -8,6 +8,10 @@ import { ArrowLeft } from "lucide-react";
 import OffStreetSpreadsheet from "@/components/reports/OffStreetSpreadsheet";
 import AppShell from "@/components/layout/AppShell";
 import { OPERATIONAL_TIME_ZONE } from "@/lib/dataEntry.mjs";
+import { couponsVisible } from "@/lib/cupones/couponsAvailability.mjs";
+
+// Columnas en pesos (con total en la planilla).
+const MONEY_KEYS = ["amount", "cashAmount", "cardAmount", "creditAmount", "debitAmount", "unclassifiedCardAmount", "grossAmount", "declaredCashAmount", "cashDifference", "revenueAmount", "subtotalAmount", "discountAmount", "couponDiscountAmount"];
 
 function money(value) {
   return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(value || 0);
@@ -30,6 +34,8 @@ const TABS = [
   { id: "cierres", label: "Cierres de caja" },
   { id: "turnos", label: "Operadores y turnos" },
   { id: "ocupacion", label: "Ocupación" },
+  // Cupones (SOL-2026-10-19-002): oculta donde los cupones están apagados (producción).
+  ...(couponsVisible() ? [{ id: "cupones", label: "Cupones" }] : []),
 ];
 const TAB_IDS = new Set(TABS.map((t) => t.id));
 
@@ -137,6 +143,7 @@ function ReportesOffStreetContent() {
         else if (tab === "cierres") { if (operatorId) params.set("operatorId", operatorId); url = `/api/recaudacion/cierres?${params.toString()}`; }
         else if (tab === "movimientos") { params.set("type", "movements"); params.set("movement", movement); if (status) params.set("status", status); if (operatorId) params.set("operatorId", operatorId); if (query) params.set("query", query); url = `/api/reportes-off-street?${params.toString()}`; }
         else if (tab === "estacionados") { params.set("type", "parked"); if (query) params.set("query", query); url = `/api/reportes-off-street?${params.toString()}`; }
+        else if (tab === "cupones") { params.set("type", "coupons"); url = `/api/reportes-off-street?${params.toString()}`; }
         else if (tab === "turnos") { params.set("type", "shifts"); if (status) params.set("status", status); if (operatorId) params.set("operatorId", operatorId); url = `/api/reportes-off-street?${params.toString()}`; }
         else { params.set("type", "occupancy"); url = `/api/reportes-off-street?${params.toString()}`; }
 
@@ -174,16 +181,17 @@ function ReportesOffStreetContent() {
   }), [operators, company, parking]);
 
   const columns = useMemo(() => {
-    if (tab === "recaudacion") return [["date", "Fecha"], ["time", "Hora"], ["ticket", "Ticket"], ["plate", "Patente"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["operator", "Operador"], ["shiftLabel", "Turno"], ["paymentMethod", "Medio de pago"], ["amount", "Monto"]];
+    if (tab === "recaudacion") return [["date", "Fecha"], ["time", "Hora"], ["ticket", "Ticket"], ["plate", "Patente"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["operator", "Operador"], ["shiftLabel", "Turno"], ["paymentMethod", "Medio de pago"], ["couponCode", "Cupón"], ["discountAmount", "Descuento cupón"], ["amount", "Monto"]];
     if (tab === "movimientos") return [["ticket", "Ticket"], ["plate", "Patente"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["entryDate", "Fecha ingreso"], ["entryTime", "Hora ingreso"], ["exitDate", "Fecha salida"], ["exitTime", "Hora salida"], ["entryOperator", "Operador ingreso"], ["exitOperator", "Operador salida"], ["status", "Estado"], ["minutes", "Permanencia (min)"]];
     if (tab === "estacionados") return [["ticket", "Ticket"], ["plate", "Patente"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["entryDate", "Fecha ingreso"], ["entryTime", "Hora ingreso"], ["elapsedMinutes", "Tiempo transcurrido (min)"], ["entryOperator", "Operador de ingreso"], ["origin", "Origen"]];
-    if (tab === "cierres") return [["folio", "Folio"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["operator", "Operador"], ["shiftDate", "Turno"], ["openedAt", "Inicio"], ["closedAt", "Cierre"], ["confirmedPaymentsCount", "Pagos confirmados"], ["cashAmount", "Efectivo"], ["creditAmount", "Crédito"], ["debitAmount", "Débito"], ["unclassifiedCardAmount", "Tarjeta sin clasificar"], ["grossAmount", "Total"], ["declaredCashAmount", "Efectivo declarado"], ["cashDifference", "Diferencia"], ["differenceObservation", "Observación"], ["pendingVehiclesCount", "Vehículos pendientes"]];
+    if (tab === "cierres") return [["folio", "Folio"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["operator", "Operador"], ["shiftDate", "Turno"], ["openedAt", "Inicio"], ["closedAt", "Cierre"], ["confirmedPaymentsCount", "Pagos confirmados"], ["cashAmount", "Efectivo"], ["creditAmount", "Crédito"], ["debitAmount", "Débito"], ["unclassifiedCardAmount", "Tarjeta sin clasificar"], ["grossAmount", "Total"], ["declaredCashAmount", "Efectivo declarado"], ["cashDifference", "Diferencia"], ["differenceObservation", "Observación"], ["couponCount", "Cupones canjeados"], ["couponDiscountAmount", "Descuento cupones"], ["pendingVehiclesCount", "Vehículos pendientes"]];
+    if (tab === "cupones") return [["date", "Fecha"], ["time", "Hora"], ["ticket", "Ticket"], ["plate", "Patente"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["operator", "Operador"], ["couponCode", "Cupón"], ["campaign", "Campaña"], ["merchant", "Tienda"], ["benefit", "Beneficio"], ["subtotalAmount", "Subtotal"], ["discountAmount", "Descuento"], ["amount", "Total pagado"], ["paymentMethod", "Medio de pago"]];
     if (tab === "turnos") return [["operator", "Operador"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["shiftDate", "Turno"], ["openedDate", "Inicio"], ["closedDate", "Cierre"], ["status", "Estado"], ["entryCount", "Operaciones"], ["revenueAmount", "Recaudación del turno"]];
     return [["parkingName", "Estacionamiento"], ["companyName", "Empresa"], ["capacity", "Capacidad"], ["insideCount", "Vehículos dentro"], ["available", "Disponibles"], ["occupancyPercentage", "% Ocupación"]];
   }, [tab]);
 
   function cellValue(row, key) {
-    if (key === "amount" || key === "cashAmount" || key === "cardAmount" || key === "grossAmount" || key === "declaredCashAmount" || key === "cashDifference" || key === "revenueAmount") return money(row[key]);
+    if (MONEY_KEYS.includes(key)) return money(row[key]);
     if (key === "paymentMethod") return paymentMethodLabel(row.paymentMethod);
     if (key === "status") return statusLabel(row.status);
     if (key === "capacity" || key === "insideCount" || key === "available") return row[key] == null ? "No informada" : number(row[key]);
@@ -197,8 +205,8 @@ function ReportesOffStreetContent() {
   const gridColumns = useMemo(() => columns.map(([key, label]) => ({
     key, label,
     value: (row) => key === "openedDate" ? `${row.openedDate || ""} ${row.openedTime || ""}` : key === "closedDate" ? row.closedDate ? `${row.closedDate} ${row.closedTime || ""}` : "Sin cierre" : key === "paymentMethod" ? paymentMethodLabel(row[key]) : key === "status" ? statusLabel(row[key]) : row[key],
-    format: (value) => ["amount", "cashAmount", "cardAmount", "creditAmount", "debitAmount", "unclassifiedCardAmount", "grossAmount", "declaredCashAmount", "cashDifference", "revenueAmount"].includes(key) ? (value == null ? "—" : money(value)) : String(value ?? "—"),
-    total: ["amount", "cashAmount", "cardAmount", "creditAmount", "debitAmount", "unclassifiedCardAmount", "grossAmount", "declaredCashAmount", "cashDifference", "revenueAmount"].includes(key),
+    format: (value) => MONEY_KEYS.includes(key) ? (value == null ? "—" : money(value)) : String(value ?? "—"),
+    total: MONEY_KEYS.includes(key),
     groupable: ["operator", "entryOperator", "exitOperator", "parkingName", "companyName", "date", "entryDate", "exitDate", "paymentMethod", "status", "shiftDate"].includes(key),
   })), [columns]);
   const parkingLabel = parkings.find((item) => item.id === parking || item.code === parking)?.name || (parking ? "Estacionamiento seleccionado" : "Todos los estacionamientos autorizados");

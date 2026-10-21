@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
-import { authorizeOperationRequest, operationActor, operationAuthorizationError, requireOperationalParking } from "@/lib/auth/operationAuthorization";
-import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
+import { posCardPaymentsEnabled } from "@/lib/pos/cardPaymentsAvailability.mjs";
+import { couponsActiveForParking } from "@/lib/cupones/couponModuleServer";
+import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
+import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { listOpenPosStays } from "@/lib/posStaysService";
+import { getPlatePhotoSettings } from "@/lib/offStreet/offStreetPlatePhotoSettingsRepository";
+import { configuredParkingCapacity } from "@/lib/pos/homeVehicles.mjs";
+
+const PLATE_PHOTO_DISABLED = { plateMode: "DISABLED", printOnTicket: false, gpsMode: "DISABLED" };
 
 function fail(message, status = 400, details) {
   return NextResponse.json({ error: message, details }, { status });
@@ -13,23 +20,44 @@ export async function GET(request) {
     authorization = await authorizeOperationRequest(request, PERMISSIONS.OPERATIONS_USE);
     if (authorization.response) return authorization.response;
 
-    const parkingId = authorization.context.role === ROLES.OPERATOR
-      ? authorization.assignedParkingIds?.[0] || null
-      : authorization.assignedParkingIds?.[0] || null;
-
-    if (!parkingId) {
+    const resolved = await resolvePosOperationalParking(authorization);
+    if (resolved.status === POS_PARKING_RESOLUTION.SELECTION_REQUIRED) {
+      return NextResponse.json(posParkingSelectionRequiredResponse(), { status: 409 });
+    }
+    const parking = resolved.parking;
+    if (!parking) {
       return fail("El usuario no tiene un estacionamiento autorizado.", 404);
     }
 
-    const parking = await requireOperationalParking(authorization.db, authorization.context, authorization.scope, parkingId);
-    const summary = await listOpenPosStays(authorization.db, parking.id, { now: new Date() });
+    // platePhotoSettings: el POS carga su estado desde esta ruta; sin este
+    // campo el modo de foto que configura el administrador nunca llegaba y
+    // el ingreso lo trataba siempre como DISABLED. Mismo criterio que
+    // /api/data-entry: sin fila (o ante error) -> DISABLED.
+    const [summary, platePhotoSettings, capacity] = await Promise.all([
+      listOpenPosStays(authorization.db, parking.id, { now: new Date() }),
+      getPlatePhotoSettings(authorization.db, parking.id).catch(() => PLATE_PHOTO_DISABLED),
+      // Same active zones used by the Off Street configurator. Query only
+      // the operational parking already resolved by authorization above.
+      (async () => {
+        try {
+          const { data, error } = await authorization.db.from("parking_zones").select("capacity").eq("parking_id", parking.id).eq("status", "ACTIVE");
+          return error ? null : configuredParkingCapacity(data);
+        } catch { return null; }
+      })(),
+    ]);
 
     return NextResponse.json({
       data: {
-        parking: summary.parking || parking,
+        parking: { ...(summary.parking || parking), configuredCapacity: capacity },
         serverNow: summary.serverNow,
         stays: summary.stays,
-        actor: { ...operationActor(authorization.context), parkingId: parking.id },
+        actor: { ...posOperationActor(authorization.context), parkingId: parking.id },
+        platePhotoSettings: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket, gpsMode: platePhotoSettings.gpsMode },
+        // D2 (SOL-2026-10-18-001): tarjeta apagada en producción hasta validarla.
+        cardPaymentsEnabled: posCardPaymentsEnabled(),
+        // Cupones (SOL-2026-10-19-002): APLICAR CUPÓN solo donde están habilitados.
+        // + módulo activo de la empresa (SOL-2026-10-19-002, etapa C).
+        couponsEnabled: await couponsActiveForParking(authorization.db, parking.id),
       },
     });
   } catch (error) {

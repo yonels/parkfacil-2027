@@ -1,0 +1,242 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { readFile } from "node:fs/promises";
+
+// Complemento Fase 6A/6B — encuadre de patente + recorte real + flash/torch.
+// Mismo enfoque que el resto de tests de este proyecto para componentes
+// React sin infraestructura de render (sin jsdom/testing-library): se
+// verifica por contrato sobre el código fuente + las reglas puras ya
+// cubiertas por platePhotoFrame.test.mjs/platePhotoLowLight.test.mjs. No
+// son tests frágiles de whitespace: cada aserción ancla a un
+// identificador/token estable, no a formato exacto.
+
+const source = await readFile(new URL("./PlatePhotoCapture.js", import.meta.url), "utf8");
+
+// ---- §2/§5: proporción del marco + recorte real (no solo visual) ----
+
+test("el componente reutiliza el único cálculo del marco (platePhotoFrame.mjs) -- no un número mágico paralelo", () => {
+  assert.match(source, /import \{ computePlateCropOutputSize, computePlateFrameRect, PLATE_FRAME_ASPECT \} from "@\/lib\/offStreet\/platePhotoFrame\.mjs"/);
+  assert.doesNotMatch(source, /2\.77/);
+});
+
+test("drawPlateCrop recorta con el rectángulo real del marco (frame.x/y/width/height), no el video/imagen completos", () => {
+  assert.match(
+    source,
+    /const frame = computePlateFrameRect\(sourceWidth, sourceHeight\);[\s\S]{0,400}ctx\.drawImage\(source, frame\.x, frame\.y, frame\.width, frame\.height, 0, 0, outSize\.width, outSize\.height\);/
+  );
+});
+
+test("capture() (cámara en vivo) usa las dimensiones NATIVAS del video (videoWidth/videoHeight), no un valor fijo -- cubre portrait/landscape sin CSS/devicePixelRatio de por medio", () => {
+  assert.match(source, /drawPlateCrop\(video, video\.videoWidth, video\.videoHeight\)/);
+});
+
+test("handleFileSelected (fallback sin cámara en vivo) también recorta al marco -- no guarda la imagen completa en ningún camino", () => {
+  assert.match(source, /const canvas = drawPlateCrop\(bitmap, width, height\);/);
+  assert.doesNotMatch(source, /drawToCanvas/);
+});
+
+test("el <video> se muestra en su proporción nativa (sin object-fit/cover) -- evita reproducir la matemática de escala+offset de cover para el recorte", () => {
+  const videoTag = source.match(/<video [^>]*\/>/)[0];
+  assert.match(videoTag, /className="block w-full h-auto"/);
+  assert.doesNotMatch(videoTag, /object-cover|object-contain|aspect-\[/);
+});
+
+test("no se agranda la imagen: computePlateCropOutputSize solo se usa para acotar el máximo, nunca para forzar un tamaño mayor al recorte real", () => {
+  assert.match(source, /const outSize = computePlateCropOutputSize\(frame, PLATE_CROP_MAX_WIDTH_PX\);/);
+});
+
+// ---- §7/§8: flash/torch -- detección real, nunca asumida ----
+
+test("torch: primero se prueba el mecanismo estándar del navegador (MediaStreamTrack.getCapabilities().torch)", () => {
+  assert.match(source, /const capabilities = track\?\.getCapabilities\?\.\(\);/);
+  assert.match(source, /webSupported = Boolean\(capabilities && "torch" in capabilities && capabilities\.torch !== false\);/);
+});
+
+test("torch: fallback nativo opcional reutiliza window.ParkFacilDevice -- nunca crea un segundo bridge", () => {
+  assert.match(source, /function getNativeDeviceBridge\(\) \{\s*\n\s*if \(typeof window === "undefined"\) return null;\s*\n\s*return window\.ParkFacilDevice \|\| null;/);
+  // Una sola referencia real al global window.ParkFacilDevice en código
+  // (además de la que aparece en un comentario explicando esta misma
+  // regla) -- nunca un segundo objeto/bridge propio.
+  const codeOnly = source.replace(/\/\/.*$/gm, "");
+  assert.equal((codeOnly.match(/window\.ParkFacilDevice/g) || []).length, 1);
+});
+
+test("torch: el fallback nativo solo se intenta cuando el navegador NO expone torch, nunca en paralelo/primero", () => {
+  assert.match(
+    source,
+    /if \(webSupported\) \{\s*\n\s*setTorchAvailable\(true\);\s*\n\s*return;\s*\n\s*\}\s*\n\s*const nativeAvailable = await detectNativeFlash\(\);/
+  );
+});
+
+// ---- §8: botón visible solo si hay soporte real; nunca rompe si no lo hay ----
+
+test("el botón de Flash solo se renderiza cuando torchAvailable es true", () => {
+  assert.match(source, /\{torchAvailable \? \(\s*\n\s*<button[\s\S]{0,200}onClick=\{\(\) => void toggleTorch\(\)\}/);
+});
+
+test("capturar nunca depende del estado del flash -- funciona igual con o sin torch disponible/activado", () => {
+  const fnStart = source.indexOf("async function capture()");
+  const fnEnd = source.indexOf("async function handleFileSelected");
+  const fn = source.slice(fnStart, fnEnd);
+  assert.doesNotMatch(fn, /torchAvailable/);
+  assert.doesNotMatch(fn, /torchOn/);
+});
+
+// ---- §9: torch continuo (se activa ANTES de capturar, no un destello al tomar la foto) ----
+
+test("no existe ningún destello automático al capturar -- el torch solo lo enciende/apaga el operador vía toggleTorch", () => {
+  const fnStart = source.indexOf("async function capture()");
+  const fnEnd = source.indexOf("async function handleFileSelected");
+  const fn = source.slice(fnStart, fnEnd);
+  assert.doesNotMatch(fn, /setTorchOn|applyConstraints|setNativeTorch/);
+});
+
+// ---- §10: baja luz -- estimación simple, no visión artificial ----
+
+test("la detección de poca luz reutiliza platePhotoLowLight.mjs (luminancia simple), no agrega una librería nueva", () => {
+  assert.match(source, /import \{ averageLuminance, isLowLight \} from "@\/lib\/offStreet\/platePhotoLowLight\.mjs"/);
+  assert.match(source, /setLowLightWarning\(isLowLight\(averageLuminance\(data\)\)\);/);
+});
+
+test("el flash NUNCA se activa automáticamente por baja luz -- solo se muestra el aviso, la decisión es del operador", () => {
+  const noticeIndex = source.indexOf("Poca iluminación detectada");
+  assert.ok(noticeIndex > -1);
+  const surrounding = source.slice(Math.max(0, noticeIndex - 400), noticeIndex + 100);
+  assert.doesNotMatch(surrounding, /toggleTorch\(\)|setTorchOn\(true\)/);
+});
+
+// ---- §11: fallback si el torch falla -- nunca aborta la captura/el ingreso ----
+
+test("un fallo al activar el torch muestra un aviso no bloqueante y nunca lanza/aborta", () => {
+  assert.match(source, /No fue posible activar el flash\. Mejore la iluminación o acerque el dispositivo\./);
+  const fnStart = source.indexOf("async function toggleTorch()");
+  const fnEnd = source.indexOf("function stopStream()");
+  const fn = source.slice(fnStart, fnEnd);
+  assert.match(fn, /try \{[\s\S]*\} catch \{/);
+});
+
+// ---- §13: ciclo de vida -- apagar el torch al cerrar/cancelar/desmontar ----
+
+test("cerrar el stream (usePhoto/cancelar) siempre pasa por stopStream, que apaga el torch antes de detener las pistas", () => {
+  assert.match(
+    source,
+    /function stopStream\(\) \{\s*\n\s*void turnOffTorch\(\);\s*\n\s*streamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);/
+  );
+  assert.match(source, /async function usePhoto\(\) \{[\s\S]{0,200}stopStream\(\);/);
+  assert.match(source, /function cancel\(\) \{\s*\n\s*stopStream\(\);/);
+});
+
+test("el desmonte del componente (cleanup del efecto de montaje) también apaga el torch, no solo detiene las pistas", () => {
+  assert.match(
+    source,
+    /return \(\) => \{\s*\n\s*cancelled = true;\s*\n\s*void turnOffTorch\(\);\s*\n\s*streamRef\.current\?\.getTracks\(\)\.forEach\(\(track\) => track\.stop\(\)\);/
+  );
+});
+
+test("turnOffTorch es no-op si el torch no estaba encendido -- nunca llama a applyConstraints/setNativeTorch de más", () => {
+  assert.match(source, /async function turnOffTorch\(\) \{\s*\n\s*if \(!torchOnRef\.current\) return;/);
+});
+
+// ---- §14/§16.11: contrato de salida sin cambios -- Fase 6B sigue recibiendo la MISMA imagen ----
+
+test("onCapture entrega el contrato original (base64/mimeType/sizeBytes/previewUrl) MÁS los campos nuevos de trazabilidad (capturedAt/GPS) -- nunca menos que antes", () => {
+  const callStart = source.indexOf("onCapture({");
+  const callEnd = source.indexOf("});", callStart);
+  const call = source.slice(callStart, callEnd);
+  for (const field of ["base64", 'mimeType: "image/jpeg"', "sizeBytes: preview.blob.size", "previewUrl: preview.url", "capturedAt: preview.capturedAt", "latitude: gpsData?.latitude ?? null", "longitude: gpsData?.longitude ?? null", "gpsAccuracyM: gpsData?.accuracy ?? null"]) {
+    assert.ok(call.includes(field), `falta ${field} en el payload de onCapture`);
+  }
+});
+
+// ---- §17: no se agregó nada fuera de alcance ----
+
+// Fase 2 (Entrada V2): el OCR pasó a estar en alcance, pero vive en
+// src/lib/pos/plateOcr.js -- este componente solo captura la imagen (misma
+// cámara/recorte) y nunca ejecuta el reconocimiento por sí mismo.
+test("PlatePhotoCapture no ejecuta OCR: solo captura; el reconocimiento vive en plateOcr.js", () => {
+  assert.doesNotMatch(source, /tesseract|recognizePlate|plateOcr|detectPlate/i);
+});
+
+test("no se tocó la lógica REQUIRED/OPTIONAL/DISABLED de la FOTO -- el prop 'required' se sigue usando tal cual, sin nueva lógica de gating", () => {
+  // Fase 2: purpose="OCR" solo cambia textos; por defecto es la evidencia de siempre.
+  assert.match(source, /export default function PlatePhotoCapture\(\{ plate, required, gpsMode = "DISABLED", onCapture, onCancel, purpose = "EVIDENCE" \}\)/);
+  assert.match(source, /\) : required \? \(/);
+  assert.match(source, /\{!required && !isOcr && mode !== "PREVIEW" \? \(/);
+});
+
+// ---- Ajuste final: GPS configurable por proyecto (§18/§19) ----
+
+test("GPS DISABLED nunca solicita el permiso de ubicación (ni siquiera navigator.geolocation)", () => {
+  const fnStart = source.indexOf("useEffect(() => {\n    // gpsMode DISABLED");
+  assert.ok(fnStart > -1);
+  const fnEnd = source.indexOf("[gpsMode, gpsRetryToken]);", fnStart);
+  const fn = source.slice(fnStart, fnEnd);
+  assert.match(fn, /if \(gpsMode === "DISABLED"\) return undefined;/);
+});
+
+test("GPS REQUIRED bloquea 'Usar foto' hasta tener una posición válida -- OPTIONAL/DISABLED nunca bloquean", () => {
+  assert.match(source, /const gpsBlocksConfirm = gpsMode === "REQUIRED" && gpsStatus !== "READY";/);
+  assert.match(source, /async function usePhoto\(\) \{\s*\n\s*if \(!preview\?\.blob \|\| gpsBlocksConfirm\) return;/);
+  assert.match(source, /disabled=\{gpsBlocksConfirm\}/);
+});
+
+test("capturar la fotografía NUNCA se bloquea por GPS -- solo 'Usar foto' puede quedar bloqueado", () => {
+  const fnStart = source.indexOf("async function capture()");
+  const fnEnd = source.indexOf("async function handleFileSelected");
+  const fn = source.slice(fnStart, fnEnd);
+  assert.doesNotMatch(fn, /gpsBlocksConfirm|gpsStatus|gpsMode/);
+});
+
+test("un fallo de GPS (REQUIRED) muestra el mismo mensaje que el servidor (gpsRequirementMessage) y permite reintentar sin perder la foto ya tomada", () => {
+  assert.match(source, /gpsStatus === "ERROR" \? \(/);
+  assert.match(source, /\{gpsRequirementMessage\("REQUIRED"\)\}/);
+  assert.match(source, /onClick=\{retryGps\}/);
+  // Reintentar NUNCA vuelve a LIVE/FALLBACK ni toca "preview" -- solo repite
+  // la solicitud de ubicación.
+  const fnStart = source.indexOf("function retryGps() {");
+  const fnEnd = source.indexOf("\n  }\n", fnStart);
+  const fn = source.slice(fnStart, fnEnd);
+  assert.doesNotMatch(fn, /setPreview|setMode/);
+});
+
+test("la lectura de GPS se toma en vivo al confirmar (gpsData), no congelada desde el instante de 'Capturar' -- puede resolverse mientras se revisa la vista previa", () => {
+  const fnStart = source.indexOf("async function capture()");
+  const fnEnd = source.indexOf("async function handleFileSelected");
+  const captureFn = source.slice(fnStart, fnEnd);
+  assert.doesNotMatch(captureFn, /gpsData/);
+  assert.match(source, /latitude: gpsData\?\.latitude \?\? null,/);
+});
+
+test("capturedAt se registra en el instante REAL de la captura, no al confirmar/usar la foto", () => {
+  const matches = source.match(/capturedAt: new Date\(\)\.toISOString\(\)/g) || [];
+  assert.equal(matches.length, 2, "debe fijarse tanto en capture() (cámara) como en handleFileSelected() (fallback)");
+});
+
+test("GPS es una única lectura (getCurrentPosition), nunca un seguimiento continuo (watchPosition) -- sin complejidad innecesaria (§13 del encargo)", () => {
+  assert.match(source, /navigator\.geolocation\.getCurrentPosition\(/);
+  assert.doesNotMatch(source, /navigator\.geolocation\.watchPosition\(/);
+});
+
+// ---- Fase 2 (QA en vivo): la vista de cámara no puede quedar en negro ----
+
+test("el stream se conecta al <video> cuando ya está montado (mode LIVE), también tras 'Tomar nuevamente'", () => {
+  // El <video> solo existe en modo LIVE; asignarle el stream antes de ese
+  // render dejaba la vista negra (videoWidth 0) y 'Capturar' no hacía nada.
+  assert.match(source, /\{mode === "LIVE" \? \(/);
+  const effect = source.slice(source.indexOf('if (mode !== "LIVE") return;'), source.indexOf("}, [mode]);"));
+  assert.match(effect, /const video = videoRef\.current;\s*const stream = streamRef\.current;/);
+  assert.match(effect, /if \(!video \|\| !stream \|\| video\.srcObject === stream\) return;\s*video\.srcObject = stream;\s*video\.play\(\)\.catch\(\(\) => \{\}\);/);
+});
+
+test("al volver de segundo plano con el stream terminado, la cámara se reabre (no queda congelada)", () => {
+  assert.match(source, /trackRef\.current\.readyState !== "ended"/);
+  assert.match(source, /setCameraRestartToken\(\(current\) => current \+ 1\);/);
+  assert.match(source, /\}, \[cameraRestartToken\]\);/);
+});
+
+test("recuadro guía = mismo rectángulo del recorte, en % y sin CSS aspect-ratio (WebView 83 de la PRO2 no lo soporta)", () => {
+  assert.doesNotMatch(source, /aspectRatio/);
+  assert.match(source, /const frame = videoSize \? computePlateFrameRect\(videoSize\.width, videoSize\.height\) : null;/);
+  assert.match(source, /left: percent\(frame\.x, videoSize\.width\),\s*top: percent\(frame\.y, videoSize\.height\),\s*width: percent\(frame\.width, videoSize\.width\),\s*height: percent\(frame\.height, videoSize\.height\),/);
+  assert.match(source, /onLoadedMetadata=\{updateVideoSize\}/);
+});

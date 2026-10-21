@@ -239,6 +239,30 @@ export function coveredSecondsBetween(authorizations, entryAt, exitAt, options =
   return Math.floor(covered / 1000);
 }
 
+// Intervalos [inicio, término) en ms NO cubiertos por la unión de
+// autorizaciones entre el ingreso y la salida (P8a, 2026-10-18: cada uno se
+// cobra por separado con la tarifa del estacionamiento según su hora real).
+export function uncoveredIntervalsBetween(authorizations, entryAt, exitAt, options = {}) {
+  const fromMs = new Date(entryAt).getTime();
+  const toMs = new Date(exitAt).getTime();
+  if (!(toMs > fromMs)) return [];
+  const covered = mergeIntervals((authorizations || []).flatMap((authorization) => authorizationIntervals(authorization, fromMs, toMs, options)));
+  const uncovered = [];
+  let cursor = fromMs;
+  for (const [start, end] of covered) {
+    if (start > cursor) uncovered.push([cursor, start]);
+    cursor = Math.max(cursor, end);
+  }
+  if (toMs > cursor) uncovered.push([cursor, toMs]);
+  return uncovered;
+}
+
+// Fin del día calendario local (00:00 del día siguiente) del instante dado.
+export function endOfLocalDayMs(instant, timeZone = RELEASED_PAYMENT_TIME_ZONE) {
+  const next = addLocalDays(localParts(instant, timeZone), 1);
+  return zonedLocalToUtc({ ...next, hour: 0, minute: 0 }, timeZone);
+}
+
 // La autorización está vigente (dentro de su período de validez) en `now`.
 export function isAuthorizationCurrent(authorization, now = Date.now()) {
   const at = new Date(now).getTime();

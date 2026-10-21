@@ -14,24 +14,35 @@
     "test:lot-e": "node --test --experimental-test-isolation=none src/lib/auth/*.test.mjs src/lib/notifications/*.test.mjs src/lib/modulePricing.test.mjs",
     "start": "next start",
     "lint": "eslint",
-    "bootstrap:root": "node scripts/bootstrap-root-local.mjs"
+    "bootstrap:root": "node scripts/bootstrap-root-local.mjs",
+    "vendor:tesseract": "node scripts/vendor-tesseract.mjs",
+    "prebuild": "node scripts/check-recovery-readiness.mjs --vercel-only",
+    "check:access": "node scripts/check-recovery-readiness.mjs",
+    "check:access-release": "node scripts/verify-access-release.mjs"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/camera": "^8.2.3",
+    "@capacitor/core": "^8.5.0",
     "@supabase/supabase-js": "^2.110.8",
     "exceljs": "^4.4.0",
+    "jsqr": "1.4.0",
     "lucide-react": "^1.26.0",
     "mssql": "^12.7.0",
     "next": "16.2.11",
     "pg": "^8.22.0",
     "qrcode": "^1.5.4",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "transbank-sdk": "^6.1.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.0",
     "@tailwindcss/postcss": "^4",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
-    "tailwindcss": "^4"
+    "tailwindcss": "^4",
+    "tesseract.js": "7.0.0"
   }
 }
