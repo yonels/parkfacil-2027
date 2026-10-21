@@ -15,7 +15,8 @@ revoke all on public.web_enrollments from public,anon,authenticated;
 grant select,insert on public.web_enrollments to service_role;
 
 create or replace function public.contratacion_operational_finish(p_id uuid,p_fingerprint text,p_payload jsonb,p_accounts jsonb)
-returns jsonb language plpgsql security invoker set search_path='' as $$
+-- security definer: en Supabase service_role no puede leer auth.users (hallado en la prueba integrada local 2026-10-21).
+returns jsonb language plpgsql security definer set search_path='' as $$
 declare j public.web_enrollments; r text; c text; p uuid; level_id uuid; account jsonb; idx integer:=0;
 begin
   perform pg_advisory_xact_lock(hashtextextended(p_id::text,0));

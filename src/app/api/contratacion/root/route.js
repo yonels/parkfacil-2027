@@ -1,4 +1,4 @@
-import { boundedBody,rootActor,rpc,publicFailure } from '@/lib/contratacion/server';
+import { boundedBody,rootActor,rpc,publicFailure,crmOrigin } from '@/lib/contratacion/server';
 import { getRequestAccessToken } from '@/lib/auth/authenticatedContext';
 export const dynamic='force-dynamic';
 export async function POST(request){try{
@@ -8,7 +8,7 @@ export async function POST(request){try{
   return Response.json({ok:true,data:await rpc(a.client,'contratacion_integral_status',{p_id:b.id,p_status:'inactive',p_revision:0,p_reason:b.reason})},{headers:{'Cache-Control':'no-store'}});
  }
  if(b.action==='recoveries')return Response.json({ok:true,data:await rpc(a.client,'contratacion_recovery_inspect',{})},{headers:{'Cache-Control':'no-store'}});
- const origin=process.env.CONTRATACION_CRM_ORIGIN;if(!origin||new URL(origin).origin!==origin||!origin.startsWith('https://'))throw Error('CRM_ORIGIN_REQUIRED');
+ const origin=crmOrigin();
  if(b.action==='activate'&&String(b.reason||'').trim().length<8)throw Error('REASON_REQUIRED');
  const response=await fetch(origin+'/api/contratacion/administrar',{method:'POST',headers:{'Content-Type':'application/json',origin:process.env.CONTRATACION_ROOT_ORIGIN,authorization:`Bearer ${getRequestAccessToken(request)}`},body:JSON.stringify(b.action==='activate'?{...b,action:'prepare_activation'}:b),signal:AbortSignal.timeout(20000)});
  const result=await response.json();

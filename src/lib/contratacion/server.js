@@ -5,6 +5,13 @@ import { getRequestAccessToken } from '@/lib/auth/authenticatedContext';
 import { accessScope } from './access-scope.mjs';
 export const ENROLLMENT_COOKIE='pf_enrollment';
 export const cookieOptions={httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'strict',path:'/'};
+// Prueba integrada local (SOL-2026-10-16-001): solo fuera de producción y con CONTRATACION_ENVIRONMENT=local se acepta
+// un CRM en http://localhost o http://127.0.0.1; en cualquier otro caso se exige https.
+export function crmOrigin(){
+  const origin=process.env.CONTRATACION_CRM_ORIGIN;if(!origin)throw Error('CRM_ORIGIN_REQUIRED');const url=new URL(origin);
+  const local=process.env.NODE_ENV!=='production'&&process.env.CONTRATACION_ENVIRONMENT==='local'&&url.protocol==='http:'&&['localhost','127.0.0.1'].includes(url.hostname);
+  if(url.origin!==origin||(url.protocol!=='https:'&&!local))throw Error('CRM_ORIGIN_REQUIRED');return origin;
+}
 export function enabled() { if(process.env.CONTRATACION_INTEGRAL_ENABLED!=='true')throw Error('UNAVAILABLE'); }
 export async function boundedBody(request) {
   enabled();
