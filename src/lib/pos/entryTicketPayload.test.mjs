@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { buildAgentEntryTicketPayload, companyTicketFields, formatRut, formatTicketDateTime, ticketPlate } from "./entryTicketPayload.mjs";
+import { buildAgentEntryTicketPayload, companyTicketFields, formatRut, formatTicketDateTime, ticketPlate, formatTicketCoordinates } from "./entryTicketPayload.mjs";
 import { fitTicketRasterSize, rgbaToMonochromeRaster, TICKET_RASTER_MAX_WIDTH } from "./ticketPhotoRaster.mjs";
 
 // POS Entry/Exit — ticket de entrada PT-210: payload del agente (datos de
@@ -115,4 +115,20 @@ test("raster: monocromo 1 bit por punto (negro=1), filas empaquetadas en bytes",
   assert.equal(raster.widthBytes, 2);
   assert.equal(raster.bitmap.length, 4);
   assert.deepEqual([...raster.bitmap], [0xff, 0xc0, 0x00, 0x00]);
+});
+
+test("formatTicketCoordinates: 5 decimales; sin coordenadas válidas no hay línea (SOL-2026-10-21-002)", () => {
+  assert.equal(formatTicketCoordinates(-33.3328661, -70.5156504), "-33.33287, -70.51565");
+  assert.equal(formatTicketCoordinates(0, 0), "0.00000, 0.00000");
+  assert.equal(formatTicketCoordinates(null, -70.5), undefined);
+  assert.equal(formatTicketCoordinates("-33.3", "-70.5"), undefined);
+  assert.equal(formatTicketCoordinates(-95, -70.5), undefined);
+  assert.equal(formatTicketCoordinates(Number.NaN, 1), undefined);
+});
+
+test("PosTerminal agrega la ubicación de la foto al ticket de entrada (bridge y agente)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../../components/pos/PosTerminal.js", import.meta.url), "utf8");
+  assert.ok(source.includes("formatTicketCoordinates(entryPhoto?.latitude, entryPhoto?.longitude)"));
+  assert.ok(source.includes("printPayload.ubicacion = ticketCoordinates"));
 });

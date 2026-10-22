@@ -90,3 +90,13 @@ export function buildAgentEntryTicketPayload(stay, parking) {
     qrValue,
   };
 }
+
+// Coordenadas GPS de la foto de la patente para el ticket de entrada
+// (SOL-2026-10-21-002): "-33.33287, -70.51565" (5 decimales, ~1 m). Sin
+// latitud/longitud válidas -> undefined y el ticket sale sin la línea.
+export function formatTicketCoordinates(latitude, longitude) {
+  const lat = typeof latitude === "number" ? latitude : Number.NaN;
+  const lng = typeof longitude === "number" ? longitude : Number.NaN;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return undefined;
+  return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+}

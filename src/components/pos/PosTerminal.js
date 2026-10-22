@@ -15,7 +15,7 @@ import { ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
 import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
 import { buildPrintableEntryPayload, entryPhotoRequirementMessage, platePhotoUnavailableMessage, resolvePlatePhotoPrintDecision } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
-import { buildAgentEntryTicketPayload } from "@/lib/pos/entryTicketPayload.mjs";
+import { buildAgentEntryTicketPayload, formatTicketCoordinates } from "@/lib/pos/entryTicketPayload.mjs";
 import { photoToTicketRaster } from "@/lib/pos/ticketPhotoRaster.mjs";
 import { TUU_METHOD, TUU_OUTCOME, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, classifyTuuOutcome, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
 import { buildTuuRegistrationRequest, buildTuuResultReport, canStartTuuPayment, clearTuuPendingPayment, findTuuPendingPayment, findTuuPendingPaymentByAttempt, getOrCreatePosDeviceId, isProcessedTuuSequence, latestUnresolvedTuuPayment, loadQueuedTuuResultReports, loadTuuPendingPayments, markTuuPaymentApproved, markTuuPaymentUncertain, mergeTuuPendingViews, newTuuIdempotencyKey, noteTuuRegistrationFailure, queueTuuResultReport, reconcileTuuPendingWithServer, recoverTuuPendingPayments, rememberProcessedTuuSequence, removeQueuedTuuResultReport, saveTuuPaymentStarted, tuuRefreshResultMessage } from "@/lib/pos/tuuPendingPayments.mjs";
@@ -3211,6 +3211,12 @@ export default function PosTerminal() {
       if (printPayload && payload?.data?.releasedPayment?.applied) {
         printPayload.ticketLabel = "PAGO LIBERADO";
         if (printPayload.agentTicket) printPayload.agentTicket = { ...printPayload.agentTicket, ticketLabel: "PAGO LIBERADO" };
+      }
+      // Coordenadas de la foto (si el GPS las entregó): línea "GPS:" del ticket.
+      const ticketCoordinates = formatTicketCoordinates(entryPhoto?.latitude, entryPhoto?.longitude);
+      if (printPayload && ticketCoordinates) {
+        printPayload.ubicacion = ticketCoordinates;
+        if (printPayload.agentTicket) printPayload.agentTicket = { ...printPayload.agentTicket, ubicacion: ticketCoordinates };
       }
       setEntryReleasedState(null);
       setEntryPrintPayload(printPayload);
