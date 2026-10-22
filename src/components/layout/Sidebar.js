@@ -210,7 +210,10 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
           {expanded ? (
             // Sangría reducida moderadamente (ml-6 -> ml-4), ver renderChild.
             <div className="relative ml-4 mt-1 space-y-0.5 border-l border-slate-300 pl-3">
-              {item.children.filter((child) => navigationVisibleForRole(child, userContext)).map((child) => renderChild(child, onNavigate, onStreetItem, treeKey))}
+              {/* Los hijos ya vienen filtrados por rol en visibleItems (filterVisibleTree). Filtrarlos de nuevo con
+                  navigationVisibleForRole ocultaba las carpetas sin href (Operación, Estacionamientos, Recaudación,
+                  Tarifas) -- SOL-2026-10-21-002. */}
+              {item.children.map((child) => renderChild(child, onNavigate, onStreetItem, treeKey))}
             </div>
           ) : null}
         </div>

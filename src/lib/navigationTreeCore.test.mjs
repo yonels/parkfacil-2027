@@ -354,3 +354,12 @@ test("projectSingleProductParkingNode: Cliente sin ningún producto -- el nodo d
   const projected = projectSingleProductParkingNode(items);
   assert.deepEqual(projected.map((item) => item.label), ["Inicio"]);
 });
+
+test("Sidebar no vuelve a filtrar los hijos por href: las carpetas de Off Street sobreviven (SOL-2026-10-21-002)", async () => {
+  const sidebar = await readFile(new URL("../components/layout/Sidebar.js", import.meta.url), "utf8");
+  assert.equal(sidebar.includes("item.children.filter((child) => navigationVisibleForRole"), false);
+  const offStreet = findByLabel(navigationItems, "Off Street");
+  const visible = filterVisibleTree([offStreet], (item) => Boolean(item.href));
+  const labels = visible[0].children.map((child) => child.label);
+  for (const folder of ["Operación", "Estacionamientos", "Recaudación", "Tarifas"]) assert.ok(labels.includes(folder), folder);
+});
