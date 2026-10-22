@@ -5,8 +5,11 @@ import StatCard from "@/components/ui/StatCard";
 import ModuleCard from "@/components/ui/ModuleCard";
 import StatusBadge from "@/components/ui/StatusBadge";
 import RootSearch from "@/components/home/RootSearch";
+import CompanyIdentityCard from "@/components/home/CompanyIdentityCard";
 import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
 import { ROLES } from "@/lib/auth/permissions.mjs";
+import { loadCompanyIdentity } from "@/lib/companyIdentityCore.mjs";
+import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 
 const modules = [
   { title: "Operación", description: "Vista general de la operación y el control diario.", icon: Building2, href: "/operacion", state: "Disponible" },
@@ -92,9 +95,13 @@ export default async function Home() {
     redirect(enabledProducts[0] === "ON_STREET" ? "/on-street-qr" : context.role === ROLES.COMPANY_ADMIN ? "/dashboard-off-street" : "/estacionamientos");
   }
 
+  // Portal Cliente: razón social, RUT y administradores de la empresa de la cuenta.
+  const companyIdentity = isClientRole ? await loadCompanyIdentity(getSupabaseAdminClient(), context.companyId) : null;
+
   return (
     <AppShell title="Inicio" description="Acceso principal a las áreas de ParkFacil">
       <div id="centro-control" className="scroll-mt-5 space-y-6">
+        <CompanyIdentityCard identity={companyIdentity} />
         {context?.role === ROLES.PLATFORM_ADMIN && <RootSearch modules={modules.map(({ title, description, href }) => ({ title, description, href }))} />}
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <StatCard title="Estacionamientos" value="24" description="Demostración visual" icon={Building2} trend="+3% respecto a la última etapa" href="/estacionamientos" />

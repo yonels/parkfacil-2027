@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { loadCompanyIdentity } from "@/lib/companyIdentityCore.mjs";
 import { authorizeOperationRequest, operationActor, operationAuthorizationError } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { RevenueRangeTooWideError } from "@/lib/offStreetRevenueService";
@@ -40,6 +41,8 @@ export async function GET(request) {
     if (!validation.ok) return fail(validation.message, 400, { code: "INVALID_FILTERS" });
 
     const scopedParkings = await listParkings(authorization.db, authorization.scope);
+    // «Tu empresa» (d8ca214, recuperado en SOL-2026-10-21-002): solo Portal Cliente.
+    const companyIdentity = authorization.context.portal === "client" ? await loadCompanyIdentity(authorization.db, authorization.context.companyId) : null;
     const offStreetInScope = scopedParkings.filter((parking) => parking.type === "OFF_STREET");
 
     // Capacidad (§8): resuelta para los parkings que realmente calzan con
@@ -60,6 +63,7 @@ export async function GET(request) {
     return NextResponse.json({
       data: {
         ...overview,
+        companyIdentity,
         // La ocupación real se resuelve aquí (no dentro de
         // getOffStreetDashboardOverview) porque su capacidad
         // (getDashboardCapacity) se calcula en paralelo, en un dominio

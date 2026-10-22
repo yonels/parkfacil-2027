@@ -23,6 +23,7 @@ import {
   Wallet,
 } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
+import CompanyIdentityCard from "@/components/home/CompanyIdentityCard";
 
 function money(value) {
   return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(value || 0);
@@ -49,6 +50,7 @@ const EMPTY_DATA = {
   dateTo: "",
   parkings: [],
   companies: [],
+  companyIdentity: null,
 };
 
 export default function DashboardOffStreetPage() {
@@ -126,6 +128,7 @@ function DashboardContent() {
   return (
     <AppShell title="Dashboard Off Street" description="Vista ejecutiva real de operación, recaudación y caja">
       <div className="space-y-5">
+        <CompanyIdentityCard identity={data.companyIdentity} />
         <header className="flex flex-col gap-4 rounded-3xl border border-[#5271E8] bg-[#3150D8] p-6 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-cyan-200">Off Street</p>
