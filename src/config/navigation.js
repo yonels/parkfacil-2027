@@ -275,9 +275,16 @@ export const navigationItems = [
         // usuario haya hecho clic para expandirlo. Ver Sidebar.js /
         // MobileNavigation.js.
         activePrefix: "/usuarios",
+        // Codex 2026-10-21 (main 980759d): crear administradores y operadores desde el árbol.
         children: [
-          { href: "/usuarios/administradores", label: "Administradores" },
-          { href: "/usuarios/operadores", label: "Operadores" },
+          { href: "/usuarios/administradores", label: "Administradores", activePrefix: "/usuarios/administradores", children: [
+            { href: "/usuarios/administradores", label: "Ver y administrar administradores" },
+            { href: "/usuarios/administradores/crear", label: "Crear administrador" },
+          ] },
+          { href: "/usuarios/operadores", label: "Operadores", activePrefix: "/usuarios/operadores", children: [
+            { href: "/usuarios/operadores", label: "Ver y administrar operadores" },
+            { href: "/usuarios/operadores/crear", label: "Crear operador" },
+          ] },
         ],
       },
       { href: "/seguridad", label: "Seguridad", icon: KeyRound, requiresModule: "seguridad" },

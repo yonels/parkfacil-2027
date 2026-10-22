@@ -52,9 +52,16 @@ function offsetMs(instantMs, timeZone) {
 export function zonedLocalToUtc({ year, month, day, hour = 0, minute = 0 }, timeZone = RELEASED_PAYMENT_TIME_ZONE) {
   const guess = Date.UTC(year, month - 1, day, hour, minute, 0);
   let result = guess - offsetMs(guess, timeZone);
-  const second = guess - offsetMs(result, timeZone);
-  if (second !== result) result = Math.max(result, second);
-  return result;
+  const seen = new Set();
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    seen.add(result);
+    const next = guess - offsetMs(result, timeZone);
+    if (next === result) return result;
+    // Una hora inexistente oscila entre ambos lados del salto: avanzar.
+    if (seen.has(next)) return Math.max(result, next);
+    result = next;
+  }
+  throw new Error("LOCAL_TIME_CONVERSION_FAILED");
 }
 
 // "2026-10-04" -> { year, month, day }

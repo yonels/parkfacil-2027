@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { resolveStayQuoteAvailability, splitChileTaxFromTotal } from "./dataEntry.mjs";
-import { calculateScheduledParkingCharge, selectActiveRate } from "./parkingRates.mjs";
+import { calculateScheduledParkingCharge, selectStayRate } from "./parkingRates.mjs";
 import { listParkingRates } from "./parkingRatesRepository.js";
 import { listHolidayDatesForStay } from "./parkingHolidaysRepository.js";
 import { buildChargeBreakdown } from "./parkingTimeBands.mjs";
@@ -139,9 +139,9 @@ function mapBlockedReason(reason) {
   return reason || "UNKNOWN";
 }
 
-async function getActiveRate(db, parkingId, at = new Date()) {
-  const rates = await listParkingRates(db, parkingId);
-  return selectActiveRate(rates, at);
+async function getStayRate(db, stay, at = new Date()) {
+  const rates = await listParkingRates(db, stay.parking_id);
+  return selectStayRate(rates, stay, at);
 }
 
 export async function getCoupon(db, rawToken, companyId) {
@@ -174,7 +174,7 @@ export async function quoteParkingStay(db, stay, options = {}) {
   const now = options.now instanceof Date ? options.now : new Date();
   const couponToken = options.couponToken || null;
 
-  const rate = await getActiveRate(db, stay.parking_id, now);
+  const rate = await getStayRate(db, stay, now);
   if (!rate) {
     return resolveStayQuoteAvailability(null, stay.entry_at, now);
   }
@@ -333,6 +333,9 @@ export function toPagueAquiQuote({ stay, parkingName, quote, calculatedAt = new 
     blockedReason: payable ? null : mapBlockedReason(quote?.reason),
     // Pago liberado: minutos cubiertos y cobrables (solo estadías liberadas).
     released: quote?.released ? { coveredMinutes: quote.released.coveredMinutes, chargeableMinutes: quote.released.chargeableMinutes } : null,
+    frozenAt: quote?.charge?.frozenAt || null,
+    daytimeAmount: quote?.charge?.daytimeAmount ?? null,
+    overnightAmount: quote?.charge?.overnightAmount ?? null,
   };
 }
 

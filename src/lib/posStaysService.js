@@ -19,7 +19,7 @@ import {
 import { AuthorizationError } from "./auth/contextCore.mjs";
 
 const parkingFields = "id,code,name,company_name,address,city,status,company:companies(business_name,address,district,city,rut_number,rut_dv,phone)";
-const stayFields = "id,code,parking_id,license_plate,qr_token,status,entry_at,entry_operator_name,entry_source,exit_at,exit_operator_name,elapsed_minutes,rate_name,billing_mode,net_amount,tax_amount,total_amount,payment_method,payment_code,coupon_id,coupon_code,discount_amount,subtotal_amount,released_payment_authorization_id";
+const stayFields = "id,code,parking_id,license_plate,qr_token,status,entry_at,entry_operator_name,entry_source,exit_at,exit_operator_name,elapsed_minutes,rate_id,rate_name,billing_mode,net_amount,tax_amount,total_amount,payment_method,payment_code,coupon_id,coupon_code,discount_amount,subtotal_amount,released_payment_authorization_id";
 // Extensión de stayFields solo para el detalle de /operacion/[id] -- ids de
 // operador/turno que la tabla/listado no necesita (evita ampliar la fila del
 // listado, que ya viaja paginada, con columnas que solo usa la ficha).

@@ -42,7 +42,7 @@ const sectionDefinitions = [
   {
     id: "administracion",
     title: "Administración",
-    labels: ["Empresas", "Usuarios", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Dispositivos", "Facturación", "Reportes", "Administración", "Integraciones"],
+    labels: ["Empresas", "Usuarios", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Cupones y descuentos", "Dispositivos", "Facturación", "Reportes", "Administración", "Integraciones"],
   },
   {
     id: "soporte",
@@ -210,7 +210,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
           {expanded ? (
             // Sangría reducida moderadamente (ml-6 -> ml-4), ver renderChild.
             <div className="relative ml-4 mt-1 space-y-0.5 border-l border-slate-300 pl-3">
-              {item.children.map((child) => renderChild(child, onNavigate, onStreetItem, treeKey))}
+              {item.children.filter((child) => navigationVisibleForRole(child, userContext)).map((child) => renderChild(child, onNavigate, onStreetItem, treeKey))}
             </div>
           ) : null}
         </div>
