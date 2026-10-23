@@ -32,7 +32,8 @@ export function ParkingStreetZonesAdmin({ parking, structure }) {
   </section>;
 }
 
-const DAY_LABELS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+// days_of_week usa ISO: 1 = lunes … 7 = domingo (ver offStreetAssignment.js).
+const DAY_LABELS = { 1: "Lun", 2: "Mar", 3: "Mié", 4: "Jue", 5: "Vie", 6: "Sáb", 7: "Dom" };
 
 // Asignaciones de operadores a tramos de calle Off Street (horario, días y vigencia).
 function OffStreetAssignmentsPanel({ parking, structure }) {

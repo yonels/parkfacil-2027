@@ -16,6 +16,8 @@ import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
 import { buildPosQuoteSnapshot, loadReleasedStaySnapshot, quoteParkingStay, quoteReleasedParkingStay, snapshotHasChargeBreakdown, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
 import { describeAuthorization } from "@/lib/releasedPayment/authorizationCore.mjs";
 import { ENTRY_DECISION, evaluateReleasedEntry, releasedStayCoverage } from "@/lib/releasedPayment/releasedStayCore.mjs";
+import { activeOperatorAssignments, operationalClock, resolveEntryStreetLocation, STREET_LOCATION_ERRORS, streetLocationErrorCode } from "@/lib/offStreet/streetLocationCore.mjs";
+import { loadStreetLocationData } from "@/lib/offStreet/streetLocationServer";
 import { loadModuleStates, loadPlateAuthorizations, rpcErrorCode, storageMissing } from "@/lib/releasedPayment/releasedPaymentServer";
 import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, requireOperationalParking, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
@@ -602,6 +604,25 @@ export async function POST(request) {
       }
     }
 
+    // Ubicación en calle (SOL-2026-10-23-001): tramo y número opcionales; fuera de la
+    // asignación del operador se permite y se marca. El cupo lo controla la base.
+    let streetLocation = null;
+    if (input.segmentId || (input.streetNumber !== undefined && input.streetNumber !== null && String(input.streetNumber).trim() !== "")) {
+      let streetData;
+      try { streetData = await loadStreetLocationData(current.db, assignedParkingId); } catch { return fail("No fue posible validar el tramo.", 503); }
+      const resolved = resolveEntryStreetLocation({
+        segments: streetData.segments,
+        activeAssignments: activeOperatorAssignments(streetData.assignments, current.actor.id, operationalClock()),
+        segmentId: input.segmentId,
+        streetNumber: input.streetNumber,
+      });
+      if (resolved.error) { const known = STREET_LOCATION_ERRORS[resolved.error]; return fail(known.message, known.status, { code: resolved.error }); }
+      streetLocation = resolved.location;
+      if (streetLocation && Number(streetData.occupancy[streetLocation.segment_id] || 0) >= Number(streetData.segments.find((item) => item.id === streetLocation.segment_id)?.capacity || 0)) {
+        return fail(STREET_LOCATION_ERRORS.STREET_SEGMENT_FULL.message, 409, { code: "STREET_SEGMENT_FULL" });
+      }
+    }
+
     const existing = await current.db
       .from("parking_stays")
       .select(publicStayFields)
@@ -630,7 +651,7 @@ export async function POST(request) {
       }
     }
 
-    const row = { code: code("ING"), parking_id: assignedParkingId, license_plate: plate, entry_operator_id: current.actor.id, entry_operator_name: current.actor.name, entry_source: isPosRequest ? "POS" : "WEB", entry_shift_id: isPosRequest ? posShift.id : null };
+    const row = { code: code("ING"), parking_id: assignedParkingId, license_plate: plate, entry_operator_id: current.actor.id, entry_operator_name: current.actor.name, entry_source: isPosRequest ? "POS" : "WEB", entry_shift_id: isPosRequest ? posShift.id : null, ...(streetLocation && !releasedEligible ? streetLocation : {}) };
     let data;
     let error;
     if (releasedEligible) {
@@ -645,6 +666,12 @@ export async function POST(request) {
         p_stay: row,
       });
       error = registered.error;
+      // El registro de patente liberada no conoce la ubicación en calle: se agrega
+      // después (el trigger revalida cupo y coherencia del tramo).
+      if (!error && streetLocation) {
+        const located = await current.db.from("parking_stays").update(streetLocation).eq("id", registered.data.id);
+        if (located.error) console.error("[data-entry:ENTRY:released:street-location]", { code: located.error.code, message: located.error.message });
+      }
       if (!error) {
         const reloaded = await current.db.from("parking_stays").select(publicStayFields).eq("id", registered.data.id).single();
         data = reloaded.data;
@@ -660,6 +687,8 @@ export async function POST(request) {
         return fail(RELEASED_ENTRY_ERRORS[releasedCode], 409, { code: releasedCode === "RELEASED_PAYMENT_STAY_DUPLICATE" ? "VEHICLE_ALREADY_INSIDE" : "RELEASED_PAYMENT_CHANGED", releasedCode });
       }
       if (error.code === "23505") return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409, { code: "VEHICLE_ALREADY_INSIDE" });
+      const locationCode = streetLocationErrorCode(error);
+      if (locationCode) return fail(STREET_LOCATION_ERRORS[locationCode].message, STREET_LOCATION_ERRORS[locationCode].status, { code: locationCode });
       return fail("No fue posible guardar el ingreso.", 503);
     }
 

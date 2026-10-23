@@ -132,6 +132,7 @@ export function validateOperatorAssignment(input, street, assignments = [], curr
   if (Number.isInteger(maximum) && maximum > Number(street?.capacity || 0)) errors.maxVehicles = "El máximo no puede superar la capacidad física de la calle.";
   if (!text(input?.startTime)) errors.startTime = "La hora de inicio es obligatoria.";
   if (!text(input?.endTime)) errors.endTime = "La hora de término es obligatoria.";
+  if (Array.isArray(input?.daysOfWeek) && !input.daysOfWeek.length) errors.daysOfWeek = "Elige al menos un día.";
   const concurrent = assignments.filter((item) => item.id !== currentId && item.status === "ACTIVE" && assignmentsOverlap(item, input));
   if (concurrent.some((item) => item.operatorId === input.operatorId)) errors.operatorId = "El operador ya tiene una asignación simultánea.";
   const used = concurrent.reduce((sum, item) => sum + Number(item.maxVehicles || 0), 0);

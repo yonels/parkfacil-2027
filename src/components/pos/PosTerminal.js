@@ -23,6 +23,7 @@ import { createTuuResultRouter } from "@/lib/pos/tuuResultRouter.mjs";
 import { abandonNativeTuuAttempt, ackNativeTuuResult, planNativeTuuSync, readNativeDeviceId, readPendingTuuState, readTuuBridgeEnvironment, resolvePosDeviceId, shouldAbandonLostTuuAttempt, shouldAckTuuResult, tuuLaunchBridge } from "@/lib/pos/tuuNativeBridge.mjs";
 import { TuuPendingPaymentCard, TuuPendingPaymentsAlert, TuuPendingPaymentsBanner } from "@/components/pos/PosTuuPendingPayments";
 import PlatePhotoCapture from "@/components/pos/PlatePhotoCapture";
+import PosStreetLocationPicker, { defaultStreetSegmentId } from "@/components/pos/PosStreetLocationPicker";
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
 import { ChargeBreakdownList, ClosedUnpaidExitsSummary, DebtNoticeBanner, UnpaidExitAction, UnpaidExitsReview } from "@/components/pos/PosUnpaidExit";
 import { summarizeChargeBreakdown } from "@/lib/parkingTimeBands.mjs";
@@ -1028,6 +1029,10 @@ export default function PosTerminal() {
   // Cupones (SOL-2026-10-19-002): APLICAR CUPÓN solo si el servidor los habilita
   // (apagados en producción). appliedCouponToken = cupón del cálculo vigente.
   const [couponsEnabled, setCouponsEnabled] = useState(false);
+  // Zonas de calle y tramos del estacionamiento (SOL-2026-10-23-001).
+  const [streetLocation, setStreetLocation] = useState({ enabled: false, segments: [], defaultSegmentId: null });
+  const [entrySegmentId, setEntrySegmentId] = useState("");
+  const [entryStreetNumber, setEntryStreetNumber] = useState("");
   const [appliedCouponToken, setAppliedCouponToken] = useState(null);
   const [couponEntryOpen, setCouponEntryOpen] = useState(false);
   const [couponCodeInput, setCouponCodeInput] = useState("");
@@ -1163,6 +1168,8 @@ export default function PosTerminal() {
       setPlatePhotoGpsMode(photoSettings?.gpsMode || "DISABLED");
       setCardPaymentsEnabled(summary.payload?.data?.cardPaymentsEnabled === true);
       setCouponsEnabled(summary.payload?.data?.couponsEnabled === true);
+      const nextStreetLocation = summary.payload?.data?.streetLocation;
+      setStreetLocation(nextStreetLocation?.enabled ? nextStreetLocation : { enabled: false, segments: [], defaultSegmentId: null });
     } catch {
       setError("Error de red al cargar el terminal POS.");
     } finally {
@@ -1438,6 +1445,8 @@ export default function PosTerminal() {
     setEntryPhoto(null);
     setEntryPhotoForPrint(null);
     setPhotoCaptureOpen(false);
+    setEntrySegmentId(defaultStreetSegmentId(streetLocation));
+    setEntryStreetNumber("");
     setEntryOpen(true);
     setSidebarOpen(false);
   }
@@ -3156,6 +3165,7 @@ export default function PosTerminal() {
           plate,
           source: "POS",
           deviceInfo,
+          ...(entrySegmentId ? { segmentId: entrySegmentId, streetNumber: entryStreetNumber || null } : {}),
           expectReleased: Boolean(releasedForEntry?.released),
           ...(entryPhoto
             ? {
@@ -3737,6 +3747,17 @@ export default function PosTerminal() {
               </p>
             ) : null}
           </div>
+        ) : null}
+
+        {entryStep === "CONFIRM" || entryStep === "PHOTO" ? (
+          <PosStreetLocationPicker
+            streetLocation={streetLocation}
+            segmentId={entrySegmentId}
+            streetNumber={entryStreetNumber}
+            onSegmentChange={(value) => { setEntrySegmentId(value); setEntryStreetNumber(""); if (entryError) clearEntryFailure(); }}
+            onStreetNumberChange={(value) => { setEntryStreetNumber(value); if (entryError) clearEntryFailure(); }}
+            disabled={entrySubmitting}
+          />
         ) : null}
 
         {alreadyInside ? (

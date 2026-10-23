@@ -8,6 +8,7 @@ import { listOpenPosStays } from "@/lib/posStaysService";
 import { getPlatePhotoSettings } from "@/lib/offStreet/offStreetPlatePhotoSettingsRepository";
 import { resolvePlatePhotoStatus } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
 import { configuredParkingCapacity } from "@/lib/pos/homeVehicles.mjs";
+import { loadStreetLocationData, streetLocationPosView } from "@/lib/offStreet/streetLocationServer";
 
 const PLATE_PHOTO_DISABLED = { plateMode: "DISABLED", printOnTicket: false, gpsMode: "DISABLED" };
 
@@ -34,7 +35,7 @@ export async function GET(request) {
     // campo el modo de foto que configura el administrador nunca llegaba y
     // el ingreso lo trataba siempre como DISABLED. Mismo criterio que
     // /api/data-entry: sin fila (o ante error) -> DISABLED.
-    const [summary, platePhotoSettings, capacity] = await Promise.all([
+    const [summary, platePhotoSettings, capacity, streetData] = await Promise.all([
       listOpenPosStays(authorization.db, parking.id, { now: new Date() }),
       // Ante un error de lectura el modo sigue siendo DISABLED (regla sin
       // cambios), pero ya no en silencio: se registra y el POS lo informa.
@@ -50,6 +51,12 @@ export async function GET(request) {
           return error ? null : configuredParkingCapacity(data);
         } catch { return null; }
       })(),
+      // Zonas de calle y tramos (SOL-2026-10-23-001): ante un error, el POS sigue
+      // operando como recinto (sin selector de tramo).
+      loadStreetLocationData(authorization.db, parking.id).catch((error) => {
+        console.error("[pos:stays] street location", { parkingId: parking.id, code: error?.code || null, message: error?.message || String(error) });
+        return null;
+      }),
     ]);
 
     return NextResponse.json({
@@ -70,6 +77,7 @@ export async function GET(request) {
         // Cupones (SOL-2026-10-19-002): APLICAR CUPÓN solo donde están habilitados.
         // + módulo activo de la empresa (SOL-2026-10-19-002, etapa C).
         couponsEnabled: await couponsActiveForParking(authorization.db, parking.id),
+        streetLocation: streetData ? streetLocationPosView(streetData, authorization.context.userId) : { enabled: false, segments: [], defaultSegmentId: null },
       },
     });
   } catch (error) {
