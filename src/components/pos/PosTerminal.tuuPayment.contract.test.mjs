@@ -553,3 +553,11 @@ test("fase APK: ambiente e identificador del equipo son datos declarados por el 
   assert.doesNotMatch(dataEntrySource, /input\.tuuEnvironment[\s\S]{0,80}(role|permission|REPORTS_READ)/);
   assert.match(terminalSource, /return resolvePosDeviceId\(getNativeDeviceBridge\(\), \(\) => getOrCreatePosDeviceId\(getTuuPendingStorage\(\)\)\);/);
 });
+
+test("pago con tarjeta no cobrado: PAGAR EN EFECTIVO lleva directo a confirmar el efectivo (2 toques)", () => {
+  const i = terminalSource.indexOf("PAGAR EN EFECTIVO");
+  assert.ok(i > 0);
+  const button = terminalSource.slice(terminalSource.lastIndexOf("<button", i), i);
+  assert.ok(button.includes('handlePaymentSelection("CASH")'));
+  assert.ok(terminalSource.indexOf('setPaymentStep("CASH_CONFIRM")') > 0);
+});

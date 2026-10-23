@@ -336,3 +336,15 @@ test("Pago-DEV real: HP-8 (faltan atributos, error 8) es pre-transaccional: no h
   assert.equal(outcome.outcome, TUU_OUTCOME.DECLINED);
   assert.equal(outcome.code, "HP-8");
 });
+
+test("Pago-PROD real: HP-35 (dispositivo no registrado) es pre-transaccional: no bloquea el ticket", () => {
+  const raw = JSON.stringify({ errorCode: "HP-35", errorMessage: "El dispositivo no se encuentra registrado.", extraData: {} });
+  const outcome = classifyTuuOutcome({ delivered: true, result: { success: false, cancelled: false, responseCode: "HP-35", rawResponse: raw } });
+  assert.equal(outcome.outcome, TUU_OUTCOME.DECLINED);
+  assert.equal(outcome.code, "HP-35");
+});
+
+test("un HP-* no documentado sigue siendo incierto (no se asume rechazo)", () => {
+  const raw = JSON.stringify({ errorCode: "HP-99", errorMessage: "Error desconocido", extraData: {} });
+  assert.equal(classifyTuuOutcome({ delivered: true, result: { success: false, cancelled: false, rawResponse: raw } }).outcome, TUU_OUTCOME.UNCERTAIN);
+});

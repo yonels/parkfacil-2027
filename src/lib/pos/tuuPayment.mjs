@@ -270,6 +270,11 @@ export const TUU_PRE_TRANSACTION_ERROR_CODES = new Set([
   // atributos requeridos están presentes"), en 0,3 s y sin leer la tarjeta. No
   // figura en la tabla post-transaccional de TUU.
   "HP-8",
+  // Pago-PROD real (SOL-2026-10-21-002, 2026-10-23): "HP-35" "El dispositivo no
+  // se encuentra registrado." en 7-9 s, sin transactionId y sin pedir la
+  // tarjeta (equipo no registrado en el comercio TUU). No hubo cargo
+  // (confirmado por el usuario): no debe bloquear el ticket.
+  "HP-35",
 ]);
 
 // errorCodeOnApp documentado para "La transacción fue cancelada".

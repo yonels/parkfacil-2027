@@ -5251,6 +5251,14 @@ export default function PosTerminal() {
                       nunca pasan por aquí: se muestran con
                       TuuPendingPaymentCard, sin opción de volver a cobrar.
                     */}
+                    {/* Un toque directo a EFECTIVO (luego CONFIRMAR PAGO): la fila no espera. */}
+                    <button
+                      type="button"
+                      onClick={() => { setCardPaymentStatus(""); setCardPaymentMessage(""); handlePaymentSelection("CASH"); }}
+                      className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-emerald-500"
+                    >
+                      PAGAR EN EFECTIVO
+                    </button>
                     <button
                       type="button"
                       onClick={() => { setPaymentStep("MENU"); setCardPaymentStatus(""); setCardPaymentMessage(""); }}
