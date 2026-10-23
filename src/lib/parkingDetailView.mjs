@@ -2,12 +2,15 @@
 // encabezado y comparación de capacidad vs. plazas contratadas), separada de la capa
 // visual para poder probarla sin depender de React/Next.
 
-export const PARKING_DETAIL_TAB_KEYS = Object.freeze(["resumen", "plazas-contratadas", "estructura", "sesiones-qr", "tarifas", "operadores", "turnos", "infraestructura"]);
+export const PARKING_DETAIL_TAB_KEYS = Object.freeze(["resumen", "plazas-contratadas", "estructura", "calles", "sesiones-qr", "tarifas", "operadores", "turnos", "infraestructura"]);
 
 const BASE_TABS = Object.freeze([
   { key: "resumen", label: "Resumen" },
   { key: "plazas-contratadas", label: "Plazas Contratadas" },
   { key: "estructura", label: null },
+  // Zonas de calle, calles y tramos en Off Street (SOL-2026-10-23-001); en On Street la
+  // estructura misma ya son zonas de calle.
+  { key: "calles", label: "Zonas de calle", offStreetOnly: true },
   { key: "sesiones-qr", label: "Sesiones QR", onStreetOnly: true },
   { key: "tarifas", label: "Tarifas" },
   { key: "operadores", label: "Operadores" },
@@ -17,12 +20,16 @@ const BASE_TABS = Object.freeze([
 
 export function parkingDetailTabs(parking) {
   const onStreet = parking?.type === "ON_STREET";
-  return BASE_TABS.filter((tab) => !tab.onStreetOnly || onStreet).map((tab) => (tab.key === "estructura" ? { ...tab, label: onStreet ? "Sectores y Calles" : "Niveles y Zonas" } : tab));
+  return BASE_TABS.filter((tab) => (!tab.onStreetOnly || onStreet) && (!tab.offStreetOnly || parking?.type === "OFF_STREET")).map((tab) => (tab.key === "estructura" ? { ...tab, label: onStreet ? "Sectores y Calles" : "Niveles y Zonas" } : tab));
 }
 
 export function structureCreateHref(parking) {
   const onStreet = parking?.type === "ON_STREET";
   return `/estacionamientos/${parking?.code}/${onStreet ? "sectores" : "niveles"}/nuevo`;
+}
+
+export function streetZoneCreateHref(parking) {
+  return `/estacionamientos/${parking?.code}/sectores/nuevo`;
 }
 
 export function structureCreateLabel(parking) {
@@ -34,6 +41,7 @@ export function structureCreateLabel(parking) {
 // reutilizar; el resto no debe mostrar ninguna acción adicional.
 export function headerActionForTab(activeTab) {
   if (activeTab === "estructura") return "estructura";
+  if (activeTab === "calles") return "calles";
   if (activeTab === "tarifas") return "tarifas";
   return null;
 }

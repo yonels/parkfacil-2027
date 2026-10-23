@@ -9,20 +9,31 @@ import StreetSegmentsManager from "./StreetSegmentsManager";
 import { getParkingPageData } from "@/lib/estacionamientosServer";
 import { getStructurePageData } from "@/lib/parkingStructureServer";
 
+// Zonas de calle y calles existen en On Street y, desde SOL-2026-10-23-001, también en
+// Off Street (junto a niveles y zonas de recinto); niveles y zonas siguen siendo solo Off Street.
+function kindParkingType(kind, parking) {
+  if (["sector", "street"].includes(kind)) return parking.type === "OFF_STREET" ? "OFF_STREET" : "ON_STREET";
+  return "OFF_STREET";
+}
+
+function sectorListTitle(parking) {
+  return parking.type === "OFF_STREET" ? "Zonas de calle" : "Áreas y Calles";
+}
+
 export async function StructureListRoute({ parkingId, kind }) {
   const parking = await getParkingPageData(parkingId);
   if (!parking) return <NotFound />;
   const structure = await getStructurePageData(parking);
-  const expected = kind === "sector" ? "ON_STREET" : "OFF_STREET";
+  const expected = kindParkingType(kind, parking);
   if (parking.type !== expected) return <WrongType parking={parking} expected={expected} />;
   const entities = kind === "sector" ? structure.sectors || [] : structure.levels || [];
-  return <AppShell title={kind === "sector" ? "Áreas y Calles" : "Niveles y Zonas"} description={parking.name}><div className="space-y-6"><PageHeader title={kind === "sector" ? "Áreas y Calles" : "Niveles y Zonas"} description={`${parking.code} · ${parking.name}`} actions={[<BackLink key="back" href={`/estacionamientos/${parking.code}`} />, <Link key="new" href={`/estacionamientos/${parking.code}/${kind === "sector" ? "sectores" : "niveles"}/nuevo`} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white">{kind === "sector" ? "Crear área" : "Crear nivel"}</Link>]} />{structure.source === "demo" && <DemoNotice />}{entities.map((entity) => <EntityCard key={entity.id} parking={parking} kind={kind} entity={entity} />)}{!entities.length && <Empty />}</div></AppShell>;
+  return <AppShell title={kind === "sector" ? sectorListTitle(parking) : "Niveles y Zonas"} description={parking.name}><div className="space-y-6"><PageHeader title={kind === "sector" ? sectorListTitle(parking) : "Niveles y Zonas"} description={`${parking.code} · ${parking.name}`} actions={[<BackLink key="back" href={`/estacionamientos/${parking.code}`} />, <Link key="new" href={`/estacionamientos/${parking.code}/${kind === "sector" ? "sectores" : "niveles"}/nuevo`} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white">{kind === "sector" ? "Crear área" : "Crear nivel"}</Link>]} />{structure.source === "demo" && <DemoNotice />}{entities.map((entity) => <EntityCard key={entity.id} parking={parking} kind={kind} entity={entity} />)}{!entities.length && <Empty />}</div></AppShell>;
 }
 
 export async function StructureFormRoute({ parkingId, kind, entityId = null, parentId = null }) {
   const parking = await getParkingPageData(parkingId);
   if (!parking) return <NotFound />;
-  const expected = ["sector", "street"].includes(kind) ? "ON_STREET" : "OFF_STREET";
+  const expected = kindParkingType(kind, parking);
   if (parking.type !== expected) return <WrongType parking={parking} expected={expected} />;
   const structure = await getStructurePageData(parking);
   const parentList = kind === "street" ? structure.sectors || [] : kind === "zone" ? structure.levels || [] : [];
@@ -30,7 +41,7 @@ export async function StructureFormRoute({ parkingId, kind, entityId = null, par
   const list = kind === "sector" ? structure.sectors || [] : kind === "level" ? structure.levels || [] : kind === "street" ? parent?.streets || [] : parent?.zones || [];
   const entity = entityId ? list.find((item) => item.id === entityId) : null;
   if ((parentId && !parent) || (entityId && !entity)) return <NotFound />;
-  const titles = { sector: "área", level: "nivel", street: "calle", zone: "zona" };
+  const titles = { sector: parking.type === "OFF_STREET" ? "zona de calle" : "área", level: "nivel", street: "calle", zone: "zona" };
   const title = `${entity ? "Editar" : "Crear"} ${titles[kind]}`;
   const collection = kind === "sector" ? "sectores" : kind === "level" ? "niveles" : null;
   const backHref = kind === "street"
@@ -44,7 +55,7 @@ export async function StructureFormRoute({ parkingId, kind, entityId = null, par
 export async function StructureDetailRoute({ parkingId, kind, entityId, parentId = null }) {
   const parking = await getParkingPageData(parkingId);
   if (!parking) return <NotFound />;
-  const expected = ["sector", "street"].includes(kind) ? "ON_STREET" : "OFF_STREET";
+  const expected = kindParkingType(kind, parking);
   if (parking.type !== expected) return <WrongType parking={parking} expected={expected} />;
   const structure = await getStructurePageData(parking);
   const parent = parentId ? (structure.sectors || []).find((item) => item.id === parentId) : null;
@@ -62,7 +73,7 @@ export async function AssignmentRoute({ parkingId, sectorId, streetId, form = fa
   const streetBase = `/estacionamientos/${parking.code}/sectores/${sector.id}/calles/${street.id}`;
   if (form) return <AppShell title="Asignar operador" description={street.name}><PageHeader title="Asignar operador" description={`${sector.displayName} · Calle ${street.name}`} actions={[<BackLink key="back" href={`${streetBase}/operadores`} />]} /><div className="mt-6"><OperatorAssignmentForm parking={parking} sector={sector} street={street} /></div></AppShell>;
   const assignments = (structure.assignments || []).filter((item) => (item.streetId || item.street_id) === street.id);
-  return <AppShell title="Operadores asignados" description={street.name}><div className="space-y-6"><PageHeader title="Operadores asignados" description={`${sector.displayName} · Calle ${street.name}`} actions={[<BackLink key="back" href={streetBase} />, <Link key="new" href={`${streetBase}/operadores/nuevo`} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white">Asignar operador</Link>]} />{structure.source === "demo" && <DemoNotice />}{assignments.map((item) => <div key={item.id} className="rounded-3xl border border-slate-200 bg-white p-5"><p className="font-semibold text-[#041E42]">{item.operatorName || item.operator_id}</p><p className="mt-1 text-sm text-slate-600">Números {item.numberFrom ?? item.number_from} a {item.numberTo ?? item.number_to} · Máximo {item.maxVehicles ?? item.max_vehicles} vehículos</p></div>)}{!assignments.length && <Empty />}</div></AppShell>;
+  return <AppShell title="Operadores asignados" description={street.name}><div className="space-y-6"><PageHeader title="Operadores asignados" description={`${sector.displayName} · Calle ${street.name}`} actions={[<BackLink key="back" href={streetBase} />, <Link key="new" href={`${streetBase}/operadores/nuevo`} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white">Asignar operador</Link>]} />{structure.source === "demo" && <DemoNotice />}{assignments.map((item) => <div key={item.id} className="rounded-3xl border border-slate-200 bg-white p-5"><p className="font-semibold text-[#041E42]">{item.operatorName || item.operator_name || item.operator_id}</p><p className="mt-1 text-sm text-slate-600">Números {item.numberFrom ?? item.number_from} a {item.numberTo ?? item.number_to} · Máximo {item.maxVehicles ?? item.max_vehicles} vehículos{item.start_time ? ` · ${String(item.start_time).slice(0, 5)}–${String(item.end_time).slice(0, 5)}` : ""}</p></div>)}{!assignments.length && <Empty />}</div></AppShell>;
 }
 
 function BackLink({ href }) { return <Link href={href} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] hover:border-[#3150D8] hover:text-[#3150D8]"><ArrowLeft className="h-4 w-4" /> Volver</Link>; }

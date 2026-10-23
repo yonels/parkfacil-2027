@@ -4,6 +4,7 @@ import { sanitizeOnStreetSector, validateOnStreetSector } from "@/lib/parkingOpe
 import { sectorInput } from "@/lib/parkingStructureRepository";
 import { authorizeParkingRequest, requireParkingChild } from "@/lib/auth/parkingAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { requireStreetSector } from "@/lib/auth/parkingStreetSector";
 import { authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 
 function fail(error) {
@@ -16,7 +17,7 @@ export async function GET(request, { params }) {
   try {
     const { id, sectorId } = await params;
     const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_READ); if (auth.response) return auth.response;
-    const sector = await requireParkingChild(auth.db, auth.context, auth.parking, "parking_sectors", sectorId);
+    const sector = await requireStreetSector(auth.db, auth.context, auth.parking, sectorId);
     return NextResponse.json({ data: sector });
   } catch (error) {
     if (error?.status) return authorizationErrorResponse(request, error, error.auditContext);
@@ -28,7 +29,7 @@ export async function PATCH(request, { params }) {
   try {
     const { id, sectorId } = await params;
     const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_MANAGE); if (auth.response) return auth.response;
-    await requireParkingChild(auth.db, auth.context, auth.parking, "parking_sectors", sectorId);
+    await requireStreetSector(auth.db, auth.context, auth.parking, sectorId);
     const payload = sanitizeOnStreetSector(await request.json());
     const validation = validateOnStreetSector(payload);
     if (Object.keys(validation).length) return NextResponse.json({ error: "Revisa los campos indicados.", code: "VALIDATION_ERROR", details: validation }, { status: 400 });

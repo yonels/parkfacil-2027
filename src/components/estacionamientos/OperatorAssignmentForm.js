@@ -1,12 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getUsuariosDemo } from "@/data/usuarios.mjs";
+import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import { validateOperatorAssignment } from "@/lib/parkingOperations.mjs";
 
-const operators = getUsuariosDemo().filter((user) => user.perfilPrincipal === "operator" || user.perfilesSecundarios?.includes("operator"));
 const empty = { operatorId: "", numberFrom: "", numberTo: "", maxVehicles: "", validFrom: "", validUntil: "", startTime: "", endTime: "", daysOfWeek: [1,2,3,4,5], status: "ACTIVE", supervisorId: "", notes: "" };
 
 export default function OperatorAssignmentForm({ parking, sector, street, assignment = null }) {
@@ -15,6 +14,17 @@ export default function OperatorAssignmentForm({ parking, sector, street, assign
   const [errors, setErrors] = useState({});
   const [requestError, setRequestError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Operadores reales de la empresa con acceso a este estacionamiento (antes: lista de
+  // demostración). SOL-2026-10-23-001.
+  const [users, setUsers] = useState([]);
+  useEffect(() => {
+    let active = true;
+    authenticatedFetch("/api/usuarios").then((response) => response.json().catch(() => ({}))).then((body) => {
+      if (active) setUsers(Array.isArray(body.data) ? body.data.filter((user) => (user.estacionamientos || []).includes(parking.id)) : []);
+    }).catch(() => { if (active) setUsers([]); });
+    return () => { active = false; };
+  }, [parking.id]);
+  const operators = users.filter((user) => user.perfilPrincipal === "operator" || user.perfilesSecundarios?.includes("operator"));
   const set = (field, value) => setValues((current) => ({ ...current, [field]: value }));
   const base = `/estacionamientos/${parking.code}/sectores/${sector.id}/calles/${street.id}/operadores`;
   async function submit(event) {
@@ -38,7 +48,7 @@ export default function OperatorAssignmentForm({ parking, sector, street, assign
     <Field label="Máximo administrable" error={errors.maxVehicles}><input type="number" min="1" value={values.maxVehicles ?? ""} onChange={(e) => set("maxVehicles", e.target.value)} className={inputClass} /></Field>
     <Field label="Inicio de vigencia"><input type="date" value={values.validFrom ?? ""} onChange={(e) => set("validFrom", e.target.value)} className={inputClass} /></Field><Field label="Término de vigencia (opcional)"><input type="date" value={values.validUntil ?? ""} onChange={(e) => set("validUntil", e.target.value)} className={inputClass} /></Field>
     <Field label="Hora de inicio" error={errors.startTime}><input type="time" value={values.startTime ?? ""} onChange={(e) => set("startTime", e.target.value)} className={inputClass} /></Field><Field label="Hora de término" error={errors.endTime}><input type="time" value={values.endTime ?? ""} onChange={(e) => set("endTime", e.target.value)} className={inputClass} /></Field>
-    <Field label="Supervisor (opcional)"><select value={values.supervisorId ?? ""} onChange={(e) => set("supervisorId", e.target.value)} className={inputClass}><option value="">Sin supervisor</option>{getUsuariosDemo().map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select></Field>
+    <Field label="Supervisor (opcional)"><select value={values.supervisorId ?? ""} onChange={(e) => set("supervisorId", e.target.value)} className={inputClass}><option value="">Sin supervisor</option>{users.map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select></Field>
     <Field label="Observaciones"><textarea value={values.notes ?? ""} onChange={(e) => set("notes", e.target.value)} className={inputClass} /></Field>
   </div><p className="mt-4 text-xs text-slate-500">El rango representa responsabilidad territorial; no corresponde a plazas físicas individuales.</p><div className="mt-6 flex justify-end gap-3"><Link href={base} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold">Cancelar</Link><button disabled={submitting} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white">{submitting ? "Creando asignación…" : "Crear asignación"}</button></div></form>;
 }

@@ -7,7 +7,7 @@ const onStreetParking = { code: "AAA", type: "ON_STREET" };
 const offStreetParking = { code: "PC-001", type: "OFF_STREET" };
 
 test("orden exacto de las secciones del detalle", () => {
-  assert.deepEqual(PARKING_DETAIL_TAB_KEYS, ["resumen", "plazas-contratadas", "estructura", "sesiones-qr", "tarifas", "operadores", "turnos", "infraestructura"]);
+  assert.deepEqual(PARKING_DETAIL_TAB_KEYS, ["resumen", "plazas-contratadas", "estructura", "calles", "sesiones-qr", "tarifas", "operadores", "turnos", "infraestructura"]);
   assert.deepEqual(parkingDetailTabs(onStreetParking).map((tab) => tab.key), ["resumen", "plazas-contratadas", "estructura", "sesiones-qr", "tarifas", "operadores", "turnos", "infraestructura"]);
   assert.equal(parkingDetailTabs(offStreetParking).some((tab) => tab.key === "sesiones-qr"), false);
 });
@@ -76,4 +76,10 @@ test("company_admin administra tarifas de su empresa pero no plazas contratadas 
 test("platform_admin mantiene alcance Root completo", () => {
   assert.equal(hasPermission("platform_admin", PERMISSIONS.PARKINGS_MANAGE), true);
   assert.equal(hasPermission("platform_admin", PERMISSIONS.PLATFORM_GLOBAL), true);
+});
+
+test("Off Street tiene la pestaña Zonas de calle (SOL-2026-10-23-001); On Street no", () => {
+  assert.ok(parkingDetailTabs(offStreetParking).some((tab) => tab.key === "calles" && tab.label === "Zonas de calle"));
+  assert.equal(parkingDetailTabs(onStreetParking).some((tab) => tab.key === "calles"), false);
+  assert.equal(headerActionForTab("calles"), "calles");
 });

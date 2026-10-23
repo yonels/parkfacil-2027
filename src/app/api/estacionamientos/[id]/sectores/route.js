@@ -30,7 +30,7 @@ export async function POST(request, { params }) {
     if (Object.keys(validation).length) return NextResponse.json({ error: "Revisa los campos indicados.", code: "VALIDATION_ERROR", details: validation }, { status: 400 });
     const supabase = auth.db;
     const parking = auth.parking;
-    if (parking.type !== "ON_STREET") return NextResponse.json({ error: "Los sectores solo pertenecen a estacionamientos On Street." }, { status: 409 });
+    // Zonas de calle: On Street y, desde SOL-2026-10-23-001, también Off Street (junto a niveles).
     const { data, error } = await supabase.from("parking_sectors").insert(sectorInput(payload, parking.id)).select("*").limit(1);
     if (error) throw error;
     return NextResponse.json({ data: data[0] }, { status: 201 });

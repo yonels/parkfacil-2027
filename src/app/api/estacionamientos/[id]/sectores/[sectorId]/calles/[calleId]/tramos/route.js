@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authorizeParkingRequest, requireParkingChild } from "@/lib/auth/parkingAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { requireStreetSector } from "@/lib/auth/parkingStreetSector";
 import { sanitizeStreetSegment, validateStreetSegment, sortOrderToLetter, segmentCodeForLetter } from "@/lib/parkingSegments.mjs";
 import { operationalError, validationError } from "@/lib/parkingApi";
 
@@ -15,7 +16,7 @@ export async function GET(request, { params }) {
   try {
     const { id, sectorId, calleId } = await params;
     const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_READ); if (auth.response) return auth.response;
-    await requireParkingChild(auth.db, auth.context, auth.parking, "parking_sectors", sectorId);
+    await requireStreetSector(auth.db, auth.context, auth.parking, sectorId);
     await requireParkingChild(auth.db, auth.context, auth.parking, "parking_streets", calleId, { sector_id: sectorId });
     const { data, error } = await auth.db.from("parking_street_segments").select("*").eq("parking_id", auth.parking.id).eq("area_id", sectorId).eq("street_id", calleId).order("sort_order").order("from_number");
     if (error) throw error;
@@ -27,7 +28,7 @@ export async function POST(request, { params }) {
   try {
     const { id, sectorId, calleId } = await params;
     const auth = await authorizeParkingRequest(request, id, PERMISSIONS.PARKINGS_MANAGE); if (auth.response) return auth.response;
-    await requireParkingChild(auth.db, auth.context, auth.parking, "parking_sectors", sectorId);
+    await requireStreetSector(auth.db, auth.context, auth.parking, sectorId);
     await requireParkingChild(auth.db, auth.context, auth.parking, "parking_streets", calleId, { sector_id: sectorId });
     const raw = await request.json();
     // Código automático (corrección UX "Proyectos On Street" 2026-08-29):

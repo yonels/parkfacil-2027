@@ -9,7 +9,7 @@ import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import EstacionamientoResumen from "./EstacionamientoResumen";
 import EstadoEstacionamientoBadge from "./EstadoEstacionamientoBadge";
 import TipoEstacionamientoBadge from "./TipoEstacionamientoBadge";
-import ParkingStructureAdmin, { ParkingOperatorsPanel, structureCreateHref, structureCreateLabel } from "./ParkingStructureAdmin";
+import ParkingStructureAdmin, { ParkingOperatorsPanel, ParkingStreetZonesAdmin, streetZoneCreateHref, structureCreateHref, structureCreateLabel } from "./ParkingStructureAdmin";
 import ParkingRatesManager from "./ParkingRatesManager";
 import ParkingQrSessionsPanel from "./ParkingQrSessionsPanel";
 import ParkingShiftsManager from "./ParkingShiftsManager";
@@ -71,6 +71,8 @@ export default function EstacionamientoDetalleAdmin({ parking, structure, compan
   const contextualAction = headerActionForTab(activeTab);
   if (contextualAction === "estructura") {
     headerActions.push(<Link key="crear-estructura" href={structureCreateHref(parking)} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white"><Plus className="h-4 w-4" /> {structureCreateLabel(parking)}</Link>);
+  } else if (contextualAction === "calles") {
+    headerActions.push(<Link key="crear-zona-calle" href={streetZoneCreateHref(parking)} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white"><Plus className="h-4 w-4" /> Crear zona de calle</Link>);
   } else if (contextualAction === "tarifas") {
     headerActions.push(<button key="crear-tarifa" type="button" onClick={() => setTarifaSignal((n) => n + 1)} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white"><Plus className="h-4 w-4" /> Nueva tarifa</button>);
   }
@@ -164,12 +166,13 @@ export default function EstacionamientoDetalleAdmin({ parking, structure, compan
     </section> : null}
 
     {activeTab === "estructura" ? <ParkingStructureAdmin parking={parking} structure={structure} /> : null}
+    {activeTab === "calles" ? <ParkingStreetZonesAdmin parking={parking} structure={structure} /> : null}
 
     {activeTab === "sesiones-qr" ? <ParkingQrSessionsPanel parking={parking} /> : null}
 
     {activeTab === "tarifas" ? <ParkingRatesManager parking={parking} showCreateButton={false} openSignal={tarifaSignal} /> : null}
 
-    {activeTab === "operadores" ? <ParkingOperatorsPanel parking={parking} /> : null}
+    {activeTab === "operadores" ? <ParkingOperatorsPanel parking={parking} structure={structure} /> : null}
     {activeTab === "turnos" ? <ParkingShiftsManager parking={parking} structure={structure} /> : null}
 
     {activeTab === "infraestructura" ? <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">

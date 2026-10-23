@@ -60,7 +60,9 @@ export default function ParkingShiftsManager({ parking, structure }) {
   }), [structure, users]);
 
   const selectedAssignment = assignmentOptions.find((item) => item.id === form.assignmentId) || null;
-  const allowOffStreetDirectOperator = parking.type === "OFF_STREET" && assignmentOptions.length === 0;
+  // Off Street: el turno de recinto se crea eligiendo operador (asignación base automática);
+  // las asignaciones a tramos de calle (SOL-2026-10-23-001) no cambian eso.
+  const allowOffStreetDirectOperator = parking.type === "OFF_STREET";
 
   useEffect(() => {
     let active = true;
