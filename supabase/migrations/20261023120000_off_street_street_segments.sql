@@ -22,11 +22,10 @@ alter table public.parking_sectors drop constraint if exists parking_sectors_str
 alter table public.parking_sectors
   add constraint parking_sectors_structure_kind_check check (structure_kind in ('PREMISES', 'STREET'));
 
--- Las áreas On Street siempre fueron zonas de calle.
-update public.parking_sectors s
-set structure_kind = 'STREET'
-from public.parkings p
-where p.id = s.parking_id and p.type = 'ON_STREET' and s.structure_kind <> 'STREET';
+-- Sin actualizar filas existentes: structure_kind solo se usa en estacionamientos
+-- Off Street (On Street lee todas sus áreas). Actualizar las áreas On Street chocaba
+-- en producción con códigos antiguos que no cumplen parking_sectors_area_code_check
+-- (NOT VALID, pero se evalúa en cada UPDATE). Las zonas nuevas se crean como STREET.
 
 -- 2. Ubicación de la estadía ---------------------------------------------------
 alter table public.parking_stays
