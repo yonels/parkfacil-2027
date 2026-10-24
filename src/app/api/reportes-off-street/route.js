@@ -8,6 +8,8 @@ import { toOccupancyReportRow, validateReportsFilters } from "@/lib/offStreetRep
 import { listParkings } from "@/lib/estacionamientosRepository";
 import { searchCouponRedemptions } from "@/lib/cupones/couponReportsService";
 import { COUPONS_DISABLED_ERROR, couponsEnabled } from "@/lib/cupones/couponsAvailability.mjs";
+import { validateStreetReportFilters } from "@/lib/offStreet/streetReportsCore.mjs";
+import { streetMovementsReport, streetOccupancyReport, streetSummaryReport } from "@/lib/offStreet/streetReportsService";
 
 function fail(message, status = 400, details) {
   return NextResponse.json({ error: message, details }, { status });
@@ -43,7 +45,13 @@ export async function GET(request) {
 
     const validation = validateReportsFilters({ type, dateFrom, dateTo, status, movement });
     if (!validation.ok) return fail(validation.message, 400, { code: "INVALID_FILTERS" });
-    if (all && !["occupancy", "parked"].includes(type) && !(type === "shifts" && ["OPEN", "CLOSING"].includes(status)) && !dateFrom && !dateTo) {
+    const streetView = url.searchParams.get("view") || "occupancy";
+    const groupBy = url.searchParams.get("groupBy") || "segment";
+    if (type === "streets") {
+      const streetValidation = validateStreetReportFilters({ view: streetView, groupBy });
+      if (!streetValidation.ok) return fail(streetValidation.message, 400, { code: "INVALID_FILTERS" });
+    }
+    if (all && !["occupancy", "parked"].includes(type) && !(type === "streets" && streetView === "occupancy") && !(type === "shifts" && ["OPEN", "CLOSING"].includes(status)) && !dateFrom && !dateTo) {
       return fail("Selecciona un rango de fechas antes de exportar todo el resultado.", 400, { code: "EXPORT_REQUIRES_DATE_RANGE" });
     }
 
@@ -97,6 +105,18 @@ export async function GET(request) {
         insideCount: openCounts.get(parking.id) || 0,
       }));
       return NextResponse.json({ data: { rows, total: rows.length, actor } });
+    }
+
+    // Calles y tramos (SOL-2026-10-23-001): ocupación actual por tramo, movimientos
+    // con ubicación, resumen por zona/calle/tramo/operador y fuera de asignación.
+    if (type === "streets") {
+      const options = { parkingId, companyId, dateFrom, dateTo, operatorId };
+      const result = streetView === "occupancy"
+        ? await streetOccupancyReport(authorization.db, scopedParkings, { parkingId, companyId })
+        : streetView === "summary"
+          ? await streetSummaryReport(authorization.db, scopedParkings, { ...options, groupBy })
+          : await streetMovementsReport(authorization.db, scopedParkings, { ...options, outOfAssignmentOnly: streetView === "outOfAssignment" });
+      return NextResponse.json({ data: { rows: result.rows, total: result.rows.length, actor } });
     }
 
     return fail(`type desconocido: ${type}`, 400, { code: "INVALID_FILTERS" });

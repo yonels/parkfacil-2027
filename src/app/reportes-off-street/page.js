@@ -34,10 +34,19 @@ const TABS = [
   { id: "cierres", label: "Cierres de caja" },
   { id: "turnos", label: "Operadores y turnos" },
   { id: "ocupacion", label: "Ocupación" },
+  // Zonas de calle y tramos (SOL-2026-10-23-001).
+  { id: "calles", label: "Calles y tramos" },
   // Cupones (SOL-2026-10-19-002): oculta donde los cupones están apagados (producción).
   ...(couponsVisible() ? [{ id: "cupones", label: "Cupones" }] : []),
 ];
 const TAB_IDS = new Set(TABS.map((t) => t.id));
+const STREET_VIEWS = [
+  { id: "occupancy", label: "Ocupación actual por tramo" },
+  { id: "movements", label: "Movimientos por ubicación" },
+  { id: "summary", label: "Resumen agrupado" },
+  { id: "outOfAssignment", label: "Ingresos fuera de asignación" },
+];
+const STREET_GROUPS = [["zone", "Zona"], ["street", "Calle"], ["segment", "Tramo"], ["operator", "Operador"]];
 
 // Reutiliza la constante central en vez de repetir el literal (defecto real
 // detectado en la validación Fase 5, §18).
@@ -82,6 +91,9 @@ function ReportesOffStreetContent() {
   const [actorId, setActorId] = useState("");
   const [selected, setSelected] = useState(null);
   const [movement, setMovement] = useState(searchParams.get("movement") || "entries");
+  const [streetView, setStreetView] = useState(searchParams.get("view") || "occupancy");
+  const [streetGroup, setStreetGroup] = useState(searchParams.get("groupBy") || "segment");
+  const streetNoDates = tab === "calles" && streetView === "occupancy";
   const currentShifts = tab === "turnos" && searchParams.get("current") === "true";
 
   function setTab(nextTab) {
@@ -134,7 +146,7 @@ function ReportesOffStreetContent() {
         const params = new URLSearchParams();
         if (company) params.set("companyId", company);
         if (parking) params.set("parkingId", parking);
-        if (!["ocupacion", "estacionados"].includes(tab) && !currentShifts) { params.set("dateFrom", from); params.set("dateTo", to); }
+        if (!["ocupacion", "estacionados"].includes(tab) && !currentShifts && !streetNoDates) { params.set("dateFrom", from); params.set("dateTo", to); }
         params.set("all", "true");
         if (currentShifts) params.set("current", "true");
 
@@ -143,6 +155,7 @@ function ReportesOffStreetContent() {
         else if (tab === "cierres") { if (operatorId) params.set("operatorId", operatorId); url = `/api/recaudacion/cierres?${params.toString()}`; }
         else if (tab === "movimientos") { params.set("type", "movements"); params.set("movement", movement); if (status) params.set("status", status); if (operatorId) params.set("operatorId", operatorId); if (query) params.set("query", query); url = `/api/reportes-off-street?${params.toString()}`; }
         else if (tab === "estacionados") { params.set("type", "parked"); if (query) params.set("query", query); url = `/api/reportes-off-street?${params.toString()}`; }
+        else if (tab === "calles") { params.set("type", "streets"); params.set("view", streetView); if (streetView === "summary") params.set("groupBy", streetGroup); if (operatorId && streetView !== "occupancy") params.set("operatorId", operatorId); url = `/api/reportes-off-street?${params.toString()}`; }
         else if (tab === "cupones") { params.set("type", "coupons"); url = `/api/reportes-off-street?${params.toString()}`; }
         else if (tab === "turnos") { params.set("type", "shifts"); if (status) params.set("status", status); if (operatorId) params.set("operatorId", operatorId); url = `/api/reportes-off-street?${params.toString()}`; }
         else { params.set("type", "occupancy"); url = `/api/reportes-off-street?${params.toString()}`; }
@@ -171,7 +184,7 @@ function ReportesOffStreetContent() {
     }
     void load();
     return () => { cancelled = true; };
-  }, [tab, company, parking, from, to, operatorId, status, method, query, movement, currentShifts, searchParams]);
+  }, [tab, company, parking, from, to, operatorId, status, method, query, movement, currentShifts, searchParams, streetView, streetGroup, streetNoDates]);
 
   const parkingOptions = useMemo(() => (company ? parkings.filter((p) => p.companyId === company) : parkings), [company, parkings]);
   const operatorOptions = useMemo(() => operators.filter((user) => {
@@ -187,8 +200,11 @@ function ReportesOffStreetContent() {
     if (tab === "cierres") return [["folio", "Folio"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["operator", "Operador"], ["shiftDate", "Turno"], ["openedAt", "Inicio"], ["closedAt", "Cierre"], ["confirmedPaymentsCount", "Pagos confirmados"], ["cashAmount", "Efectivo"], ["creditAmount", "Crédito"], ["debitAmount", "Débito"], ["unclassifiedCardAmount", "Tarjeta sin clasificar"], ["grossAmount", "Total"], ["declaredCashAmount", "Efectivo declarado"], ["cashDifference", "Diferencia"], ["differenceObservation", "Observación"], ["couponCount", "Cupones canjeados"], ["couponDiscountAmount", "Descuento cupones"], ["pendingVehiclesCount", "Vehículos pendientes"]];
     if (tab === "cupones") return [["date", "Fecha"], ["time", "Hora"], ["ticket", "Ticket"], ["plate", "Patente"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["operator", "Operador"], ["couponCode", "Cupón"], ["campaign", "Campaña"], ["merchant", "Tienda"], ["benefit", "Beneficio"], ["subtotalAmount", "Subtotal"], ["discountAmount", "Descuento"], ["amount", "Total pagado"], ["paymentMethod", "Medio de pago"]];
     if (tab === "turnos") return [["operator", "Operador"], ["companyName", "Empresa"], ["parkingName", "Estacionamiento"], ["shiftDate", "Turno"], ["openedDate", "Inicio"], ["closedDate", "Cierre"], ["status", "Estado"], ["entryCount", "Operaciones"], ["revenueAmount", "Recaudación del turno"]];
+    if (tab === "calles" && streetView === "occupancy") return [["parkingName", "Estacionamiento"], ["zone", "Zona"], ["street", "Calle"], ["segment", "Tramo"], ["range", "Numeración"], ["capacity", "Capacidad"], ["insideCount", "Vehículos dentro"], ["available", "Disponibles"], ["occupancyPercentage", "% Ocupación"]];
+    if (tab === "calles" && streetView === "summary") return [["group", STREET_GROUPS.find(([id]) => id === streetGroup)?.[1] || "Grupo"], ["entries", "Ingresos"], ["paidExits", "Salidas pagadas"], ["insideCount", "Vehículos dentro"], ["revenueAmount", "Recaudación"], ["outOfAssignmentCount", "Fuera de asignación"]];
+    if (tab === "calles") return [["ticket", "Ticket"], ["plate", "Patente"], ["parkingName", "Estacionamiento"], ["zone", "Zona"], ["street", "Calle"], ["segment", "Tramo"], ["streetNumber", "Número"], ["entryOperator", "Operador ingreso"], ["entryDate", "Fecha ingreso"], ["entryTime", "Hora ingreso"], ["exitDate", "Fecha salida"], ["exitTime", "Hora salida"], ["status", "Estado"], ["paymentMethod", "Medio de pago"], ["amount", "Monto"], ["outOfAssignment", "Fuera de asignación"]];
     return [["parkingName", "Estacionamiento"], ["companyName", "Empresa"], ["capacity", "Capacidad"], ["insideCount", "Vehículos dentro"], ["available", "Disponibles"], ["occupancyPercentage", "% Ocupación"]];
-  }, [tab]);
+  }, [tab, streetView, streetGroup]);
 
   function cellValue(row, key) {
     if (MONEY_KEYS.includes(key)) return money(row[key]);
@@ -207,10 +223,13 @@ function ReportesOffStreetContent() {
     value: (row) => key === "openedDate" ? `${row.openedDate || ""} ${row.openedTime || ""}` : key === "closedDate" ? row.closedDate ? `${row.closedDate} ${row.closedTime || ""}` : "Sin cierre" : key === "paymentMethod" ? paymentMethodLabel(row[key]) : key === "status" ? statusLabel(row[key]) : row[key],
     format: (value) => MONEY_KEYS.includes(key) ? (value == null ? "—" : money(value)) : String(value ?? "—"),
     total: MONEY_KEYS.includes(key),
-    groupable: ["operator", "entryOperator", "exitOperator", "parkingName", "companyName", "date", "entryDate", "exitDate", "paymentMethod", "status", "shiftDate"].includes(key),
+    groupable: ["operator", "entryOperator", "exitOperator", "parkingName", "companyName", "date", "entryDate", "exitDate", "paymentMethod", "status", "shiftDate", "zone", "street", "segment", "outOfAssignment"].includes(key),
   })), [columns]);
   const parkingLabel = parkings.find((item) => item.id === parking || item.code === parking)?.name || (parking ? "Estacionamiento seleccionado" : "Todos los estacionamientos autorizados");
-  const reportContext = `${total} registros · ${parkingLabel} · ${["ocupacion", "estacionados"].includes(tab) || currentShifts ? "Estado actual" : `${from} al ${to}`} · ${tab === "movimientos" ? movement === "exits" ? "Fecha de salida" : "Fecha de ingreso" : tab === "recaudacion" ? "Fecha del pago" : ""} · America/Santiago`;
+  // Cada vista de «Calles y tramos» tiene sus propias columnas: orden, ancho y filtros
+  // de la planilla se guardan por vista.
+  const reportKey = tab === "calles" ? `calles-${streetView}${streetView === "summary" ? `-${streetGroup}` : ""}` : tab;
+  const reportContext = `${total} registros · ${parkingLabel} · ${["ocupacion", "estacionados"].includes(tab) || currentShifts || streetNoDates ? "Estado actual" : `${from} al ${to}`} · ${tab === "movimientos" ? movement === "exits" ? "Fecha de salida" : "Fecha de ingreso" : tab === "recaudacion" ? "Fecha del pago" : ""} · America/Santiago`;
 
   return (
     <AppShell title="Reportes Off Street" description="Reportes reales de operación, recaudación, cierres y ocupación">
@@ -235,11 +254,15 @@ function ReportesOffStreetContent() {
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Empresa</span><select value={company} onChange={(e) => { setCompany(e.target.value); setParking(""); setOperatorId(""); }} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todas</option>{companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
           )}
           <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Estacionamiento</span><select value={parking} onChange={(e) => { setParking(e.target.value); setOperatorId(""); }} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todos</option>{parkingOptions.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>
-          {!["ocupacion", "estacionados"].includes(tab) && !currentShifts && (<>
+          {tab === "calles" && (<>
+            <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Vista</span><select value={streetView} onChange={(e) => setStreetView(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm">{STREET_VIEWS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+            {streetView === "summary" ? <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Agrupar por</span><select value={streetGroup} onChange={(e) => setStreetGroup(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm">{STREET_GROUPS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label> : null}
+          </>)}
+          {!["ocupacion", "estacionados"].includes(tab) && !currentShifts && !streetNoDates && (<>
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Fecha desde</span><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]" /></label>
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Fecha hasta</span><input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]" /></label>
           </>)}
-          {(tab === "recaudacion" || tab === "cierres" || tab === "turnos") && operatorOptions.length > 0 && (
+          {(tab === "recaudacion" || tab === "cierres" || tab === "turnos" || (tab === "calles" && streetView !== "occupancy")) && operatorOptions.length > 0 && (
             <label className="text-xs font-semibold text-slate-600"><span className="mb-1.5 block">Operador</span><select value={operatorId} onChange={(e) => setOperatorId(e.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"><option value="">Todos</option>{operatorOptions.map((u) => <option key={u.id} value={u.id}>{u.nombreCompleto}</option>)}</select></label>
           )}
           {tab === "recaudacion" && (
@@ -259,7 +282,7 @@ function ReportesOffStreetContent() {
         {tab === "movimientos" ? <label className="block text-sm">Filtrar fechas por <select value={movement} onChange={(event) => setMovement(event.target.value)} className="ml-2 rounded-xl border border-slate-200 bg-white px-3 py-2"><option value="entries">Ingreso</option><option value="exits">Salida</option></select></label> : null}
         {error ? <p className="rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</p> : null}
 
-        <OffStreetSpreadsheet key={tab} rows={rows} columns={gridColumns} storageKey={`parkfacil:offstreet:${actorId || "pending"}:${tab}`} title={TABS.find((item) => item.id === tab)?.label || "Reporte"} context={reportContext} loading={loading} disabled={Boolean(error)} onOpen={(row) => setSelected(row)} />
+        <OffStreetSpreadsheet key={reportKey} rows={rows} columns={gridColumns} storageKey={`parkfacil:offstreet:${actorId || "pending"}:${reportKey}`} title={TABS.find((item) => item.id === tab)?.label || "Reporte"} context={reportContext} loading={loading} disabled={Boolean(error)} onOpen={(row) => setSelected(row)} />
         {selected ? <section role="dialog" aria-modal="true" aria-label="Detalle del registro" className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4"><div className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-6"><div className="flex items-center justify-between"><h2 className="text-xl font-semibold">Detalle del registro</h2><button type="button" className="rounded border px-3 py-2" onClick={() => setSelected(null)}>Cerrar</button></div><dl className="mt-4 grid gap-4 sm:grid-cols-2">{columns.map(([key, label]) => <div key={key}><dt className="text-xs text-slate-500">{label}</dt><dd className="font-semibold">{cellValue(selected, key)}</dd></div>)}</dl>{["movimientos", "estacionados", "recaudacion"].includes(tab) && selected.id ? <Link className="mt-5 inline-block text-[#3150D8] underline" href={`/operacion/${selected.id}`}>Abrir ficha del ticket</Link> : null}</div></section> : null}
       </div>
     </AppShell>

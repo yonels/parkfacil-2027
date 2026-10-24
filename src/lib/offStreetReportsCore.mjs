@@ -9,7 +9,8 @@ import { OPERATION_STATUSES, OPERATION_MOVEMENTS } from "./offStreetOperationsCo
 import { OPERATIONAL_TIME_ZONE, toOperationalDateTimeParts } from "./dataEntry.mjs";
 import { computeOccupancy } from "./offStreetDashboardCore.mjs";
 
-export const REPORT_TABS = Object.freeze(["movements", "parked", "shifts", "occupancy", "coupons"]);
+// "streets": ubicación en calle (zona, calle, tramo, operador), SOL-2026-10-23-001.
+export const REPORT_TABS = Object.freeze(["movements", "parked", "shifts", "occupancy", "coupons", "streets"]);
 // Mismos estados reales que ya usa /api/estacionamientos/[id]/turnos y el
 // Dashboard (Fase 3) para "turno actualmente abierto" -- nunca una
 // definición nueva.
