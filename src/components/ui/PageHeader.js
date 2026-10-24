@@ -19,8 +19,8 @@ function containsBackAction(actions) {
 // §12/§13 de la auditoría de acceso por producto: el cobrizo identifica el
 // producto On Street, no reemplaza la marca general).
 const TONES = {
-  brand: { border: "border-[#5271E8]", bg: "bg-[#3150D8]", accent: "text-[#3150D8]", hoverAccent: "hover:text-[#3150D8]", hoverBorder: "hover:border-[#3150D8]" },
-  onstreet: { border: "border-[var(--pf-color-onstreet-border)]", bg: "bg-[var(--pf-color-onstreet-primary)]", accent: "text-[var(--pf-color-onstreet-primary)]", hoverAccent: "hover:text-[var(--pf-color-onstreet-primary)]", hoverBorder: "hover:border-[var(--pf-color-onstreet-primary)]" },
+  brand: { border: "border-[#5271E8]", bg: "bg-[#3150D8]", accent: "text-[#3150D8]", actionText: "[&>a]:text-[#3150D8] [&>button]:text-[#3150D8]", hoverAccent: "hover:text-[#3150D8]", hoverBorder: "hover:border-[#3150D8]" },
+  onstreet: { border: "border-[var(--pf-color-onstreet-border)]", bg: "bg-[var(--pf-color-onstreet-primary)]", accent: "text-[var(--pf-color-onstreet-primary)]", actionText: "[&>a]:text-[var(--pf-color-onstreet-primary)] [&>button]:text-[var(--pf-color-onstreet-primary)]", hoverAccent: "hover:text-[var(--pf-color-onstreet-primary)]", hoverBorder: "hover:border-[var(--pf-color-onstreet-primary)]" },
 };
 
 export default function PageHeader({
@@ -64,7 +64,7 @@ export default function PageHeader({
         {description ? <p className="mt-2 max-w-2xl text-sm text-white/85">{description}</p> : null}
       </div>
       {renderBack || actions ? (
-        <div className={`flex shrink-0 flex-wrap gap-3 [&>a]:border-white/70 [&>a]:bg-white [&>a]:${palette.accent} [&>button]:border-white/70 [&>button]:bg-white [&>button]:${palette.accent}`}>
+        <div className={`flex shrink-0 flex-wrap gap-3 [&>a]:border-white/70 [&>a]:bg-white [&>button]:border-white/70 [&>button]:bg-white ${palette.actionText}`}>
           {renderBack ? (
             effectiveOnBack ? (
               <button
