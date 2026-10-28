@@ -94,7 +94,7 @@ export default function OnStreetStreetDetail({ id }) {
             <Campo label="Área" valor={area?.name || "—"} />
             <Campo label="Nombre de la Calle" valor={street.name} />
             <Campo label="Estado" valor={ESTADO_LABEL[street.status] || street.status || "—"} />
-            <Campo label="Capacidad" valor={street.capacity ?? "—"} />
+            <Campo label="Capacidad asignada de autos estacionados" valor={street.capacity ?? "—"} />
             <Campo label="Creación" valor={dt(street.created_at)} />
             <Campo label="Última actualización" valor={dt(street.updated_at)} />
             {street.district ? <Campo label="Comuna/zona" valor={street.district} /> : null}
@@ -103,8 +103,8 @@ export default function OnStreetStreetDetail({ id }) {
         </section>
       )}
 
+      {/* Un solo título: OnStreetTramosManager ya muestra "Tramos configurables". */}
       <section className="space-y-3">
-        <h2 className="text-lg font-bold text-[#041E42]">Tramos de la calle</h2>
         {area ? <OnStreetTramosManager parking={parking} area={area} street={street} /> : (
           <p className="text-sm text-slate-500">No fue posible determinar el área de esta calle.</p>
         )}
