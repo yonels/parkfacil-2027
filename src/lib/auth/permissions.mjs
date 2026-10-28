@@ -179,7 +179,16 @@ function requiredProductForPath(pathname) {
   return entry?.product || null;
 }
 
-export function canAccessPath({ portal, role, enabledProducts, couponModuleStatus }, pathname) {
+// Ficha de la propia empresa en modo solo lectura (2026-10-28, pedido del
+// usuario): el administrador de empresa puede abrir exactamente
+// /empresas/<su companyId>; el listado /empresas y las fichas de otras
+// empresas siguen siendo exclusivos de Root (ROOT_ONLY_PREFIXES).
+export function isOwnCompanyPage({ portal, role, companyId }, pathname) {
+  return portal === "client" && role === ROLES.COMPANY_ADMIN && Boolean(companyId)
+    && pathname === `/empresas/${encodeURIComponent(companyId)}`;
+}
+
+export function canAccessPath({ portal, role, enabledProducts, couponModuleStatus, companyId }, pathname) {
   // Cupones (SOL-2026-10-19-001): ocultos para todos donde no están habilitados
   // (producción hasta el canje en el POS); ver couponsAvailability.mjs.
   if (matchesPrefix(pathname, ["/cupones"]) && !couponsVisible()) return false;
@@ -203,6 +212,7 @@ export function canAccessPath({ portal, role, enabledProducts, couponModuleStatu
   if (![ROLES.COMPANY_ADMIN, ROLES.OPERATOR].includes(role) || portal !== "client") {
     return false;
   }
+  if (isOwnCompanyPage({ portal, role, companyId }, pathname)) return true;
   if (matchesPrefix(pathname, ROOT_ONLY_PREFIXES)) return false;
   if (matchesPrefix(pathname, COMPANY_ADMIN_PREFIXES) && role !== ROLES.COMPANY_ADMIN) return false;
   // Módulo Cupones contratado por la empresa (SOL-2026-10-19-002, etapa C):

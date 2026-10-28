@@ -12,6 +12,8 @@ import { getCompanyPageData } from "@/lib/companiesServer";
 import EmpresaEditButton from "@/components/empresas/EmpresaEditButton";
 import EmpresaEnrolamientoPanel from "@/components/empresas/EmpresaEnrolamientoPanel";
 import EmpresaBoletaElectronicaEstado from "@/components/empresas/EmpresaBoletaElectronicaEstado";
+import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
+import { ROLES } from "@/lib/auth/permissions.mjs";
 
 function DetailItem({ label, value }) {
   return (
@@ -90,6 +92,21 @@ function contactStatusLabel(status) {
 
 export default async function EmpresaDetallePage({ params }) {
   const { id } = await params;
+  // El proxy solo deja pasar a Root y al administrador de ESTA empresa (ver
+  // isOwnCompanyPage en permissions.mjs). Se vuelve a comprobar aquí: el
+  // administrador ve la ficha en modo solo lectura, sin acciones de Root.
+  const context = await getCurrentServerContext().catch(() => null);
+  const soloLectura = context?.role !== ROLES.PLATFORM_ADMIN;
+  if (soloLectura && (context?.role !== ROLES.COMPANY_ADMIN || context?.companyId !== id)) {
+    return (
+      <AppShell title="Detalle de empresa" description="Acceso no permitido">
+        <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
+          <p className="text-lg font-semibold text-[#041E42]">No tienes acceso a esta empresa.</p>
+        </div>
+      </AppShell>
+    );
+  }
+  const volverHref = soloLectura ? "/tarifas" : "/empresas";
   const empresa = await getCompanyPageData(id);
 
   if (!empresa) {
@@ -97,7 +114,7 @@ export default async function EmpresaDetallePage({ params }) {
       <AppShell title="Detalle de empresa" description="Empresa no encontrada">
         <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center">
           <p className="text-lg font-semibold text-[#041E42]">No se encontró la empresa solicitada.</p>
-          <Link href="/empresas" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#3150D8]">
+          <Link href={volverHref} className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#3150D8]">
             <ArrowLeft className="h-4 w-4" /> Volver al catálogo
           </Link>
         </div>
@@ -119,19 +136,28 @@ export default async function EmpresaDetallePage({ params }) {
     }];
 
   return (
-    <AppShell title={empresa.razonSocial} description="Detalle visual de la empresa">
+    // backToHistory: para el administrador, el "Volver" de la ruta de
+    // navegación regresa a la página anterior (Planes) y no a /empresas,
+    // que es exclusiva de Root.
+    <AppShell title={empresa.razonSocial} description="Detalle visual de la empresa" backToHistory={soloLectura}>
       <div className="space-y-6">
         <PageHeader
           title={empresa.razonSocial}
           description={`${empresa.nombreFantasia} · ${formatearRut(`${empresa.rutNumero}-${empresa.rutDv}`)}`}
           showBack={false}
           actions={[
-            <EmpresaEditButton key="editar" empresa={empresa} />,
-            <Link key="volver" href="/empresas" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
+            soloLectura ? null : <EmpresaEditButton key="editar" empresa={empresa} />,
+            <Link key="volver" href={volverHref} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
               <ArrowLeft className="h-4 w-4" /> Volver
             </Link>,
           ]}
         />
+
+        {soloLectura ? (
+          <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-semibold text-amber-900">
+            Página solo de lectura. Para modificar los datos de tu empresa, contacta a ParkFacil.
+          </div>
+        ) : null}
 
         <section className="grid gap-4 lg:grid-cols-[1.4fr_0.9fr]">
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -170,7 +196,7 @@ export default async function EmpresaDetallePage({ params }) {
           </div>
         </section>
 
-        <EmpresaBoletaElectronicaEstado companyId={empresa.id} />
+        {soloLectura ? null : <EmpresaBoletaElectronicaEstado companyId={empresa.id} />}
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="text-xl font-semibold text-[#041E42]">Estacionamientos y usuarios</h3>
@@ -207,7 +233,7 @@ export default async function EmpresaDetallePage({ params }) {
           </div>
         </section>
 
-        <EmpresaEnrolamientoPanel companyId={id} />
+        {soloLectura ? null : <EmpresaEnrolamientoPanel companyId={id} />}
 
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="text-xl font-semibold text-[#041E42]">Documentos y seguimiento</h3>
@@ -222,8 +248,8 @@ export default async function EmpresaDetallePage({ params }) {
                     if (typeof item !== "object" || !item) {
                       return <p key={key}>• {getContractDisplay(item)}</p>;
                     }
-                    if (!pdfHref) {
-                      return <p key={key} className="rounded-xl border border-dashed border-slate-300 bg-slate-100 px-4 py-3 text-slate-500">• {getContractDisplay(item)} · PDF no disponible</p>;
+                    if (!pdfHref || soloLectura) {
+                      return <p key={key} className="rounded-xl border border-dashed border-slate-300 bg-slate-100 px-4 py-3 text-slate-500">• {getContractDisplay(item)}{soloLectura ? "" : " · PDF no disponible"}</p>;
                     }
                     return (
                       <a key={key} href={pdfHref} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-4 py-3 font-semibold text-[#3150D8] transition hover:border-[#3150D8] hover:bg-[#EEF4FF]">

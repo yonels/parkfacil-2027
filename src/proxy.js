@@ -45,7 +45,9 @@ function forbidden(context) {
   const isTerminal = context?.portal === "terminal";
   const exitLink = isTerminal
     ? `<a href="/pos/login" style="display:inline-block;margin-top:1rem;padding:.9rem 1.2rem;border-radius:.9rem;background:#455A64;color:white;font-weight:700;text-decoration:none">Ingresar con otra cuenta</a>`
-    : `<a href="/pos">Volver al Terminal</a>`;
+    : context?.portal === "client"
+      ? `<a href="/">Volver al inicio</a>`
+      : `<a href="/pos">Volver al Terminal</a>`;
   return new NextResponse(
     `<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Acceso denegado | ParkFacil</title><body style="font-family:system-ui;background:#f8fafc;color:#041e42;padding:3rem"><main style="max-width:42rem;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:1.5rem;padding:2rem"><h1>Acceso denegado</h1><p>Tu cuenta autenticada no tiene permiso para acceder a esta ruta desde el portal ${context?.portal === "client" ? "Cliente" : context?.portal === "terminal" ? "Terminal" : context?.portal === "inspector" ? "Inspectores" : "Root"}.</p>${exitLink}</main></body></html>`,
     { status: 403, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } },
