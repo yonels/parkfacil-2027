@@ -135,6 +135,11 @@ export const navigationItems = [
           { href: "/administracion-tarifas", label: "Tarifas", icon: BadgeDollarSign },
           { href: "/tarifas", label: "Planes", icon: Layers },
           { href: "/simulador-tarifas", label: "Simulador de tarifas", icon: Calculator },
+          // Boleta electrónica (Haulmer): acceso directo pedido por el usuario
+          // 2026-10-28 (SOL-2026-10-20-001); antes solo se llegaba desde la
+          // tarjeta "Módulos adicionales" de /tarifas. Visibilidad ya definida en
+          // permissions.mjs: administrador de empresa con Off Street y Root.
+          { href: "/tarifas/modulos/boleta-electronica", label: "Boleta electrónica", icon: ReceiptText },
         ],
       },
       { href: "/monitoreo", label: "Monitoreo", icon: Monitor },
