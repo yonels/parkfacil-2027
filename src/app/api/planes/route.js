@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { authorizeRemainingRequest, remainingActor } from "@/lib/auth/remainingAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { PREFIJO_PLAN, siguienteCodigoPlan } from "@/lib/commercialPlanCode.mjs";
 
 const allowed = {
   status: ["active", "inactive", "draft", "archived"],
@@ -35,9 +36,19 @@ export async function POST(request) {
   if (!actor.isPlatformAdmin) return NextResponse.json({ error: "Solo ParkFacil Root puede crear planes." }, { status: 403 });
   const input = await request.json();
   const numeric = ["monthlyFee","annualFee","implementationFee","transactionFee","deviceFee","parkingFee","supportFee","discountPercentage","minimumMonthlyCharge","includedParkings","includedDevices","includedUsers"];
-  if (!text(input.code) || !text(input.name) || !allowed.status.includes(input.status) || !allowed.type.includes(input.type) || !allowed.currency.includes(input.currency) || !allowed.billingMode.includes(input.billingMode) || numeric.some((key) => !Number.isFinite(number(input[key])) || number(input[key]) < 0) || number(input.discountPercentage) > 100) return NextResponse.json({ error: "Revisa los datos obligatorios y valores del plan." }, { status: 400 });
-  const row = { code: text(input.code).toUpperCase(), name: text(input.name), description: text(input.description), status: input.status, type: input.type, currency: input.currency, billing_mode: input.billingMode, monthly_fee: number(input.monthlyFee), annual_fee: number(input.annualFee), implementation_fee: number(input.implementationFee), transaction_fee: number(input.transactionFee), device_fee: number(input.deviceFee), parking_fee: number(input.parkingFee), support_fee: number(input.supportFee), discount_percentage: number(input.discountPercentage), minimum_monthly_charge: number(input.minimumMonthlyCharge), included_parkings: number(input.includedParkings), included_devices: number(input.includedDevices), included_users: number(input.includedUsers), modules: list(input.modules), equipment: list(input.equipment), notes: text(input.notes), created_by: actor.id };
-  const { data, error } = await getSupabaseAdminClient().from("commercial_plans").insert(row).select("*").single();
-  if (error) return NextResponse.json({ error: error.code === "23505" ? "Ya existe un plan con ese código." : "No fue posible crear el plan.", code: error.code }, { status: error.code === "23505" ? 409 : 500 });
+  if (!text(input.name) || !allowed.status.includes(input.status) || !allowed.type.includes(input.type) || !allowed.currency.includes(input.currency) || !allowed.billingMode.includes(input.billingMode) || numeric.some((key) => !Number.isFinite(number(input[key])) || number(input[key]) < 0) || number(input.discountPercentage) > 100) return NextResponse.json({ error: "Revisa los datos obligatorios y valores del plan." }, { status: 400 });
+  // El código lo asigna el sistema (PF-PLAN-NNN); un código enviado por el cliente se ignora.
+  const row = { name: text(input.name), description: text(input.description), status: input.status, type: input.type, currency: input.currency, billing_mode: input.billingMode, monthly_fee: number(input.monthlyFee), annual_fee: number(input.annualFee), implementation_fee: number(input.implementationFee), transaction_fee: number(input.transactionFee), device_fee: number(input.deviceFee), parking_fee: number(input.parkingFee), support_fee: number(input.supportFee), discount_percentage: number(input.discountPercentage), minimum_monthly_charge: number(input.minimumMonthlyCharge), included_parkings: number(input.includedParkings), included_devices: number(input.includedDevices), included_users: number(input.includedUsers), modules: list(input.modules), equipment: list(input.equipment), notes: text(input.notes), created_by: actor.id };
+  const db = getSupabaseAdminClient();
+  const existentes = await db.from("commercial_plans").select("code").ilike("code", `${PREFIJO_PLAN}%`);
+  if (existentes.error) return NextResponse.json({ error: "No fue posible asignar el código del plan.", code: existentes.error.code }, { status: 500 });
+  const codigos = (existentes.data || []).map((item) => item.code);
+  let data = null;
+  let error = null;
+  for (let intento = 0; intento < 5; intento += 1) {
+    ({ data, error } = await db.from("commercial_plans").insert({ ...row, code: siguienteCodigoPlan(codigos, intento) }).select("*").single());
+    if (!error || error.code !== "23505") break;
+  }
+  if (error) return NextResponse.json({ error: error.code === "23505" ? "No fue posible asignar un código único. Intenta nuevamente." : "No fue posible crear el plan.", code: error.code }, { status: error.code === "23505" ? 409 : 500 });
   return NextResponse.json({ data: map(data) }, { status: 201 });
 }
