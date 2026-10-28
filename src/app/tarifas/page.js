@@ -261,10 +261,10 @@ export default function TarifasPage() {
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div>
             <h3 className="text-xl font-semibold text-[#041E42]">Empresas y planes asignados</h3>
-            <p className="mt-2 text-sm text-slate-600">Asignaciones contractuales reales. La clasificación comercial legacy no se utiliza como plan.</p>
+            <p className="mt-2 text-sm text-slate-600">Asignaciones contractuales reales. La clasificación comercial legacy no se utiliza como plan.{isRoot ? " Haz doble clic en una empresa para ver y gestionar el plan de sus contratos." : ""}</p>
           </div>
           <div className="mt-6">
-            <ParkFacilDataGrid storageKey="tarifas:empresas-planes" columns={companyColumns} rows={empresasFiltradas} onRowDoubleClick={(empresa)=>{window.location.href=`/empresas/${empresa.id}`}} globalSearchPlaceholder="Buscar empresa, contrato o plan..." emptyMessage="Sin empresas" exportFilename="empresas_planes_asignados" exportSheetName="Empresas y planes" />
+            <ParkFacilDataGrid storageKey="tarifas:empresas-planes" columns={companyColumns} rows={empresasFiltradas} onRowDoubleClick={(empresa)=>{window.location.href=isRoot?`/tarifas/empresas/${empresa.id}`:`/empresas/${empresa.id}`}} globalSearchPlaceholder="Buscar empresa, contrato o plan..." emptyMessage="Sin empresas" exportFilename="empresas_planes_asignados" exportSheetName="Empresas y planes" />
             {!empresasFiltradas.length ? <p className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">No hay empresas que coincidan con la búsqueda.</p> : null}
           </div>
         </section>
