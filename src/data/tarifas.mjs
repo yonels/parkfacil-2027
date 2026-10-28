@@ -267,6 +267,11 @@ export function getMonedaLabel(moneda) {
   return moneda;
 }
 
+// Los planes comerciales se expresan en valores netos: el IVA se agrega al facturar.
+export function formatNetoIva(value, currency) {
+  return `${formatCurrency(value, currency)} + IVA`;
+}
+
 export function formatCurrency(value, currency) {
   const normalized = Number(value);
 

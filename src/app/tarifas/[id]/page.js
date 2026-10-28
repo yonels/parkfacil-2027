@@ -5,17 +5,26 @@ import PageHeader from "@/components/ui/PageHeader";
 import EstadoTarifaBadge from "@/components/tarifas/EstadoTarifaBadge";
 import TipoTarifaBadge from "@/components/tarifas/TipoTarifaBadge";
 import ModalidadCobroBadge from "@/components/tarifas/ModalidadCobroBadge";
-import { formatCurrency, resolveContratos, getPlanTotalReferencial } from "@/data/tarifas.mjs";
-import { getCommercialPlanAssignments, getCommercialPlanPageData } from "@/lib/commercialPlansServer";
+import { formatNetoIva, resolveContratos, getPlanTotalReferencial } from "@/data/tarifas.mjs";
+import { getCommercialPlanAssignments, getCommercialPlanCurrentVersion, getCommercialPlanPageData } from "@/lib/commercialPlansServer";
 import PlanAcciones from "@/components/tarifas/PlanAcciones";
 import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
 import { ROLES } from "@/lib/auth/permissions.mjs";
 
-function DetailItem({ label, value }) {
+const ESTADO_PLAN = { active: "Activo", inactive: "Inactivo", draft: "Borrador", archived: "Archivado" };
+
+function fechaCorta(valor) {
+  if (!valor) return "";
+  const [a, m, d] = String(valor).slice(0, 10).split("-");
+  return `${d}-${m}-${a}`;
+}
+
+function DetailItem({ label, value, hint }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
       <p className="text-sm font-medium text-slate-500">{label}</p>
       <p className="mt-2 text-base font-semibold text-[#041E42]">{value}</p>
+      {hint ? <p className="mt-1 text-xs text-slate-500">{hint}</p> : null}
     </div>
   );
 }
@@ -43,6 +52,9 @@ export default async function TarifaDetallePage({ params }) {
 
   const contratos = resolveContratos(tarifa);
   const asignaciones = await getCommercialPlanAssignments(tarifa.id || tarifa.codigo);
+  // «Versión vigente» reemplaza la antigua «Vigencia comercial» fija: la vigencia
+  // real está en las versiones del plan y en cada contrato (Plan de la empresa).
+  const versionVigente = await getCommercialPlanCurrentVersion(tarifa.id);
 
   return (
     <AppShell title={tarifa.nombre} description="Detalle visual del plan comercial">
@@ -70,17 +82,22 @@ export default async function TarifaDetallePage({ params }) {
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <DetailItem label="Código" value={tarifa.codigo} />
               <DetailItem label="Moneda" value={tarifa.moneda} />
-              <DetailItem label="Estado" value={tarifa.estado} />
-              <DetailItem label="Vigencia comercial" value={tarifa.vigencia} />
+              <DetailItem label="Estado" value={ESTADO_PLAN[tarifa.estado] || tarifa.estado} hint={isRoot ? "Se cambia con «Editar plan» o «Archivar / Reactivar»." : null} />
+              <DetailItem
+                label="Versión vigente"
+                value={versionVigente ? `v${versionVigente.version} · desde ${fechaCorta(versionVigente.valid_from)}` : "Sin versión registrada"}
+                hint="Cada cambio de valores crea una versión nueva. La vigencia en cada empresa se define al asignar el plan a su contrato."
+              />
             </div>
           </div>
           <div className="rounded-3xl border border-slate-200 bg-[#F5F9FF] p-6 shadow-sm">
             <div className="flex items-center gap-2 text-[#3150D8]"><BadgeDollarSign className="h-5 w-5" /><h3 className="text-lg font-semibold">Cargos principales</h3></div>
+            <p className="mt-2 text-xs font-semibold text-slate-500">Valores netos, más IVA.</p>
             <div className="mt-6 space-y-3 text-sm text-slate-600">
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Cargo mensual</span><strong>{formatCurrency(tarifa.monthlyFee, tarifa.moneda)}</strong></div>
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Cargo anual</span><strong>{formatCurrency(tarifa.annualFee, tarifa.moneda)}</strong></div>
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Implementación</span><strong>{formatCurrency(tarifa.implementationFee, tarifa.moneda)}</strong></div>
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Total referencial</span><strong>{formatCurrency(getPlanTotalReferencial(tarifa), tarifa.moneda)}</strong></div>
+              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Cargo mensual</span><strong>{formatNetoIva(tarifa.monthlyFee, tarifa.moneda)}</strong></div>
+              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Cargo anual</span><strong>{formatNetoIva(tarifa.annualFee, tarifa.moneda)}</strong></div>
+              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Implementación</span><strong>{formatNetoIva(tarifa.implementationFee, tarifa.moneda)}</strong></div>
+              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Total referencial</span><strong>{formatNetoIva(getPlanTotalReferencial(tarifa), tarifa.moneda)}</strong></div>
             </div>
           </div>
         </section>
@@ -89,9 +106,9 @@ export default async function TarifaDetallePage({ params }) {
           <h3 className="text-xl font-semibold text-[#041E42]">Descuentos y condiciones</h3>
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <DetailItem label="Descuento" value={`${tarifa.discountPercentage}%`} />
-            <DetailItem label="Cobro mínimo mensual" value={formatCurrency(tarifa.minimumMonthlyCharge, tarifa.moneda)} />
-            <DetailItem label="Cargo por transacción" value={formatCurrency(tarifa.transactionFee, tarifa.moneda)} />
-            <DetailItem label="Cargo por dispositivo" value={formatCurrency(tarifa.deviceFee, tarifa.moneda)} />
+            <DetailItem label="Cobro mínimo mensual" value={formatNetoIva(tarifa.minimumMonthlyCharge, tarifa.moneda)} />
+            <DetailItem label="Cargo por transacción" value={formatNetoIva(tarifa.transactionFee, tarifa.moneda)} />
+            <DetailItem label="Cargo por dispositivo" value={formatNetoIva(tarifa.deviceFee, tarifa.moneda)} />
           </div>
         </section>
 

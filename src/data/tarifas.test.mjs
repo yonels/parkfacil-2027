@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  formatNetoIva,
   getTarifasDemo,
   getTarifaById,
   searchTarifas,
@@ -64,4 +65,9 @@ test("currency values and referential totals are formatted", () => {
   assert.equal(formatCurrency(1500, "USD"), "USD 1,500");
   assert.equal(formatCurrency(12.5, "UF"), "UF 12,5");
   assert.equal(getPlanTotalReferencial(getTarifaById("t-001")), 1800000 + 4200 + 1200000);
+});
+
+test("formatNetoIva muestra el valor neto más IVA", () => {
+  assert.equal(formatNetoIva(1.5, "UF"), "UF 1,5 + IVA");
+  assert.equal(formatNetoIva(35000, "CLP"), "$35.000 + IVA");
 });

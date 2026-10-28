@@ -8,6 +8,14 @@ export async function getCommercialPlanPageData(id) {
   return mapPlan(data);
 }
 
+// Versión vigente del plan (la ACTIVE más reciente) para «Versión vigente» del detalle.
+export async function getCommercialPlanCurrentVersion(planId) {
+  const { data, error } = await getSupabaseAdminClient().from("commercial_plan_versions")
+    .select("version,status,valid_from,valid_to").eq("commercial_plan_id", planId).eq("status", "ACTIVE")
+    .order("version", { ascending: false }).limit(1).maybeSingle();
+  return error ? null : data;
+}
+
 export async function getCommercialPlanAssignments(idOrCode){
   const db=getSupabaseAdminClient(),field=/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(idOrCode))?"id":"code",plan=await db.from("commercial_plans").select("id,code,name,status").eq(field,idOrCode).maybeSingle();
   if(plan.error||!plan.data)return[];
