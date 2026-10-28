@@ -5,7 +5,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import EstadoTarifaBadge from "@/components/tarifas/EstadoTarifaBadge";
 import TipoTarifaBadge from "@/components/tarifas/TipoTarifaBadge";
 import ModalidadCobroBadge from "@/components/tarifas/ModalidadCobroBadge";
-import { formatNetoIva, resolveContratos, getPlanTotalReferencial } from "@/data/tarifas.mjs";
+import { formatNetoIva, resolveContratos, getPlanTotalMensual } from "@/data/tarifas.mjs";
 import { getCommercialPlanAssignments, getCommercialPlanCurrentVersion, getCommercialPlanPageData } from "@/lib/commercialPlansServer";
 import PlanAcciones from "@/components/tarifas/PlanAcciones";
 import PlanMonedaSelector from "@/components/tarifas/PlanMonedaSelector";
@@ -98,9 +98,11 @@ export default async function TarifaDetallePage({ params }) {
             {isRoot ? <PlanMonedaSelector plan={tarifa} /> : null}
             <div className="mt-6 space-y-3 text-sm text-slate-600">
               <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Cargo mensual</span><strong>{formatNetoIva(tarifa.monthlyFee, tarifa.moneda)}</strong></div>
+              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Soporte mensual</span><strong>{formatNetoIva(tarifa.supportFee, tarifa.moneda)}</strong></div>
+              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Cargo por estacionamiento (mensual)</span><strong>{formatNetoIva(tarifa.parkingFee, tarifa.moneda)}</strong></div>
               <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Cargo anual</span><strong>{formatNetoIva(tarifa.annualFee, tarifa.moneda)}</strong></div>
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Implementación</span><strong>{formatNetoIva(tarifa.implementationFee, tarifa.moneda)}</strong></div>
-              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Total referencial</span><strong>{formatNetoIva(getPlanTotalReferencial(tarifa), tarifa.moneda)}</strong></div>
+              <div className="flex items-center justify-between rounded-2xl border border-[#3150D8]/30 bg-white px-4 py-3"><span className="font-semibold text-[#041E42]">Total mensual referencial<span className="block text-xs font-normal text-slate-500">Cargo mensual + soporte</span></span><strong className="text-[#041E42]">{formatNetoIva(getPlanTotalMensual(tarifa), tarifa.moneda)}</strong></div>
+              <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Implementación<span className="block text-xs text-slate-500">Pago único</span></span><strong>{formatNetoIva(tarifa.implementationFee, tarifa.moneda)}</strong></div>
             </div>
           </div>
         </section>

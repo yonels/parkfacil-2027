@@ -286,6 +286,12 @@ export function formatCurrency(value, currency) {
   return `UF ${normalized.toLocaleString("es-CL")}`;
 }
 
+// Cargos fijos de cada mes de un plan real: tarifa mensual + soporte. La
+// implementación es pago único y los cargos por uso dependen del consumo.
+export function getPlanTotalMensual(tarifa) {
+  return Number(tarifa?.monthlyFee || 0) + Number(tarifa?.supportFee || 0);
+}
+
 export function getPlanTotalReferencial(tarifa) {
   return (tarifa?.monthlyFee || 0) + (tarifa?.implementationFee || 0) + (tarifa?.transactionFee || 0);
 }
