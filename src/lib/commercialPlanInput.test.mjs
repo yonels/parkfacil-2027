@@ -51,3 +51,10 @@ test("el catálogo ya no dice Demostrativo y el detalle muestra acciones solo a 
   const detalle = await readFile(new URL("../app/tarifas/[id]/page.js", import.meta.url), "utf8");
   assert.match(detalle, /isRoot \? <PlanAcciones/);
 });
+
+test("monedas del plan: $ Pesos y UF", async () => {
+  const { MONEDAS_PLAN, etiquetaMoneda } = await import("./commercialPlanInput.mjs");
+  assert.deepEqual(MONEDAS_PLAN.map((m) => m.value), ["CLP", "UF"]);
+  assert.equal(etiquetaMoneda("CLP"), "$ Pesos");
+  assert.equal(etiquetaMoneda("UF"), "UF");
+});

@@ -49,5 +49,11 @@ export async function PATCH(request, { params }) {
       ? NextResponse.json({ error: "Otra persona modificó este plan mientras lo editabas. Recarga la página antes de guardar." }, { status: 409 })
       : NextResponse.json({ error: "Plan no encontrado." }, { status: 404 });
   }
+  // Si cambiaron valores o moneda, queda una versión nueva y la anterior se retira
+  // (SOL-2026-10-28-002); los contratos conservan su versión hasta reasignarlos.
+  if (accion === "editar") {
+    const version = await db.rpc("commercial_plan_ensure_version", { p_plan: data.id, p_actor: actor.id });
+    if (version.error) console.error("[planes] versión no actualizada", version.error.code, version.error.message);
+  }
   return NextResponse.json({ data: mapPlan(data) });
 }

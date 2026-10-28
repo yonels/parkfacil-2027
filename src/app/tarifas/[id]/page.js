@@ -8,6 +8,8 @@ import ModalidadCobroBadge from "@/components/tarifas/ModalidadCobroBadge";
 import { formatNetoIva, resolveContratos, getPlanTotalReferencial } from "@/data/tarifas.mjs";
 import { getCommercialPlanAssignments, getCommercialPlanCurrentVersion, getCommercialPlanPageData } from "@/lib/commercialPlansServer";
 import PlanAcciones from "@/components/tarifas/PlanAcciones";
+import PlanMonedaSelector from "@/components/tarifas/PlanMonedaSelector";
+import { etiquetaMoneda } from "@/lib/commercialPlanInput.mjs";
 import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
 import { ROLES } from "@/lib/auth/permissions.mjs";
 
@@ -81,7 +83,7 @@ export default async function TarifaDetallePage({ params }) {
             <p className="mt-3 text-sm leading-7 text-slate-600">{tarifa.observaciones}</p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <DetailItem label="Código" value={tarifa.codigo} />
-              <DetailItem label="Moneda" value={tarifa.moneda} />
+              <DetailItem label="Moneda" value={etiquetaMoneda(tarifa.moneda)} />
               <DetailItem label="Estado" value={ESTADO_PLAN[tarifa.estado] || tarifa.estado} hint={isRoot ? "Se cambia con «Editar plan» o «Archivar / Reactivar»." : null} />
               <DetailItem
                 label="Versión vigente"
@@ -93,6 +95,7 @@ export default async function TarifaDetallePage({ params }) {
           <div className="rounded-3xl border border-slate-200 bg-[#F5F9FF] p-6 shadow-sm">
             <div className="flex items-center gap-2 text-[#3150D8]"><BadgeDollarSign className="h-5 w-5" /><h3 className="text-lg font-semibold">Cargos principales</h3></div>
             <p className="mt-2 text-xs font-semibold text-slate-500">Valores netos, más IVA.</p>
+            {isRoot ? <PlanMonedaSelector plan={tarifa} /> : null}
             <div className="mt-6 space-y-3 text-sm text-slate-600">
               <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Cargo mensual</span><strong>{formatNetoIva(tarifa.monthlyFee, tarifa.moneda)}</strong></div>
               <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3"><span>Cargo anual</span><strong>{formatNetoIva(tarifa.annualFee, tarifa.moneda)}</strong></div>
