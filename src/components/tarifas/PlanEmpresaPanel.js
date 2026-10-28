@@ -24,7 +24,7 @@ function fecha(valor) {
 function valoresResumen(v = {}, moneda) {
   const items = [["Mensual", v.monthly_fee], ["Por transacción", v.transaction_fee], ["Implementación", v.implementation_fee], ["Por estacionamiento", v.parking_fee], ["Mínimo mensual", v.minimum_monthly_charge]]
     .filter(([, monto]) => Number(monto) > 0)
-    .map(([etiqueta, monto]) => `${etiqueta}: ${moneda} ${Number(monto).toLocaleString("es-CL")}`);
+    .map(([etiqueta, monto]) => `${etiqueta}: ${moneda} ${Number(monto).toLocaleString("es-CL")} + IVA`);
   return items.length ? items.join(" · ") : "Sin cargos informados";
 }
 
