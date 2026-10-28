@@ -37,5 +37,9 @@ export async function POST(request) {
     if (!error || error.code !== "23505") break;
   }
   if (error) return NextResponse.json({ error: error.code === "23505" ? "No fue posible asignar un código único. Intenta nuevamente." : "No fue posible crear el plan.", code: error.code }, { status: error.code === "23505" ? 409 : 500 });
+  // Versión 1 del plan (SOL-2026-10-28-002). Si falla no se revierte el plan:
+  // la versión se crea igual al asignarlo a un contrato.
+  const version = await db.rpc("commercial_plan_ensure_version", { p_plan: data.id, p_actor: actor.id });
+  if (version.error) console.error("[planes] versión 1 no creada", version.error.code, version.error.message);
   return NextResponse.json({ data: map(data) }, { status: 201 });
 }

@@ -14,7 +14,8 @@
       "feature/calle-capacidad-asignada": false,
       "fix/ficha-calle-capacidad-tramos": false,
       "feature/plan-codigo-automatico": false,
-      "feature/planes-editar-archivar": false
+      "feature/planes-editar-archivar": false,
+      "feature/planes-por-contrato": false
     }
   }
 }
