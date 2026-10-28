@@ -1,4 +1,4 @@
--- Ejecutar dentro de BEGIN/ROLLBACK, después de 20261028180000_contract_plan_assignments.sql, solo en base local.
+-- Ejecutar dentro de BEGIN/ROLLBACK, después de 20261028174318_contract_plan_assignments.sql, solo en base local.
 do $$
 declare
   actor uuid;
