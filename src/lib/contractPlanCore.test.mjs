@@ -37,7 +37,7 @@ test("API y vista solo para Root; Planes enlaza a la vista de la empresa", async
   }
   const lista = await readFile(new URL("../app/tarifas/page.js", import.meta.url), "utf8");
   assert.match(lista, /isRoot\?`\/tarifas\/empresas\/\$\{empresa\.id\}`:`\/empresas\/\$\{empresa\.id\}`/);
-  const migracion = await readFile(new URL("../../supabase/migrations/20261028180000_contract_plan_assignments.sql", import.meta.url), "utf8");
+  const migracion = await readFile(new URL("../../supabase/migrations/20261028174318_contract_plan_assignments.sql", import.meta.url), "utf8");
   assert.match(migracion, /contract_plan_assignments_vigente/);
   assert.match(migracion, /revoke all on public\.contract_plan_assignments from anon, authenticated/);
 });
