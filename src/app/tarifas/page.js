@@ -20,7 +20,7 @@ import {
 
 const estados = ["Todos", "active", "inactive", "draft", "archived"];
 const tipos = ["Todos", "monthly_subscription", "per_transaction", "per_parking", "equipment_bundle", "implementation_only", "custom"];
-const monedas = ["Todos", "CLP", "UF", "USD"];
+const monedas = ["Todos", "CLP", "UF"];
 const modalidades = ["Todos", "monthly", "annual", "one_time", "per_transaction", "mixed"];
 const implementacion = ["Todos", "si", "no"];
 const personalizados = ["Todos", "si", "no"];
@@ -213,7 +213,7 @@ export default function TarifasPage() {
               <label className="space-y-2 text-sm text-slate-600">
                 <span>Moneda</span>
                 <select value={moneda} onChange={(event) => setMoneda(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
-                  {monedas.map((item) => <option key={item} value={item}>{item}</option>)}
+                  {monedas.map((item) => <option key={item} value={item}>{item === "CLP" ? "$ Pesos" : item}</option>)}
                 </select>
               </label>
               <label className="space-y-2 text-sm text-slate-600">

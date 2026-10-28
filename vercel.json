@@ -1,6 +1,7 @@
 {
   "git": {
     "deploymentEnabled": {
+      "feature/plan-moneda-pesos-uf": false,
       "feature/plan-vigencia-iva": false,
       "feature/pago-liberado-catalogo-prod": false,
       "feature/pago-liberado-etapa1": false,

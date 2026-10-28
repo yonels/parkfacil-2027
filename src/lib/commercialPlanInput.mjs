@@ -8,6 +8,11 @@ export const PLAN_ALLOWED = Object.freeze({
   billingMode: ["monthly", "annual", "one_time", "per_transaction", "mixed"],
 });
 
+// Monedas ofrecidas al crear o editar un plan: pesos chilenos o UF. USD se
+// mantiene válido solo para planes antiguos que ya la tengan.
+export const MONEDAS_PLAN = Object.freeze([{ value: "CLP", label: "$ Pesos" }, { value: "UF", label: "UF" }]);
+export const etiquetaMoneda = (moneda) => MONEDAS_PLAN.find((m) => m.value === moneda)?.label || moneda;
+
 const NUMERIC = ["monthlyFee", "annualFee", "implementationFee", "transactionFee", "deviceFee", "parkingFee", "supportFee", "discountPercentage", "minimumMonthlyCharge", "includedParkings", "includedDevices", "includedUsers"];
 
 const text = (value) => String(value || "").trim();
