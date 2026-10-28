@@ -7,6 +7,9 @@ import TipoTarifaBadge from "@/components/tarifas/TipoTarifaBadge";
 import ModalidadCobroBadge from "@/components/tarifas/ModalidadCobroBadge";
 import { formatCurrency, resolveContratos, getPlanTotalReferencial } from "@/data/tarifas.mjs";
 import { getCommercialPlanAssignments, getCommercialPlanPageData } from "@/lib/commercialPlansServer";
+import PlanAcciones from "@/components/tarifas/PlanAcciones";
+import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
+import { ROLES } from "@/lib/auth/permissions.mjs";
 
 function DetailItem({ label, value }) {
   return (
@@ -21,6 +24,9 @@ export default async function TarifaDetallePage({ params }) {
   const { id } = await params;
   // Solo planes reales (commercial_plans): los demostrativos t-001…t-004 ya no se muestran.
   const tarifa = await getCommercialPlanPageData(id);
+  // Editar y archivar: solo Root (la API también lo exige).
+  const context = await getCurrentServerContext().catch(() => null);
+  const isRoot = context?.role === ROLES.PLATFORM_ADMIN;
 
   if (!tarifa) {
     return (
@@ -45,6 +51,7 @@ export default async function TarifaDetallePage({ params }) {
           title={tarifa.nombre}
           description={`${tarifa.codigo} · ${tarifa.descripcion}`}
           actions={[
+            isRoot ? <PlanAcciones key="acciones" plan={tarifa} /> : null,
             <Link key="volver" href="/tarifas" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
               <ArrowLeft className="h-4 w-4" /> Volver
             </Link>,
