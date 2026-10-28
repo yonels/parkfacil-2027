@@ -8,3 +8,11 @@ test("la calle rotula su capacidad como capacidad asignada de autos estacionados
   const form = await readFile(new URL("../components/estacionamientos/StructureEntityForm.js", import.meta.url), "utf8");
   assert.match(form, /kind === "street" \? "Capacidad asignada de autos estacionados" : "Capacidad"/);
 });
+
+test("la ficha de la calle usa la misma etiqueta y un solo título para los tramos", async () => {
+  const ficha = await readFile(new URL("../components/on-street-admin/OnStreetStreetDetail.js", import.meta.url), "utf8");
+  assert.match(ficha, /<Campo label="Capacidad asignada de autos estacionados" valor=\{street\.capacity/);
+  assert.doesNotMatch(ficha, /Tramos de la calle/);
+  const tramos = await readFile(new URL("../components/on-street-admin/OnStreetTramosManager.js", import.meta.url), "utf8");
+  assert.match(tramos, /Tramos configurables/);
+});
