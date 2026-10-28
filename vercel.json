@@ -7,7 +7,8 @@
       "align/release-to-main": false,
       "feature/tuu-02-robustecimiento": false,
       "feature/tuu-02-integracion": false,
-      "align/release-to-main-20261022": false
+      "align/release-to-main-20261022": false,
+      "feature/sidebar-boleta-electronica": false
     }
   }
 }
