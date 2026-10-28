@@ -13,7 +13,8 @@
       "fix/empresa-ficha-solo-lectura": false,
       "feature/calle-capacidad-asignada": false,
       "fix/ficha-calle-capacidad-tramos": false,
-      "feature/plan-codigo-automatico": false
+      "feature/plan-codigo-automatico": false,
+      "feature/planes-editar-archivar": false
     }
   }
 }

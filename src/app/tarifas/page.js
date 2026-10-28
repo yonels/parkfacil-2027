@@ -5,7 +5,6 @@ import Link from "next/link";
 import { ArrowRight, Search } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
-import StatusBadge from "@/components/ui/StatusBadge";
 import TarifaResumen from "@/components/tarifas/TarifaResumen";
 import TarifasGrid from "@/components/tarifas/TarifasGrid";
 import PlanCreateModal from "@/components/tarifas/PlanCreateModal";
@@ -188,9 +187,8 @@ export default function TarifasPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h3 className="text-xl font-semibold text-[#041E42]">Catálogo de planes</h3>
-              <p className="mt-2 text-sm text-slate-600">Listado visual preparado para la administración comercial y contractual de ParkFacil.</p>
+              <p className="mt-2 text-sm text-slate-600">Planes comerciales registrados en ParkFacil. Haz clic en un plan para ver su detalle, editarlo o archivarlo.</p>
             </div>
-            <StatusBadge variant="warning">Demostrativo</StatusBadge>
           </div>
 
           <div className="mt-6 space-y-4">
