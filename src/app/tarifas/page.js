@@ -12,7 +12,6 @@ import PlanCreateModal from "@/components/tarifas/PlanCreateModal";
 import ParkFacilDataGrid from "@/components/ui/ParkFacilDataGrid";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import {
-  getTarifasDemo,
   hasImplementation,
   isCustomPlan,
   getEstadoLabel,
@@ -20,7 +19,6 @@ import {
   getModalidadLabel,
 } from "@/data/tarifas.mjs";
 
-const demoTarifas = getTarifasDemo();
 const estados = ["Todos", "active", "inactive", "draft", "archived"];
 const tipos = ["Todos", "monthly_subscription", "per_transaction", "per_parking", "equipment_bundle", "implementation_only", "custom"];
 const monedas = ["Todos", "CLP", "UF", "USD"];
@@ -43,7 +41,11 @@ function matchesSearch(values, query) {
 }
 
 export default function TarifasPage() {
-  const [tarifas, setTarifas] = useState(demoTarifas);
+  // Solo planes reales de commercial_plans (antes se mezclaban con 4 planes
+  // demostrativos de src/data/tarifas.mjs, con precios ficticios).
+  const [tarifas, setTarifas] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState("");
   const [busqueda, setBusqueda] = useState("");
   const [estado, setEstado] = useState("Todos");
   const [tipo, setTipo] = useState("Todos");
@@ -61,11 +63,15 @@ export default function TarifasPage() {
   useEffect(() => {
     let active = true;
     authenticatedFetch("/api/planes", { cache: "no-store" }).then(async (response) => {
-      if (!response.ok) return null;
+      if (!response.ok) throw new Error("No fue posible cargar los planes.");
       const body = await response.json();
-      if (active && Array.isArray(body.data)) setTarifas([...body.data, ...demoTarifas]);
+      if (active && Array.isArray(body.data)) setTarifas(body.data);
       if (active) setIsRoot(Boolean(body.permissions?.canCreate));
-    }).catch(() => {});
+    }).catch((error) => {
+      if (active) setErrorCarga(error instanceof Error ? error.message : "No fue posible cargar los planes.");
+    }).finally(() => {
+      if (active) setCargando(false);
+    });
     fetch("/api/auth/session", { cache: "no-store" }).then(async (response) => {
       if (!response.ok) return null;
       const body = await response.json();
@@ -136,12 +142,13 @@ export default function TarifasPage() {
           title="Planes"
           description="Administración de planes, asignaciones por empresa y condiciones comerciales de ParkFacil."
           actions={[
-            <PlanCreateModal key="nuevo" onCreated={(plan) => setTarifas((current) => [plan, ...current])} />,
+            // Crear plan: solo Root (la API ya rechaza al resto con 403).
+            isRoot ? <PlanCreateModal key="nuevo" onCreated={(plan) => setTarifas((current) => [plan, ...current])} /> : null,
           ]}
         />
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-          <TarifaResumen title="Total de planes" value={resumen.total} description="Datos de referencia" tone="info" />
+          <TarifaResumen title="Total de planes" value={resumen.total} description="Planes registrados" tone="info" />
           <TarifaResumen title="Planes activos" value={resumen.active} description="Disponibles" tone="positive" />
           <TarifaResumen title="Planes inactivos" value={resumen.inactive} description="Sin vigencia" tone="warning" />
           <TarifaResumen title="Planes por estacionamiento" value={resumen.porEstacionamiento} description="Cobro por espacio" tone="neutral" />
@@ -233,11 +240,21 @@ export default function TarifasPage() {
           </div>
 
           <div className="mt-6">
-            {resultados.length > 0 ? (
+            {cargando ? (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">
+                Cargando planes…
+              </div>
+            ) : errorCarga ? (
+              <div role="alert" className="rounded-3xl border border-red-200 bg-red-50 p-8 text-center text-sm font-semibold text-red-700">
+                {errorCarga}
+              </div>
+            ) : resultados.length > 0 ? (
               <TarifasGrid tarifas={resultados} />
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">
-                No hay planes que coincidan con los filtros aplicados.
+                {tarifas.length === 0
+                  ? isRoot ? "Aún no hay planes comerciales registrados. Usa «Crear plan» para agregar el primero." : "Aún no hay planes comerciales registrados."
+                  : "No hay planes que coincidan con los filtros aplicados."}
               </div>
             )}
           </div>

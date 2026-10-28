@@ -5,7 +5,7 @@ import PageHeader from "@/components/ui/PageHeader";
 import EstadoTarifaBadge from "@/components/tarifas/EstadoTarifaBadge";
 import TipoTarifaBadge from "@/components/tarifas/TipoTarifaBadge";
 import ModalidadCobroBadge from "@/components/tarifas/ModalidadCobroBadge";
-import { getTarifaById, formatCurrency, resolveContratos, getPlanTotalReferencial } from "@/data/tarifas.mjs";
+import { formatCurrency, resolveContratos, getPlanTotalReferencial } from "@/data/tarifas.mjs";
 import { getCommercialPlanAssignments, getCommercialPlanPageData } from "@/lib/commercialPlansServer";
 
 function DetailItem({ label, value }) {
@@ -19,7 +19,8 @@ function DetailItem({ label, value }) {
 
 export default async function TarifaDetallePage({ params }) {
   const { id } = await params;
-  const tarifa = getTarifaById(id) || await getCommercialPlanPageData(id);
+  // Solo planes reales (commercial_plans): los demostrativos t-001…t-004 ya no se muestran.
+  const tarifa = await getCommercialPlanPageData(id);
 
   if (!tarifa) {
     return (
@@ -80,7 +81,7 @@ export default async function TarifaDetallePage({ params }) {
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="text-xl font-semibold text-[#041E42]">Descuentos y condiciones</h3>
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <DetailItem label="Descuento demostrativo" value={`${tarifa.discountPercentage}%`} />
+            <DetailItem label="Descuento" value={`${tarifa.discountPercentage}%`} />
             <DetailItem label="Cobro mínimo mensual" value={formatCurrency(tarifa.minimumMonthlyCharge, tarifa.moneda)} />
             <DetailItem label="Cargo por transacción" value={formatCurrency(tarifa.transactionFee, tarifa.moneda)} />
             <DetailItem label="Cargo por dispositivo" value={formatCurrency(tarifa.deviceFee, tarifa.moneda)} />
