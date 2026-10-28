@@ -3,7 +3,7 @@ import { BadgeDollarSign, Boxes, Building2, CalendarDays, HardHat, MonitorSmartp
 import EstadoTarifaBadge from "@/components/tarifas/EstadoTarifaBadge";
 import TipoTarifaBadge from "@/components/tarifas/TipoTarifaBadge";
 import ModalidadCobroBadge from "@/components/tarifas/ModalidadCobroBadge";
-import { formatNetoIva, getPlanTotalReferencial } from "@/data/tarifas.mjs";
+import { formatNetoIva, getPlanTotalMensual } from "@/data/tarifas.mjs";
 
 export default function TarifaCard({ tarifa }) {
   return (
@@ -28,7 +28,7 @@ export default function TarifaCard({ tarifa }) {
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
         <div className="flex items-center gap-2 text-sm text-slate-600"><HardHat className="h-4 w-4 text-[#3150D8]" /><span>{tarifa.usuariosIncluidos} usuarios</span></div>
-        <div className="flex items-center gap-2 text-sm text-slate-600"><Boxes className="h-4 w-4 text-[#3150D8]" /><span>Total referencial: {formatNetoIva(getPlanTotalReferencial(tarifa), tarifa.moneda)}</span></div>
+        <div className="flex items-center gap-2 text-sm text-slate-600"><Boxes className="h-4 w-4 text-[#3150D8]" /><span>Total mensual: {formatNetoIva(getPlanTotalMensual(tarifa), tarifa.moneda)}</span></div>
       </div>
       <div className="mt-3 flex justify-end">
         <ModalidadCobroBadge modalidad={tarifa.modalidadCobro} />

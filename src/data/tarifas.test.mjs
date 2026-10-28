@@ -18,6 +18,7 @@ import {
   getMonedaLabel,
   formatCurrency,
   getPlanTotalReferencial,
+  getPlanTotalMensual,
   resolveContratos,
 } from "./tarifas.mjs";
 
@@ -70,4 +71,9 @@ test("currency values and referential totals are formatted", () => {
 test("formatNetoIva muestra el valor neto más IVA", () => {
   assert.equal(formatNetoIva(1.5, "UF"), "UF 1,5 + IVA");
   assert.equal(formatNetoIva(35000, "CLP"), "$35.000 + IVA");
+});
+
+test("getPlanTotalMensual suma cargo mensual y soporte, sin implementación", () => {
+  assert.equal(getPlanTotalMensual({ monthlyFee: 1.5, supportFee: 0.5, implementationFee: 1.5, transactionFee: 3 }), 2);
+  assert.equal(getPlanTotalMensual({ monthlyFee: "1.5" }), 1.5);
 });
