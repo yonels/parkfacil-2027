@@ -7,7 +7,7 @@ import { navigationItems } from "@/config/navigation";
 import { navigationVisibleForRole } from "@/lib/auth/permissions.mjs";
 import { useOperatorAccessUrl } from "@/lib/auth/useOperatorAccessUrl";
 import { isItemActive, matchesActivePrefix, isTreeActive, activeTreeKeys, initialExpandedNodes, toggleExpandedNode, filterVisibleTree, projectSingleProductParkingNode } from "@/lib/navigationTreeCore.mjs";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const SIDEBAR_TREES_STORAGE_KEY = "parkfacil.sidebar.expanded.v2";
 
@@ -86,6 +86,8 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openSections, setOpenSections] = useState(["plataforma", "administracion"]);
   const [openTrees, setOpenTrees] = useState(() => readInitialExpandedNodes(pathname));
+  const navRef = useRef(null);
+
   const [showAccountDetails, setShowAccountDetails] = useState(false);
   const [showMobileAccountDetails, setShowMobileAccountDetails] = useState(false);
   const normalizedOpenSections = Array.isArray(openSections)
@@ -124,6 +126,26 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
     })).filter((section) => section.items.length > 0),
     [visibleItems],
   );
+
+  // Al navegar, la página nueva vuelve a montar el menú con su desplazamiento
+  // en cero y la opción elegida quedaba fuera de la vista (p. ej. un reporte de
+  // «Reportes Pago liberado», SOL-2026-10-28-005). Cuando el menú ya muestra la
+  // opción activa (los ítems dependen del rol y llegan después), se centra
+  // dentro del menú una sola vez por página, sin mover la página ni reaccionar
+  // a carpetas que el usuario abra o cierre después.
+  const scrolledPathRef = useRef(null);
+  useEffect(() => {
+    if (scrolledPathRef.current === pathname) return;
+    const nav = navRef.current;
+    const active = nav?.querySelector('[aria-current="page"]');
+    if (!active) return;
+    scrolledPathRef.current = pathname;
+    const navBox = nav.getBoundingClientRect();
+    const box = active.getBoundingClientRect();
+    if (box.top < navBox.top || box.bottom > navBox.bottom) {
+      nav.scrollTop += box.top - navBox.top - (nav.clientHeight - box.height) / 2;
+    }
+  }, [pathname, visibleItems, openTrees]);
 
   const toggleTree = (key) => setOpenTrees((current) => {
     const next = toggleExpandedNode(current, key);
@@ -183,7 +205,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
 
     // Nivel 4 (opciones finales, p.ej. "Proyectos actuales"/"Nuevo proyecto"): Arial 14px/500.
     return (
-      <Link key={child.href} href={child.href} onClick={onNavigate} className={`relative block rounded-lg px-3 py-2 text-[14px] font-medium leading-[1.45] transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${childActive ? activeClasses : hoverClasses}`}>
+      <Link key={child.href} href={child.href} onClick={onNavigate} aria-current={childActive ? "page" : undefined} className={`relative block rounded-lg px-3 py-2 text-[14px] font-medium leading-[1.45] transition before:absolute before:-left-3 before:top-1/2 before:w-3 before:border-t before:border-slate-300 ${childActive ? activeClasses : hoverClasses}`}>
         {child.label}
       </Link>
     );
@@ -234,7 +256,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
 
     if (item.href) {
       return (
-        <Link key={item.label} href={item.href} onClick={onNavigate} className={linkClasses(active)}>
+        <Link key={item.label} href={item.href} onClick={onNavigate} aria-current={active ? "page" : undefined} className={linkClasses(active)}>
           <FolderItemIcon tone={tone} />
           <span>{item.label}</span>
         </Link>
@@ -314,7 +336,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
         </div>
         {operationIndicator}
 
-        <nav className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">
+        <nav ref={navRef} className="mt-8 min-h-0 flex-1 overflow-y-auto pr-1">
           {collapsed ? (
             <div className="space-y-1.5">
               {visibleItems.map((item) => {
