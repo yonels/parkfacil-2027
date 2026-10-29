@@ -1,6 +1,7 @@
 {
   "git": {
     "deploymentEnabled": {
+      "docs/guia-tareas-rol": false,
       "fix/menu-lateral-reporte-visible": false,
       "feature/reportes-pago-liberado-menu": false,
       "fix/pago-liberado-reingreso": false,
