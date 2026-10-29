@@ -1,6 +1,7 @@
 {
   "git": {
     "deploymentEnabled": {
+      "feature/centro-control-sms": false,
       "fix/turnos-crud": false,
       "fix/turnos-off-street": false,
       "fix/comprobante-pago-liberado": false,

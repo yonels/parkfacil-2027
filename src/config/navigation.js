@@ -1,4 +1,4 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, MapPinned, UserCircle, Hash, BadgeCheck } from "lucide-react";
+import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, MapPinned, UserCircle, Hash, BadgeCheck, MessageSquareText } from "lucide-react";
 import { flattenReports, subTree } from "../lib/reports/engine/registry.mjs";
 
 const RELEASED_PLATE_REPORTS = flattenReports(subTree(["off-patentes"]));
@@ -265,6 +265,26 @@ export const navigationItems = [
           { href: "/on-street-qr/reportes?tab=graficos", label: "Gráficos" },
         ],
       },
+    ],
+  },
+
+  // ============================================================
+  // CENTRO DE CONTROL SMS (SOL-2026-10-29-007) -- transversal a On Street,
+  // Off Street, alertas y Mesa de Ayuda. Solo Root ("/centro-sms" está en
+  // ROOT_ONLY_PREFIXES de permissions.mjs).
+  // ============================================================
+  {
+    label: "Centro de Control SMS",
+    icon: MessageSquareText,
+    activePrefix: "/centro-sms",
+    children: [
+      { href: "/centro-sms", label: "Resumen general" },
+      { href: "/centro-sms/historial", label: "Historial de mensajes" },
+      { href: "/centro-sms/recibidos", label: "Mensajes recibidos" },
+      { href: "/centro-sms/fallos", label: "Fallos y reintentos" },
+      { href: "/centro-sms/consumo", label: "Consumo y costos" },
+      { href: "/centro-sms/diagnostico", label: "Diagnóstico y pruebas" },
+      { href: "/centro-sms/configuracion", label: "Configuración y permisos" },
     ],
   },
 

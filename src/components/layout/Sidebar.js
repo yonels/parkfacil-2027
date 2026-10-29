@@ -44,7 +44,8 @@ const sectionDefinitions = [
     title: "Administración",
     // Administradores/Operadores/Seguridad/Mi Cuenta: Portal Cliente, a primer
     // nivel (projectClientAdministrationNode, SOL-2026-10-29-002).
-    labels: ["Empresas", "Usuarios", "Administradores", "Operadores", "Seguridad", "Mi Cuenta", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Cupones y descuentos", "Dispositivos", "Facturación", "Reportes", "Administración", "Integraciones"],
+    // "Centro de Control SMS" (SOL-2026-10-29-007): solo Root.
+    labels: ["Empresas", "Usuarios", "Administradores", "Operadores", "Seguridad", "Mi Cuenta", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Cupones y descuentos", "Dispositivos", "Facturación", "Reportes", "Centro de Control SMS", "Administración", "Integraciones"],
   },
   {
     id: "soporte",
