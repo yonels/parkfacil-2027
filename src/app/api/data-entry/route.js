@@ -798,6 +798,7 @@ export async function POST(request) {
     }
     if (releasedSnapshot && input.couponToken) return fail("Los cupones no aplican a patentes liberadas.", 409, { code: "RELEASED_PAYMENT_NO_COUPON" });
     let quote; try { quote = releasedSnapshot ? await quoteReleasedParkingStay(current.db, stay, releasedSnapshot, { now }) : await quoteParkingStay(current.db, stay, { couponToken: input.couponToken, now }); } catch (error) {
+      if (!["PARKING_NOT_FOUND", "COUPON_NOT_FOUND", "COUPON_ALREADY_USED", "COUPON_INACTIVE", "COUPON_WRONG_COMPANY", "COUPON_NOT_YET_VALID", "COUPON_EXPIRED"].includes(error?.message)) console.error("[data-entry:QUOTE]", error?.code, error?.message);
       const messages = { PARKING_NOT_FOUND: "El estacionamiento no existe.", COUPON_NOT_FOUND: "El cupón no existe.", COUPON_ALREADY_USED: "El cupón ya fue utilizado.", COUPON_INACTIVE: "El cupón no está activo.", COUPON_WRONG_COMPANY: "El cupón no corresponde a este estacionamiento.", COUPON_NOT_YET_VALID: "El cupón todavía no está vigente.", COUPON_EXPIRED: "El cupón está vencido." };
       return fail(messages[error.message] || "No fue posible calcular la tarifa.", 409);
     }

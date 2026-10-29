@@ -244,7 +244,7 @@ begin
       raise exception 'RELEASED_PLATE_NOT_FOUND' using errcode = '23514';
     end if;
     if v_current.updated_at is distinct from p_expected_updated_at then
-      raise exception 'RELEASED_PLATE_CONFLICT' using errcode = '40001';
+      raise exception 'RELEASED_PLATE_CONFLICT' using errcode = 'P0001';
     end if;
     if v_current.status <> 'ACTIVE' or v_now >= v_current.valid_to then
       raise exception 'RELEASED_PLATE_NOT_EDITABLE' using errcode = '23514';
@@ -328,7 +328,7 @@ begin
     raise exception 'RELEASED_PLATE_NOT_FOUND' using errcode = '23514';
   end if;
   if v_current.updated_at is distinct from p_expected_updated_at then
-    raise exception 'RELEASED_PLATE_CONFLICT' using errcode = '40001';
+    raise exception 'RELEASED_PLATE_CONFLICT' using errcode = 'P0001';
   end if;
 
   if p_action = 'FINISH' then
