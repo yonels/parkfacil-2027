@@ -59,7 +59,7 @@ begin
   begin
     perform public.released_plate_save(admin, 'emp-5q', a.id, a.updated_at - interval '1 second', libre, false);
     raise exception 'debía detectar conflicto';
-  exception when sqlstate '40001' then null; end;
+  exception when sqlstate 'P0001' then if sqlerrm <> 'RELEASED_PLATE_CONFLICT' then raise; end if; end;
 
   -- Módulo desactivado: no hay ingreso con beneficio.
   perform public.released_plate_set_parking(admin, parking, false);

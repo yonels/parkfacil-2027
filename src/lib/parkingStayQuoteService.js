@@ -251,7 +251,7 @@ export async function quoteReleasedParkingStay(db, stay, releasedSnapshot, optio
   if (!coverage.uncovered.length) {
     return { blocked: false, net: 0, tax: 0, total: 0, taxRate: 0.19, subtotal: 0, discount: 0, elapsedSeconds: coverage.elapsedSeconds, elapsedMinutes, rate: null, charge: null, coupon: null, breakdown: null, released: { ...released, intervals: [] } };
   }
-  const rate = await getActiveRate(db, stay.parking_id, now);
+  const rate = await getStayRate(db, stay, now);
   if (!rate) return { blocked: true, reason: "ACTIVE_RATE_NOT_FOUND", elapsedSeconds: coverage.elapsedSeconds, elapsedMinutes, released };
   let holidays = [];
   if (rate.timeBandsEnabled) {
