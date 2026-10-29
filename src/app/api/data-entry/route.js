@@ -12,6 +12,8 @@ import { canRevertUnpaidMark, sanitizeUnpaidNotes } from "@/lib/parkingDebtsCore
 import { buildDebtNoticeForPlate, getPendingUnpaidStay, listPendingUnpaidStaysForShift, markStayUnpaid, revertStayUnpaid } from "@/lib/parkingDebtsRepository";
 import { getDebtNoticeEnabled } from "@/lib/offStreet/debtNoticeSettingsRepository";
 import { NextResponse } from "next/server";
+import { loadOpenShiftStatus } from "@/lib/offStreet/shiftRulesRepository";
+import { operationAllowed } from "@/lib/pos/shiftRulesCore.mjs";
 import { formatChileanPlate, joinChileanPlate } from "@/lib/dataEntry.mjs";
 import { buildPosQuoteSnapshot, loadReleasedStaySnapshot, quoteParkingStay, quoteReleasedParkingStay, snapshotHasChargeBreakdown, verifyPosQuoteSnapshot } from "@/lib/parkingStayQuoteService";
 import { describeAuthorization } from "@/lib/releasedPayment/authorizationCore.mjs";
@@ -238,8 +240,11 @@ const releasedEntryErrorCode = (error) => {
   return Object.keys(RELEASED_ENTRY_ERRORS).find((key) => message.includes(key)) || rpcErrorCode(error);
 };
 
+// Operaciones del POS sujetas a la regla de turno vencido (SOL-2026-10-29-006).
+const SHIFT_RULE_ACTIONS = new Set(["ENTRY", "EXIT", "RELEASED_EXIT", "CARD_PAYMENT_RESERVE", "UNPAID_EXIT"]);
+
 async function requireOpenPosShift(db, actor) {
-  const { data, error } = await db.from("operator_shifts").select("id,operator_id,parking_id,status")
+  const { data, error } = await db.from("operator_shifts").select("id,operator_id,parking_id,status,shift_date,scheduled_start,scheduled_end")
     .eq("operator_id", actor.id).eq("parking_id", actor.parkingId).eq("status", "OPEN").limit(1).maybeSingle();
   if (error) throw error;
   return data || null;
@@ -581,6 +586,14 @@ export async function POST(request) {
   const posShift = isPosRequest ? await requireOpenPosShift(current.db, current.actor) : null;
   if (isPosRequest && !posShift && ["ENTRY", "EXIT", "RELEASED_EXIT"].includes(input.action)) {
     return fail("Debes iniciar un turno antes de realizar esta operación en el POS.", 409, { code: "OPEN_SHIFT_REQUIRED" });
+  }
+  // Reglas de turnos (SOL-2026-10-29-006): turno vencido sin ingresos y relevo.
+  // El EXIT con tarjeta confirma un cobro que TUU ya aprobó: nunca se bloquea
+  // (la regla se aplica antes, en CARD_PAYMENT_RESERVE).
+  if (isPosRequest && posShift && SHIFT_RULE_ACTIONS.has(input.action) && !(input.action === "EXIT" && input.paymentMethod === "CARD")) {
+    const shiftStatus = await loadOpenShiftStatus(current.db, posShift);
+    const allowed = operationAllowed(shiftStatus, input.action);
+    if (!allowed.ok) return fail(allowed.message, 409, { code: allowed.code });
   }
   if (input.action === "RELEASED_CHECK") {
     const plate = formatChileanPlate(input.plate || joinChileanPlate(input.platePrefix, input.plateSuffix));

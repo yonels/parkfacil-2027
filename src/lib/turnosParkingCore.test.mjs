@@ -44,6 +44,12 @@ test("Editar: un turno abierto no vuelve a programado ni cambia de operador o fe
   assert.match(shiftEditViolation(open, { status: "OPEN", operatorId: "op-1", date: "2026-10-28" }), /operador ni de fecha/);
 });
 
+test("Editar: un turno abierto no cambia de horario (regla 4)", () => {
+  const open = { status: "OPEN", operator_id: "op-1", shift_date: "2026-10-27", scheduled_start: "00:00:00", scheduled_end: "23:59:00" };
+  assert.equal(shiftEditViolation(open, { status: "OPEN", operatorId: "op-1", date: "2026-10-27", scheduledStart: "00:00", scheduledEnd: "23:59:00" }), null);
+  assert.match(shiftEditViolation(open, { status: "OPEN", operatorId: "op-1", date: "2026-10-27", scheduledStart: "15:15", scheduledEnd: "15:30" }), /no cambia de horario/);
+});
+
 test("Editar: un programado puede abrirse o cancelarse; un cerrado no se edita", () => {
   const programmed = { status: "PROGRAMMED", operator_id: "op-1", shift_date: "2026-10-27" };
   assert.equal(shiftEditViolation(programmed, { status: "OPEN", operatorId: "op-2", date: "2026-10-28" }), null);

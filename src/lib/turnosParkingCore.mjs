@@ -36,5 +36,10 @@ export function shiftEditViolation(current, input) {
   if (current?.status === "OPEN" && (input.operatorId !== current.operator_id || input.date !== current.shift_date)) {
     return "Un turno abierto no cambia de operador ni de fecha.";
   }
+  // Regla 4 (SOL-2026-10-29-006): el horario de un turno abierto tampoco cambia.
+  const hhmm = (value) => String(value || "").slice(0, 5);
+  if (current?.status === "OPEN" && (hhmm(input.scheduledStart) !== hhmm(current.scheduled_start) || hhmm(input.scheduledEnd) !== hhmm(current.scheduled_end))) {
+    return "Un turno abierto no cambia de horario.";
+  }
   return null;
 }

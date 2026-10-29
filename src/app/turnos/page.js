@@ -51,6 +51,7 @@ export default async function TurnosPage({ searchParams }) {
                 selectedCode={selectedParking?.code || ""}
               />
             </div>
+            {selectedParking ? <Link href={`/estacionamientos/${selectedParking.code}/configuracion/reglas-turnos`} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-[#3150D8] hover:border-[#3150D8]">Reglas de turnos</Link> : null}
             {selectedParking ? <Link href={`/estacionamientos/${selectedParking.code}/turnos`} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-[#3150D8] hover:border-[#3150D8]">Administrar turnos seleccionados</Link> : null}
           </div>
         </section>

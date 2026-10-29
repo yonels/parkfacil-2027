@@ -1101,6 +1101,8 @@ export default function PosTerminal() {
   const [shiftClosure, setShiftClosure] = useState(null);
   const [shiftPreview, setShiftPreview] = useState(null);
   const [shiftServerNow, setShiftServerNow] = useState(null);
+  // Reglas de turnos del estacionamiento (SOL-2026-10-29-006), informadas por /api/pos/shift.
+  const [shiftRules, setShiftRules] = useState(null);
   const [declaredCashInput, setDeclaredCashInput] = useState("");
   const [differenceObservationInput, setDifferenceObservationInput] = useState("");
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
@@ -1233,6 +1235,7 @@ export default function PosTerminal() {
       setShiftClosure(data.closure || null);
       setShiftPreview(data.preview || null);
       setShiftServerNow(data.serverNow || null);
+      setShiftRules(data.shiftRules || null);
       setParkingOptions(Array.isArray(data.parkingOptions) ? data.parkingOptions : []);
       setOnDemandParkings(Array.isArray(data.onDemandParkings) ? data.onDemandParkings : []);
       const offStreet = Array.isArray(data.offStreetParkings) ? data.offStreetParkings : [];
@@ -3326,6 +3329,29 @@ export default function PosTerminal() {
   // sigue siendo requireOpenPosShift() en /api/data-entry, que exige
   // status='OPEN' exacto y rechaza igual aunque este chequeo se omita.
   const shiftReadyForOperations = shiftState === "OPEN" && shift?.status !== "CLOSING";
+  // Reglas de turnos (SOL-2026-10-29-006): el servidor decide (y rechaza igual
+  // en /api/data-entry); aquí solo se muestra el motivo y se deshabilita.
+  const shiftRuleStatus = shiftReadyForOperations ? shiftRules?.openStatus || null : null;
+  const entryBlockedByRule = ["COLLECT_ONLY", "CLOSE_ONLY"].includes(shiftRuleStatus?.mode);
+  const collectBlockedByRule = shiftRuleStatus?.mode === "CLOSE_ONLY";
+  const programmedStartBlock = shiftRules?.startCheck?.ok === false ? shiftRules.startCheck : null;
+  const onDemandBlock = shiftRules?.onDemandCheck?.ok === false ? shiftRules.onDemandCheck : null;
+
+  // Reglas de turnos (SOL-2026-10-29-006): con el turno abierto pero vencido,
+  // INGRESO (y, en relevo, también los cobros) muestran el motivo y llevan al
+  // cierre. Va después de renderShiftGate, que cubre los estados sin turno.
+  function renderShiftRuleGate(title, action) {
+    const blocked = shiftReadyForOperations && ((action === "ENTRY" && entryBlockedByRule) || (action === "COLLECT" && collectBlockedByRule));
+    if (!blocked) return null;
+    return (
+      <section className="rounded-3xl border border-rose-300 bg-white p-5 text-slate-800 shadow-sm">
+        <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2>
+        <div role="alert" className="mt-4 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-900">{shiftRuleStatus.message}</div>
+        <button type="button" onClick={() => goToSection(POS_VIEWS.CIERRE_CAJA)} className="mt-4 w-full rounded-2xl bg-rose-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-rose-800">CERRAR TURNO</button>
+        <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-3 rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
+      </section>
+    );
+  }
 
   // Gate reutilizable de turno para INGRESO y SALIDA (Home ya resuelve su
   // propio bloqueo con shiftReadyForOperations sobre los botones). Devuelve
@@ -3400,7 +3426,8 @@ export default function PosTerminal() {
             </div>
           ) : null}
           {offStreetSelectionError ? <p role="alert" className="mt-3 text-sm font-bold text-rose-700">{offStreetSelectionError}</p> : null}
-          <button type="button" onClick={startSelectedOffStreetShift} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+          {selectedOffStreet?.ruleCheck?.ok === false ? <p role="status" className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900">{selectedOffStreet.ruleCheck.message}</p> : null}
+          <button type="button" onClick={startSelectedOffStreetShift} disabled={shiftStartBusy || selectedOffStreet?.ruleCheck?.ok === false} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
             {shiftStartBusy ? "Iniciando..." : "INICIAR TURNO"}
           </button>
           {parkingOptions.length ? (
@@ -3450,11 +3477,11 @@ export default function PosTerminal() {
                   key={option.parkingId}
                   type="button"
                   onClick={() => void startOnDemandShift(option.parkingId)}
-                  disabled={shiftStartBusy}
+                  disabled={shiftStartBusy || option.ruleCheck?.ok === false}
                   className="flex min-h-16 w-full flex-col items-start justify-center rounded-2xl bg-emerald-700 px-4 py-3 text-left text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span className="text-base font-black uppercase tracking-[0.04em]">{shiftStartBusy ? "Iniciando..." : `Iniciar turno · ${option.parkingName || option.parkingCode}`}</span>
-                  <span className="text-xs font-semibold text-emerald-50">Código {option.parkingCode || "-"}</span>
+                  <span className="text-xs font-semibold text-emerald-50">{option.ruleCheck?.ok === false ? option.ruleCheck.message : `Código ${option.parkingCode || "-"}`}</span>
                 </button>
               ))}
             </div>
@@ -3489,7 +3516,8 @@ export default function PosTerminal() {
             <p className="mt-1 font-black">Tienes un turno programado pendiente de inicio.</p>
             <p className="mt-1 text-sm font-semibold">Fecha: {shift?.date || "-"} · Horario: {shift?.scheduledStart || "-"}–{shift?.scheduledEnd || "-"}</p>
           </div>
-          <button type="button" onClick={() => void startProgrammedShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+          {programmedStartBlock ? <p role="status" className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900">{programmedStartBlock.message}</p> : null}
+          <button type="button" onClick={() => void startProgrammedShift()} disabled={shiftStartBusy || Boolean(programmedStartBlock)} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
             {shiftStartBusy ? "Iniciando..." : "INICIAR TURNO"}
           </button>
           {volverButton}
@@ -3515,10 +3543,11 @@ export default function PosTerminal() {
           {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
           <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
             Tu turno de hoy en este estacionamiento ya fue cerrado.
+            {onDemandBlock ? <span className="mt-1 block">{onDemandBlock.message}</span> : null}
           </div>
-          <button type="button" onClick={() => void startOnDemandShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
+          {onDemandBlock ? null : <button type="button" onClick={() => void startOnDemandShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
             {shiftStartBusy ? "Iniciando..." : "INICIAR NUEVO TURNO"}
-          </button>
+          </button>}
           {volverButton}
         </section>
       );
@@ -3531,9 +3560,9 @@ export default function PosTerminal() {
         {title ? <h2 className="text-xl font-black uppercase tracking-[0.08em]">{title}</h2> : null}
         <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
           No tienes un turno programado para este estacionamiento.
-          {parking ? " Puedes iniciar tu turno ahora." : ""}
+          {parking ? (onDemandBlock ? ` ${onDemandBlock.message}` : " Puedes iniciar tu turno ahora.") : ""}
         </div>
-        {parking ? (
+        {parking && !onDemandBlock ? (
           <button type="button" onClick={() => void startOnDemandShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60">
             {shiftStartBusy ? "Iniciando..." : "INICIAR TURNO"}
           </button>
@@ -3570,6 +3599,13 @@ export default function PosTerminal() {
         <TuuPendingPaymentsAlert count={tuuPendingViews.length} onOpen={() => goToSection(POS_VIEWS.PAGOS_POR_RESOLVER)} />
 
         {homeShiftGate ? <div className="mb-4">{homeShiftGate}</div> : null}
+
+        {shiftRuleStatus?.message ? (
+          <div role="alert" className={`mb-4 rounded-2xl border p-4 text-sm font-semibold ${shiftRuleStatus.mode === "CLOSE_ONLY" ? "border-rose-300 bg-rose-50 text-rose-900" : "border-amber-300 bg-amber-50 text-amber-900"}`}>
+            <p>{shiftRuleStatus.message}</p>
+            {shiftRuleStatus.mode === "WARN" ? null : <button type="button" onClick={() => goToSection(POS_VIEWS.CIERRE_CAJA)} className="mt-3 min-h-11 rounded-xl bg-rose-700 px-4 text-sm font-black uppercase text-white">Cerrar turno</button>}
+          </div>
+        ) : null}
 
         <div className="pos-home-actions grid grid-cols-2 gap-3 sm:gap-4">
           <button
@@ -3902,6 +3938,8 @@ export default function PosTerminal() {
     if (!entrySuccess) {
       const gate = renderShiftGate("Ingreso de vehículo");
       if (gate) return gate;
+      const ruleGate = renderShiftRuleGate("Ingreso de vehículo", "ENTRY");
+      if (ruleGate) return ruleGate;
     }
 
     if (entrySuccess) {
@@ -4606,7 +4644,8 @@ export default function PosTerminal() {
             <p className="font-black">Turno programado disponible</p>
             <p className="mt-1 text-sm font-semibold">Fecha: {shift.date || "-"} · Horario: {shift.scheduledStart || "-"}–{shift.scheduledEnd || "-"}</p>
           </div>
-          <button type="button" onClick={() => void startProgrammedShift()} disabled={shiftStartBusy} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:opacity-60">
+          {programmedStartBlock ? <p role="status" className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900">{programmedStartBlock.message}</p> : null}
+          <button type="button" onClick={() => void startProgrammedShift()} disabled={shiftStartBusy || Boolean(programmedStartBlock)} className="mt-4 w-full rounded-2xl bg-emerald-700 px-4 py-4 text-lg font-black uppercase tracking-[0.06em] text-white hover:bg-emerald-600 disabled:opacity-60">
             {shiftStartBusy ? "Iniciando..." : "Iniciar turno"}
           </button>
           <button type="button" onClick={() => goToSection(POS_VIEWS.HOME)} className="mt-3 rounded-xl border border-slate-300 bg-white px-4 py-2 min-h-11 text-sm font-bold text-slate-800 hover:bg-slate-100">Volver</button>
@@ -5388,6 +5427,8 @@ export default function PosTerminal() {
       // El gate de turno aplica: requiere turno OPEN para cobrar.
       const gate = renderShiftGate("Salida de vehículo");
       if (gate) return gate;
+      const ruleGate = renderShiftRuleGate("Salida de vehículo", "COLLECT");
+      if (ruleGate) return ruleGate;
 
       return (
         <section className="rounded-3xl border border-rose-300 bg-rose-50 p-5 text-rose-950 shadow-sm">
@@ -5509,6 +5550,8 @@ export default function PosTerminal() {
       // Salida por QR: cobra, así que exige turno OPEN (igual que SALIDA).
       const gate = renderShiftGate("Salida por código QR");
       if (gate) return gate;
+      const ruleGate = renderShiftRuleGate("Salida por código QR", "COLLECT");
+      if (ruleGate) return ruleGate;
 
       return (
         <section className="rounded-3xl border border-amber-300 bg-amber-50 p-5 text-amber-950 shadow-sm">

@@ -3,7 +3,9 @@ import { authorizeOperationRequest, operationAuthorizationError, posOperationAct
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { findSelectableOffStreetParking, findSelectableShift, POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { ensureOnDemandProgrammedShift, OnDemandShiftError } from "@/lib/pos/onDemandShift";
-import { getPosOperatorShiftState, startPosOperatorShift } from "@/lib/posOperatorShiftService";
+import { chileOperationalDate, getPosOperatorShiftState, startPosOperatorShift } from "@/lib/posOperatorShiftService";
+import { getShiftRules, startRuleCheck } from "@/lib/offStreet/shiftRulesRepository";
+import { programmedStartCheck } from "@/lib/pos/shiftRulesCore.mjs";
 
 const errors = {
   SHIFT_NOT_FOUND: ["No se encontró el turno asignado.", 404], SHIFT_FORBIDDEN: ["No tienes autorización para iniciar este turno.", 403],
@@ -23,6 +25,21 @@ function rpcFailure(error) {
 // de hoy ya cerrado (nuevo turno). Nunca con uno OPEN/CLOSING o PROGRAMMED.
 const ON_DEMAND_STATES = new Set(["UNASSIGNED", "CLOSED"]);
 
+// Reglas de turnos del estacionamiento (SOL-2026-10-29-006): 409 con el motivo
+// para el operador, o null si se puede seguir.
+function ruleRejection(check) {
+  return check.ok ? null : NextResponse.json({ error: check.message, code: check.code, availableFrom: check.availableFrom || null }, { status: 409 });
+}
+async function programmedStartRejection(db, shiftId) {
+  const { data, error } = await db.from("operator_shifts").select("parking_id,shift_date,scheduled_start,scheduled_end").eq("id", shiftId).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  return ruleRejection(programmedStartCheck(await getShiftRules(db, data.parking_id), data));
+}
+async function onDemandRejection(db, parking, operatorId) {
+  return ruleRejection(await startRuleCheck(db, { parkingId: parking.id, operatorId, today: chileOperationalDate() }));
+}
+
 export async function POST(request) {
   let authorization;
   try {
@@ -36,6 +53,8 @@ export async function POST(request) {
     // Turno a pedido: crea (o reutiliza) el PROGRAMMED de hoy y lo abre con el
     // mismo RPC que un turno programado.
     const openOnDemand = async (parking) => {
+      const rejected = await onDemandRejection(authorization.db, parking, actor.id);
+      if (rejected) return rejected;
       const shiftId = await ensureOnDemandProgrammedShift(authorization.db, { parking, operatorId: actor.id });
       const shift = await startPosOperatorShift(authorization.db, { shiftId, actor });
       const after = await resolvePosOperationalParking(authorization);
@@ -52,6 +71,8 @@ export async function POST(request) {
         if (!selected) {
           return NextResponse.json({ error: "Selecciona un turno programado válido para iniciar.", code: "PARKING_SELECTION_REQUIRED" }, { status: 409 });
         }
+        const rejected = await programmedStartRejection(authorization.db, selected.shiftId);
+        if (rejected) return rejected;
         const shift = await startPosOperatorShift(authorization.db, { shiftId: selected.shiftId, actor });
         const selectedParking = await resolvePosOperationalParking(authorization);
         return NextResponse.json({ data: { state: "OPEN", shift, parking: selectedParking.parking, actor, serverNow: new Date().toISOString() } });
@@ -76,6 +97,8 @@ export async function POST(request) {
     if (!parking) return NextResponse.json({ error: "No tienes un estacionamiento asignado.", code: "PARKING_UNASSIGNED" }, { status: 409 });
     const current = await getPosOperatorShiftState(authorization.db, { operatorId: actor.id, parkingId: parking.id });
     if (current.state === "PROGRAMMED" && current.shift && (!body.shiftId || body.shiftId === current.shift.id)) {
+      const rejected = await programmedStartRejection(authorization.db, current.shift.id);
+      if (rejected) return rejected;
       const shift = await startPosOperatorShift(authorization.db, { shiftId: current.shift.id, actor });
       return NextResponse.json({ data: { state: "OPEN", shift, parking, actor, serverNow: new Date().toISOString() } });
     }

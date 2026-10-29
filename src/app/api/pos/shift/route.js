@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
-import { getOperatorClosureByShift, getPosOperatorShiftState, loadOperatorShiftPreview, mapOperatorShift } from "@/lib/posOperatorShiftService";
+import { chileOperationalDate, getOperatorClosureByShift, getPosOperatorShiftState, loadOperatorShiftPreview, mapOperatorShift } from "@/lib/posOperatorShiftService";
+import { getShiftRules, hasProgrammedShiftToday, loadOpenShiftStatus, startRuleCheck } from "@/lib/offStreet/shiftRulesRepository";
+import { onDemandStartCheck, programmedStartCheck } from "@/lib/pos/shiftRulesCore.mjs";
 
 const noStore = { "Cache-Control": "no-store" };
 function fail(message, status, code) { return NextResponse.json({ error: message, code }, { status, headers: noStore }); }
@@ -26,6 +28,12 @@ export async function GET(request) {
       // Street activos de la empresa). lastClosure conserva la consulta y
       // reimpresión del último cierre de hoy, que ya no fija el estacionamiento.
       const offStreetParkings = resolved.offStreetOptions || [];
+      // Reglas de turnos (SOL-2026-10-29-006): cada opción del selector (objetos
+      // armados para esta respuesta) informa si hoy se puede iniciar ahí.
+      const today = chileOperationalDate();
+      await Promise.all([...offStreetParkings, ...onDemandParkings].filter((option) => option?.parkingId).map(async (option) => {
+        option.ruleCheck = await startRuleCheck(authorization.db, { parkingId: option.parkingId, operatorId: authorization.context.userId, today });
+      }));
       let lastClosure = null;
       if (offStreetParkings.length && resolved.lastClosedShift) {
         const closedRow = await authorization.db.from("operator_shifts").select("*")
@@ -49,7 +57,18 @@ export async function GET(request) {
     } else if (current.state === "CLOSED") {
       closure = await getOperatorClosureByShift(authorization.db, current.shift.id);
     }
-    return NextResponse.json({ data: { ...current, parking, actor, preview, closure, closed: Boolean(closure), serverNow: new Date().toISOString() } }, { headers: noStore });
+    // Reglas de turnos (SOL-2026-10-29-006): el POS muestra el motivo y
+    // deshabilita lo que el servidor rechazaría.
+    const rules = await getShiftRules(authorization.db, parking.id);
+    const shiftRow = current.shift ? { id: current.shift.id, parking_id: parking.id, status: current.shift.status, shift_date: current.shift.date, scheduled_start: current.shift.scheduledStart, scheduled_end: current.shift.scheduledEnd } : null;
+    let shiftRules = { rules };
+    if (current.state === "OPEN" && shiftRow) shiftRules.openStatus = await loadOpenShiftStatus(authorization.db, shiftRow, { rules });
+    if (current.state === "PROGRAMMED" && shiftRow) shiftRules.startCheck = programmedStartCheck(rules, shiftRow);
+    if (["UNASSIGNED", "CLOSED"].includes(current.state)) {
+      const hasProgrammedToday = rules.onDemandPolicy === "NO_PROGRAMMED" ? await hasProgrammedShiftToday(authorization.db, { operatorId: actor.id, parkingId: parking.id, today: chileOperationalDate() }) : false;
+      shiftRules.onDemandCheck = onDemandStartCheck(rules, { hasProgrammedToday });
+    }
+    return NextResponse.json({ data: { ...current, parking, actor, preview, closure, closed: Boolean(closure), shiftRules, serverNow: new Date().toISOString() } }, { headers: noStore });
   } catch (error) {
     const denied = operationAuthorizationError(request, authorization?.context, error);
     if (denied) return denied;

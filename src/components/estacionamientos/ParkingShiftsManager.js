@@ -231,7 +231,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
       </div>
       {!assignmentOptions.length && !allowOffStreetDirectOperator ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">No hay asignaciones activas disponibles para crear turnos. Configura primero los operadores y sus asignaciones desde la estructura operativa.</div> : <form onSubmit={submit} className="mt-4 space-y-4">
         {formError ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{formError}</p> : null}
-        {editingOpen ? <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Turno abierto: aquí solo cambian el supervisor, el horario programado y las observaciones. Para terminarlo usa «Cerrar turno».</p> : null}
+        {editingOpen ? <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Turno abierto: aquí solo cambian el supervisor y las observaciones. Para terminarlo usa «Cerrar turno».</p> : null}
         {allowOffStreetDirectOperator ? <p className="rounded-2xl border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900">Off Street: cuando no existen asignaciones de estructura, el sistema genera una asignación operativa base para el operador seleccionado.</p> : null}
         <div className="grid gap-4 md:grid-cols-2">
           {allowOffStreetDirectOperator
@@ -240,8 +240,8 @@ export default function ParkingShiftsManager({ parking, structure }) {
           <Field label={editingShiftId ? "Estado" : "Estado inicial"}><select value={form.status} disabled={editingOpen} onChange={(event) => set("status", event.target.value)} className={inputClass}>{statusOptions.map((status) => <option key={status} value={status}>{SHIFT_STATUS_LABELS[status]}</option>)}</select></Field>
           <Field label="Fecha"><input type="date" value={form.date} disabled={editingOpen} onChange={(event) => set("date", event.target.value)} className={inputClass} /></Field>
           <Field label="Supervisor (opcional)"><select value={form.supervisorId} onChange={(event) => set("supervisorId", event.target.value)} className={inputClass}><option value="">Sin supervisor</option>{users.map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select></Field>
-          <Field label="Hora programada de inicio"><input type="time" value={form.scheduledStart} onChange={(event) => set("scheduledStart", event.target.value)} className={inputClass} /></Field>
-          <Field label="Hora programada de término"><input type="time" value={form.scheduledEnd} onChange={(event) => set("scheduledEnd", event.target.value)} className={inputClass} /></Field>
+          <Field label="Hora programada de inicio"><input type="time" value={form.scheduledStart} disabled={editingOpen} onChange={(event) => set("scheduledStart", event.target.value)} className={inputClass} /></Field>
+          <Field label="Hora programada de término"><input type="time" value={form.scheduledEnd} disabled={editingOpen} onChange={(event) => set("scheduledEnd", event.target.value)} className={inputClass} /></Field>
         </div>
         <Field label="Observaciones"><textarea value={form.notes} onChange={(event) => set("notes", event.target.value)} rows={3} className={inputClass} /></Field>
         <p className="text-xs text-slate-500">Los turnos cerrados o en proceso de cierre siguen protegidos y no se modifican desde esta pantalla.</p>
