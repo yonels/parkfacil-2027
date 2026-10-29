@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { offStreetShiftParkings, pickShiftParking } from "./turnosParkingCore.mjs";
+import { offStreetShiftParkings, pickShiftParking, shiftEditStatusOptions, shiftEditViolation } from "./turnosParkingCore.mjs";
 
 // Caso real ParkFacil Operaciones (2026-10-29): AAA es On Street y salía primero.
 const parkings = [
@@ -26,4 +26,27 @@ test("el elegido se respeta por código o id", () => {
   assert.equal(pickShiftParking(list, "ps-003").code, "PS-003");
   assert.equal(pickShiftParking(list, "p-ps").code, "PS-003");
   assert.equal(pickShiftParking([], "PC-001"), null);
+});
+
+test("Editar: estados permitidos según el estado actual del turno", () => {
+  assert.deepEqual(shiftEditStatusOptions(null), ["PROGRAMMED", "OPEN"]);
+  assert.deepEqual(shiftEditStatusOptions("OPEN"), ["OPEN"]);
+  assert.deepEqual(shiftEditStatusOptions("PROGRAMMED"), ["PROGRAMMED", "OPEN", "CANCELLED"]);
+  assert.deepEqual(shiftEditStatusOptions("CANCELLED"), ["CANCELLED", "PROGRAMMED"]);
+  assert.deepEqual(shiftEditStatusOptions("CLOSED"), []);
+});
+
+test("Editar: un turno abierto no vuelve a programado ni cambia de operador o fecha", () => {
+  const open = { status: "OPEN", operator_id: "op-1", shift_date: "2026-10-27" };
+  assert.equal(shiftEditViolation(open, { status: "OPEN", operatorId: "op-1", date: "2026-10-27" }), null);
+  assert.match(shiftEditViolation(open, { status: "PROGRAMMED", operatorId: "op-1", date: "2026-10-27" }), /Cerrar turno/);
+  assert.match(shiftEditViolation(open, { status: "OPEN", operatorId: "op-2", date: "2026-10-27" }), /operador ni de fecha/);
+  assert.match(shiftEditViolation(open, { status: "OPEN", operatorId: "op-1", date: "2026-10-28" }), /operador ni de fecha/);
+});
+
+test("Editar: un programado puede abrirse o cancelarse; un cerrado no se edita", () => {
+  const programmed = { status: "PROGRAMMED", operator_id: "op-1", shift_date: "2026-10-27" };
+  assert.equal(shiftEditViolation(programmed, { status: "OPEN", operatorId: "op-2", date: "2026-10-28" }), null);
+  assert.equal(shiftEditViolation(programmed, { status: "CANCELLED", operatorId: "op-1", date: "2026-10-27" }), null);
+  assert.ok(shiftEditViolation({ status: "CLOSED" }, { status: "CLOSED" }));
 });
