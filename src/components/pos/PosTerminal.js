@@ -3218,9 +3218,14 @@ export default function PosTerminal() {
       const printPayload = buildEntryPrintPayload(stay, parkingResponse);
       // Ticket "PAGO LIBERADO": leyenda para el agente de impresión y el
       // bridge nativo (cada impresora la muestra si la soporta).
+      // Modelo cliente (SOL-2026-10-28-003): «LIBERADO POR 3 HORAS» y el detalle
+      // «Entre … y …» (ticketDetail; el APK publicado aún no lo imprime).
       if (printPayload && payload?.data?.releasedPayment?.applied) {
-        printPayload.ticketLabel = "PAGO LIBERADO";
-        if (printPayload.agentTicket) printPayload.agentTicket = { ...printPayload.agentTicket, ticketLabel: "PAGO LIBERADO" };
+        const ticketLabel = payload.data.releasedPayment.label || "PAGO LIBERADO";
+        const ticketDetail = payload.data.releasedPayment.detail || "";
+        printPayload.ticketLabel = ticketLabel;
+        if (ticketDetail) printPayload.ticketDetail = ticketDetail;
+        if (printPayload.agentTicket) printPayload.agentTicket = { ...printPayload.agentTicket, ticketLabel, ...(ticketDetail ? { ticketDetail } : {}) };
       }
       // Coordenadas de la foto (si el GPS las entregó): línea "GPS:" del ticket.
       const ticketCoordinates = formatTicketCoordinates(entryPhoto?.latitude, entryPhoto?.longitude);
@@ -3728,11 +3733,14 @@ export default function PosTerminal() {
             <p className="mt-2 text-xs font-bold uppercase tracking-wide text-slate-500">{sourceLabel}</p>
             {entryReleased?.released ? (
               <div className="mt-3 rounded-xl border-2 border-emerald-500 bg-emerald-50 px-3 py-2 text-left text-sm font-semibold text-emerald-950" role="status">
-                <p className="text-base font-black uppercase tracking-wide">Patente liberada</p>
-                <p>Foto obligatoria · ocupa un cupo liberado{entryReleased.spots?.total ? ` (${entryReleased.spots.used} de ${entryReleased.spots.total} en uso)` : ""}.</p>
+                <p className="text-base font-black uppercase tracking-wide">{entryReleased.ticket?.label || "Patente liberada"}</p>
+                {/* Modelo cliente (SOL-2026-10-28-003): sin cupos; el ticket dice «LIBERADO POR …». */}
+                <p>{entryReleased.ticket ? "Foto obligatoria." : `Foto obligatoria · ocupa un cupo liberado${entryReleased.spots?.total ? ` (${entryReleased.spots.used} de ${entryReleased.spots.total} en uso)` : ""}.`}</p>
                 {entryReleased.authorization?.beneficiaryName ? <p>Beneficiario: {entryReleased.authorization.beneficiaryName}</p> : null}
+                {entryReleased.authorization?.thirdPartyName ? <p>Facturado a: {entryReleased.authorization.thirdPartyName}</p> : null}
+                {entryReleased.authorization?.uses ? <p>{entryReleased.authorization.uses}</p> : null}
                 {entryReleased.authorization?.description ? <p className="text-xs">{entryReleased.authorization.description}</p> : null}
-                <p className="text-xs">Fuera del horario autorizado se cobra la tarifa normal.</p>
+                <p className="text-xs">{entryReleased.ticket ? "Después del término se cobra el tiempo excedente." : "Fuera del horario autorizado se cobra la tarifa normal."}</p>
               </div>
             ) : entryReleased && entryReleased.decision !== "NOT_AUTHORIZED" ? (
               <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 px-3 py-2 text-left text-sm font-semibold text-amber-950" role="alert">

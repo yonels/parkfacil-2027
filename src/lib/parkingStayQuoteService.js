@@ -281,9 +281,15 @@ export async function quoteReleasedParkingStay(db, stay, releasedSnapshot, optio
 }
 
 // Snapshot de Pago liberado de una estadía (null si no es liberada).
+// Modelo cliente (SOL-2026-10-28-003): released_plate_snapshot. Sin esa
+// migración (columna inexistente) se lee solo el modelo anterior.
+const PLATE_COLUMNS_MISSING = new Set(["42703", "PGRST204"]);
+
 export async function loadReleasedStaySnapshot(db, stayId) {
-  const { data, error } = await db.from("parking_stays").select("released_payment_authorization_id,released_payment_snapshot").eq("id", stayId).maybeSingle();
+  let { data, error } = await db.from("parking_stays").select("released_payment_authorization_id,released_payment_snapshot,released_plate_authorization_id,released_plate_snapshot").eq("id", stayId).maybeSingle();
+  if (error && PLATE_COLUMNS_MISSING.has(error.code)) ({ data, error } = await db.from("parking_stays").select("released_payment_authorization_id,released_payment_snapshot").eq("id", stayId).maybeSingle());
   if (error) throw error;
+  if (data?.released_plate_authorization_id) return data.released_plate_snapshot;
   return data?.released_payment_authorization_id ? data.released_payment_snapshot : null;
 }
 
@@ -292,7 +298,11 @@ export async function loadReleasedStaySnapshot(db, stayId) {
 export async function loadOpenReleasedSnapshots(db, parkingId) {
   const { data, error } = await db.from("parking_stays").select("id,released_payment_snapshot").eq("parking_id", parkingId).eq("status", "OPEN").not("released_payment_authorization_id", "is", null);
   if (error) throw error;
-  return new Map((data || []).map((row) => [row.id, row.released_payment_snapshot]));
+  const snapshots = new Map((data || []).map((row) => [row.id, row.released_payment_snapshot]));
+  const plates = await db.from("parking_stays").select("id,released_plate_snapshot").eq("parking_id", parkingId).eq("status", "OPEN").not("released_plate_authorization_id", "is", null);
+  if (plates.error && !PLATE_COLUMNS_MISSING.has(plates.error.code)) throw plates.error;
+  for (const row of plates.data || []) snapshots.set(row.id, row.released_plate_snapshot);
+  return snapshots;
 }
 
 function resolveBillableMinutes(quote) {

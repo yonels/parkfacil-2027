@@ -19,6 +19,8 @@ import { ENTRY_DECISION, evaluateReleasedEntry, releasedStayCoverage } from "@/l
 import { activeOperatorAssignments, operationalClock, resolveEntryStreetLocation, STREET_LOCATION_ERRORS, streetLocationErrorCode } from "@/lib/offStreet/streetLocationCore.mjs";
 import { loadStreetLocationData } from "@/lib/offStreet/streetLocationServer";
 import { loadModuleStates, loadPlateAuthorizations, rpcErrorCode, storageMissing } from "@/lib/releasedPayment/releasedPaymentServer";
+import { evaluateReleasedPlateEntry, PLATE_ENTRY_DECISION, releasedTicketDetail, releasedTicketLabel } from "@/lib/releasedPlates/releasedPlateCore.mjs";
+import { loadPlateEntryContext, storageMissing as releasedPlateStorageMissing } from "@/lib/releasedPlates/releasedPlateServer";
 import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, requireOperationalParking, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { isRequestedParkingConsistent, POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
@@ -155,6 +157,15 @@ async function findOpenStay(db, input, assignedParkingId) {
 // aplica la regla: no edita autorizaciones ni precios. Sin la migración del
 // módulo, ninguna patente es liberada (el flujo normal no cambia).
 async function releasedEntryDecision(db, parkingId, plate, now = new Date()) {
+  // Modelo gestionado por el cliente (SOL-2026-10-28-003): si la empresa tiene
+  // una autorización activa para la patente, decide este modelo.
+  try {
+    const context = await loadPlateEntryContext(db, parkingId, plate);
+    const result = evaluateReleasedPlateEntry({ enabled: context.enabled, authorizations: context.authorizations, now });
+    if (result.decision !== PLATE_ENTRY_DECISION.NOT_AUTHORIZED) return { ...result, model: "CLIENT" };
+  } catch (error) {
+    if (!releasedPlateStorageMissing(error)) throw error;
+  }
   try {
     const authorizations = await loadPlateAuthorizations(db, parkingId, plate);
     if (!authorizations.length) return { decision: ENTRY_DECISION.NOT_AUTHORIZED };
@@ -168,6 +179,24 @@ async function releasedEntryDecision(db, parkingId, plate, now = new Date()) {
 
 function releasedCheckPayload(plate, result) {
   const eligible = result.decision === ENTRY_DECISION.ELIGIBLE;
+  if (result.model === "CLIENT") {
+    const ticket = eligible ? { label: releasedTicketLabel(result.authorization), detail: releasedTicketDetail(result.authorization) } : null;
+    return {
+      plate,
+      decision: result.decision,
+      released: eligible,
+      photoRequired: eligible,
+      message: eligible ? `PATENTE LIBERADA: ${ticket.label}. Foto obligatoria.` : result.message || null,
+      spots: null,
+      ticket,
+      authorization: eligible ? {
+        description: ticket.detail,
+        beneficiaryName: result.authorization.beneficiaryName || "",
+        thirdPartyName: result.authorization.thirdParty?.name || null,
+        uses: result.authorization.maxUses ? `Uso ${result.authorization.usesCount + 1} de ${result.authorization.maxUses}` : null,
+      } : null,
+    };
+  }
   return {
     plate,
     decision: result.decision,
@@ -188,6 +217,18 @@ const RELEASED_ENTRY_ERRORS = {
   RELEASED_PAYMENT_AUTHORIZATION_INVALID: "La autorización cambió: vuelve a validar la patente.",
   RELEASED_PAYMENT_AUTHORIZATION_NOT_CURRENT: "La autorización no aplica hoy: vuelve a validar la patente.",
   RELEASED_PAYMENT_AUTHORIZATION_UNPAID: "La autorización tiene el pago pendiente: vuelve a validar la patente.",
+  RELEASED_PLATE_STAY_DUPLICATE: "Este vehículo ya se encuentra dentro del estacionamiento.",
+  RELEASED_PLATE_MODULE_DISABLED: "Pago liberado se desactivó en este estacionamiento: vuelve a validar la patente.",
+  RELEASED_PLATE_AUTHORIZATION_INVALID: "La autorización cambió: vuelve a validar la patente.",
+  RELEASED_PLATE_NOT_CURRENT: "La autorización ya no está vigente: vuelve a validar la patente.",
+  RELEASED_PLATE_WEEKEND: "La autorización es solo de lunes a viernes: vuelve a validar la patente.",
+  RELEASED_PLATE_NO_USES: "La autorización agotó sus usos: vuelve a validar la patente.",
+};
+
+const RELEASED_DUPLICATE_CODES = new Set(["RELEASED_PAYMENT_STAY_DUPLICATE", "RELEASED_PLATE_STAY_DUPLICATE"]);
+const releasedEntryErrorCode = (error) => {
+  const message = String(error?.message || "");
+  return Object.keys(RELEASED_ENTRY_ERRORS).find((key) => message.includes(key)) || rpcErrorCode(error);
 };
 
 async function requireOpenPosShift(db, actor) {
@@ -658,13 +699,20 @@ export async function POST(request) {
       // Pago, vigencia, cupo, módulo y duplicados se re-verifican en la base
       // con bloqueo por estacionamiento (dos ingresos simultáneos nunca
       // superan los cupos del cliente).
-      const registered = await current.db.rpc("released_payment_register_entry", {
-        p_parking_id: assignedParkingId,
-        p_authorization_id: releasedEntry.authorization.id,
-        p_contract_id: releasedEntry.contract.id,
-        p_snapshot: releasedEntry.snapshot,
-        p_stay: row,
-      });
+      const registered = releasedEntry.model === "CLIENT"
+        ? await current.db.rpc("released_plate_register_entry", {
+          p_parking_id: assignedParkingId,
+          p_authorization_id: releasedEntry.authorization.id,
+          p_snapshot: releasedEntry.snapshot,
+          p_stay: row,
+        })
+        : await current.db.rpc("released_payment_register_entry", {
+          p_parking_id: assignedParkingId,
+          p_authorization_id: releasedEntry.authorization.id,
+          p_contract_id: releasedEntry.contract.id,
+          p_snapshot: releasedEntry.snapshot,
+          p_stay: row,
+        });
       error = registered.error;
       // El registro de patente liberada no conoce la ubicación en calle: se agrega
       // después (el trigger revalida cupo y coherencia del tramo).
@@ -682,9 +730,9 @@ export async function POST(request) {
     }
     if (error) {
       if (uploadedPhoto) await removeOrphanedPlatePhoto(current.db, uploadedPhoto.storagePath);
-      const releasedCode = releasedEligible ? rpcErrorCode(error) : null;
+      const releasedCode = releasedEligible ? releasedEntryErrorCode(error) : null;
       if (releasedCode && RELEASED_ENTRY_ERRORS[releasedCode]) {
-        return fail(RELEASED_ENTRY_ERRORS[releasedCode], 409, { code: releasedCode === "RELEASED_PAYMENT_STAY_DUPLICATE" ? "VEHICLE_ALREADY_INSIDE" : "RELEASED_PAYMENT_CHANGED", releasedCode });
+        return fail(RELEASED_ENTRY_ERRORS[releasedCode], 409, { code: RELEASED_DUPLICATE_CODES.has(releasedCode) ? "VEHICLE_ALREADY_INSIDE" : "RELEASED_PAYMENT_CHANGED", releasedCode });
       }
       if (error.code === "23505") return fail("Este vehículo ya se encuentra dentro del estacionamiento.", 409, { code: "VEHICLE_ALREADY_INSIDE" });
       const locationCode = streetLocationErrorCode(error);
@@ -731,7 +779,9 @@ export async function POST(request) {
         debtNotice,
         platePhoto: { mode: platePhotoSettings.plateMode, printOnTicket: platePhotoSettings.printOnTicket, hasPhoto: photoLinked, linkFailed: photoLinkFailed },
         releasedPayment: releasedEligible
-          ? { applied: true, label: "PAGO LIBERADO", authorization: releasedCheckPayload(plate, releasedEntry).authorization, spots: { used: (releasedEntry.spots?.used || 0) + 1, total: releasedEntry.spots?.total || null } }
+          ? releasedEntry.model === "CLIENT"
+            ? { applied: true, label: releasedEntry.snapshot.ticket.label, detail: releasedEntry.snapshot.ticket.detail, authorization: releasedCheckPayload(plate, releasedEntry).authorization, spots: null }
+            : { applied: true, label: "PAGO LIBERADO", authorization: releasedCheckPayload(plate, releasedEntry).authorization, spots: { used: (releasedEntry.spots?.used || 0) + 1, total: releasedEntry.spots?.total || null } }
           : releasedEntry.decision !== ENTRY_DECISION.NOT_AUTHORIZED ? { applied: false, message: releasedEntry.message || null } : null,
       },
     }, { status: 201 });
