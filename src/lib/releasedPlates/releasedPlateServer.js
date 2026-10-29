@@ -5,8 +5,9 @@ import { releasedPlateFromDb } from "./releasedPlateCore.mjs";
 
 // Off Street — Pago liberado gestionado por el cliente (SOL-2026-10-28-003).
 // Solo el administrador de la empresa (company_admin con Off Street
-// contratado) activa el módulo por estacionamiento y gestiona las patentes;
-// ParkFacil Root no interviene. Cada RPC vuelve a verificar el rol en la base.
+// contratado) activa el módulo por estacionamiento y gestiona las patentes.
+// ParkFacil Root solo supervisa (lectura por empresa, sin cambios). Cada RPC
+// vuelve a verificar el rol en la base.
 
 const STORAGE_MISSING = new Set(["42P01", "PGRST205", "42883", "PGRST202", "42703", "PGRST204"]);
 
@@ -19,6 +20,28 @@ export async function authorizeReleasedPlates(request) {
   if (auth.response) return auth;
   if (!auth.actor.companyId) return { response: fail("Tu usuario no tiene una empresa asignada.", 403, { code: "RELEASED_PLATE_FORBIDDEN" }) };
   return auth;
+}
+
+// Lectura: administrador (su empresa) o Root (empresa elegida con ?companyId=).
+export async function authorizeReleasedPlatesRead(request) {
+  const auth = await authorizeReleasedPayment(request, "read");
+  if (auth.response) return auth;
+  if (!auth.isRoot) {
+    if (!auth.actor.companyId) return { response: fail("Tu usuario no tiene una empresa asignada.", 403, { code: "RELEASED_PLATE_FORBIDDEN" }) };
+    return { ...auth, viewer: "ADMIN", companyId: auth.actor.companyId };
+  }
+  const requested = String(new URL(request.url).searchParams.get("companyId") || "").trim();
+  return { ...auth, viewer: "ROOT", companyId: requested || null };
+}
+
+// Empresas cliente activas con Off Street (selector de Root).
+export async function listOffStreetCompanies(db) {
+  const { data, error } = await db.from("companies").select("id,business_name,trade_name,status,relationship_type,enabled_products")
+    .eq("status", "active").order("business_name");
+  if (error) throw error;
+  return (data || [])
+    .filter((c) => c.relationship_type === "client" && (!Array.isArray(c.enabled_products) || c.enabled_products.includes("OFF_STREET")))
+    .map((c) => ({ id: c.id, name: c.trade_name || c.business_name }));
 }
 
 export function storageMissing(error) {
