@@ -2,6 +2,8 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { requirePermission, requirePlatformAdmin } from "@/lib/auth/apiAuthorizationCore.mjs";
+import { ROLES } from "@/lib/auth/permissions.mjs";
+import { scopeSmsFilters, smsCompanyScope } from "@/lib/sms/smsHistoryCore.mjs";
 
 // Autorización común de /api/centro-sms/* (SOL-2026-10-29-007): sesión
 // válida + Portal Root + el permiso sms:* específico de la acción. Mientras
@@ -17,6 +19,24 @@ export async function authorizeSmsRequest(request, permission) {
     return { context: authorization.context, response: authorizationErrorResponse(request, error, authorization.context) };
   }
 }
+
+// Lectura (Resumen, Historial, Consumo): Root ve todo; el administrador de
+// empresa del Portal Cliente ve solo su empresa. `companyScope` se fuerza en
+// el servidor sobre cualquier filtro que llegue desde el navegador.
+export async function authorizeSmsReadRequest(request, permission) {
+  const authorization = await authorizeApiRequest(request);
+  if (authorization.response) return authorization;
+  try {
+    requirePermission(authorization.context, permission);
+    const companyScope = smsCompanyScope(authorization.context);
+    if (authorization.context?.role !== ROLES.PLATFORM_ADMIN && !companyScope) requirePlatformAdmin(authorization.context);
+    return { ...authorization, companyScope, context: { ...authorization.context, smsCompanyScope: companyScope } };
+  } catch (error) {
+    return { context: authorization.context, response: authorizationErrorResponse(request, error, authorization.context) };
+  }
+}
+
+export { scopeSmsFilters };
 
 const SMS_ERROR_MESSAGES = {
   SMS_VALIDATION_ERROR: "Revisa los campos indicados.",

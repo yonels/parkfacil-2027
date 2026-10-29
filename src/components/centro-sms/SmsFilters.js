@@ -46,7 +46,7 @@ export default function SmsFilters({ showBucket = false, showSearch = false, def
   }
 
   const companyId = query.get("empresa") || "";
-  const parkings = companyId ? options.parkings.filter((p) => p.companyId === companyId) : options.parkings;
+  const parkings = companyId && options.viewer !== "COMPANY" ? options.parkings.filter((p) => p.companyId === companyId) : options.parkings;
   const hasFilters = KEYS.some((key) => query.get(key)) || query.get("q");
 
   return (
@@ -58,12 +58,14 @@ export default function SmsFilters({ showBucket = false, showSearch = false, def
         <label className="text-xs font-medium text-slate-500">Hasta
           <input type="date" className={`${FIELD} mt-1`} value={query.get("hasta") || ""} onChange={(e) => update({ hasta: e.target.value })} />
         </label>
-        <label className="text-xs font-medium text-slate-500">Cliente
-          <select className={`${FIELD} mt-1`} value={companyId} onChange={(e) => update({ empresa: e.target.value, establecimiento: "" })}>
-            <option value="">Todos</option>
-            {options.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </label>
+        {options.viewer !== "ROOT" ? null : (
+          <label className="text-xs font-medium text-slate-500">Cliente
+            <select className={`${FIELD} mt-1`} value={companyId} onChange={(e) => update({ empresa: e.target.value, establecimiento: "" })}>
+              <option value="">Todos</option>
+              {options.companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+        )}
         <label className="text-xs font-medium text-slate-500">Establecimiento
           <select className={`${FIELD} mt-1`} value={query.get("establecimiento") || ""} onChange={(e) => update({ establecimiento: e.target.value })}>
             <option value="">Todos</option>

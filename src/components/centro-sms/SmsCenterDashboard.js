@@ -60,6 +60,7 @@ function DashboardContent() {
   const historyLink = (estado) => `/centro-sms/historial?${new URLSearchParams({ ...Object.fromEntries(query.entries()), ...(estado ? { estado } : {}) })}`;
   const isEmpty = data && !Object.values(data.by_status || {}).some(Boolean);
   const balance = balanceText(data?.last_balance);
+  const isRoot = data?.viewer === "ROOT";
 
   return (
     <>
@@ -84,9 +85,9 @@ function DashboardContent() {
             <Kpi title="Fallidos" value={formatNumber(k.failed)} hint="Error técnico, no entregado o expirado" icon={XCircle} href={historyLink("FAILED")} />
             <Kpi title="Rechazados" value={formatNumber(k.rejected)} hint="Rechazados por Sentraland" icon={ShieldAlert} href={historyLink("REJECTED")} />
             <Kpi title="Estado desconocido" value={formatNumber(k.unknown)} hint="Sin respuesta clara del proveedor" icon={HelpCircle} href={historyLink("UNKNOWN")} />
-            <Kpi title="SMS recibidos" value={data.inbound_enabled ? formatNumber(data.inbound) : "No habilitado"} hint={data.inbound_enabled ? "En el período" : "Recepción de SMS no habilitada por el proveedor"} icon={Inbox} />
+            {isRoot ? <Kpi title="SMS recibidos" value={data.inbound_enabled ? formatNumber(data.inbound) : "No habilitado"} hint={data.inbound_enabled ? "En el período" : "Recepción de SMS no habilitada por el proveedor"} icon={Inbox} /> : null}
             <Kpi title="Consumo del período" value={formatNumber(k.consumed)} hint="SMS reales aceptados (descuentan bolsa)" icon={Wallet} />
-            <Kpi title="Saldo disponible" value={balance.value} hint={balance.hint} icon={Wallet} />
+            {isRoot ? <Kpi title="Saldo disponible" value={balance.value} hint={balance.hint} icon={Wallet} /> : null}
           </div>
 
           <section className="mt-5 grid gap-4 lg:grid-cols-3">
@@ -106,7 +107,7 @@ function DashboardContent() {
                   ))}
                 </ul>
               ) : <p className="text-sm text-slate-500">Sin mensajes en el período.</p>}
-              <p className="mt-4 text-xs text-slate-500">Off Street, Mesa de Ayuda y Alertas aparecerán aquí cuando envíen SMS mediante el servicio central.</p>
+              {isRoot ? <p className="mt-4 text-xs text-slate-500">Off Street, Mesa de Ayuda y Alertas aparecerán aquí cuando envíen SMS mediante el servicio central.</p> : null}
             </div>
           </section>
         </div>

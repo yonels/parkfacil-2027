@@ -111,14 +111,16 @@ test("CSV: separador ; con BOM, comillas y protección contra fórmulas", () => 
   assert.match(csv, /'=SUM\(1\);"x;""y"""/);
 });
 
-test("permisos: solo Root accede al Centro SMS y tiene todos los permisos sms:*", () => {
+test("permisos: Root tiene todos los sms:*; el administrador de empresa solo lectura, contenido y exportación", () => {
   const sms = [PERMISSIONS.SMS_READ, PERMISSIONS.SMS_MANAGE, PERMISSIONS.SMS_TEST_SEND, PERMISSIONS.SMS_PHONE_FULL, PERMISSIONS.SMS_CONTENT_READ, PERMISSIONS.SMS_EXPORT];
+  const companyAdmin = new Set([PERMISSIONS.SMS_READ, PERMISSIONS.SMS_CONTENT_READ, PERMISSIONS.SMS_EXPORT]);
   for (const permission of sms) {
     assert.equal(hasPermission(ROLES.PLATFORM_ADMIN, permission), true, permission);
-    for (const role of [ROLES.COMPANY_ADMIN, ROLES.OPERATOR, ROLES.INSPECTOR]) assert.equal(hasPermission(role, permission), false, `${role} ${permission}`);
+    assert.equal(hasPermission(ROLES.COMPANY_ADMIN, permission), companyAdmin.has(permission), `company_admin ${permission}`);
+    for (const role of [ROLES.OPERATOR, ROLES.INSPECTOR]) assert.equal(hasPermission(role, permission), false, `${role} ${permission}`);
   }
   assert.equal(canAccessPath({ portal: "root", role: ROLES.PLATFORM_ADMIN }, "/centro-sms/historial"), true);
-  assert.equal(canAccessPath({ portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts: ["ON_STREET", "OFF_STREET"], companyId: "c1" }, "/centro-sms"), false);
+  assert.equal(canAccessPath({ portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts: ["ON_STREET", "OFF_STREET"], companyId: "c1" }, "/centro-sms"), true);
   assert.equal(canAccessPath({ portal: "client", role: ROLES.OPERATOR, enabledProducts: ["OFF_STREET"], companyId: "c1" }, "/centro-sms/diagnostico"), false);
   assert.equal(canAccessPath({ portal: "inspector", role: ROLES.INSPECTOR }, "/centro-sms"), false);
 });
@@ -130,11 +132,11 @@ test("menú: grupo «Centro de Control SMS» con los 7 submenús, sin quitar los
   for (const label of ["Inicio", "Off Street", "On Street", "Administración"]) assert.ok(navigationItems.some((item) => item.label === label), label);
 });
 
-test("rutas API: todas exigen sesión Root + permiso sms:*", async () => {
+test("rutas API: todas exigen sesión + permiso sms:* (lecturas también para el admin. de empresa, acotadas)", async () => {
   const files = ["resumen/route.js", "historial/route.js", "historial/[source]/[id]/route.js", "historial/[source]/[id]/telefono/route.js", "opciones/route.js"];
   for (const file of files) {
     const source = await readFile(new URL(`../../app/api/centro-sms/${file}`, import.meta.url), "utf8");
-    assert.match(source, /authorizeSmsRequest\(request, PERMISSIONS\.SMS_[A-Z_]+\)/, file);
+    assert.match(source, file.endsWith("telefono/route.js") ? /authorizeSmsRequest\(request, PERMISSIONS\.SMS_[A-Z_]+\)/ : /authorizeSmsReadRequest\(request, PERMISSIONS\.SMS_[A-Z_]+\)/, file);
     assert.match(source, /if \(authorization\.response\) return authorization\.response;/, file);
   }
   const auth = await readFile(new URL("./smsApiAuth.js", import.meta.url), "utf8");

@@ -9,19 +9,19 @@ import EmptyState from "@/components/ui/EmptyState";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import { SMS_MODULE_LABELS } from "@/lib/sms/smsCenterCore.mjs";
 import SmsFilters, { useSmsQuery } from "./SmsFilters";
-import { formatDateTime, formatNumber, SmsCenterTabs, SmsNotice } from "./smsUi";
+import { formatDateTime, formatNumber, SmsCenterTabs, SmsNotice, useSmsViewer } from "./smsUi";
 
 const FIELD = "w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:border-[#3150D8] focus:outline-none";
 const money = (value, currency) => (value == null ? "Sin tarifa" : `${currency === "CLP" ? "$" : `${currency} `}${Number(value).toLocaleString("es-CL", { maximumFractionDigits: currency === "CLP" ? 0 : 4 })}`);
 
-function Breakdown({ title, rows, label }) {
+function Breakdown({ title, rows, label, showCost = true }) {
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="mb-3 text-base font-semibold text-[#041E42]">{title}</h2>
       {rows.length ? (
         <table className="w-full text-sm">
-          <thead><tr className="text-left text-xs uppercase text-slate-500"><th className="py-1.5">{label}</th><th className="py-1.5 text-right">SMS</th><th className="py-1.5 text-right">Costo interno</th></tr></thead>
-          <tbody>{rows.map((r) => <tr key={r.key} className="border-t border-slate-100"><td className="py-1.5 pr-2">{r.name}</td><td className="py-1.5 text-right font-semibold">{formatNumber(r.count)}</td><td className="py-1.5 text-right text-slate-600">{money(r.cost, r.currency)}</td></tr>)}</tbody>
+          <thead><tr className="text-left text-xs uppercase text-slate-500"><th className="py-1.5">{label}</th><th className="py-1.5 text-right">SMS</th>{showCost ? <th className="py-1.5 text-right">Costo interno</th> : null}</tr></thead>
+          <tbody>{rows.map((r) => <tr key={r.key} className="border-t border-slate-100"><td className="py-1.5 pr-2">{r.name}</td><td className="py-1.5 text-right font-semibold">{formatNumber(r.count)}</td>{showCost ? <td className="py-1.5 text-right text-slate-600">{money(r.cost, r.currency)}</td> : null}</tr>)}</tbody>
         </table>
       ) : <p className="text-sm text-slate-500">Sin consumo en el período.</p>}
     </div>
@@ -86,8 +86,9 @@ function ConsumptionContent() {
 
   useEffect(() => { const t = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(t); }, [load]);
   useEffect(() => {
+    if (data?.viewer !== "ROOT") return;
     authenticatedFetch("/api/centro-sms/opciones", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((b) => setCompanies(b?.data?.companies || [])).catch(() => {});
-  }, []);
+  }, [data?.viewer]);
 
   async function archive(id) {
     if (!window.confirm("¿Archivar esta tarifa interna? Dejará de aplicarse a los cálculos (queda en la auditoría).")) return;
@@ -97,6 +98,7 @@ function ConsumptionContent() {
   }
 
   const costs = Object.entries(data?.cost_by_currency || {});
+  const isRoot = data?.viewer === "ROOT";
   const bags = data?.lastBalance?.balance?.bags;
   return (
     <>
@@ -106,19 +108,21 @@ function ConsumptionContent() {
         <div className={`space-y-5 ${loading ? "opacity-60" : ""}`}>
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">Consumo acumulado del período</p><p className="mt-2 text-2xl font-semibold text-[#041E42]">{formatNumber(data.total)}</p><p className="mt-1 text-xs text-slate-500">SMS reales aceptados por Sentraland</p></div>
+            {isRoot ? <>
             <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">Costo total (tarifa interna)</p><p className="mt-2 text-2xl font-semibold text-[#041E42]">{costs.length ? costs.map(([cur, v]) => money(v, cur)).join(" + ") : "Sin tarifa"}</p><p className="mt-1 text-xs text-slate-500">{formatNumber(data.priced)} de {formatNumber(data.total)} SMS con tarifa vigente</p></div>
             <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">Costo unitario informado por Sentraland</p><p className="mt-2 text-2xl font-semibold text-[#041E42]">No informado</p><p className="mt-1 text-xs text-slate-500">La API de Sentraland no entrega costo por mensaje</p></div>
             <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm"><p className="text-sm text-slate-500">Saldo disponible (bolsa)</p><p className="mt-2 text-2xl font-semibold text-[#041E42]">{Array.isArray(bags) ? formatNumber(bags.reduce((s, b) => s + (Number(b.saldo) || 0), 0)) : "Sin consulta"}</p><p className="mt-1 text-xs text-slate-500">{data.lastBalance ? `Consultado ${formatDateTime(data.lastBalance.created_at)}` : "Ejecuta el diagnóstico en modo real para obtenerlo"}</p></div>
+            </> : null}
           </section>
           {data.mixed_currency ? <SmsNotice tone="warning">Hay tarifas en más de una moneda; los costos se muestran separados por moneda.</SmsNotice> : null}
           {!data.total ? <EmptyState title="Sin consumo en el período" description="No hay SMS reales aceptados por el proveedor con los filtros seleccionados." /> : null}
           <section className="grid gap-4 lg:grid-cols-2">
-            <Breakdown title="Por cliente" label="Cliente" rows={data.by_company.map((r) => ({ ...r, key: r.company_id || "none" }))} />
-            <Breakdown title="Por módulo" label="Módulo" rows={data.by_module.map((r) => ({ ...r, key: r.module, name: SMS_MODULE_LABELS[r.module] || r.module }))} />
-            <Breakdown title="Por establecimiento" label="Establecimiento" rows={data.by_parking.map((r) => ({ ...r, key: r.parking_id || "none", name: `${r.name} · ${r.companyName}` }))} />
-            <Breakdown title="Por período" label="Período" rows={data.by_period.map((r) => ({ ...r, key: r.bucket, name: r.bucket, currency: costs[0]?.[0] || "CLP" }))} />
+            {isRoot ? <Breakdown title="Por cliente" label="Cliente" rows={data.by_company.map((r) => ({ ...r, key: r.company_id || "none" }))} /> : null}
+            <Breakdown showCost={isRoot} title="Por módulo" label="Módulo" rows={data.by_module.map((r) => ({ ...r, key: r.module, name: SMS_MODULE_LABELS[r.module] || r.module }))} />
+            <Breakdown showCost={isRoot} title="Por establecimiento" label="Establecimiento" rows={data.by_parking.map((r) => ({ ...r, key: r.parking_id || "none", name: isRoot ? `${r.name} · ${r.companyName}` : r.name }))} />
+            <Breakdown showCost={isRoot} title="Por período" label="Período" rows={data.by_period.map((r) => ({ ...r, key: r.bucket, name: r.bucket, currency: costs[0]?.[0] || "CLP" }))} />
           </section>
-          <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          {isRoot ? <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="text-base font-semibold text-[#041E42]">Tarifas internas</h2>
             <p className="mb-4 mt-1 text-sm text-slate-600">Valores definidos por ParkFacil para estimar costos. <strong>No son valores informados por Sentraland.</strong> Se aplica la tarifa del cliente si existe; si no, la general vigente a la fecha de cada SMS.</p>
             <TariffForm companies={companies} onSaved={load} />
@@ -138,7 +142,7 @@ function ConsumptionContent() {
                 </table>
               ) : <p className="text-sm text-slate-500">No hay tarifas internas cargadas: los costos se muestran como «Sin tarifa».</p>}
             </div>
-          </section>
+          </section> : null}
         </div>
       ) : loading ? <p className="py-10 text-center text-sm text-slate-500">Cargando consumo…</p> : null}
     </>
@@ -146,8 +150,9 @@ function ConsumptionContent() {
 }
 
 export default function SmsConsumption() {
+  const isRoot = useSmsViewer() === "ROOT";
   return (
-    <AppShell title="Consumo y costos" description="SMS reales consumidos por cliente, establecimiento, módulo y período, con costos según tarifas internas.">
+    <AppShell title={isRoot ? "Consumo y costos" : "Consumo"} description={isRoot ? "SMS reales consumidos por cliente, establecimiento, módulo y período, con costos según tarifas internas." : "SMS reales consumidos por tu empresa, por establecimiento, módulo y período."}>
       <SmsCenterTabs />
       <Suspense fallback={<p className="py-10 text-center text-sm text-slate-500">Cargando…</p>}><ConsumptionContent /></Suspense>
     </AppShell>
