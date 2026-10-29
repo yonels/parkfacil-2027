@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
+import { SHIFT_STATUS_LABELS, shiftEditStatusOptions } from "@/lib/turnosParkingCore.mjs";
 
 const emptyForm = {
   operatorId: "",
@@ -41,6 +42,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
   const [form, setForm] = useState(emptyForm);
   const [editingShiftId, setEditingShiftId] = useState("");
   const [deletingShiftId, setDeletingShiftId] = useState("");
+  const formRef = useRef(null);
   const parkingTypeLabel = parking.type === "ON_STREET" ? "On Street" : parking.type === "OFF_STREET" ? "Off Street" : parking.type;
 
   const assignmentOptions = useMemo(() => (structure?.assignments || []).map((assignment) => {
@@ -60,6 +62,9 @@ export default function ParkingShiftsManager({ parking, structure }) {
   }), [structure, users]);
 
   const selectedAssignment = assignmentOptions.find((item) => item.id === form.assignmentId) || null;
+  const editingShift = editingShiftId ? shifts.find((item) => item.id === editingShiftId) || null : null;
+  const editingOpen = editingShift?.status === "OPEN";
+  const statusOptions = shiftEditStatusOptions(editingShift?.status || null);
   // Off Street: el turno de recinto se crea eligiendo operador (asignación base automática);
   // las asignaciones a tramos de calle (SOL-2026-10-23-001) no cambian eso.
   const allowOffStreetDirectOperator = parking.type === "OFF_STREET";
@@ -106,6 +111,8 @@ export default function ParkingShiftsManager({ parking, structure }) {
       notes: shift.notes || "",
     });
     setFormError("");
+    // El formulario está bajo la lista: se lleva a la vista para que se vea la edición.
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
   async function submit(event) {
@@ -214,7 +221,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
       </div> : <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">Aún no existen turnos para este estacionamiento.</p>}
     </section>
 
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section ref={formRef} className="scroll-mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-[#041E42]">{editingShiftId ? "Editar turno" : "Crear turno"}</h2>
@@ -224,13 +231,14 @@ export default function ParkingShiftsManager({ parking, structure }) {
       </div>
       {!assignmentOptions.length && !allowOffStreetDirectOperator ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">No hay asignaciones activas disponibles para crear turnos. Configura primero los operadores y sus asignaciones desde la estructura operativa.</div> : <form onSubmit={submit} className="mt-4 space-y-4">
         {formError ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{formError}</p> : null}
+        {editingOpen ? <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Turno abierto: aquí solo cambian el supervisor, el horario programado y las observaciones. Para terminarlo usa «Cerrar turno».</p> : null}
         {allowOffStreetDirectOperator ? <p className="rounded-2xl border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900">Off Street: cuando no existen asignaciones de estructura, el sistema genera una asignación operativa base para el operador seleccionado.</p> : null}
         <div className="grid gap-4 md:grid-cols-2">
           {allowOffStreetDirectOperator
-            ? <Field label="Operador"><select value={form.operatorId} onChange={(event) => set("operatorId", event.target.value)} className={inputClass}><option value="">Seleccionar operador</option>{users.map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select></Field>
+            ? <Field label="Operador"><select value={form.operatorId} disabled={editingOpen} onChange={(event) => set("operatorId", event.target.value)} className={inputClass}><option value="">Seleccionar operador</option>{users.map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select></Field>
             : <Field label="Asignación"><select value={form.assignmentId} onChange={(event) => set("assignmentId", event.target.value)} className={inputClass}><option value="">Seleccionar asignación</option>{assignmentOptions.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></Field>}
-          <Field label="Estado inicial"><select value={form.status} onChange={(event) => set("status", event.target.value)} className={inputClass}><option value="PROGRAMMED">Programado</option><option value="OPEN">Abierto</option></select></Field>
-          <Field label="Fecha"><input type="date" value={form.date} onChange={(event) => set("date", event.target.value)} className={inputClass} /></Field>
+          <Field label={editingShiftId ? "Estado" : "Estado inicial"}><select value={form.status} disabled={editingOpen} onChange={(event) => set("status", event.target.value)} className={inputClass}>{statusOptions.map((status) => <option key={status} value={status}>{SHIFT_STATUS_LABELS[status]}</option>)}</select></Field>
+          <Field label="Fecha"><input type="date" value={form.date} disabled={editingOpen} onChange={(event) => set("date", event.target.value)} className={inputClass} /></Field>
           <Field label="Supervisor (opcional)"><select value={form.supervisorId} onChange={(event) => set("supervisorId", event.target.value)} className={inputClass}><option value="">Sin supervisor</option>{users.map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select></Field>
           <Field label="Hora programada de inicio"><input type="time" value={form.scheduledStart} onChange={(event) => set("scheduledStart", event.target.value)} className={inputClass} /></Field>
           <Field label="Hora programada de término"><input type="time" value={form.scheduledEnd} onChange={(event) => set("scheduledEnd", event.target.value)} className={inputClass} /></Field>

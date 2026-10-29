@@ -5,6 +5,7 @@ import { requireOperatorForParking, requireParkingChild, requireSupervisorForPar
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
 import { loadShiftPresentations } from "@/lib/shiftPresentationRepository";
+import { shiftEditViolation } from "@/lib/turnosParkingCore.mjs";
 
 const EDITABLE_SHIFT_STATES = ["PROGRAMMED", "OPEN", "CANCELLED"];
 
@@ -28,6 +29,8 @@ export async function PATCH(request, { params }) {
     if (["CLOSED", "CLOSING"].includes(currentShift.status)) {
       return NextResponse.json({ error: "Este turno ya no puede modificarse desde esta pantalla.", code: "SHIFT_NOT_EDITABLE" }, { status: 409 });
     }
+    const violation = shiftEditViolation(currentShift, input);
+    if (violation) return NextResponse.json({ error: violation, code: "SHIFT_EDIT_NOT_ALLOWED" }, { status: 409 });
     if (context.role === ROLES.OPERATOR && input.operatorId !== context.userId) {
       throw new AuthorizationError("PERMISSION_FORBIDDEN", 403, "No tienes permiso para modificar turnos de otro operador.", context);
     }
@@ -57,6 +60,11 @@ export async function PATCH(request, { params }) {
       notes: input.notes || "",
       updated_at: new Date().toISOString(),
     };
+    // Abrir desde Editar registra cuándo y quién, igual que la apertura en el POS.
+    if (row.status === "OPEN" && currentShift.status !== "OPEN") {
+      row.opened_at = new Date().toISOString();
+      row.opened_by = context.userId;
+    }
 
     const result = await db.from("operator_shifts").update(row).eq("id", currentShift.id).eq("parking_id", parking.id).select("*").single();
     if (result.error) throw result.error;
