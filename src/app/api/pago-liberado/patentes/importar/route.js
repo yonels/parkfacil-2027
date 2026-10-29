@@ -1,19 +1,41 @@
 import { NextResponse } from "next/server";
 import { importRowToInput, MAX_IMPORT_ROWS, releasedPlateFromDb, validateReleasedPlateInput } from "@/lib/releasedPlates/releasedPlateCore.mjs";
 import { authorizeReleasedPlates, fail, rpcErrorCode, rpcFailure } from "@/lib/releasedPlates/releasedPlateServer";
+import { buildImportTemplate, readImportWorkbook } from "@/lib/releasedPlates/releasedPlateExcel";
 
 // Pago liberado gestionado por el cliente (SOL-2026-10-28-003): carga
 // masiva desde Excel. `dryRun: true` valida fila por fila (formato, patente
 // repetida en el archivo y autorización vigente o programada existente); sin
-// dryRun crea solo las filas válidas, cada una con su propia RPC.
+// dryRun crea solo las filas válidas, cada una con su propia RPC. Recibe
+// `fileBase64` (.xlsx) o `rows` (CSV leído en el navegador). GET: plantilla.
 
 export const dynamic = "force-dynamic";
+
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
+
+export async function GET(request) {
+  const auth = await authorizeReleasedPlates(request);
+  if (auth.response) return auth.response;
+  const buffer = await buildImportTemplate();
+  return new NextResponse(buffer, {
+    headers: {
+      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": 'attachment; filename="plantilla-patentes-liberadas.xlsx"',
+    },
+  });
+}
 
 export async function POST(request) {
   const auth = await authorizeReleasedPlates(request);
   if (auth.response) return auth.response;
   const body = await request.json().catch(() => ({}));
-  const rows = Array.isArray(body.rows) ? body.rows.filter((row) => Array.isArray(row) && row.some((cell) => String(cell ?? "").trim())) : null;
+  let source = Array.isArray(body.rows) ? body.rows : null;
+  if (typeof body.fileBase64 === "string" && body.fileBase64) {
+    const buffer = Buffer.from(body.fileBase64, "base64");
+    if (buffer.length > MAX_FILE_BYTES) return fail("El archivo supera 5 MB.", 400);
+    try { source = await readImportWorkbook(buffer); } catch { return fail("No fue posible leer el archivo Excel (.xlsx).", 400); }
+  }
+  const rows = Array.isArray(source) ? source.filter((row) => Array.isArray(row) && row.some((cell) => String(cell ?? "").trim())) : null;
   if (!rows || !rows.length) return fail("El archivo no tiene filas para importar.", 400);
   if (rows.length > MAX_IMPORT_ROWS) return fail(`Máximo ${MAX_IMPORT_ROWS} filas por archivo.`, 400);
 
