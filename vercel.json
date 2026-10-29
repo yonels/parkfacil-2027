@@ -1,4 +1,10 @@
 {
+  "crons": [
+    {
+      "path": "/api/internal/sms-center/process",
+      "schedule": "*/2 * * * *"
+    }
+  ],
   "git": {
     "deploymentEnabled": {
       "feature/centro-control-sms": false,
