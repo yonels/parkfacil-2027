@@ -162,6 +162,13 @@ async function releasedEntryDecision(db, parkingId, plate, now = new Date()) {
   try {
     const context = await loadPlateEntryContext(db, parkingId, plate);
     const result = evaluateReleasedPlateEntry({ enabled: context.enabled, authorizations: context.authorizations, now });
+    if (result.decision === PLATE_ENTRY_DECISION.ELIGIBLE) {
+      // Ya dentro de ESTE estacionamiento: se avisa al validar, antes de la foto
+      // (la base lo vuelve a exigir al registrar).
+      const inside = await db.from("parking_stays").select("id").eq("parking_id", parkingId).eq("license_plate", plate).eq("status", "OPEN").limit(1);
+      if (inside.error) throw inside.error;
+      if ((inside.data || []).length) return { decision: "ALREADY_INSIDE", model: "CLIENT", message: "Esta patente ya tiene un ingreso abierto en este estacionamiento. Búscala en SALIDA o en VEHÍCULOS EN EL PARKING." };
+    }
     if (result.decision !== PLATE_ENTRY_DECISION.NOT_AUTHORIZED) return { ...result, model: "CLIENT" };
   } catch (error) {
     if (!releasedPlateStorageMissing(error)) throw error;

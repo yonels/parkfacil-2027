@@ -17,6 +17,7 @@ begin
   select id into parking from public.parkings where company_id = 'emp-5q' and name = 'QA Pago liberado' limit 1;
   if admin is null or otro is null or parking is null then raise exception 'fixture: admin 5Q, admin Ramis y estacionamiento QA Pago liberado'; end if;
   delete from public.parking_stays where license_plate in ('TSTA-11', 'TS12-34') and status = 'OPEN';
+  -- 20261029130000: la regla de reingreso es por estacionamiento.
 
   if has_table_privilege('authenticated', 'public.released_plate_authorizations', 'select')
     or has_function_privilege('anon', 'public.released_plate_register_entry(uuid,uuid,jsonb,jsonb)', 'execute')
@@ -69,6 +70,9 @@ begin
   exception when sqlstate '23514' then if sqlerrm <> 'RELEASED_PLATE_MODULE_DISABLED' then raise; end if; end;
 
   perform public.released_plate_set_parking(admin, parking, true);
+  -- Estadía abierta de la misma patente en OTRO estacionamiento (otra empresa): no bloquea.
+  insert into public.parking_stays (code, parking_id, license_plate, entry_source, entry_operator_name)
+  values ('ING-TST-OTRA', '10000000-0000-4000-8000-000000000101', 'TSTA-11', 'WEB', 'Prueba');
   s := public.released_plate_register_entry(parking, a.id, '{"version":5}'::jsonb, jsonb_build_object('code', 'ING-TST-1', 'license_plate', 'TSTA-11'));
   if s.released_plate_authorization_id <> a.id or (select uses_count from public.released_plate_authorizations where id = a.id) <> 1 then raise exception 'ingreso'; end if;
 

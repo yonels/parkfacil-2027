@@ -100,12 +100,20 @@ try {
   const dup = await call(adminUser.token, "/api/pago-liberado/patentes", { method: "POST", body: form });
   check("duplicada409", `${dup.status} ${dup.body?.code}`);
 
+  // Estadía abierta de la misma patente en otra empresa: no debe bloquear (20261029130000).
+  const formatted = `${plate.slice(0, 4)}-${plate.slice(4)}`;
+  await sql.query(`insert into public.parking_stays (code, parking_id, license_plate, entry_source, entry_operator_name)
+    values ($1, '10000000-0000-4000-8000-000000000101', $2, 'WEB', 'E2E otra empresa')`, [`E2E-OTRA-${plate}`, formatted]);
+
   // POS: validación, ingreso, reingreso, cotización y salida.
   const releasedCheck = await call(operator.token, "/api/data-entry", { method: "POST", body: { action: "RELEASED_CHECK", plate }, terminal: true });
   check("validacion", `${releasedCheck.body.data.released} · ${releasedCheck.body.data.ticket?.label}`);
   const entry = await call(operator.token, "/api/data-entry", { method: "POST", body: { action: "ENTRY", plate, expectReleased: true, platePhotoBase64: PHOTO }, terminal: true });
   assert.equal(entry.status, 201, JSON.stringify(entry.body));
   check("ingreso", `${entry.body.data.releasedPayment.label} · ${entry.body.data.releasedPayment.detail}`);
+  check("otraEmpresaNoBloquea", `ingreso ${entry.status} con estadía abierta en otra empresa`);
+  const checkInside = await call(operator.token, "/api/data-entry", { method: "POST", body: { action: "RELEASED_CHECK", plate }, terminal: true });
+  check("validacionYaDentro", `${checkInside.body.data.decision} · ${checkInside.body.data.message}`);
   const again = await call(operator.token, "/api/data-entry", { method: "POST", body: { action: "ENTRY", plate, expectReleased: true, platePhotoBase64: PHOTO }, terminal: true });
   check("reingreso409", `${again.status} ${again.body?.details?.code || again.body?.code}`);
   const quote = await call(operator.token, "/api/data-entry", { method: "POST", body: { action: "QUOTE", stayId: entry.body.data.stay.id }, terminal: true });
@@ -153,6 +161,8 @@ try {
   const off = await call(operator.token, "/api/data-entry", { method: "POST", body: { action: "RELEASED_CHECK", plate: plate3 }, terminal: true });
   check("moduloDesactivado", off.body.data.decision);
   await call(adminUser.token, "/api/pago-liberado/patentes/estacionamientos", { method: "POST", body: { parkingId: parking.id, enabled: true } });
+
+  await sql.query("update public.parking_stays set status='CANCELLED' where code like 'E2E-OTRA-%' and status='OPEN'");
 
   // Un operador no gestiona patentes.
   const forbidden = await call(operator.token, "/api/pago-liberado/patentes");
