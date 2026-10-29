@@ -92,3 +92,15 @@ export function projectSingleProductParkingNode(items, parentLabel = "Estacionam
     return [item];
   });
 }
+
+// Portal Cliente (SOL-2026-10-29-002): el administrador de la empresa ve sus
+// opciones de Administración directamente bajo el encabezado del menú, sin la
+// carpeta «Administración» ni la intermedia «Usuarios»: Administradores y
+// Operadores (con sus propias opciones) quedan a primer nivel, junto al resto
+// de hijos visibles (Seguridad, Mi Cuenta). Root conserva el árbol completo.
+export function projectClientAdministrationNode(items, parentLabel = "Administración", usersLabel = "Usuarios") {
+  return items.flatMap((item) => {
+    if (item.label !== parentLabel || !item.children?.length) return [item];
+    return item.children.flatMap((child) => (child.label === usersLabel && child.children?.length ? child.children.map((user) => ({ ...user, icon: user.icon || child.icon })) : [child]));
+  });
+}
