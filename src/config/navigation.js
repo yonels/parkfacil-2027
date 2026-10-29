@@ -147,6 +147,10 @@ export const navigationItems = [
       // una ruta real, se preserva deshabilitado tal como estaba.
       // Fase 4: reemplaza el placeholder "próximamente" por la ruta real.
       { href: "/reportes-off-street", label: "Reportes", icon: FileChartColumnIncreasing },
+      // Reportes de Pago liberado / Patentes Autorizadas (SOL-2026-10-28-005,
+      // opción B): motor común con árbol limitado a esa categoría. Mismo
+      // acceso que Reportes (COMPANY_ADMIN_PREFIXES y Root).
+      { href: "/reportes-off-street/patentes-autorizadas", label: "Reportes Pago liberado", icon: FileChartColumnIncreasing },
     ],
   },
 

@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { authorizeReleasedPayment } from "@/lib/releasedPayment/releasedPaymentServer";
 import { releasedPlateFromDb } from "./releasedPlateCore.mjs";
+import { fetchAllRows } from "@/lib/reports/engine/fetchAll.mjs";
 
 // Off Street — Pago liberado gestionado por el cliente (SOL-2026-10-28-003).
 // Solo el administrador de la empresa (company_admin con Off Street
@@ -99,10 +100,10 @@ export async function listCompanyParkings(db, companyId) {
 }
 
 export async function listCompanyAuthorizations(db, companyId) {
-  const { data, error } = await db.from("released_plate_authorizations").select("*")
-    .eq("company_id", companyId).order("valid_from", { ascending: false }).limit(5000);
-  if (error) throw error;
-  return (data || []).map(releasedPlateFromDb);
+  // Por páginas: Supabase entrega máx. 1.000 filas por consulta (SOL-2026-10-28-005).
+  const data = await fetchAllRows(() => db.from("released_plate_authorizations").select("*")
+    .eq("company_id", companyId).order("valid_from", { ascending: false }).order("id"), { max: 50000 });
+  return data.map(releasedPlateFromDb);
 }
 
 export async function loadCompanyAuthorization(db, companyId, id) {
