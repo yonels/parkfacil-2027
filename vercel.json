@@ -1,6 +1,7 @@
 {
   "git": {
     "deploymentEnabled": {
+      "feature/reportes-pago-liberado-menu": false,
       "fix/pago-liberado-reingreso": false,
       "feature/reportes-pago-liberado": false,
       "feature/pago-liberado-root-lectura": false,

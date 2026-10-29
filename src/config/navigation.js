@@ -1,4 +1,7 @@
 import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, MapPinned, UserCircle, Hash, BadgeCheck } from "lucide-react";
+import { flattenReports, subTree } from "../lib/reports/engine/registry.mjs";
+
+const RELEASED_PLATE_REPORTS = flattenReports(subTree(["off-patentes"]));
 
 // Reorganización 2026-08-28 (auditoría "arquitectura administrativa"):
 // separa la navegación en 4 pilares claramente distintos, en vez de mezclar
@@ -148,9 +151,16 @@ export const navigationItems = [
       // Fase 4: reemplaza el placeholder "próximamente" por la ruta real.
       { href: "/reportes-off-street", label: "Reportes", icon: FileChartColumnIncreasing },
       // Reportes de Pago liberado / Patentes Autorizadas (SOL-2026-10-28-005,
-      // opción B): motor común con árbol limitado a esa categoría. Mismo
-      // acceso que Reportes (COMPANY_ADMIN_PREFIXES y Root).
-      { href: "/reportes-off-street/patentes-autorizadas", label: "Reportes Pago liberado", icon: FileChartColumnIncreasing },
+      // opción B): carpeta del menú con un enlace por reporte (cada uno con su
+      // propia ruta, para que el menú marque el activo). Nombres y orden salen
+      // del registro del motor de reportes. Mismo acceso que Reportes
+      // (COMPANY_ADMIN_PREFIXES y Root).
+      {
+        label: "Reportes Pago liberado",
+        icon: FileChartColumnIncreasing,
+        activePrefix: "/reportes-off-street/patentes-autorizadas",
+        children: RELEASED_PLATE_REPORTS.map((report) => ({ href: `/reportes-off-street/patentes-autorizadas/${report.id}`, label: report.label })),
+      },
     ],
   },
 
