@@ -1,4 +1,4 @@
--- Ejecutar dentro de BEGIN/ROLLBACK, después de 20261029120000_released_plates_client_model.sql, solo en base local.
+-- Ejecutar dentro de BEGIN/ROLLBACK, después de 20261029012245_released_plates_client_model.sql, solo en base local.
 -- Requiere un company_admin activo de emp-5q (qa.pl.admin5q@…) y el estacionamiento «QA Pago liberado».
 do $$
 declare
