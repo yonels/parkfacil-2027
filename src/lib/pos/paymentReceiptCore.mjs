@@ -67,3 +67,56 @@ export function receiptRateDescription(rateName, breakdown, fallbackSummary = ""
   ];
   return candidates.find((text) => text.length <= RECEIPT_RATE_MAX_LENGTH) || join(name, fallbackSummary);
 }
+
+// Pago liberado (SOL-2026-10-28-003): el comprobante muestra el tiempo liberado sin
+// costo. Solo para estadías liberadas con cobro (desglose RELEASED_PAYMENT); las demás
+// quedan igual. Líneas «PAGO LIBERADO» a $0 para cada tramo cubierto (entrada → salida
+// impresa menos los tramos cobrados) y, si la tarifa es por franja horaria, el detalle
+// real de los tramos cobrados. Sin franjas no se imprime un precio por minuto
+// inventado: el cobro queda en TOTAL y en la línea Tarifa.
+const RELEASED_LABEL = "PAGO LIBERADO";
+
+export function releasedReceiptDetail(breakdown, entryAt, elapsedMinutes) {
+  if (breakdown?.kind !== "RELEASED_PAYMENT") return null;
+  const entryMs = Date.parse(entryAt);
+  const minutes = Number(elapsedMinutes);
+  if (!Number.isFinite(entryMs) || !Number.isFinite(minutes) || minutes < 0) return null;
+  const endMs = entryMs + minutes * 60_000;
+  const intervals = (Array.isArray(breakdown.intervals) ? breakdown.intervals : [])
+    .map((interval) => ({ ...interval, startMs: Date.parse(interval.from), stopMs: Date.parse(interval.to) }))
+    .filter((interval) => Number.isFinite(interval.startMs) && Number.isFinite(interval.stopMs))
+    .sort((a, b) => a.startMs - b.startMs);
+
+  const covered = [];
+  let cursor = entryMs;
+  for (const interval of intervals) {
+    if (interval.startMs > cursor) covered.push([cursor, Math.min(interval.startMs, endMs)]);
+    cursor = Math.max(cursor, interval.stopMs);
+  }
+  if (cursor < endMs) covered.push([cursor, endMs]);
+
+  const time = (ms) => toOperationalDateTimeParts(new Date(ms).toISOString())?.entryTime || "";
+  const coveredLines = covered
+    .filter(([from, to]) => to - from >= 60_000)
+    .map(([from, to]) => ({ from: time(from), to: time(to), label: RELEASED_LABEL, minutes: Math.floor((to - from) / 60_000), minuteAmount: 0, amount: 0, capAmount: null, capCount: 0 }));
+  // Los minutos impresos cuadran con los minutos liberados del cálculo de cobro.
+  const coveredMinutes = Number.isFinite(Number(breakdown.coveredMinutes)) ? Number(breakdown.coveredMinutes) : coveredLines.reduce((sum, line) => sum + line.minutes, 0);
+  const printed = coveredLines.reduce((sum, line) => sum + line.minutes, 0);
+  if (coveredLines.length && printed !== coveredMinutes) coveredLines[coveredLines.length - 1].minutes = Math.max(0, coveredLines[coveredLines.length - 1].minutes + coveredMinutes - printed);
+
+  const passes = intervals.flatMap((interval) => (interval.breakdown?.kind === "TIME_BANDS" && Array.isArray(interval.breakdown.passes) ? interval.breakdown.passes : []));
+  const bandLines = passes.length ? receiptChargeLines({ kind: "TIME_BANDS", passes }) : [];
+  const chargeableMinutes = Number.isFinite(Number(breakdown.chargeableMinutes)) ? Number(breakdown.chargeableMinutes) : intervals.reduce((sum, interval) => sum + Number(interval.minutes || 0), 0);
+  return { coveredMinutes, chargeableMinutes, chargeLines: [...coveredLines, ...bandLines] };
+}
+
+// Línea «Tarifa» de una estadía liberada: «Diurno · Liberado 57 min · Cobrado 112 min»,
+// acortada si no cabe en el largo que imprime la APK.
+export function releasedReceiptRateDescription(rateName, detail) {
+  const name = String(rateName || "").trim();
+  const join = (...parts) => parts.filter(Boolean).join(" · ");
+  const released = `Liberado ${detail.coveredMinutes} min`;
+  const charged = detail.chargeableMinutes > 0 ? `Cobrado ${detail.chargeableMinutes} min` : "";
+  const candidates = [join(name, released, charged), join(name, released), join(released, charged), released];
+  return candidates.find((text) => text.length <= RECEIPT_RATE_MAX_LENGTH) || released;
+}

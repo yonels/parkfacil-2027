@@ -1,6 +1,7 @@
 {
   "git": {
     "deploymentEnabled": {
+      "fix/comprobante-pago-liberado": false,
       "feature/menu-cliente-usuarios": false,
       "feature/marca-pago-liberado": false,
       "fix/menu-lateral-reporte-visible": false,

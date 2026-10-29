@@ -27,7 +27,7 @@ import PosStreetLocationPicker, { defaultStreetSegmentId } from "@/components/po
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
 import { ChargeBreakdownList, ClosedUnpaidExitsSummary, DebtNoticeBanner, UnpaidExitAction, UnpaidExitsReview } from "@/components/pos/PosUnpaidExit";
 import { summarizeChargeBreakdown } from "@/lib/parkingTimeBands.mjs";
-import { receiptChargeLines, receiptExitInstant, receiptRateDescription } from "@/lib/pos/paymentReceiptCore.mjs";
+import { receiptChargeLines, receiptExitInstant, receiptRateDescription, releasedReceiptDetail, releasedReceiptRateDescription } from "@/lib/pos/paymentReceiptCore.mjs";
 import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } from "@/lib/pos/qrExitCore.mjs";
 import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
 import { couponTokenForRequest, isCouponQrPayload } from "@/lib/cupones/couponInput.mjs";
@@ -157,6 +157,8 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod 
   const amount = Number(quote?.total ?? stay?.total_amount ?? 0);
   const breakdown = getTaxBreakdown(amount);
   const header = ticketHeaderData(parkingResponse, stay, false);
+  // Pago liberado: tiempo liberado sin costo en Tarifa y en el detalle (solo estadías liberadas).
+  const released = releasedReceiptDetail(quote?.snapshot?.chargeBreakdown, stay?.entry_at, quote?.elapsedMinutes);
 
   const payload = {
     type: "PAYMENT_RECEIPT",
@@ -191,6 +193,10 @@ function buildPaymentReceiptPayload(stay, quote, parkingResponse, paymentMethod 
     paymentId: String(stay?.payment_code || "").trim(),
     ...receiptBoletaFields(boleta),
   };
+  if (released) {
+    payload.rateDescription = releasedReceiptRateDescription(quote?.rate?.name || stay?.rate_name, released);
+    payload.chargeLines = released.chargeLines;
+  }
   // Con boleta emitida, Neto/IVA son los de la boleta (mismo total).
   if (boleta?.status === "ISSUED" && Number(boleta.totalAmount) === payload.amount && Number.isFinite(Number(boleta.netAmount))) {
     payload.netAmount = Number(boleta.netAmount);

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { toOperationalDateTimeParts } from "../dataEntry.mjs";
-import { RECEIPT_RATE_MAX_LENGTH, receiptChargeLines, receiptExitInstant, receiptRateDescription } from "./paymentReceiptCore.mjs";
+import { RECEIPT_RATE_MAX_LENGTH, receiptChargeLines, receiptExitInstant, receiptRateDescription, releasedReceiptDetail, releasedReceiptRateDescription } from "./paymentReceiptCore.mjs";
 
 // Caso real de QA (AAAA-95, 2026-10-18): cálculo de cobro 21:11, pago confirmado 21:12:14.
 const stay = { entry_at: "2026-10-18T17:23:06.310Z", exit_at: "2026-10-19T00:12:14.707Z" };
@@ -97,4 +97,52 @@ test("sin franjas horarias o nombre muy largo, se usa el resumen", () => {
   assert.equal(receiptRateDescription("Normal", null, ""), "Normal");
   const long = "Tarifa con un nombre extremadamente largo para el ticket";
   assert.equal(receiptRateDescription(long, breakdown, "Minuto efectivo según horario"), `${long} · Minuto efectivo según horario`);
+});
+
+// Pago liberado (SOL-2026-10-28-003). Caso real AAAA-11, 2026-10-29: ingreso 10:47:41,
+// liberado hasta 11:45, 169 min en total, 57 liberados y 112 cobrados ($3.330, tarifa Diurno sin franjas).
+const aaaa11 = {
+  kind: "RELEASED_PAYMENT", coveredMinutes: 57, chargeableMinutes: 112, amount: 3330,
+  intervals: [{ from: "2026-10-29T14:45:00.000Z", to: "2026-10-29T16:36:41.606Z", minutes: 111, amount: 3330, breakdown: null }],
+};
+
+test("Pago liberado: línea PAGO LIBERADO a $0 con el horario cubierto y Tarifa con liberado y cobrado", () => {
+  const detail = releasedReceiptDetail(aaaa11, "2026-10-29T13:47:41.606Z", 169);
+  assert.deepEqual(detail.chargeLines, [{ from: "10:47", to: "11:45", label: "PAGO LIBERADO", minutes: 57, minuteAmount: 0, amount: 0, capAmount: null, capCount: 0 }]);
+  assert.equal(releasedReceiptRateDescription("Diurno", detail), "Diurno · Liberado 57 min · Cobrado 112 min");
+});
+
+test("Pago liberado con franjas horarias: los tramos cobrados se detallan con su precio real", () => {
+  const passes = [
+    { from: "2026-10-29T14:45:00.000Z", to: "2026-10-29T15:45:00.000Z", label: "Día", setLabel: "Todos", bandStart: "08:00", bandEnd: "20:00", capAmount: null, minutes: 60, minuteAmount: 35, amount: 2100, capApplied: false },
+  ];
+  const breakdown = { kind: "RELEASED_PAYMENT", coveredMinutes: 57, chargeableMinutes: 60, amount: 2100, intervals: [{ from: passes[0].from, to: passes[0].to, minutes: 60, amount: 2100, breakdown: { kind: "TIME_BANDS", passes } }] };
+  const lines = releasedReceiptDetail(breakdown, "2026-10-29T13:47:41.606Z", 117).chargeLines;
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0].label, "PAGO LIBERADO");
+  assert.deepEqual({ from: lines[1].from, to: lines[1].to, minutes: lines[1].minutes, minuteAmount: lines[1].minuteAmount, amount: lines[1].amount }, { from: "08:00", to: "20:00", minutes: 60, minuteAmount: 35, amount: 2100 });
+});
+
+test("Pago liberado: ingreso antes del inicio y salida después del término (cobro a ambos lados)", () => {
+  const breakdown = {
+    kind: "RELEASED_PAYMENT", coveredMinutes: 60, chargeableMinutes: 30, amount: 900,
+    intervals: [
+      { from: "2026-10-29T13:30:00.000Z", to: "2026-10-29T13:45:00.000Z", minutes: 15, amount: 450, breakdown: null },
+      { from: "2026-10-29T14:45:00.000Z", to: "2026-10-29T15:00:00.000Z", minutes: 15, amount: 450, breakdown: null },
+    ],
+  };
+  const detail = releasedReceiptDetail(breakdown, "2026-10-29T13:30:00.000Z", 90);
+  assert.deepEqual(detail.chargeLines.map((line) => `${line.from}-${line.to} ${line.label} ${line.minutes}`), ["10:45-11:45 PAGO LIBERADO 60"]);
+});
+
+test("Sin Pago liberado el comprobante no cambia: el detalle liberado no aplica", () => {
+  assert.equal(releasedReceiptDetail(breakdown, stay.entry_at, 408), null);
+  assert.equal(releasedReceiptDetail(null, stay.entry_at, 10), null);
+});
+
+test("Pago liberado: Tarifa se acorta si no cabe en la línea impresa", () => {
+  const detail = { coveredMinutes: 1440, chargeableMinutes: 4320 };
+  const text = releasedReceiptRateDescription("Tarifa con un nombre muy largo para el comprobante del POS", detail);
+  assert.ok(text.length <= RECEIPT_RATE_MAX_LENGTH);
+  assert.equal(text, "Liberado 1440 min · Cobrado 4320 min");
 });
