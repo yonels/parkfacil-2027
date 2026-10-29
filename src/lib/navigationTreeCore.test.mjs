@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { matchesActivePrefix, isItemActive, isTreeActive, activeTreeKeys, initialExpandedNodes, toggleExpandedNode, filterVisibleTree, projectSingleProductParkingNode } from "./navigationTreeCore.mjs";
+import { matchesActivePrefix, isItemActive, isTreeActive, activeTreeKeys, initialExpandedNodes, toggleExpandedNode, filterVisibleTree, projectSingleProductParkingNode, projectClientAdministrationNode } from "./navigationTreeCore.mjs";
 import { navigationItems } from "../config/navigation.js";
 
 function findByLabel(items, label) {
@@ -362,4 +362,39 @@ test("Sidebar no vuelve a filtrar los hijos por href: las carpetas de Off Street
   const visible = filterVisibleTree([offStreet], (item) => Boolean(item.href));
   const labels = visible[0].children.map((child) => child.label);
   for (const folder of ["Operación", "Estacionamientos", "Recaudación", "Tarifas"]) assert.ok(labels.includes(folder), folder);
+});
+
+test("projectClientAdministrationNode: Portal Cliente ve Administradores y Operadores a primer nivel (SOL-2026-10-29-002)", () => {
+  const items = [
+    { label: "Inicio", href: "/" },
+    { label: "Administración", children: [
+      { label: "Usuarios", href: "/usuarios", icon: "U", children: [
+        { label: "Administradores", href: "/usuarios/administradores", children: [{ label: "Crear administrador", href: "/usuarios/administradores/crear" }] },
+        { label: "Operadores", href: "/usuarios/operadores" },
+      ] },
+      { label: "Mi Cuenta", href: "/mi-cuenta" },
+    ] },
+  ];
+  const projected = projectClientAdministrationNode(items);
+  assert.deepEqual(projected.map((item) => item.label), ["Inicio", "Administradores", "Operadores", "Mi Cuenta"]);
+  assert.equal(projected[1].children[0].href, "/usuarios/administradores/crear");
+  assert.equal(projected[1].icon, "U");
+});
+
+test("projectClientAdministrationNode: contra navigationItems filtrado para un administrador de empresa", () => {
+  const visible = (item) => Boolean(item.href) && /^\/(usuarios|mi-cuenta)/.test(item.href);
+  const filtered = filterVisibleTree(navigationItems.filter((item) => item.label === "Administración"), visible);
+  const labels = projectClientAdministrationNode(filtered).map((item) => item.label);
+  assert.deepEqual(labels, ["Administradores", "Operadores", "Mi Cuenta"]);
+});
+
+test("Portal Cliente con reglas reales: Off Street, On Street o ambos ven Administradores y Operadores bajo Administración", async () => {
+  const { navigationVisibleForRole, ROLES } = await import("./auth/permissions.mjs");
+  for (const enabledProducts of [["OFF_STREET"], ["ON_STREET"], ["OFF_STREET", "ON_STREET"]]) {
+    const context = { portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts, companyId: "emp-1" };
+    const visible = (item) => navigationVisibleForRole(item, context) && !item.requiresModule;
+    const labels = projectClientAdministrationNode(projectSingleProductParkingNode(filterVisibleTree(navigationItems, visible))).map((item) => item.label);
+    assert.ok(labels.includes("Administradores") && labels.includes("Operadores"), `${enabledProducts}: ${labels}`);
+    assert.ok(!labels.includes("Administración") && !labels.includes("Usuarios") && !labels.includes("Empresas"), `${enabledProducts}: ${labels}`);
+  }
 });

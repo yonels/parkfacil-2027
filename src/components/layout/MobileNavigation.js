@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { navigationItems } from "@/config/navigation";
 import { navigationVisibleForRole } from "@/lib/auth/permissions.mjs";
 import { useOperatorAccessUrl } from "@/lib/auth/useOperatorAccessUrl";
-import { matchesActivePrefix, activeTreeKeys, toggleExpandedNode, filterVisibleTree, projectSingleProductParkingNode } from "@/lib/navigationTreeCore.mjs";
+import { matchesActivePrefix, activeTreeKeys, toggleExpandedNode, filterVisibleTree, projectSingleProductParkingNode, projectClientAdministrationNode } from "@/lib/navigationTreeCore.mjs";
 import { useState } from "react";
 
 export default function MobileNavigation({ onNavigate, clientContext, userContext }) {
@@ -18,7 +18,7 @@ export default function MobileNavigation({ onNavigate, clientContext, userContex
   // duplicada -- ver §17/§18/§34).
   const isVisibleForContext = (item) => navigationVisibleForRole(item, userContext) && (!clientContext || !item.requiresModule || clientContext.modules?.includes(item.requiresModule));
   const filtered = filterVisibleTree(navigationItems, isVisibleForContext);
-  const visibleItems = isPlatformAdmin ? filtered : projectSingleProductParkingNode(filtered);
+  const visibleItems = isPlatformAdmin ? filtered : projectClientAdministrationNode(projectSingleProductParkingNode(filtered));
 
   const [expandedNodes, setExpandedNodes] = useState(() => activeTreeKeys(visibleItems, pathname));
   const toggleFolder = (key) => setExpandedNodes((current) => toggleExpandedNode(current, key));

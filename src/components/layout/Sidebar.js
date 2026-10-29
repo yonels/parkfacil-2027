@@ -6,7 +6,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, BookOpen, CircleUserRound, Mail
 import { navigationItems } from "@/config/navigation";
 import { navigationVisibleForRole } from "@/lib/auth/permissions.mjs";
 import { useOperatorAccessUrl } from "@/lib/auth/useOperatorAccessUrl";
-import { isItemActive, matchesActivePrefix, isTreeActive, activeTreeKeys, initialExpandedNodes, toggleExpandedNode, filterVisibleTree, projectSingleProductParkingNode } from "@/lib/navigationTreeCore.mjs";
+import { isItemActive, matchesActivePrefix, isTreeActive, activeTreeKeys, initialExpandedNodes, toggleExpandedNode, filterVisibleTree, projectSingleProductParkingNode, projectClientAdministrationNode } from "@/lib/navigationTreeCore.mjs";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 const SIDEBAR_TREES_STORAGE_KEY = "parkfacil.sidebar.expanded.v2";
@@ -37,12 +37,14 @@ const sectionDefinitions = [
     // de "Estacionamientos") cuando projectSingleProductParkingNode los
     // promovió a nivel superior para un Cliente con un único producto
     // habilitado -- ver §17/§18 de la auditoría de acceso por producto.
-    labels: ["Inicio", "Dashboard", "Data Entry", "Operación", "Turnos", "Estacionamientos", "Off Street", "On Street", "Seguridad", "Recaudación", "Medios de Pago", "Monitoreo"],
+    labels: ["Inicio", "Dashboard", "Data Entry", "Operación", "Turnos", "Estacionamientos", "Off Street", "On Street", "Recaudación", "Medios de Pago", "Monitoreo"],
   },
   {
     id: "administracion",
     title: "Administración",
-    labels: ["Empresas", "Usuarios", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Cupones y descuentos", "Dispositivos", "Facturación", "Reportes", "Administración", "Integraciones"],
+    // Administradores/Operadores/Seguridad/Mi Cuenta: Portal Cliente, a primer
+    // nivel (projectClientAdministrationNode, SOL-2026-10-29-002).
+    labels: ["Empresas", "Usuarios", "Administradores", "Operadores", "Seguridad", "Mi Cuenta", "Turnos", "Gestión de módulos", "Contratos", "Abonados y Credenciales", "Tarifas", "Cupones y descuentos", "Dispositivos", "Facturación", "Reportes", "Administración", "Integraciones"],
   },
   {
     id: "soporte",
@@ -114,7 +116,7 @@ export default function Sidebar({ collapsed, onToggle, onHomeNavigate, clientCon
     // Root conserva siempre el árbol completo "Estacionamientos > Off
     // Street/On Street" (ver §6): la promoción a nivel superior solo aplica
     // al Portal Cliente, cuya empresa puede tener un único producto.
-    return isPlatformAdmin ? projected : projectSingleProductParkingNode(projected);
+    return isPlatformAdmin ? projected : projectClientAdministrationNode(projectSingleProductParkingNode(projected));
   }, [clientContext, userContext, isPlatformAdmin]);
 
   const sections = useMemo(
