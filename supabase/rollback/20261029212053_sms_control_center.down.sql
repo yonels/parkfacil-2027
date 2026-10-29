@@ -1,6 +1,6 @@
--- Reversión de 20261029220000_sms_control_center.sql (SOL-2026-10-29-007).
+-- Reversión de 20261029212053_sms_control_center.sql (SOL-2026-10-29-007).
 -- Elimina solo objetos sms_* creados por esa migración; no toca tablas On Street.
--- Uso local: psql -v ON_ERROR_STOP=1 -f supabase/rollback/20261029220000_sms_control_center.down.sql
+-- Uso local: psql -v ON_ERROR_STOP=1 -f supabase/rollback/20261029212053_sms_control_center.down.sql
 begin;
 drop function if exists public.sms_consumption(jsonb);
 drop function if exists public.sms_failure_summary(jsonb);
@@ -19,5 +19,5 @@ drop table if exists public.sms_inbound_messages;
 drop table if exists public.sms_message_events;
 drop table if exists public.sms_messages;
 drop table if exists public.sms_settings;
-delete from supabase_migrations.schema_migrations where version = '20261029220000';
+delete from supabase_migrations.schema_migrations where version = '20261029212053';
 commit;

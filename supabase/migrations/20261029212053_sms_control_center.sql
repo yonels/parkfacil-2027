@@ -2,7 +2,7 @@
 -- objetos nuevos con prefijo sms_. No modifica on_street_pilot_notifications,
 -- on_street_inspections, sus triggers ni sus funciones -- los flujos On
 -- Street / Inspector siguen exactamente igual y se leen a través de la vista
--- sms_history_v. Reversión: 20261029220000_sms_control_center.down.sql
+-- sms_history_v. Reversión: 20261029212053_sms_control_center.down.sql
 -- (fuera de supabase/migrations para que la CLI no la aplique).
 --
 -- Estados (ajustados a Sentraland, ver docs de la solicitud):

@@ -12,7 +12,7 @@ Solicitud SOL-2026-10-29-007 (registro, manual de administración, prueba real c
 | API (Root + `sms:*`) | `src/app/api/centro-sms/**` |
 | Procesador interno | `src/app/api/internal/sms-center/process` (CRON_SECRET; **no programado**) |
 | UI | `src/app/centro-sms/**`, `src/components/centro-sms/**`; menú en `src/config/navigation.js` + `Sidebar.js` |
-| Base de datos | `supabase/migrations/20261029220000_sms_control_center.sql`; reversión `supabase/rollback/20261029220000_sms_control_center.down.sql`; prueba `supabase/tests/sms_control_center.test.sql` |
+| Base de datos | `supabase/migrations/20261029212053_sms_control_center.sql`; reversión `supabase/rollback/20261029212053_sms_control_center.down.sql`; prueba `supabase/tests/sms_control_center.test.sql` |
 
 ## Modelo de datos
 

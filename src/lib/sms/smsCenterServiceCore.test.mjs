@@ -13,7 +13,7 @@ import { simulatedSmsProvider } from "../onStreetSmsProviderCore.mjs";
 
 // Base en memoria que reproduce la semántica de las funciones SQL
 // (sms_enqueue_message, sms_transition, sms_claim_due) de la migración
-// 20261029220000_sms_control_center.sql, que además se prueba contra
+// 20261029212053_sms_control_center.sql, que además se prueba contra
 // Postgres real en supabase/tests/sms_control_center.test.sql.
 function makeDb({ settings = {} } = {}) {
   const messages = [];
@@ -314,7 +314,7 @@ test("la respuesta técnica guardada en eventos nunca incluye credenciales", asy
 });
 
 // Compatibilidad On Street / Off Street: la migración y el servicio no tocan nada existente.
-const migration = await readFile(new URL("../../../supabase/migrations/20261029220000_sms_control_center.sql", import.meta.url), "utf8");
+const migration = await readFile(new URL("../../../supabase/migrations/20261029212053_sms_control_center.sql", import.meta.url), "utf8");
 const serviceSource = await readFile(new URL("./smsCenterServiceCore.mjs", import.meta.url), "utf8");
 
 test("compatibilidad: la migración no altera tablas, triggers ni funciones On Street / Off Street", () => {

@@ -1,4 +1,4 @@
--- Ejecutar dentro de BEGIN/ROLLBACK, después de 20261029220000_sms_control_center.sql, solo en base local.
+-- Ejecutar dentro de BEGIN/ROLLBACK, después de 20261029212053_sms_control_center.sql, solo en base local.
 do $$
 declare
   r jsonb;

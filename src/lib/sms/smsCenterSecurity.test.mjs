@@ -55,11 +55,12 @@ test("acciones que cambian datos exigen sms:manage, sms:test o sms:export (no sm
   assert.match(conf, /export async function PUT[\s\S]*PERMISSIONS\.SMS_MANAGE/);
 });
 
-test("el procesador interno usa CRON_SECRET y no está programado en vercel.json", async () => {
+// Cron autorizado por el usuario el 2026-10-29: cada 2 minutos y siempre con CRON_SECRET.
+test("el procesador interno usa CRON_SECRET y está programado cada 2 minutos en vercel.json", async () => {
   const source = await read(join(root, "src/app/api/internal/sms-center/process/route.js"));
   assert.match(source, /authorizeCronRequest\(request\.headers\.get\("authorization"\), process\.env\.CRON_SECRET\)/);
-  const vercel = await read(join(root, "vercel.json"));
-  assert.doesNotMatch(vercel, /sms-center|crons/);
+  const crons = JSON.parse(await read(join(root, "vercel.json"))).crons || [];
+  assert.deepEqual(crons.filter((cron) => cron.path === "/api/internal/sms-center/process"), [{ path: "/api/internal/sms-center/process", schedule: "*/2 * * * *" }]);
 });
 
 test("ningún componente del navegador importa código de servidor ni credenciales", async () => {
@@ -82,7 +83,7 @@ test("los módulos de servidor llevan la marca server-only", async () => {
 });
 
 test("la migración no expone objetos sms_* a anon/authenticated y activa RLS en todas las tablas", async () => {
-  const sql = await read(join(root, "supabase/migrations/20261029220000_sms_control_center.sql"));
+  const sql = await read(join(root, "supabase/migrations/20261029212053_sms_control_center.sql"));
   const tables = [...sql.matchAll(/create table if not exists public\.(sms_[a-z_]+)/g)].map((m) => m[1]);
   assert.equal(tables.length, 7);
   for (const table of tables) assert.match(sql, new RegExp(`alter table public\\.${table} enable row level security`), table);
