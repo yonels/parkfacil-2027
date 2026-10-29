@@ -129,7 +129,9 @@ function ReportTree({ tree, activeId, onSelect }) {
 
 // `categoryIds`: limita el árbol a esas categorías (vacío = árbol completo).
 // `storageKey`: el último reporte se recuerda por vista.
-export default function ReportsWorkspace({ initialReportId = "pl-listado", categoryIds = null, storageKey = LAST_REPORT_KEY }) {
+// `hideTree`: el árbol vive en el menú lateral y cada reporte tiene su ruta
+// (Reportes Pago liberado); el reporte lo fija `initialReportId`.
+export default function ReportsWorkspace({ initialReportId = "pl-listado", categoryIds = null, storageKey = LAST_REPORT_KEY, hideTree = false }) {
   const tree = useMemo(() => subTree(categoryIds), [categoryIds]);
   const allowedIds = useMemo(() => new Set(flattenReports(tree).map((r) => r.id)), [tree]);
   const [reportId, setReportId] = useState(initialReportId);
@@ -143,10 +145,11 @@ export default function ReportsWorkspace({ initialReportId = "pl-listado", categ
   const report = useMemo(() => findReport(reportId), [reportId]);
 
   useEffect(() => {
+    if (hideTree) return undefined;
     const stored = readStorage(storageKey);
     if (stored && allowedIds.has(stored)) { const timer = window.setTimeout(() => setReportId(stored), 0); return () => window.clearTimeout(timer); }
     return undefined;
-  }, [allowedIds, storageKey]);
+  }, [allowedIds, storageKey, hideTree]);
 
   const query = useCallback((extra = {}) => {
     const params = new URLSearchParams();
@@ -209,8 +212,8 @@ export default function ReportsWorkspace({ initialReportId = "pl-listado", categ
   const uses = (key) => Boolean(report?.filters?.includes(key));
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
-      <aside className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-4 lg:self-start">
+    <div className={hideTree ? "" : "grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)]"}>
+      <aside className={`rounded-3xl border border-slate-200 bg-white p-4 shadow-sm lg:sticky lg:top-4 lg:self-start ${hideTree ? "hidden" : ""}`}>
         <button type="button" onClick={() => setTreeOpen((open) => !open)} className="flex w-full items-center justify-between rounded-xl px-2 py-1 text-sm font-bold text-[#041E42] lg:hidden" aria-expanded={treeOpen}>
           <span className="truncate">{report ? report.label : "Reportes"}</span><Menu className="h-5 w-5" />
         </button>
