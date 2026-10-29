@@ -118,3 +118,10 @@ test("toRevenueClosureRow no inventa un operador cuando falta operator_name (cae
   const row = toRevenueClosureRow({ id: "c1", operator_id: "op-123", operator_name: null });
   assert.equal(row.operator, "op-123");
 });
+
+test("toRevenueTransactionRow marca Pago liberado solo cuando la estadía tiene autorización", () => {
+  const stay = { id: "s1", code: "ING-1", license_plate: "CXPY93", status: "PAID", exit_at: "2026-10-29T15:00:00.000Z", payment_method: "CASH", total_amount: 270 };
+  assert.equal(toRevenueTransactionRow(stay).releasedPayment, false);
+  assert.equal(toRevenueTransactionRow({ ...stay, released_plate_authorization_id: "a1" }).releasedPayment, true);
+  assert.equal(toRevenueTransactionRow({ ...stay, released_payment_authorization_id: "c1" }).releasedPayment, true);
+});

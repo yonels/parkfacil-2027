@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import AppShell from "@/components/layout/AppShell";
+import PagoLiberadoBadge from "@/components/operacion/PagoLiberadoBadge";
 import { sanitizeCsvCell } from "@/lib/offStreetReportsCore.mjs";
 import { OPERATIONAL_TIME_ZONE } from "@/lib/dataEntry.mjs";
 
@@ -215,6 +216,7 @@ export default function RecaudacionPage() {
     paymentCode: row.paymentCode,
     ticket: row.ticket,
     plate: row.plate,
+    releasedPayment: Boolean(row.releasedPayment),
     companyName: row.companyName || "—",
     parkingName: row.parkingName || "—",
     operator: row.operator,
@@ -246,9 +248,12 @@ export default function RecaudacionPage() {
       date: row.date, time: row.time, paymentCode: row.paymentCode, ticket: row.ticket, plate: row.plate,
       companyName: row.companyName || "—", parkingName: row.parkingName || "—", operator: row.operator,
       shiftLabel: row.shiftLabel || "—", paymentMethodLabel: paymentMethodLabel(row.paymentMethod), amount: row.amount, status: "Pagado",
+      releasedPayment: row.releasedPayment ? "Sí" : "No",
     }));
-    const headers = transactionColumns.map(([, label]) => label);
-    const csvRows = mapped.map((item) => transactionColumns.map(([key]) => item[key]));
+    // La exportación agrega «Pago liberado» (Sí/No); en pantalla es la marca junto a la patente.
+    const csvColumns = [...transactionColumns, ["releasedPayment", "Pago liberado"]];
+    const headers = csvColumns.map(([, label]) => label);
+    const csvRows = mapped.map((item) => csvColumns.map(([key]) => item[key]));
     // Defecto Fase 5 (§13): faltaba la misma protección anti CSV-injection
     // que ya usa Reportes Off Street (offStreetReportsCore.mjs) -- una celda
     // como =CMD(...) en patente/operador/turno se neutraliza antes de citar.
@@ -385,7 +390,7 @@ export default function RecaudacionPage() {
         <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 xl:flex-row xl:items-center xl:justify-between"><div className="flex items-center gap-3"><FileSpreadsheet className="h-5 w-5 text-[#3150D8]" /><div><h2 className="font-bold text-[#041E42]">Transacciones</h2><p className="text-xs text-slate-500">{total} resultados · pagos confirmados (parking_stays) · los KPIs superiores reflejan estos mismos filtros, salvo la búsqueda de texto</p></div></div><div className="flex flex-wrap gap-2"><label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3"><Search className="h-4 w-4 text-[#3150D8]" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Patente, ticket o código de pago" className="w-56 py-2.5 text-sm outline-none" /></label><select value={method} onChange={(event) => { setMethod(event.target.value); setPage(1); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Todos los medios</option><option value="CASH">Efectivo</option><option value="CREDIT">Crédito</option><option value="DEBIT">Débito</option><option value="CARD_UNCLASSIFIED">Tarjeta sin clasificar</option><option value="CARD">Todas las tarjetas</option></select>{operatorOptions.length > 0 && (<select value={operatorId} onChange={(event) => { setOperatorId(event.target.value); setPage(1); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"><option value="">Todos los operadores</option>{operatorOptions.map((user) => <option key={user.id} value={user.id}>{user.nombreCompleto}</option>)}</select>)}<button type="button" onClick={exportCsv} disabled={exporting} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"><Download className="h-4 w-4" />{exporting ? "Exportando…" : "Exportar CSV (resultado filtrado completo)"}</button></div></div>
           {exportError ? <p className="mx-5 mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{exportError}</p> : null}
-          <div className="overflow-x-auto"><table className="w-full min-w-[1350px] text-left text-sm"><thead className="bg-[#041E42] text-white"><tr>{transactionColumns.map(([key, label]) => <th key={key} className="p-0"><button type="button" onClick={() => orderBy(key)} className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left font-semibold hover:bg-white/10">{label}{sort.key === key ? (sort.direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />) : null}</button></th>)}<th className="px-4 py-3">Detalle</th></tr></thead><tbody>{sortedRows.map((item) => <tr key={item.id} className="border-b border-slate-100 last:border-b-0 even:bg-slate-50 hover:bg-[#EEF4FF]" onClick={() => setSelected(item)}>{transactionColumns.map(([key]) => <td key={key} className={`cursor-pointer px-4 py-3 ${key === "amount" ? "text-right font-bold" : ""}`}>{key === "amount" ? money(item[key]) : key === "status" ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Pagado</span> : item[key]}</td>)}<td className="px-4 py-3"><button type="button" className="inline-flex items-center gap-1 text-xs font-bold text-[#3150D8]"><Eye className="h-4 w-4" />Ver</button></td></tr>)}{!sortedRows.length ? <tr><td colSpan={transactionColumns.length + 1} className="px-4 py-8 text-center text-slate-500">{loading ? "Cargando…" : "No hay transacciones para estos filtros."}</td></tr> : null}</tbody></table></div>
+          <div className="overflow-x-auto"><table className="w-full min-w-[1350px] text-left text-sm"><thead className="bg-[#041E42] text-white"><tr>{transactionColumns.map(([key, label]) => <th key={key} className="p-0"><button type="button" onClick={() => orderBy(key)} className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left font-semibold hover:bg-white/10">{label}{sort.key === key ? (sort.direction === "asc" ? <ArrowUp className="h-3.5 w-3.5" /> : <ArrowDown className="h-3.5 w-3.5" />) : null}</button></th>)}<th className="px-4 py-3">Detalle</th></tr></thead><tbody>{sortedRows.map((item) => <tr key={item.id} className="border-b border-slate-100 last:border-b-0 even:bg-slate-50 hover:bg-[#EEF4FF]" onClick={() => setSelected(item)}>{transactionColumns.map(([key]) => <td key={key} className={`cursor-pointer px-4 py-3 ${key === "amount" ? "text-right font-bold" : ""}`}>{key === "amount" ? money(item[key]) : key === "status" ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Pagado</span> : key === "plate" && item.releasedPayment ? <span className="inline-flex flex-wrap items-center gap-1.5">{item[key]}<PagoLiberadoBadge /></span> : item[key]}</td>)}<td className="px-4 py-3"><button type="button" className="inline-flex items-center gap-1 text-xs font-bold text-[#3150D8]"><Eye className="h-4 w-4" />Ver</button></td></tr>)}{!sortedRows.length ? <tr><td colSpan={transactionColumns.length + 1} className="px-4 py-8 text-center text-slate-500">{loading ? "Cargando…" : "No hay transacciones para estos filtros."}</td></tr> : null}</tbody></table></div>
           {totalPages > 1 && (
             <div className="flex items-center justify-between border-t border-slate-100 px-5 py-4 text-sm text-slate-600">
               <button type="button" disabled={page <= 1 || loading} onClick={() => setPage((current) => Math.max(1, current - 1))} className="rounded-full border border-slate-200 px-3 py-1.5 font-semibold disabled:opacity-40">Anterior</button>

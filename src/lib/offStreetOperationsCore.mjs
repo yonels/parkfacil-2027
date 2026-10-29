@@ -69,6 +69,13 @@ export function operationalTodayIso(now = new Date(), timeZone = OPERATIONAL_TIM
 // consume la UI de /operacion. `id` es el UUID interno de la fila -- se
 // conserva solo para enlazar a /operacion/[id] (rowHref), nunca se muestra
 // como identificador visible (eso es ticket/patente, ver §4 del alcance).
+// Pago liberado (SOL-2026-10-28-003, punto 3): la estadía ingresó con una
+// patente liberada -- modelo cliente (released_plate_authorization_id) o el
+// modelo anterior de contratos Root (released_payment_authorization_id).
+export function isReleasedPaymentStay(stay) {
+  return Boolean(stay?.released_plate_authorization_id || stay?.released_payment_authorization_id);
+}
+
 export function toOperationRow(stay, { timeZone = OPERATIONAL_TIME_ZONE, parkingName = "", parkingCode = "", companyName = "" } = {}) {
   const entryParts = toOperationalDateTimeParts(stay?.entry_at, timeZone);
   const exitParts = stay?.exit_at ? toOperationalDateTimeParts(stay.exit_at, timeZone) : null;
@@ -92,6 +99,7 @@ export function toOperationRow(stay, { timeZone = OPERATIONAL_TIME_ZONE, parking
     rateName: stay?.rate_name || "",
     amount: Number(stay?.total_amount) || 0,
     paymentMethod: stay?.payment_method || null,
+    releasedPayment: isReleasedPaymentStay(stay),
   };
 }
 
@@ -135,6 +143,7 @@ export function toOperationDetail(stay, { parking = null, entryShift = null, pay
     plate: stay?.license_plate || "-",
     qrToken: stay?.qr_token || null,
     status: stay?.status || null,
+    releasedPayment: isReleasedPaymentStay(stay),
     origin: stay?.entry_source || null,
     company: parking ? { id: parking.companyId || null, name: parking.companyName || "" } : null,
     parking: parking ? { id: parking.id, name: parking.name, code: parking.code } : null,

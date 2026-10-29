@@ -7,7 +7,7 @@
 import { OPERATIONAL_TIME_ZONE, toOperationalDateTimeParts } from "./dataEntry.mjs";
 import { addDaysToIsoDate, normalizePagination, operationalDateToIso } from "./pos/activityReportCore.mjs";
 import { REVENUE_METHODS, classifiedPaymentMethod, summarizeCardTypes, closureCardTypes } from "./paymentCardType.mjs";
-import { paymentMethodLabel } from "./offStreetOperationsCore.mjs";
+import { isReleasedPaymentStay, paymentMethodLabel } from "./offStreetOperationsCore.mjs";
 
 // "Recaudación" = pagos confirmados reales. parking_stays.status='CANCELLED'
 // nunca llegó a ser un pago (no hay hoy ningún mecanismo que anule un pago ya
@@ -59,6 +59,8 @@ export function toRevenueTransactionRow(stay, { timeZone = OPERATIONAL_TIME_ZONE
     discountAmount: Number(stay?.discount_amount) || 0,
     paymentCode: stay?.payment_code || "-",
     status: stay?.status || null,
+    // Pago liberado: el monto es solo el tiempo no cubierto por la autorización.
+    releasedPayment: isReleasedPaymentStay(stay),
   };
 }
 

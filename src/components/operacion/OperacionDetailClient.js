@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import EstadoTicketBadge from "@/components/operacion/EstadoTicketBadge";
+import PagoLiberadoBadge from "@/components/operacion/PagoLiberadoBadge";
 import PermanenciaBadge from "@/components/operacion/PermanenciaBadge";
 
 function money(value) {
@@ -119,7 +120,7 @@ export default function OperacionDetailClient({ id }) {
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.24em] text-[#3150D8]">Detalle de operación</p>
               <h1 className="mt-2 text-3xl font-semibold text-[#041E42]">{detail.ticket}</h1>
-              <p className="mt-2 text-sm text-slate-600">Patente {detail.plate} · {detail.entry.date} {detail.entry.time}</p>
+              <p className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">Patente {detail.plate} · {detail.entry.date} {detail.entry.time}{detail.releasedPayment ? <PagoLiberadoBadge /> : null}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Link href="/operacion" className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"><ArrowLeft className="h-4 w-4" />Volver</Link>
