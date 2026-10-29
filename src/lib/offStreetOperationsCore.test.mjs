@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   computeOperationsSummary,
+  isReleasedPaymentStay,
   movementDateField,
   operationalTodayIso,
   originLabel,
@@ -150,4 +151,15 @@ test("toOperationDetail incluye cupón y turno cuando existen realmente", () => 
   assert.equal(detail.exit.shiftDate, "2026-07-24");
   assert.equal(detail.billing.discountAmount, 500);
   assert.equal(detail.billing.totalAmount, 1500);
+});
+
+test("Pago liberado: la fila y el detalle marcan las estadías con autorización (modelo cliente o anterior)", () => {
+  assert.equal(isReleasedPaymentStay({ released_plate_authorization_id: "a1" }), true);
+  assert.equal(isReleasedPaymentStay({ released_payment_authorization_id: "c1" }), true);
+  assert.equal(isReleasedPaymentStay({ released_plate_authorization_id: null, released_payment_authorization_id: null }), false);
+  assert.equal(isReleasedPaymentStay(null), false);
+  const stay = { id: "s1", code: "ING-1", license_plate: "CXPY93", status: "PAID", entry_at: "2026-10-29T12:00:00.000Z", released_plate_authorization_id: "a1" };
+  assert.equal(toOperationRow(stay).releasedPayment, true);
+  assert.equal(toOperationDetail(stay).releasedPayment, true);
+  assert.equal(toOperationRow({ ...stay, released_plate_authorization_id: null }).releasedPayment, false);
 });

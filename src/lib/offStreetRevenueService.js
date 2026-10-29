@@ -22,7 +22,7 @@ import { readCardTypedQuery, matchesRevenueMethod } from "./paymentCardType.mjs"
 import { AuthorizationError } from "./auth/contextCore.mjs";
 import { couponTotalsByShift } from "./cupones/couponReportsCore.mjs";
 
-const stayFields = "id,code,license_plate,parking_id,status,exit_at,exit_operator_id,exit_operator_name,payment_method,payment_code,total_amount,payment_shift_id,coupon_id,coupon_code,discount_amount";
+const stayFields = "id,code,license_plate,parking_id,status,exit_at,exit_operator_id,exit_operator_name,payment_method,payment_code,total_amount,released_payment_authorization_id,released_plate_authorization_id,payment_shift_id,coupon_id,coupon_code,discount_amount";
 const closureFields = "id,shift_id,folio,parking_id,parking_name,company_name,operator_id,operator_name,shift_date,actual_start_at,actual_close_at,paid_vehicles_count,cancelled_vehicles_count,pending_vehicles_count,cash_amount,card_amount,payments_snapshot,collected_amount,declared_cash_amount,cash_difference,difference_observation,closure_status,confirmed_by,confirmed_at";
 
 // Auditoría previa (§11/§12): un .limit(1000)/.limit(20000) simple es un

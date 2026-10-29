@@ -6,6 +6,7 @@ import { ArrowLeft, Search } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import OperacionResumen from "@/components/operacion/OperacionResumen";
 import EstadoTicketBadge from "@/components/operacion/EstadoTicketBadge";
+import PagoLiberadoBadge from "@/components/operacion/PagoLiberadoBadge";
 import SpreadsheetTable from "@/components/ui/SpreadsheetTable";
 import { OPERATIONAL_TIME_ZONE } from "@/lib/dataEntry.mjs";
 
@@ -120,7 +121,7 @@ export default function OperacionPage() {
 
   const columns = [
     { key: "ticket", label: "Ticket" },
-    { key: "patente", label: "Patente" },
+    { key: "patente", label: "Patente", render: (row) => <span className="inline-flex flex-wrap items-center gap-1.5">{row.patente}{row.pagoLiberado ? <PagoLiberadoBadge /> : null}</span> },
     { key: "empresa", label: "Empresa" },
     { key: "estacionamiento", label: "Estacionamiento" },
     { key: "ingreso", label: "Ingreso" },
@@ -136,6 +137,7 @@ export default function OperacionPage() {
     id: row.id,
     ticket: row.ticket,
     patente: row.plate,
+    pagoLiberado: Boolean(row.releasedPayment),
     empresa: row.companyName || "—",
     estacionamiento: row.parkingName || "—",
     ingreso: row.entryDate !== "-" ? `${row.entryDate} ${row.entryTime}` : "—",
