@@ -17,7 +17,7 @@ begin
   select id into parking from public.parkings where company_id = 'emp-5q' and name = 'QA Pago liberado' limit 1;
   if admin is null or otro is null or parking is null then raise exception 'fixture: admin 5Q, admin Ramis y estacionamiento QA Pago liberado'; end if;
   delete from public.parking_stays where license_plate in ('TSTA-11', 'TS12-34') and status = 'OPEN';
-  -- 20261029130000: la regla de reingreso es por estacionamiento.
+  -- 20261029131417: la regla de reingreso es por estacionamiento.
 
   if has_table_privilege('authenticated', 'public.released_plate_authorizations', 'select')
     or has_function_privilege('anon', 'public.released_plate_register_entry(uuid,uuid,jsonb,jsonb)', 'execute')
