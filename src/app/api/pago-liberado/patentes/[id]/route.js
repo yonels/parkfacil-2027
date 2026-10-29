@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { releasedPlateFromDb, validateReleasedPlateInput } from "@/lib/releasedPlates/releasedPlateCore.mjs";
-import { authorizeReleasedPlates, fail, loadAuthorizationEvents, loadCompanyAuthorization, rpcFailure } from "@/lib/releasedPlates/releasedPlateServer";
+import { authorizeReleasedPlates, authorizeReleasedPlatesRead, fail, loadAuthorizationEvents, loadCompanyAuthorization, rpcFailure } from "@/lib/releasedPlates/releasedPlateServer";
 
 // Pago liberado gestionado por el cliente (SOL-2026-10-28-003).
-// GET: detalle con historial. PATCH: editar, finalizar ahora, eliminar
-// (lógico) o restaurar, con control de concurrencia (expectedUpdatedAt).
+// GET: detalle con historial (administrador; Root en solo lectura con
+// ?companyId=). PATCH: editar, finalizar ahora, eliminar (lógico) o
+// restaurar, con control de concurrencia (expectedUpdatedAt). Solo administrador.
 
 export const dynamic = "force-dynamic";
 
@@ -12,14 +13,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ACTIONS = { finalizar: "FINISH", eliminar: "DELETE", restaurar: "RESTORE" };
 
 export async function GET(request, { params }) {
-  const auth = await authorizeReleasedPlates(request);
+  const auth = await authorizeReleasedPlatesRead(request);
   if (auth.response) return auth.response;
   const { id } = await params;
-  if (!UUID.test(String(id || ""))) return fail("No se encontró la patente liberada.", 404);
+  if (!UUID.test(String(id || "")) || !auth.companyId) return fail("No se encontró la patente liberada.", 404);
   try {
-    const authorization = await loadCompanyAuthorization(auth.db, auth.actor.companyId, id);
+    const authorization = await loadCompanyAuthorization(auth.db, auth.companyId, id);
     if (!authorization) return fail("No se encontró la patente liberada.", 404);
-    const events = await loadAuthorizationEvents(auth.db, auth.actor.companyId, id);
+    const events = await loadAuthorizationEvents(auth.db, auth.companyId, id);
     return NextResponse.json({ data: { authorization, events } });
   } catch (error) {
     console.error("[released-plates:GET:id]", error?.code, error?.message);

@@ -3,8 +3,8 @@
 // Off Street → Pago liberado gestionado por el cliente (SOL-2026-10-28-003,
 // prototipo v5 aprobado el 2026-10-28). El administrador de la empresa activa
 // el módulo por estacionamiento y gestiona las patentes liberadas (CRUD,
-// importación desde Excel). ParkFacil Root no interviene: si la API responde
-// 403 (Root u otro rol), la página muestra la vista anterior.
+// importación desde Excel). ParkFacil Root solo supervisa: elige la empresa y
+// ve lo mismo en solo lectura (sin crear, editar, activar ni importar).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, FileUp, LoaderCircle, Plus, RefreshCw, X } from "lucide-react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
@@ -72,7 +72,8 @@ function Field({ label, required = false, className = "", children, hint }) {
 }
 
 export default function ReleasedPlatesManager({ onForbidden }) {
-  const [state, setState] = useState({ loading: true, error: "", parkings: [], authorizations: [], storageReady: true });
+  const [state, setState] = useState({ loading: true, error: "", parkings: [], authorizations: [], storageReady: true, readOnly: false, companies: null, companyId: null });
+  const [selectedCompany, setSelectedCompany] = useState("");
   const [form, setForm] = useState(null);
   const [editing, setEditing] = useState(null);
   const [termManual, setTermManual] = useState(false);
@@ -86,7 +87,8 @@ export default function ReleasedPlatesManager({ onForbidden }) {
 
   const load = useCallback(async () => {
     try {
-      const response = await authenticatedFetch("/api/pago-liberado/patentes", { cache: "no-store" });
+      const query = selectedCompany ? `?companyId=${encodeURIComponent(selectedCompany)}` : "";
+      const response = await authenticatedFetch(`/api/pago-liberado/patentes${query}`, { cache: "no-store" });
       const body = await readJson(response);
       if (response.status === 403) { onForbidden?.(); return; }
       if (!response.ok) throw new Error(body.error || "No fue posible cargar Pago liberado.");
@@ -95,11 +97,13 @@ export default function ReleasedPlatesManager({ onForbidden }) {
     } catch (error) {
       setState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : "No fue posible cargar Pago liberado." }));
     }
-  }, [onForbidden]);
+  }, [onForbidden, selectedCompany]);
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
 
+  const readOnly = state.readOnly === true;
   const anyEnabled = state.parkings.some((p) => p.enabled);
+  const companyQuery = readOnly && state.companyId ? `?companyId=${encodeURIComponent(state.companyId)}` : "";
   const statusOf = useCallback((a) => releasedPlateStatus(a, now), [now]);
 
   const counts = useMemo(() => {
@@ -221,7 +225,7 @@ export default function ReleasedPlatesManager({ onForbidden }) {
 
   async function openDetail(authorization) {
     setDetail({ authorization, events: null });
-    const response = await authenticatedFetch(`/api/pago-liberado/patentes/${authorization.id}`, { cache: "no-store" });
+    const response = await authenticatedFetch(`/api/pago-liberado/patentes/${authorization.id}${companyQuery}`, { cache: "no-store" });
     const body = await readJson(response);
     setDetail({ authorization: body.data?.authorization || authorization, events: response.ok ? body.data.events : [] });
   }
@@ -277,10 +281,21 @@ export default function ReleasedPlatesManager({ onForbidden }) {
 
   return (
     <div className="space-y-6">
+      {readOnly ? (
+        <section className="rounded-3xl border border-blue-200 bg-[#F5F9FF] p-6 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-wider text-[#3150D8]">Modo supervisión · solo lectura</p>
+          <p className="mt-1 text-sm text-slate-600">Pago liberado lo gestiona el administrador de cada empresa. ParkFacil Root solo consulta: no crea, edita, activa ni importa.</p>
+          <label className="mt-4 block max-w-md text-sm font-semibold text-slate-600">Empresa
+            <select className="mt-1 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-[#041E42]" value={state.companyId || ""} onChange={(e) => { setState((s) => ({ ...s, loading: true })); setSelectedCompany(e.target.value); }}>
+              {(state.companies || []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
+        </section>
+      ) : null}
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-lg font-bold text-[#041E42]">Activación del módulo</h2>
-        <p className="mt-1 text-sm text-slate-600">Lo activas tú en cada estacionamiento; no requiere gestión de ParkFacil y no tiene costo. Las patentes liberadas rigen en todos los estacionamientos activados.</p>
-        {state.parkings.length === 0 ? <p className="mt-4 text-sm text-slate-500">Tu empresa no tiene estacionamientos Off Street activos.</p> : (
+        <p className="mt-1 text-sm text-slate-600">{readOnly ? "Estado del módulo en cada estacionamiento de la empresa (lo activa su administrador)." : "Lo activas tú en cada estacionamiento; no requiere gestión de ParkFacil y no tiene costo. Las patentes liberadas rigen en todos los estacionamientos activados."}</p>
+        {state.parkings.length === 0 ? <p className="mt-4 text-sm text-slate-500">{readOnly ? "La empresa no tiene estacionamientos Off Street activos." : "Tu empresa no tiene estacionamientos Off Street activos."}</p> : (
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {state.parkings.map((parking) => (
               <div key={parking.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 px-4 py-3">
@@ -288,10 +303,10 @@ export default function ReleasedPlatesManager({ onForbidden }) {
                   <p className="font-semibold text-[#041E42]">{parking.name}</p>
                   <p className="text-xs font-semibold text-slate-500">{parking.code} · {parking.enabled ? "Activado" : "Desactivado"}</p>
                 </div>
-                <button type="button" role="switch" aria-checked={parking.enabled} aria-label={`Pago liberado en ${parking.name}`} onClick={() => void toggleParking(parking)}
+                {readOnly ? <span className={`rounded-full px-3 py-1 text-xs font-bold ${parking.enabled ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>{parking.enabled ? "Activado" : "Desactivado"}</span> : <button type="button" role="switch" aria-checked={parking.enabled} aria-label={`Pago liberado en ${parking.name}`} onClick={() => void toggleParking(parking)}
                   className={`relative h-7 w-12 flex-none rounded-full transition ${parking.enabled ? "bg-emerald-600" : "bg-slate-300"}`}>
                   <span className={`absolute top-0.5 h-6 w-6 rounded-full bg-white shadow transition ${parking.enabled ? "left-[22px]" : "left-0.5"}`} />
-                </button>
+                </button>}
               </div>
             ))}
           </div>
@@ -305,11 +320,11 @@ export default function ReleasedPlatesManager({ onForbidden }) {
           <h2 className="text-lg font-bold text-[#041E42]">Patentes liberadas</h2>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => void load()} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600 hover:text-[#3150D8]" aria-label="Actualizar"><RefreshCw className="h-4 w-4" /></button>
-            <button type="button" disabled={!anyEnabled} onClick={() => setImportState({ busy: false, error: "", source: null, preview: null })} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#3150D8] hover:text-[#3150D8] disabled:cursor-not-allowed"><FileUp className="h-4 w-4" /> Importar desde Excel</button>
-            <button type="button" disabled={!anyEnabled} onClick={() => openForm()} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E5EFF] disabled:cursor-not-allowed"><Plus className="h-4 w-4" /> Nueva patente liberada</button>
+            {readOnly ? null : <><button type="button" disabled={!anyEnabled} onClick={() => setImportState({ busy: false, error: "", source: null, preview: null })} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#3150D8] hover:text-[#3150D8] disabled:cursor-not-allowed"><FileUp className="h-4 w-4" /> Importar desde Excel</button>
+            <button type="button" disabled={!anyEnabled} onClick={() => openForm()} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E5EFF] disabled:cursor-not-allowed"><Plus className="h-4 w-4" /> Nueva patente liberada</button></>}
           </div>
         </div>
-        {!anyEnabled ? <p className="mt-2 text-sm font-semibold text-amber-800">Activa el módulo en al menos un estacionamiento para registrar patentes.</p> : null}
+        {!anyEnabled && !readOnly ? <p className="mt-2 text-sm font-semibold text-amber-800">Activa el módulo en al menos un estacionamiento para registrar patentes.</p> : null}
 
         <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[["Vigentes", counts.CURRENT], ["Programadas", counts.SCHEDULED], ["Vencidas / finalizadas", counts.closed], ["Total registradas", counts.total]].map(([label, value]) => (
@@ -317,7 +332,7 @@ export default function ReleasedPlatesManager({ onForbidden }) {
           ))}
         </div>
 
-        {form ? (
+        {form && !readOnly ? (
           <form onSubmit={save} noValidate className="mt-5 grid gap-4 rounded-2xl border border-blue-200 bg-blue-50/60 p-5 sm:grid-cols-6">
             <div className="flex flex-wrap items-center justify-between gap-2 sm:col-span-6">
               <h3 className="text-base font-bold text-[#041E42]">{editing ? `Editar patente ${editing.displayPlate}` : "Nueva patente liberada"}</h3>
@@ -400,7 +415,7 @@ export default function ReleasedPlatesManager({ onForbidden }) {
               <thead><tr className="bg-[#3150D8] text-xs uppercase tracking-wide text-white"><th className="p-3">Patente</th><th className="p-3">Beneficiario</th><th className="p-3">Modalidad y uso</th><th className="p-3">Inicio</th><th className="p-3">Término</th><th className="p-3">Estado</th><th className="p-3">Acciones</th></tr></thead>
               <tbody>{rows.map((a) => {
                 const s = statusOf(a);
-                const editable = s === PLATE_STATUS.CURRENT || s === PLATE_STATUS.SCHEDULED;
+                const editable = !readOnly && (s === PLATE_STATUS.CURRENT || s === PLATE_STATUS.SCHEDULED);
                 return (
                   <tr key={a.id} className={`border-b align-middle ${s === PLATE_STATUS.DELETED ? "opacity-60" : ""}`}>
                     <td className="p-3"><span className="whitespace-nowrap rounded-md border-2 border-[#041E42] px-2 py-0.5 font-mono font-bold tracking-wider text-[#041E42]">{a.displayPlate}</span></td>
@@ -415,8 +430,8 @@ export default function ReleasedPlatesManager({ onForbidden }) {
                     <td className="p-3"><div className="flex flex-wrap gap-1.5">
                       <button type="button" onClick={() => void openDetail(a)} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold hover:text-[#3150D8]">Ver</button>
                       {editable ? <button type="button" onClick={() => openForm(a)} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold hover:text-[#3150D8]">Editar</button> : null}
-                      {s === PLATE_STATUS.CURRENT ? <button type="button" onClick={() => void action(a, "finalizar")} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold hover:text-[#3150D8]">Finalizar ahora</button> : null}
-                      {s !== PLATE_STATUS.DELETED
+                      {s === PLATE_STATUS.CURRENT && !readOnly ? <button type="button" onClick={() => void action(a, "finalizar")} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold hover:text-[#3150D8]">Finalizar ahora</button> : null}
+                      {readOnly ? null : s !== PLATE_STATUS.DELETED
                         ? <button type="button" onClick={() => void action(a, "eliminar")} className="rounded-full border border-red-200 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-50">Eliminar</button>
                         : <button type="button" onClick={() => void action(a, "restaurar")} className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold hover:text-[#3150D8]">Restaurar</button>}
                     </div></td>
@@ -428,7 +443,7 @@ export default function ReleasedPlatesManager({ onForbidden }) {
         )}
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
+      <section className={`rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm ${readOnly ? "hidden" : ""}`}>
         <h2 className="text-base font-bold text-[#041E42]">Cómo funciona</h2>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>Todo lo realiza el administrador de la empresa: activar el módulo, crear, editar, finalizar, eliminar e importar. ParkFacil no interviene y el módulo no tiene costo.</li>
@@ -467,7 +482,7 @@ export default function ReleasedPlatesManager({ onForbidden }) {
         </div>
       ) : null}
 
-      {importState ? (
+      {importState && !readOnly ? (
         <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex items-center justify-center bg-[#041E42]/50 p-4">
           <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-3">
