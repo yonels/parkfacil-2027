@@ -6,7 +6,9 @@ import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
 import { assignedParkingIds } from "@/lib/auth/parkingAuthorization";
 import { parkingQueryScope } from "@/lib/auth/parkingAuthorizationCore.mjs";
-import { getParking, listParkings } from "@/lib/estacionamientosRepository";
+import { listParkings } from "@/lib/estacionamientosRepository";
+import TurnosParkingSelect from "@/components/estacionamientos/TurnosParkingSelect";
+import { offStreetShiftParkings, pickShiftParking } from "@/lib/turnosParkingCore.mjs";
 import { getStructurePageData } from "@/lib/parkingStructureServer";
 
 export const dynamic = "force-dynamic";
@@ -24,16 +26,14 @@ export default async function TurnosPage({ searchParams }) {
     const context = await getCurrentServerContext();
     const assigned = await assignedParkingIds(db, context);
     const scope = parkingQueryScope(context, assigned || []);
-    parkings = await listParkings(db, scope);
-    const selectedCode = selected || parkings[0]?.code || "";
-    selectedParking = selectedCode ? await getParking(db, selectedCode, scope) : null;
+    // Off Street → Operación → Turnos (SOL-2026-10-29-005): solo estacionamientos
+    // Off Street, activos primero. Los turnos On Street siguen en la ficha de su
+    // estacionamiento (/estacionamientos/<código>/turnos).
+    parkings = offStreetShiftParkings(await listParkings(db, scope));
+    selectedParking = pickShiftParking(parkings, selected);
     structure = selectedParking ? await getStructurePageData(selectedParking) : null;
   } catch (error) {
     console.error("[turnos:page]", error?.code || error?.message || "load_failed");
-  }
-
-  if (!selectedParking && parkings.length) {
-    selectedParking = parkings[0];
   }
 
   return (
@@ -46,18 +46,10 @@ export default async function TurnosPage({ searchParams }) {
             <div className="min-w-[260px] flex-1">
               <p className="text-sm font-semibold text-[#041E42]">Estacionamiento</p>
               <p className="mt-1 text-xs text-slate-500">Selecciona el estacionamiento para administrar turnos.</p>
-              <form className="mt-2 flex flex-wrap items-center gap-2">
-                <select
-                  name="estacionamiento"
-                  defaultValue={selectedParking?.code || ""}
-                  className="min-w-[220px] flex-1 rounded-2xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-[#3150D8]"
-                >
-                  {parkings.map((item) => (
-                    <option key={item.id} value={item.code}>{item.name} ({item.code})</option>
-                  ))}
-                </select>
-                <button type="submit" className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E5EFF]">Cargar</button>
-              </form>
+              <TurnosParkingSelect
+                parkings={parkings.map((item) => ({ code: item.code, label: `${item.name} (${item.code})${item.status === "ACTIVE" ? "" : " · inactivo"}` }))}
+                selectedCode={selectedParking?.code || ""}
+              />
             </div>
             {selectedParking ? <Link href={`/estacionamientos/${selectedParking.code}/turnos`} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-[#3150D8] hover:border-[#3150D8]">Administrar turnos seleccionados</Link> : null}
           </div>
@@ -67,7 +59,7 @@ export default async function TurnosPage({ searchParams }) {
           <ParkingShiftsManager parking={selectedParking} structure={structure} />
         ) : (
           <section className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-600">
-            No hay estacionamientos disponibles para gestionar turnos.
+            No hay estacionamientos Off Street disponibles para gestionar turnos.
           </section>
         )}
       </div>

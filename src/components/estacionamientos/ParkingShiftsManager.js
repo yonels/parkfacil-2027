@@ -171,7 +171,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
     <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-[#041E42]">Turnos del estacionamiento</h2>
+          <h2 className="text-xl font-semibold text-[#041E42]">Turnos de {parking.name} ({parking.code})</h2>
           <p className="mt-1 text-sm text-slate-600">Desde aquí puedes programar un turno o abrirlo directamente si la operación ya inició. El cierre sigue utilizando el flujo existente.</p>
           <div className="mt-2 inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">Tipo: {parkingTypeLabel}</div>
         </div>
