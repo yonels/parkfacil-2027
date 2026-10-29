@@ -1,6 +1,7 @@
 {
   "git": {
     "deploymentEnabled": {
+      "fix/turnos-off-street": false,
       "fix/comprobante-pago-liberado": false,
       "feature/menu-cliente-usuarios": false,
       "feature/marca-pago-liberado": false,
