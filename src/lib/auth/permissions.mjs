@@ -44,6 +44,15 @@ export const PERMISSIONS = Object.freeze({
   // una por sub-acción): todas las operaciones del §3.2 de Etapa 2 forman un
   // mismo bloque de trabajo de terreno, ninguna tiene sentido sin las demás.
   INSPECTOR_USE: "inspector:use",
+  // Centro de Control SMS (SOL-2026-10-29-007): por ahora solo Root
+  // (platform_admin recibe todos los permisos). Separados para poder abrir
+  // después una vista restringida sin conceder envíos ni datos completos.
+  SMS_READ: "sms:read",
+  SMS_MANAGE: "sms:manage",
+  SMS_TEST_SEND: "sms:test",
+  SMS_PHONE_FULL: "sms:phone:full",
+  SMS_CONTENT_READ: "sms:content:read",
+  SMS_EXPORT: "sms:export",
 });
 
 const ROLE_PERMISSIONS = Object.freeze({
@@ -132,6 +141,8 @@ const ROOT_ONLY_PREFIXES = [
   "/on-street-qr/areas",
   "/on-street-qr/calles",
   "/on-street-qr/tramos",
+  // Centro de Control SMS (SOL-2026-10-29-007): transversal a todas las empresas.
+  "/centro-sms",
 ];
 // "/dashboard-off-street" (Fase 3), "/reportes-off-street" (Fase 4) y
 // "/recaudacion" (Fase 2, agregado en la validación Fase 5 -- §17: quedaba
