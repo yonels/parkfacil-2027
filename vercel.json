@@ -8,6 +8,8 @@
   "git": {
     "deploymentEnabled": {
       "feature/sms-reportes-cliente": false,
+      "feature/clave-ficha-usuario": false,
+      "fix/clave-directa-ficha": false,
       "feature/centro-control-sms": false,
       "fix/turnos-crud": false,
       "fix/turnos-off-street": false,

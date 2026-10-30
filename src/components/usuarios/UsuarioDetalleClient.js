@@ -211,7 +211,8 @@ export default function UsuarioDetalleClient({ userId }) {
           const body = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(body.error || "No fue posible generar la clave temporal.");
           setCredencialResultado(body.data);
-          setAccionMensaje("Clave temporal generada.");
+          setData((current) => (current?.user ? { ...current, user: { ...current.user, debeCambiarClave: true } } : current));
+          setAccionMensaje("Clave temporal generada. Entrégala al usuario: deberá cambiarla en su primer ingreso.");
         } catch (cause) {
           setAccionError(cause.message);
         } finally {
@@ -475,9 +476,10 @@ export default function UsuarioDetalleClient({ userId }) {
                 {recuperacionEnviando ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {recuperacionEnviando ? "Enviando..." : "Enviar recuperación de contraseña"}
               </button>
-              <button type="button" onClick={generarClaveTemporal} disabled={claveTemporalGenerando} className="hidden">
+              {/* Igual que la columna «Clave de acceso» de la lista de operadores (SOL-2026-10-29-010). */}
+              <button type="button" onClick={generarClaveTemporal} disabled={claveTemporalGenerando} className="inline-flex items-center gap-2 rounded-full border border-[#3150D8] bg-white px-4 py-2.5 text-sm font-semibold text-[#3150D8] transition hover:bg-[#EEF4FF] disabled:cursor-not-allowed disabled:opacity-50">
                 {claveTemporalGenerando ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-                {claveTemporalGenerando ? "Generando..." : "Generar clave temporal"}
+                {claveTemporalGenerando ? "Generando..." : "Generar clave nueva"}
               </button>
               {permisosFlags.canSetDirectPassword ? (
                 <button type="button" onClick={abrirClaveDirecta} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-[#3150D8] hover:text-[#3150D8]">
@@ -487,7 +489,7 @@ export default function UsuarioDetalleClient({ userId }) {
             </div>
             {!usuario.recoveryEmail ? <p className="mt-2 text-sm text-amber-700">Debes configurar un correo de recuperación antes de enviar el enlace.</p> : null}
 
-            {false && credencialResultado ? (
+            {credencialResultado ? (
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm font-semibold text-amber-900">{credencialResultado.mustChangePassword ? "Clave temporal generada" : "Clave establecida"}</p>
                 <code className="mt-2 block rounded-lg bg-white px-3 py-2 text-sm font-bold text-amber-900">{credencialResultado.temporaryPassword}</code>
@@ -499,7 +501,9 @@ export default function UsuarioDetalleClient({ userId }) {
               </div>
             ) : null}
 
-            {false && claveDirectaAbierta ? (
+            {/* Formulario de clave directa (solo Root): estaba desactivado desde 4d70f64 aunque el botón
+                seguía visible, por lo que «Establecer nueva clave» no hacía nada (SOL-2026-10-29-009). */}
+            {claveDirectaAbierta ? (
               <form onSubmit={establecerClaveDirecta} className="mt-5 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
                 <h4 className="text-base font-semibold text-[#041E42]">Establecer nueva clave</h4>
                 {claveDirectaError ? <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{claveDirectaError}</p> : null}
