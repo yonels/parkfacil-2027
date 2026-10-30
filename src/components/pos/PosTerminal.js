@@ -37,6 +37,7 @@ import { buildPaymentsDayPrintPayload } from "@/lib/pos/paymentsDayCore.mjs";
 import { classifyEntryFailure, entryErrorMessage, isPlateAlreadyInside, PLATE_SOURCES } from "@/lib/pos/entryPlateCore.mjs";
 import { preloadPlateOcr, recognizePlate, releasePlateOcr } from "@/lib/pos/plateOcr";
 import { detectLocalVoiceSupport, installLocalVoice, listenForPlate } from "@/lib/pos/plateVoice";
+import { quoteBlockedMessage } from "@/lib/pos/quoteBlockedMessage.mjs";
 
 const POS_VIEWS = {
   HOME: "HOME",
@@ -821,6 +822,7 @@ function normalizeQuoteView(quote) {
       elapsedMinutes: Number.isFinite(Number(quote.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
       released,
       releasedNoCharge: quote.blockedReason === "RELEASED_NO_CHARGE",
+      blockedMessage: quote.blockedMessage || null,
     };
   }
   return {
@@ -830,6 +832,7 @@ function normalizeQuoteView(quote) {
     elapsedMinutes: Number.isFinite(Number(quote.elapsedMinutes)) ? Number(quote.elapsedMinutes) : null,
     released,
     releasedNoCharge: Boolean(released) && !quote.blocked && Number(quote.total) === 0,
+    blockedMessage: quote.blocked ? quoteBlockedMessage({ reason: quote.reason, rateName: quote.rate?.name || null, charge: quote.charge }) : null,
   };
 }
 
@@ -4948,7 +4951,7 @@ export default function PosTerminal() {
             </div>
           )}
           <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
-            {releasedNoCharge ? "Patente liberada sin excedente." : hasPayableQuote ? (isZeroTotalCouponCharge(quote) ? "El cupón cubre el total: la salida es sin cargo." : "Preparado para seleccionar medio de pago.") : "No existe una tarifa activa para esta estadía."}
+            {releasedNoCharge ? "Patente liberada sin excedente." : hasPayableQuote ? (isZeroTotalCouponCharge(quote) ? "El cupón cubre el total: la salida es sin cargo." : "Preparado para seleccionar medio de pago.") : quoteView?.blockedMessage || "No existe una tarifa activa para esta estadía."}
           </div>
           <UnpaidExitAction
             stay={stay}

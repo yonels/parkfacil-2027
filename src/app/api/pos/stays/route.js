@@ -9,6 +9,7 @@ import { getPlatePhotoSettings } from "@/lib/offStreet/offStreetPlatePhotoSettin
 import { resolvePlatePhotoStatus } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
 import { configuredParkingCapacity } from "@/lib/pos/homeVehicles.mjs";
 import { loadStreetLocationData, streetLocationPosView } from "@/lib/offStreet/streetLocationServer";
+import { isParkingActive, PARKING_NOT_ACTIVE } from "@/lib/parkingActiveGuard.mjs";
 
 const PLATE_PHOTO_DISABLED = { plateMode: "DISABLED", printOnTicket: false, gpsMode: "DISABLED" };
 
@@ -29,6 +30,10 @@ export async function GET(request) {
     const parking = resolved.parking;
     if (!parking) {
       return fail("El usuario no tiene un estacionamiento autorizado.", 404);
+    }
+    // Sin esto la lista quedaba vacía en silencio (SOL-2026-10-29-016).
+    if (!isParkingActive(parking)) {
+      return NextResponse.json({ error: PARKING_NOT_ACTIVE.message, code: PARKING_NOT_ACTIVE.code }, { status: 409 });
     }
 
     // platePhotoSettings: el POS carga su estado desde esta ruta; sin este

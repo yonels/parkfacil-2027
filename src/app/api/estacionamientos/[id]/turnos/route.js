@@ -7,6 +7,7 @@ import { requireOperatorForParking, requireParkingChild, requireSupervisorForPar
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
 import { ensureOffStreetAssignment } from "@/lib/pos/offStreetAssignment";
+import { isParkingActive, PARKING_NOT_ACTIVE } from "@/lib/parkingActiveGuard.mjs";
 
 export async function GET(request, { params }) {
   let authorization;
@@ -42,6 +43,7 @@ export async function POST(request, { params }) {
     if (!input.date) errors.date = "La fecha es obligatoria.";
     if (!SHIFT_STATES.includes(input.status || "PROGRAMMED")) errors.status = "Estado invalido.";
     if (Object.keys(errors).length) return validationError(errors);
+    if (input.status === "OPEN" && !isParkingActive(parking)) return NextResponse.json({ error: PARKING_NOT_ACTIVE.adminMessage, code: PARKING_NOT_ACTIVE.code }, { status: 409 });
 
     if (context.role === ROLES.OPERATOR && input.operatorId !== context.userId) throw new AuthorizationError("PERMISSION_FORBIDDEN", 403, "No tienes permiso para crear turnos para otro operador.", context);
     await requireOperatorForParking(db, context, parking, input.operatorId);

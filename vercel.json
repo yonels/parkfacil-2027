@@ -8,6 +8,7 @@
   "git": {
     "deploymentEnabled": {
       "fix/usuario-duplicado": false,
+      "fix/tarifas-pos-mensajes": false,
       "feature/clave-operador-admin": false,
       "feature/sms-reportes-cliente": false,
       "feature/clave-ficha-usuario": false,
