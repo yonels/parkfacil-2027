@@ -236,6 +236,10 @@ export function canAccessPath({ portal, role, enabledProducts, couponModuleStatu
   if (isOwnCompanyPage({ portal, role, companyId }, pathname)) return true;
   if (matchesPrefix(pathname, ROOT_ONLY_PREFIXES)) return false;
   if (matchesPrefix(pathname, COMPANY_ADMIN_PREFIXES) && role !== ROLES.COMPANY_ADMIN) return false;
+  // «Data Entry» (SOL-2026-10-30-003): en el Portal Cliente es solo el POS web del
+  // operador; el administrador no puede operarlo (el POS resuelve el estacionamiento
+  // por el turno del operador) y la opción ya no se le ofrece en el menú.
+  if (matchesPrefix(pathname, ["/data-entry", "/dataentry"]) && role !== ROLES.OPERATOR) return false;
   // Módulo Cupones contratado por la empresa (SOL-2026-10-19-002, etapa C):
   // sin contratar no aparece; contratado e inactivo, solo lectura.
   if (matchesPrefix(pathname, ["/cupones"]) && !couponModuleVisible(couponModuleStatus)) return false;

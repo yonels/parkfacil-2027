@@ -27,3 +27,10 @@ test("la demostración no llama a ninguna API ni a la impresora", async () => {
   assert.doesNotMatch(demo, /fetch\(|XMLHttpRequest|127\.0\.0\.1|\/api\//);
   assert.match(demo, /MODO DEMOSTRACIÓN/);
 });
+
+test("la ruta /data-entry queda solo para el operador del Portal Cliente", () => {
+  assert.equal(canAccessPath({ ...client, role: ROLES.COMPANY_ADMIN }, "/data-entry"), false);
+  assert.equal(canAccessPath({ ...client, role: ROLES.COMPANY_ADMIN }, "/dataentry"), false);
+  assert.equal(canAccessPath({ ...client, role: ROLES.OPERATOR }, "/data-entry"), true);
+  assert.equal(canAccessPath({ ...client, role: ROLES.COMPANY_ADMIN }, "/dashboard-off-street"), true);
+});
