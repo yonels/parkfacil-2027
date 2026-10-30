@@ -5,6 +5,7 @@ import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { listAuthorizedUsers } from "@/lib/usersRepository";
 import { buildUserProfileUpdate } from "@/lib/userProfileUpdateCore.mjs";
+import { canSetDirectPassword } from "@/lib/userCredentialCore.mjs";
 
 function respuestaDetalle(result, id, context) {
   const user = result.data.find((item) => item.id === id) || null;
@@ -17,7 +18,7 @@ function respuestaDetalle(result, id, context) {
       parkings,
       availableParkings: user ? result.parkings.filter((item) => item.empresaId === user.empresaId) : [],
       canManageCredentials: [ROLES.PLATFORM_ADMIN, ROLES.COMPANY_ADMIN].includes(context.role),
-      canSetDirectPassword: context.role === ROLES.PLATFORM_ADMIN && context.portal === "root",
+      canSetDirectPassword: canSetDirectPassword(context, user?.perfilPrincipal),
     },
   }, { headers: { "Cache-Control": "no-store" } });
 }

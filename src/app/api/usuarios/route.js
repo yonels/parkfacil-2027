@@ -5,6 +5,7 @@ import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiA
 import { companyScope, requirePermission } from "@/lib/auth/apiAuthorizationCore.mjs";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { listAuthorizedUsers } from "@/lib/usersRepository";
+import { canSetDirectPassword, normalizeAccessUsername, validateDirectPassword } from "@/lib/userCredentialCore.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,7 @@ function normalizeCreatePayload(input) {
   return {
     fullName: String(input?.fullName || "").trim(),
     email: normalizeEmail(input?.email),
+    password: String(input?.password || ""),
     recoveryEmail: normalizeEmail(input?.recoveryEmail),
     phone: String(input?.phone || "").trim(),
     role: String(input?.role || "").trim(),
@@ -43,6 +45,8 @@ export async function GET(request) {
       ...result,
       canManageCredentials: [ROLES.PLATFORM_ADMIN, ROLES.COMPANY_ADMIN].includes(authorization.context.role),
       canSetDirectPassword: authorization.context.role === ROLES.PLATFORM_ADMIN && authorization.context.portal === "root",
+      // El administrador de empresa fija usuario y clave de sus operadores (SOL-2026-10-29-011).
+      canSetOperatorPassword: canSetDirectPassword(authorization.context, ROLES.OPERATOR),
       persistent: true,
     });
   } catch (error) {
@@ -67,8 +71,17 @@ export async function POST(request) {
 
   const errors = {};
   if (!payload.fullName) errors.fullName = "El nombre es obligatorio.";
-  if (!payload.email) errors.email = "El correo es obligatorio.";
-  if (!payload.email.includes("@")) errors.email = "Correo invalido.";
+  // Usuario de acceso: correo o usuario simple (ej. operuno), SOL-2026-10-29-011.
+  const acceso = normalizeAccessUsername(payload.email);
+  if (acceso.error) errors.email = acceso.error;
+  else payload.email = acceso.email;
+  if (payload.password) {
+    if (!canSetDirectPassword(authorization.context, payload.role)) errors.password = "No puedes definir la clave de este usuario.";
+    else {
+      const passwordErrors = validateDirectPassword(payload.password);
+      if (passwordErrors.length) errors.password = passwordErrors[0];
+    }
+  }
   if (!payload.recoveryEmail) errors.recoveryEmail = "El correo de recuperación es obligatorio.";
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(payload.recoveryEmail)) errors.recoveryEmail = "El correo de recuperación no es válido.";
   if (!CREATE_ALLOWED_ROLES.has(payload.role)) errors.role = "Selecciona un perfil valido para crear el usuario.";
@@ -98,7 +111,10 @@ export async function POST(request) {
       }
     }
 
-    const temporaryPassword = createTemporaryPassword();
+    // Clave definida por quien crea (sin cambio obligatorio) o temporal generada.
+    const adminDefinedPassword = Boolean(payload.password);
+    const temporaryPassword = adminDefinedPassword ? payload.password : createTemporaryPassword();
+    const mustChangePassword = !adminDefinedPassword;
     const created = await db.auth.admin.createUser({
       email: payload.email,
       password: temporaryPassword,
@@ -111,7 +127,7 @@ export async function POST(request) {
       user_metadata: {
         full_name: payload.fullName,
         phone: payload.phone || null,
-        must_change_password: true,
+        must_change_password: mustChangePassword,
       },
     });
 
@@ -131,7 +147,7 @@ export async function POST(request) {
       role: payload.role,
       status: payload.status,
       pos_only: payload.role === ROLES.OPERATOR,
-      must_change_password: true,
+      must_change_password: mustChangePassword,
       recovery_email: payload.recoveryEmail,
     });
     if (member.error) throw member.error;
@@ -155,7 +171,7 @@ export async function POST(request) {
         userId: createdUserId,
         username: payload.email,
         temporaryPassword,
-        mustChangePassword: true,
+        mustChangePassword,
       },
     }, { status: 201 });
   } catch (error) {

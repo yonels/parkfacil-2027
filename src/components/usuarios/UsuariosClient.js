@@ -488,8 +488,8 @@ export default function UsuariosClient({ initialCreateRole = null }) {
                     <input value={createDraft.fullName} onChange={(event) => setCreateDraft((current) => ({ ...current, fullName: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
                   </label>
                   <label className="space-y-1.5 text-sm text-slate-700">
-                    <span>Correo</span>
-                    <input type="email" value={createDraft.email} onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
+                    <span>Usuario de acceso</span>
+                    <input type="text" autoComplete="off" placeholder="operuno o nombre@empresa.cl" value={createDraft.email} onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required />
                   </label>
                   <label className="space-y-1.5 text-sm text-slate-700">
                     <span>Correo de recuperación</span>

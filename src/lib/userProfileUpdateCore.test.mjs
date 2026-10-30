@@ -50,9 +50,16 @@ test("normaliza el correo a minúsculas y sin espacios", () => {
 });
 
 test("rechaza un correo con formato inválido", () => {
-  const { errors, email } = buildUserProfileUpdate({ correo: "no-es-un-correo" });
+  const { errors, email } = buildUserProfileUpdate({ correo: "no-es@correo" });
   assert.equal(errors.length > 0, true);
   assert.equal(email, undefined);
+});
+
+test("acepta un usuario simple sin @ y lo guarda con el dominio técnico (SOL-2026-10-29-011)", () => {
+  const { errors, email } = buildUserProfileUpdate({ usuarioAcceso: "OperUno" });
+  assert.deepEqual(errors, []);
+  assert.equal(email, "operuno@acceso.parkfacilapp.cl");
+  assert.equal(buildUserProfileUpdate({ usuarioAcceso: "a b" }).email, undefined);
 });
 
 test("recovery_email se normaliza sin modificar el usuario de acceso", () => {
