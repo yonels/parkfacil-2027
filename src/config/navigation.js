@@ -1,4 +1,4 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, MapPinned, UserCircle, Hash, BadgeCheck, MessageSquareText } from "lucide-react";
+import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, MapPinned, UserCircle, Hash, BadgeCheck, MessageSquareText, Compass } from "lucide-react";
 import { flattenReports, subTree } from "../lib/reports/engine/registry.mjs";
 
 const RELEASED_PLATE_REPORTS = flattenReports(subTree(["off-patentes"]));
@@ -305,6 +305,9 @@ export const navigationItems = [
     activePrefix: ["/empresas", "/usuarios", "/seguridad", "/facturacion", "/contratos", "/convenios", "/modelo-gestion-modulos", "/documentos", "/mi-cuenta", "/administracion"],
     children: [
       { href: "/empresas", label: "Empresas", icon: Users },
+      // «Configurar empresa» (SOL-2026-10-29-014): diagnóstico de los 7 pasos de
+      // cada cuenta; convive con «Empresas». Solo Root (prefijo /administracion).
+      { href: "/administracion/configurar-empresa", label: "Configurar empresa", icon: Compass },
       {
         href: "/usuarios",
         label: "Usuarios",
