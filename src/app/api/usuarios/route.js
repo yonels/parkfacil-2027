@@ -6,6 +6,8 @@ import { companyScope, requirePermission } from "@/lib/auth/apiAuthorizationCore
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { listAuthorizedUsers } from "@/lib/usersRepository";
 import { canSetDirectPassword, normalizeAccessUsername, validateDirectPassword } from "@/lib/userCredentialCore.mjs";
+import { buscarUsuarioPorEmail } from "@/lib/passwordRecoveryCore.mjs";
+import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +113,11 @@ export async function POST(request) {
       }
     }
 
+    // Usuario de acceso repetido (SOL-2026-10-29-012): aviso claro antes de crear.
+    if (await buscarUsuarioPorEmail(db, payload.email)) {
+      return NextResponse.json({ error: `El usuario de acceso «${extractDisplayUsername(payload.email)}» ya lo usa otra persona. Elige otro.`, code: "EMAIL_ALREADY_EXISTS" }, { status: 409 });
+    }
+
     // Clave definida por quien crea (sin cambio obligatorio) o temporal generada.
     const adminDefinedPassword = Boolean(payload.password);
     const temporaryPassword = adminDefinedPassword ? payload.password : createTemporaryPassword();
@@ -134,7 +141,7 @@ export async function POST(request) {
     if (created.error) {
       const message = created.error.message || "No fue posible crear el usuario.";
       if (/already|exists|registered/i.test(message)) {
-        return NextResponse.json({ error: "El correo ya esta registrado.", code: "EMAIL_ALREADY_EXISTS" }, { status: 409 });
+        return NextResponse.json({ error: `El usuario de acceso «${extractDisplayUsername(payload.email)}» ya lo usa otra persona. Elige otro.`, code: "EMAIL_ALREADY_EXISTS" }, { status: 409 });
       }
       throw created.error;
     }

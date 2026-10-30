@@ -6,6 +6,8 @@ import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { listAuthorizedUsers } from "@/lib/usersRepository";
 import { buildUserProfileUpdate } from "@/lib/userProfileUpdateCore.mjs";
 import { canSetDirectPassword } from "@/lib/userCredentialCore.mjs";
+import { buscarUsuarioPorEmail } from "@/lib/passwordRecoveryCore.mjs";
+import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
 
 function respuestaDetalle(result, id, context) {
   const user = result.data.find((item) => item.id === id) || null;
@@ -95,6 +97,15 @@ export async function PATCH(request, { params }) {
   }
   if (!Object.keys(memberUpdate).length && phone === undefined && email === undefined && parkingIds === undefined) {
     return NextResponse.json({ error: "No hay cambios para guardar.", code: "NO_CHANGES" }, { status: 400 });
+  }
+
+  // Usuario de acceso repetido: Supabase Auth responde un 500 vacío, así que
+  // se verifica antes de guardar nada (SOL-2026-10-29-012).
+  if (email !== undefined) {
+    const existente = await buscarUsuarioPorEmail(db, email);
+    if (existente && existente.id !== id) {
+      return NextResponse.json({ error: `El usuario de acceso «${extractDisplayUsername(email)}» ya lo usa otra persona. Elige otro.`, code: "EMAIL_ALREADY_EXISTS" }, { status: 409 });
+    }
   }
 
   if (parkingIds !== undefined) {
