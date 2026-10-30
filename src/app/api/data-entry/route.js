@@ -27,6 +27,7 @@ import { isRequestedParkingConsistent, POS_PARKING_RESOLUTION } from "@/lib/pos/
 import { getPlatePhotoSettings } from "@/lib/offStreet/offStreetPlatePhotoSettingsRepository";
 import { linkPlateEntryPhoto, removeOrphanedPlatePhoto, uploadPlateEntryPhoto } from "@/lib/offStreet/platePhotoEvidenceRepository";
 import { canCompleteEntry, canCompleteEvidenceGps, entryPhotoRequirementMessage, gpsRequirementMessage, validatePlatePhotoFile } from "@/lib/offStreet/offStreetPlatePhoto.mjs";
+import { isParkingActive, PARKING_NOT_ACTIVE } from "@/lib/parkingActiveGuard.mjs";
 
 const publicStayFields = "id,code,parking_id,license_plate,qr_token,status,entry_at,entry_operator_name,entry_source,entry_shift_id,exit_at,exit_operator_name,payment_shift_id,elapsed_minutes,rate_id,rate_name,billing_mode,net_amount,tax_amount,total_amount,payment_method,payment_code,coupon_id,coupon_code,discount_amount,subtotal_amount,updated_at";
 const ticketParkingFields = "id,code,name,company_name,address,city,status,company:companies(business_name,address,district,city,rut_number,rut_dv,phone)";
@@ -602,6 +603,7 @@ export async function POST(request) {
     return registerCardPaymentFromAttempt({ input, current, posShift });
   }
   if (input.action === "ENTRY") {
+    if (!isParkingActive(current.parking)) return fail(PARKING_NOT_ACTIVE.message, 409, { code: PARKING_NOT_ACTIVE.code });
     const plate = formatChileanPlate(input.plate || joinChileanPlate(input.platePrefix, input.plateSuffix));
     if (!plate) return fail("Ingresa una patente válida.", 400, { plate: "Formato requerido: CXPY93", code: "INVALID_PLATE" });
     const assignedParkingId = current.actor.parkingId;

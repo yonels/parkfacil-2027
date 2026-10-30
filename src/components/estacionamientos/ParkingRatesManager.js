@@ -121,6 +121,13 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
     billingMode: enabled ? "EFFECTIVE_MINUTE" : current.billingMode,
     bandSets: enabled && !current.bandSets?.length ? defaultBandSets() : current.bandSets,
   }));
+  // Al desmarcar «Fijar deuda al cierre» se limpian sus datos para que no viajen
+  // ocultos al guardar (SOL-2026-10-29-016).
+  const setClosingDebtEnabled = (enabled) => setForm((current) => ({
+    ...current,
+    closingDebtEnabled: enabled,
+    ...(enabled ? {} : { regularStartTime: "", regularEndTime: "", overnightFlatAmount: "" }),
+  }));
   const openCreate = () => { setErrors({}); setRequestError(""); setForm({ ...initial }); };
   const openEdit = (rate) => { setErrors({}); setRequestError(""); setForm(formFromRate(rate, "edit")); };
   const openReplace = (rate) => { setErrors({}); setRequestError(""); setForm(formFromRate(rate, "replace")); };
@@ -141,7 +148,13 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
     try {
       const response = await authenticatedFetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const body = await response.json();
-      if (!response.ok) { if (body.details) setErrors(body.details); throw new Error(body.error || "No fue posible guardar."); }
+      if (!response.ok) {
+        if (body.details) setErrors(body.details);
+        // Cada error con su texto arriba: algunos campos (franjas, deuda al cierre)
+        // pueden estar fuera de la vista (SOL-2026-10-29-016).
+        const details = Object.values(body.details || {}).filter((value) => typeof value === "string" && value);
+        throw new Error([body.error || "No fue posible guardar.", ...details.map((value) => `• ${value}`)].join("\n"));
+      }
       if (form.mode === "replace") {
         // La tarifa anterior queda cerrada (ENDED) y se conserva íntegra; la nueva versión
         // se agrega como fila independiente.
@@ -169,10 +182,10 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
       {form.mode === "replace" ? (
         <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-900">
           Estás creando una <strong>nueva versión de &ldquo;{form.sourceName}&rdquo;</strong>. Al guardar, &ldquo;{form.sourceName}&rdquo; quedará &ldquo;Finalizada&rdquo; (íntegra, sin borrarse) y esta versión la reemplazará.
-          <br />¿Buscabas otra tarifa totalmente distinta que coexista junto a las demás (p. ej. una tarifa Comercial o Nocturna aparte)? Cierra esto y usa el botón &ldquo;+ Nueva tarifa&rdquo; de arriba — esa acción no finaliza ninguna otra.
+          <br />Solo puede haber una tarifa activa a la vez en un mismo período. Para cobrar distinto de día y de noche usa &ldquo;Precio por franja horaria&rdquo; en esta misma versión. Con &ldquo;+ Nueva tarifa&rdquo; puedes preparar otra como Borrador sin finalizar ninguna.
         </p>
       ) : null}
-      {requestError ? <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{requestError}</p> : null}
+      {requestError ? <p role="alert" className="mt-3 whitespace-pre-line rounded-xl bg-red-50 p-3 text-sm text-red-700">{requestError}</p> : null}
 
       <fieldset className="mt-5">
         <legend className="text-sm font-black text-[#041E42]">Modalidad de cobro</legend>
@@ -227,7 +240,7 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
 
       <fieldset className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
         <label className="flex items-start gap-3 text-sm font-semibold text-[#041E42]">
-          <input type="checkbox" checked={form.closingDebtEnabled} onChange={(e) => set("closingDebtEnabled", e.target.checked)} />
+          <input type="checkbox" checked={form.closingDebtEnabled} onChange={(e) => setClosingDebtEnabled(e.target.checked)} />
           Fijar deuda al cierre: minutos consumidos más una sola tarifa nocturna
         </label>
         {form.closingDebtEnabled ? <>

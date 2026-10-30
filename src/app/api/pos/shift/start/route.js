@@ -4,6 +4,7 @@ import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
 import { findSelectableOffStreetParking, findSelectableShift, POS_PARKING_RESOLUTION } from "@/lib/pos/posParkingResolution.mjs";
 import { ensureOnDemandProgrammedShift, OnDemandShiftError } from "@/lib/pos/onDemandShift";
 import { getPosOperatorShiftState, startPosOperatorShift } from "@/lib/posOperatorShiftService";
+import { isParkingActive, PARKING_NOT_ACTIVE } from "@/lib/parkingActiveGuard.mjs";
 
 const errors = {
   SHIFT_NOT_FOUND: ["No se encontró el turno asignado.", 404], SHIFT_FORBIDDEN: ["No tienes autorización para iniciar este turno.", 403],
@@ -74,6 +75,7 @@ export async function POST(request) {
 
     const parking = resolved.parking;
     if (!parking) return NextResponse.json({ error: "No tienes un estacionamiento asignado.", code: "PARKING_UNASSIGNED" }, { status: 409 });
+    if (!isParkingActive(parking)) return NextResponse.json({ error: PARKING_NOT_ACTIVE.message, code: PARKING_NOT_ACTIVE.code }, { status: 409 });
     const current = await getPosOperatorShiftState(authorization.db, { operatorId: actor.id, parkingId: parking.id });
     if (current.state === "PROGRAMMED" && current.shift && (!body.shiftId || body.shiftId === current.shift.id)) {
       const shift = await startPosOperatorShift(authorization.db, { shiftId: current.shift.id, actor });

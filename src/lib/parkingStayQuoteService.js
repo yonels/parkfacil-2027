@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { quoteBlockedMessage } from "./pos/quoteBlockedMessage.mjs";
 
 import { resolveStayQuoteAvailability, splitChileTaxFromTotal } from "./dataEntry.mjs";
 import { calculateScheduledParkingCharge, selectStayRate } from "./parkingRates.mjs";
@@ -341,6 +342,7 @@ export function toPagueAquiQuote({ stay, parkingName, quote, calculatedAt = new 
     status: payable ? "QUOTE_READY" : "QUOTE_BLOCKED",
     payable,
     blockedReason: payable ? null : mapBlockedReason(quote?.reason),
+    blockedMessage: payable ? null : quoteBlockedMessage({ reason: quote?.reason, rateName: quote?.rate?.name || stay.rate_name || null, charge: quote?.charge }),
     // Pago liberado: minutos cubiertos y cobrables (solo estadías liberadas).
     released: quote?.released ? { coveredMinutes: quote.released.coveredMinutes, chargeableMinutes: quote.released.chargeableMinutes } : null,
     frozenAt: quote?.charge?.frozenAt || null,
