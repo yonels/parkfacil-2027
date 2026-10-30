@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Entry · Demostración</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#041E42; --blue:#3150D8; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --bg:#EEF2F7; --card:#fff;
+  --green:#22A55A; --red:#E5243B; --wine:#B0174A; --orange:#F5A623; --amber:#FEF3C7; --amber-ink:#92400E;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.hidden{display:none!important}
+
+/* Franja de demostración, siempre visible */
+.demo-band{position:sticky;top:0;z-index:40;background:repeating-linear-gradient(135deg,#F59E0B 0 14px,#FBBF24 14px 28px);color:#3B2600;font-weight:800;text-align:center;padding:7px 12px;font-size:12.5px;letter-spacing:.06em;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.demo-band small{font-weight:600;letter-spacing:0;opacity:.85}
+
+.layout{display:grid;grid-template-columns:300px 1fr;gap:22px;max-width:1280px;margin:0 auto;padding:22px}
+.nav{background:#fff;border-radius:22px;padding:18px;align-self:start;position:sticky;top:52px;max-height:calc(100vh - 70px);overflow:auto}
+.nav .k{font-size:11px;font-weight:800;letter-spacing:.18em;color:#64748B}
+.nav h2{margin:4px 0 14px;font-size:20px;color:var(--navy)}
+.nav button{display:block;width:100%;text-align:left;background:#F8FAFC;border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:9px;font-weight:800;font-size:13px;letter-spacing:.02em;color:#1E293B;text-transform:uppercase}
+.nav button:hover{background:#EEF4FF;border-color:#C7D2FE}
+.nav button.on{background:#EEF4FF;border-color:var(--blue);color:var(--blue)}
+
+.term{background:#fff;border-radius:26px;padding:22px;box-shadow:0 10px 30px -18px rgba(4,30,66,.35);min-width:0}
+.term-head{display:flex;align-items:flex-start;gap:12px;border-bottom:1px solid var(--line);padding-bottom:14px}
+.term-head .k{font-size:11px;font-weight:800;letter-spacing:.2em;color:#64748B}
+.term-head h1{margin:2px 0 0;font-size:24px;color:var(--navy)}
+.term-head .grow{flex:1}
+.icon-btn{border:1.5px solid #CBD5E1;background:#fff;border-radius:14px;width:46px;height:46px;font-size:20px;display:grid;place-items:center}
+.menu-btn{display:none}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.info{border:1.5px solid var(--line);border-radius:16px;padding:12px 14px}
+.info .k{font-size:11px;font-weight:700;color:#64748B;letter-spacing:.04em;text-transform:uppercase}
+.info b{display:block;font-size:16px;color:var(--navy);margin-top:3px}
+.info span{display:block;font-size:12.5px;color:#475569}
+.session{margin-top:12px;border:1.5px solid #86EFAC;background:#F0FDF4;border-radius:999px;padding:8px 14px;font-weight:800;font-size:12.5px;letter-spacing:.08em;color:#166534;display:flex;align-items:center;gap:8px}
+.session i{width:9px;height:9px;border-radius:50%;background:#16A34A;display:inline-block}
+.session.off{border-color:#FCA5A5;background:#FEF2F2;color:#991B1B}
+.session.off i{background:#DC2626}
+.big{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.big button{border:0;border-radius:18px;padding:22px 10px;font-size:18px;font-weight:800;letter-spacing:.04em;color:#fff;box-shadow:0 8px 18px -10px rgba(0,0,0,.45)}
+.big .in{background:var(--green)} .big .out{background:var(--red)} .big .veh{background:var(--wine)} .big .qr{background:var(--orange);color:#1E1B10}
+.big button:active{transform:translateY(1px)}
+
+.clock{margin-top:14px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;background:#F8FAFC;border:1px dashed #CBD5E1;border-radius:14px;padding:10px 12px;font-size:12.5px;color:#334155}
+.clock b{color:var(--navy)}
+.chip-btn{border:1px solid #CBD5E1;background:#fff;border-radius:999px;padding:5px 10px;font-weight:700;font-size:12px;color:#334155}
+.chip-btn:hover{border-color:var(--blue);color:var(--blue)}
+
+.panel{margin-top:14px;border:1.5px solid var(--line);border-radius:18px;padding:14px}
+.panel h3{margin:0 0 8px;font-size:16px;color:var(--navy)}
+.occ{display:flex;align-items:center;gap:10px;font-size:12.5px;color:#475569}
+.occ .bar{flex:1;height:9px;border-radius:999px;background:#E2E8F0;overflow:hidden}
+.occ .bar span{display:block;height:100%;background:linear-gradient(90deg,#22A55A,#F5A623,#E5243B)}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th{background:#E8EEF7;text-align:left;font-size:13px;padding:9px 10px;color:#1E293B}
+th:first-child{border-radius:10px 0 0 10px} th:last-child{border-radius:0 10px 10px 0;text-align:right}
+td{padding:10px;border-bottom:1px solid #F1F5F9;font-size:13.5px}
+td:last-child{text-align:right;font-weight:700}
+tr.clickable:hover td{background:#F8FAFC;cursor:pointer}
+.empty{color:#64748B;padding:16px 4px}
+.foot{margin-top:16px;text-align:center;font-size:11px;font-weight:700;letter-spacing:.14em;color:#64748B}
+.row-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:10px}
+.btn{border:0;border-radius:14px;padding:12px 16px;font-weight:800;font-size:14px}
+.btn-primary{background:var(--blue);color:#fff}
+.btn-green{background:var(--green);color:#fff}
+.btn-red{background:var(--red);color:#fff}
+.btn-ghost{background:#fff;border:1.5px solid #CBD5E1;color:#334155}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+/* Modales */
+.scrim{position:fixed;inset:0;background:rgba(4,30,66,.45);z-index:60;display:flex;align-items:flex-start;justify-content:center;padding:60px 14px 20px;overflow:auto}
+.modal{background:#fff;border-radius:22px;width:min(520px,100%);padding:20px;box-shadow:0 20px 50px -20px rgba(0,0,0,.5)}
+.modal h2{margin:0 0 4px;color:var(--navy);font-size:21px}
+.modal p.sub{margin:0 0 14px;color:#64748B}
+.field label{display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:5px}
+.field input,.field select{width:100%;border:1.5px solid #CBD5E1;border-radius:14px;padding:13px 14px;font-size:20px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;outline:none}
+.field input:focus{border-color:var(--blue);box-shadow:0 0 0 4px rgba(49,80,216,.15)}
+.field .err{color:#DC2626;font-weight:700;font-size:12.5px;margin-top:6px}
+.photo{margin-top:12px;border:2px dashed #CBD5E1;border-radius:16px;height:150px;display:grid;place-items:center;color:#64748B;background:#F8FAFC;position:relative;overflow:hidden}
+.photo.taken{border-style:solid;border-color:#22A55A;background:linear-gradient(180deg,#CBD5E1,#94A3B8)}
+.plate-frame{border:3px solid #fff;border-radius:6px;padding:6px 14px;background:#fff;color:#0F172A;font-weight:800;font-size:22px;letter-spacing:.14em;box-shadow:0 2px 6px rgba(0,0,0,.3)}
+.pay-opts{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.pay-opts button{border:1.5px solid #CBD5E1;background:#fff;border-radius:14px;padding:12px 6px;font-weight:800}
+.pay-opts button.sel{border-color:var(--blue);background:#EEF4FF;color:var(--blue)}
+.quote{background:#F8FAFC;border-radius:14px;padding:12px 14px;margin-top:10px;font-size:13.5px}
+.quote div{display:flex;justify-content:space-between;padding:3px 0}
+.quote .total{font-size:20px;font-weight:800;color:var(--navy);border-top:1px solid #E2E8F0;margin-top:6px;padding-top:8px}
+.notice{background:var(--amber);color:var(--amber-ink);border-radius:12px;padding:9px 12px;font-size:12.5px;font-weight:600;margin-top:12px}
+
+/* Ticket en pantalla (no se imprime) */
+.ticket{width:300px;margin:6px auto 0;background:#fff;border:1px solid #E2E8F0;box-shadow:0 8px 22px -12px rgba(0,0,0,.35);padding:18px 16px;font-family:"Courier New",monospace;font-size:12.5px;color:#111;position:relative}
+.ticket::before,.ticket::after{content:"";position:absolute;left:0;right:0;height:8px;background:radial-gradient(circle at 6px -2px,transparent 6px,#fff 6.5px) 0 0/12px 8px repeat-x}
+.ticket::before{top:-8px;transform:rotate(180deg)} .ticket::after{bottom:-8px}
+.ticket .c{text-align:center}
+.ticket h4{margin:0;font-size:16px;font-family:Inter,sans-serif;font-weight:800}
+.ticket .s{font-size:11px}
+.ticket hr{border:0;border-top:1px dashed #94A3B8;margin:9px 0}
+.ticket .r{display:flex;justify-content:space-between}
+.ticket .tot{font-weight:800;font-size:15px}
+.ticket .wm{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none;color:rgba(220,38,38,.13);font:800 40px Inter,sans-serif;transform:rotate(-25deg)}
+.qrbox{display:flex;justify-content:center;margin:8px 0}
+
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:12px 18px;border-radius:14px;font-weight:700;z-index:80;max-width:calc(100vw - 32px);box-shadow:0 12px 30px -10px rgba(4,30,66,.5)}
+
+@media (max-width:900px){
+  .layout{grid-template-columns:1fr;padding:12px}
+  .nav{position:fixed;inset:44px 0 0 0;z-index:50;border-radius:0;max-height:none;transform:translateX(-100%);transition:.2s}
+  .nav.open{transform:none}
+  .menu-btn{display:grid}
+  .big button{padding:18px 8px;font-size:16px}
+  .term{padding:16px}
+}
+</style>
+</head>
+<body>
+<div class="demo-band">MODO DEMOSTRACIÓN · <small>no imprime, no cobra y no guarda datos · al recargar la página todo vuelve a cero</small></div>
+
+<div class="layout">
+  <nav class="nav" id="nav" aria-label="Navegación">
+    <div class="k">PARKFACIL POS</div>
+    <h2>Navegación</h2>
+    <button data-go="inicio" class="on">Inicio</button>
+    <button data-go="turno">Inicio de turno</button>
+    <button data-go="ingreso">Ingreso de vehículo</button>
+    <button data-go="salida">Salida de vehículo</button>
+    <button data-go="vehiculos">Vehículos en el parking</button>
+    <button data-go="qr">Código QR</button>
+    <button data-go="buscar">Buscar ticket</button>
+    <button data-go="reimprimir">Reimprimir ticket</button>
+    <button data-go="imprimir-lista">Imprimir vehículos en el parking</button>
+    <button data-go="pagos">Pagos del día</button>
+    <button data-go="cierre">Cierre de caja</button>
+    <button data-go="actualizar">Actualizar aplicación</button>
+    <button data-go="estado">Estado del dispositivo</button>
+    <button data-go="reiniciar">Cerrar sesión (reiniciar demo)</button>
+  </nav>
+
+  <main class="term">
+    <div class="term-head">
+      <div class="grow"><div class="k">PARKFACIL POS</div><h1>Terminal operativo</h1></div>
+      <button class="icon-btn menu-btn" id="menuBtn" aria-label="Menú">☰</button>
+      <button class="icon-btn" data-go="reiniciar" title="Cerrar sesión (reinicia la demo)" aria-label="Cerrar sesión">⇥</button>
+    </div>
+    <div class="cards">
+      <div class="info"><div class="k">Operador</div><b>Operador Demo</b><span>Usuario: demo.operador</span></div>
+      <div class="info"><div class="k">Estacionamiento activo</div><b>Estacionamiento Demo</b><span>Código: DEMO-01 · Empresa: ParkFacil Demo</span></div>
+    </div>
+    <div class="session" id="session"><i></i><span id="sessionTxt"></span></div>
+    <div class="big">
+      <button class="in" data-go="ingreso">INGRESO</button>
+      <button class="out" data-go="salida">SALIDA</button>
+      <button class="veh" data-go="vehiculos">VEHÍCULOS EN EL PARKING</button>
+      <button class="qr" data-go="qr">CÓDIGO QR</button>
+    </div>
+    <div class="clock">
+      <span>🕒 Reloj de demostración: <b id="clockTxt"></b></span>
+      <button class="chip-btn" data-adv="5">+5 min</button>
+      <button class="chip-btn" data-adv="15">+15 min</button>
+      <button class="chip-btn" data-adv="60">+1 h</button>
+      <button class="chip-btn" data-act="ejemplos">Cargar 3 vehículos de ejemplo</button>
+    </div>
+    <div id="view"></div>
+    <div class="foot">PARKFACIL POS · DEMO · Tarifa General $35 por minuto efectivo</div>
+  </main>
+</div>
+<div id="overlay"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// «Data Entry» de Root en modo demostración (SOL-2026-10-30-003). Todo vive en
+// memoria: no hay servidor, base de datos, impresora ni cobro real.
+// ---------------------------------------------------------------------------
+const RATE = { name: "Tarifa General", perMinute: 35 };
+const CAPACITY = 50;
+const S = { shiftOpen: true, shiftStart: null, offsetMin: 0, seq: 1, inside: [], payments: [], view: "inicio" };
+const now = () => new Date(Date.now() + S.offsetMin * 60000);
+S.shiftStart = now();
+
+const $ = (sel) => document.querySelector(sel);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const money = (n) => "$" + Math.round(n).toLocaleString("es-CL");
+const pad = (n) => String(n).padStart(2, "0");
+const fmtDT = (d) => `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const fmtT = (d) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const minutesBetween = (a, b) => Math.max(0, Math.floor((b - a) / 60000));
+const normPlate = (v) => String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+// BBBB00 → BBBB-00 (formato nuevo); HJ4512 → HJ-4512 (formato antiguo); motos sin guion.
+const showPlate = (p) => /^[A-Z]{4}\d{2}$/.test(p) ? `${p.slice(0, 4)}-${p.slice(4)}` : /^[A-Z]{2}\d{4}$/.test(p) ? `${p.slice(0, 2)}-${p.slice(2)}` : p;
+const validPlate = (p) => /^([A-Z]{4}\d{2}|[A-Z]{2}\d{4}|[A-Z]{3}\d{2}|[A-Z]{3}\d{3})$/.test(p);
+const code = (prefix) => { const d = now(); return `${prefix}-${String(d.getFullYear()).slice(2)}${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${(S.seq++).toString(16).toUpperCase().padStart(4, "0")}`; };
+const quoteFor = (stay) => { const minutes = minutesBetween(stay.entry, now()); const total = minutes * RATE.perMinute; const net = Math.round(total / 1.19); return { minutes, total, net, iva: total - net }; };
+
+function toast(msg) { const t = document.createElement("div"); t.className = "toast"; t.textContent = msg; document.body.appendChild(t); setTimeout(() => t.remove(), 2800); }
+function closeModal() { $("#overlay").innerHTML = ""; }
+function modal(html) { $("#overlay").innerHTML = `<div class="scrim" data-act="scrim"><div class="modal" role="dialog">${html}</div></div>`; }
+
+// QR ficticio con los 3 cuadros de posición; dibuja un patrón determinístico.
+function fakeQr(text, size = 130) {
+  const n = 25, cell = size / n; let h = 2166136261;
+  for (const ch of text) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
+  const rnd = () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return (h >>> 0) / 4294967296; };
+  const finder = (x, y) => `<rect x="${x * cell}" y="${y * cell}" width="${7 * cell}" height="${7 * cell}" fill="#000"/><rect x="${(x + 1) * cell}" y="${(y + 1) * cell}" width="${5 * cell}" height="${5 * cell}" fill="#fff"/><rect x="${(x + 2) * cell}" y="${(y + 2) * cell}" width="${3 * cell}" height="${3 * cell}" fill="#000"/>`;
+  const inFinder = (x, y) => (x < 8 && y < 8) || (x > n - 9 && y < 8) || (x < 8 && y > n - 9);
+  let cells = "";
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (!inFinder(x, y) && rnd() > 0.52) cells += `<rect x="${x * cell}" y="${y * cell}" width="${cell}" height="${cell}"/>`;
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-label="Código QR de demostración"><rect width="${size}" height="${size}" fill="#fff"/><g fill="#000">${cells}</g>${finder(0, 0)}${finder(n - 7, 0)}${finder(0, n - 7)}</svg>`;
+}
+
+const header = () => `<div class="c"><h4>PARKFACIL</h4><div class="s">PARKFACIL DEMO SPA<br>Estacionamiento Demo<br>RUT: 76.000.000-0<br>Av. Demostración 123, Santiago</div></div>`;
+function entryTicket(stay) {
+  return `<div class="ticket"><div class="wm">DEMO</div>${header()}<hr><div class="c"><b>TICKET DE ENTRADA</b></div><hr>
+    <div><b>Patente: ${esc(showPlate(stay.plate))}</b></div><div>Entrada: ${fmtDT(stay.entry)}</div><div>Operador: Operador Demo</div><br>
+    <div>Ticket</div><div><b>${esc(stay.ticket)}</b></div><div class="qrbox">${fakeQr(stay.ticket)}</div>
+    <div class="c">Conserve este ticket<br>https://www.parkfacilapp.cl</div></div>`;
+}
+function payTicket(p) {
+  return `<div class="ticket"><div class="wm">DEMO</div>${header()}<hr><div class="c"><b>COMPROBANTE DE PAGO</b></div><hr>
+    <div><b>Patente: ${esc(showPlate(p.plate))}</b></div><div>Ticket: ${esc(p.ticket)}</div><div>Entrada: ${fmtDT(p.entry)}</div><div>Salida: ${fmtDT(p.exit)}</div>
+    <div>Tiempo: ${p.minutes} min</div><div>Tarifa: ${RATE.name} · ${money(RATE.perMinute)} por minuto efectivo</div><hr>
+    <div class="r"><span>Neto</span><span>${money(p.net)}</span></div><div class="r"><span>IVA</span><span>${money(p.iva)}</span></div>
+    <div class="r tot"><span>TOTAL</span><span>${money(p.total)}</span></div><hr>
+    <div>Medio de pago: ${esc(p.method)}</div><div>Operador: Operador Demo</div><div>Pago: ${esc(p.code)}</div>
+    <div class="c" style="margin-top:6px">Pago simulado · sin cobro real<br>Gracias por su visita</div></div>`;
+}
+
+// --------------------------- Vistas del panel ------------------------------
+function render() {
+  $("#clockTxt").textContent = `${fmtDT(now())}${S.offsetMin ? ` (+${S.offsetMin} min)` : ""}`;
+  const ses = $("#session");
+  ses.classList.toggle("off", !S.shiftOpen);
+  $("#sessionTxt").textContent = S.shiftOpen ? "SESIÓN ACTIVA · Estacionamiento Demo" : "SIN TURNO ABIERTO · inicia turno para operar";
+  document.querySelectorAll(".nav button").forEach((b) => b.classList.toggle("on", b.dataset.go === S.view));
+  const v = $("#view");
+  if (S.view === "pagos") v.innerHTML = paymentsView();
+  else if (S.view === "cierre") v.innerHTML = closingView();
+  else if (S.view === "estado") v.innerHTML = `<div class="panel"><h3>Estado del dispositivo</h3><div class="quote">
+      <div><span>Modo</span><b>Demostración (navegador)</b></div><div><span>Impresora</span><b>No se usa en la demo</b></div>
+      <div><span>Pago con tarjeta</span><b>Simulado</b></div><div><span>Conexión con ParkFacil</span><b>No se usa: datos en memoria</b></div></div></div>`;
+  else v.innerHTML = insideView();
+}
+
+function insideView() {
+  const list = [...S.inside].sort((a, b) => a.entry - b.entry);
+  const pct = Math.round((list.length / CAPACITY) * 100);
+  return `<div class="panel"><h3>Vehículos en parking: ${list.length}</h3>
+    <div class="occ"><div class="bar"><span style="width:${pct}%"></span></div>${list.length} de ${CAPACITY} cupos · ${pct}%</div>
+    <table><thead><tr><th>Patente</th><th>Ingreso ↑</th><th>Minutos</th></tr></thead><tbody>
+    ${list.length ? list.map((s) => `<tr class="clickable" data-exit="${s.id}" title="Registrar salida"><td><b>${esc(showPlate(s.plate))}</b></td><td>${fmtT(s.entry)}</td><td>${minutesBetween(s.entry, now())}</td></tr>`).join("")
+      : `<tr><td colspan="3" class="empty">No hay vehículos en el parking.</td></tr>`}
+    </tbody></table>
+    ${list.length ? `<p style="font-size:12px;color:#64748B;margin:8px 0 0">Toca una patente para registrar su salida.</p>` : ""}</div>`;
+}
+
+function paymentsView() {
+  const total = S.payments.reduce((a, p) => a + p.total, 0);
+  return `<div class="panel"><h3>Pagos del día (${S.payments.length}) · ${money(total)}</h3>
+    <table><thead><tr><th>Patente</th><th>Hora · Medio</th><th>Monto</th></tr></thead><tbody>
+    ${S.payments.length ? [...S.payments].reverse().map((p) => `<tr class="clickable" data-receipt="${p.id}"><td><b>${esc(showPlate(p.plate))}</b></td><td>${fmtT(p.exit)} · ${esc(p.method)}</td><td>${money(p.total)}</td></tr>`).join("")
+      : `<tr><td colspan="3" class="empty">Todavía no hay pagos en esta demostración.</td></tr>`}
+    </tbody></table></div>`;
+}
+
+function closingView() {
+  const by = (m) => S.payments.filter((p) => p.method === m).reduce((a, p) => a + p.total, 0);
+  const total = S.payments.reduce((a, p) => a + p.total, 0);
+  return `<div class="panel"><h3>Cierre de caja (simulado)</h3><div class="quote">
+    <div><span>Inicio de turno</span><b>${S.shiftStart ? fmtDT(S.shiftStart) : "—"}</b></div>
+    <div><span>Pagos registrados</span><b>${S.payments.length}</b></div>
+    <div><span>Efectivo</span><b>${money(by("Efectivo"))}</b></div>
+    <div><span>Débito</span><b>${money(by("Débito"))}</b></div>
+    <div><span>Crédito</span><b>${money(by("Crédito"))}</b></div>
+    <div><span>Vehículos que siguen en el parking</span><b>${S.inside.length}</b></div>
+    <div class="total"><span>Total del turno</span><span>${money(total)}</span></div></div>
+    <div class="row-actions"><button class="btn btn-red" data-act="cerrar-turno" ${S.shiftOpen ? "" : "disabled"}>Cerrar turno (simulado)</button></div></div>`;
+}
+
+// --------------------------- Flujos (modales) -------------------------------
+function requireShift() { if (S.shiftOpen) return true; toast("Primero inicia el turno (menú «Inicio de turno»)."); return false; }
+
+function openEntry(err = "", value = "", photo = false) {
+  if (!requireShift()) return;
+  modal(`<h2>Ingreso de vehículo</h2><p class="sub">Escribe la patente y toma la foto. En la demo la foto es simulada.</p>
+    <div class="field"><label for="plate">Patente</label><input id="plate" maxlength="8" placeholder="Ej.: BBBB-00" value="${esc(value)}" autocomplete="off">
+    ${err ? `<div class="err">⚠ ${esc(err)}</div>` : ""}</div>
+    <div class="photo ${photo ? "taken" : ""}" id="photo">${photo ? `<div class="plate-frame">${esc(showPlate(normPlate(value)) || "PATENTE")}</div>` : "📷 Sin foto"}</div>
+    <div class="row-actions"><button class="btn btn-ghost" data-act="foto">Tomar foto</button><span style="flex:1"></span>
+    <button class="btn btn-ghost" data-act="cerrar">Cancelar</button><button class="btn btn-green" data-act="registrar-ingreso">Registrar ingreso</button></div>`);
+  S._photo = photo; setTimeout(() => $("#plate")?.focus(), 30);
+}
+
+function registerEntry() {
+  const raw = $("#plate").value; const plate = normPlate(raw);
+  if (!validPlate(plate)) return openEntry("Patente no válida. Ejemplos: BBBB00, AB1234 o moto ABC12.", raw, S._photo);
+  if (S.inside.some((s) => s.plate === plate)) return openEntry("Esa patente ya está dentro del parking.", raw, S._photo);
+  if (!S._photo) return openEntry("Toma la foto de la patente antes de registrar el ingreso.", raw, false);
+  if (S.inside.length >= CAPACITY) return openEntry("No quedan cupos disponibles.", raw, S._photo);
+  const stay = { id: S.seq, plate, entry: now(), ticket: code("ING") };
+  S.inside.push(stay); render();
+  modal(`<h2>Ingreso registrado ✓</h2><p class="sub">Así se vería el ticket. En la demostración <b>no se imprime</b>.</p>${entryTicket(stay)}
+    <div class="row-actions"><button class="btn btn-primary" data-act="cerrar">Listo</button></div>`);
+}
+
+function openExit(err = "", value = "") {
+  if (!requireShift()) return;
+  const opts = [...S.inside].sort((a, b) => a.entry - b.entry);
+  modal(`<h2>Salida de vehículo</h2><p class="sub">Escribe la patente o el ticket, o elige un vehículo de la lista.</p>
+    <div class="field"><label for="exitPlate">Patente o ticket</label><input id="exitPlate" placeholder="Ej.: BBBB-00" value="${esc(value)}" autocomplete="off">
+    ${err ? `<div class="err">⚠ ${esc(err)}</div>` : ""}</div>
+    ${opts.length ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${opts.map((s) => `<button class="chip-btn" data-pick="${s.id}">${esc(showPlate(s.plate))}</button>`).join("")}</div>` : `<p class="empty">No hay vehículos dentro.</p>`}
+    <div class="row-actions"><button class="btn btn-ghost" data-act="cerrar">Cancelar</button><button class="btn btn-red" data-act="buscar-salida">Calcular cobro</button></div>`);
+  setTimeout(() => $("#exitPlate")?.focus(), 30);
+}
+
+function findStay(input) {
+  const q = normPlate(input);
+  return S.inside.find((s) => s.plate === q || normPlate(s.ticket) === q) || null;
+}
+
+function openQuote(stay, method = "Efectivo") {
+  const q = quoteFor(stay);
+  modal(`<h2>Cobro de salida</h2><p class="sub">Patente <b>${esc(showPlate(stay.plate))}</b> · Ticket ${esc(stay.ticket)}</p>
+    <div class="quote"><div><span>Entrada</span><b>${fmtDT(stay.entry)}</b></div><div><span>Salida</span><b>${fmtDT(now())}</b></div>
+    <div><span>Tiempo</span><b>${q.minutes} min</b></div><div><span>Tarifa</span><b>${RATE.name} · ${money(RATE.perMinute)}/min</b></div>
+    <div class="total"><span>Total</span><span>${money(q.total)}</span></div></div>
+    <p style="margin:12px 0 0;font-weight:700;color:#334155">Medio de pago</p>
+    <div class="pay-opts">${["Efectivo", "Débito", "Crédito"].map((m) => `<button class="${m === method ? "sel" : ""}" data-method="${m}" data-stay="${stay.id}">${m}</button>`).join("")}</div>
+    <div class="notice">Pago simulado: no se cobra ni se conecta con la máquina de tarjetas.</div>
+    <div class="row-actions"><button class="btn btn-ghost" data-act="cerrar">Cancelar</button><button class="btn btn-red" data-act="pagar" data-stay="${stay.id}" data-paymethod="${method}">Registrar pago simulado</button></div>`);
+}
+
+function pay(stayId, method) {
+  const stay = S.inside.find((s) => s.id === Number(stayId)); if (!stay) return closeModal();
+  const q = quoteFor(stay);
+  const p = { id: S.seq, plate: stay.plate, ticket: stay.ticket, entry: stay.entry, exit: now(), method, code: code("PAG"), ...q };
+  S.payments.push(p); S.inside = S.inside.filter((s) => s.id !== stay.id); S.last = p; render();
+  modal(`<h2>Salida registrada ✓</h2><p class="sub">Comprobante de pago. En la demostración <b>no se imprime ni se cobra</b>.</p>${payTicket(p)}
+    <div class="row-actions"><button class="btn btn-primary" data-act="cerrar">Listo</button></div>`);
+}
+
+function openQr() {
+  modal(`<h2>Código QR del estacionamiento</h2><p class="sub">En la operación real, el cliente lo escanea para consultar y pagar su estadía. En la demo es ilustrativo.</p>
+    <div class="qrbox">${fakeQr("DEMO-01", 220)}</div><p class="c" style="text-align:center;font-weight:800;color:#041E42">Estacionamiento Demo · DEMO-01</p>
+    <div class="row-actions"><button class="btn btn-primary" data-act="cerrar">Cerrar</button></div>`);
+}
+
+function openSearch(err = "", value = "") {
+  modal(`<h2>Buscar ticket</h2><p class="sub">Busca por patente o número de ticket (dentro del parking o pagados).</p>
+    <div class="field"><label for="searchQ">Patente o ticket</label><input id="searchQ" value="${esc(value)}" autocomplete="off">${err ? `<div class="err">⚠ ${esc(err)}</div>` : ""}</div>
+    <div class="row-actions"><button class="btn btn-ghost" data-act="cerrar">Cerrar</button><button class="btn btn-primary" data-act="buscar-ticket">Buscar</button></div>`);
+  setTimeout(() => $("#searchQ")?.focus(), 30);
+}
+
+function searchTicket() {
+  const raw = $("#searchQ").value; const q = normPlate(raw);
+  const inside = S.inside.find((s) => s.plate === q || normPlate(s.ticket) === q);
+  if (inside) return modal(`<h2>En el parking</h2><p class="sub">${minutesBetween(inside.entry, now())} min dentro.</p>${entryTicket(inside)}
+    <div class="row-actions"><button class="btn btn-ghost" data-act="cerrar">Cerrar</button><button class="btn btn-red" data-exit="${inside.id}">Registrar salida</button></div>`);
+  const paid = [...S.payments].reverse().find((p) => p.plate === q || normPlate(p.ticket) === q || normPlate(p.code) === q);
+  if (paid) return modal(`<h2>Pagado</h2>${payTicket(paid)}<div class="row-actions"><button class="btn btn-primary" data-act="cerrar">Cerrar</button></div>`);
+  openSearch("No se encontró esa patente o ticket en esta demostración.", raw);
+}
+
+function reprint() {
+  const last = S.last || [...S.inside].sort((a, b) => b.entry - a.entry)[0];
+  if (!last) return toast("Todavía no hay tickets en esta demostración.");
+  modal(`<h2>Reimprimir ticket</h2><p class="sub">Último ticket. En la demostración se muestra en pantalla, <b>no se imprime</b>.</p>${last.code ? payTicket(last) : entryTicket(last)}
+    <div class="row-actions"><button class="btn btn-primary" data-act="cerrar">Cerrar</button></div>`);
+}
+
+function printList() {
+  const list = [...S.inside].sort((a, b) => a.entry - b.entry);
+  modal(`<h2>Vehículos en el parking</h2><p class="sub">Vista del listado. En la demostración <b>no se imprime</b>.</p>
+    <div class="ticket"><div class="wm">DEMO</div>${header()}<hr><div class="c"><b>VEHÍCULOS EN EL PARKING</b><br>${fmtDT(now())}</div><hr>
+    ${list.length ? list.map((s) => `<div class="r"><span>${esc(showPlate(s.plate))}</span><span>${fmtT(s.entry)} · ${minutesBetween(s.entry, now())} min</span></div>`).join("") : `<div class="c">Sin vehículos</div>`}
+    <hr><div class="r tot"><span>Total</span><span>${list.length}</span></div></div>
+    <div class="row-actions"><button class="btn btn-primary" data-act="cerrar">Cerrar</button></div>`);
+}
+
+function openShift() {
+  if (S.shiftOpen) return modal(`<h2>Turno abierto</h2><p class="sub">El turno está abierto desde ${fmtDT(S.shiftStart)}.</p>
+    <div class="row-actions"><button class="btn btn-primary" data-act="cerrar">Entendido</button></div>`);
+  modal(`<h2>Inicio de turno</h2><p class="sub">Operador Demo · Estacionamiento Demo</p>
+    <div class="row-actions"><button class="btn btn-ghost" data-act="cerrar">Cancelar</button><button class="btn btn-green" data-act="abrir-turno">Iniciar turno</button></div>`);
+}
+
+function loadExamples() {
+  if (!requireShift()) return;
+  const samples = [["BBBB00", 95], ["KXTR21", 42], ["HJ4512", 12]];
+  let added = 0;
+  samples.forEach(([plate, ago]) => {
+    if (S.inside.some((s) => s.plate === plate) || S.inside.length >= CAPACITY) return;
+    S.inside.push({ id: S.seq, plate, entry: new Date(now().getTime() - ago * 60000), ticket: code("ING") }); added++;
+  });
+  render(); toast(added ? `Se cargaron ${added} vehículos de ejemplo.` : "Los vehículos de ejemplo ya están dentro.");
+}
+
+function resetDemo() {
+  if (!confirm("¿Cerrar sesión y reiniciar la demostración? Se borra todo lo registrado.")) return;
+  Object.assign(S, { shiftOpen: true, offsetMin: 0, seq: 1, inside: [], payments: [], view: "inicio", last: null });
+  S.shiftStart = now(); closeModal(); render(); toast("Demostración reiniciada.");
+}
+
+// --------------------------- Eventos ---------------------------------------
+const GO = {
+  inicio: () => { S.view = "inicio"; render(); }, vehiculos: () => { S.view = "inicio"; render(); $("#view").scrollIntoView({ behavior: "smooth" }); },
+  turno: openShift, ingreso: () => openEntry(), salida: () => openExit(), qr: openQr, buscar: () => openSearch(),
+  reimprimir: reprint, "imprimir-lista": printList, pagos: () => { S.view = "pagos"; render(); }, cierre: () => { S.view = "cierre"; render(); },
+  actualizar: () => toast("En la demostración no hay nada que actualizar."), estado: () => { S.view = "estado"; render(); }, reiniciar: resetDemo,
+};
+
+document.addEventListener("click", (ev) => {
+  const t = ev.target.closest("[data-go],[data-act],[data-adv],[data-exit],[data-pick],[data-method],[data-receipt]");
+  if (!t) return;
+  if (t.dataset.act === "scrim") { if (ev.target === t) closeModal(); return; }
+  if (t.dataset.go) { $("#nav").classList.remove("open"); return GO[t.dataset.go](); }
+  if (t.dataset.adv) { S.offsetMin += Number(t.dataset.adv); render(); return toast(`Reloj adelantado ${t.dataset.adv} min (solo en la demo).`); }
+  if (t.dataset.exit) { const s = S.inside.find((x) => x.id === Number(t.dataset.exit)); return s ? openQuote(s) : null; }
+  if (t.dataset.pick) { const s = S.inside.find((x) => x.id === Number(t.dataset.pick)); return s ? openQuote(s) : null; }
+  if (t.dataset.method) { const s = S.inside.find((x) => x.id === Number(t.dataset.stay)); return s ? openQuote(s, t.dataset.method) : null; }
+  if (t.dataset.receipt) { const p = S.payments.find((x) => x.id === Number(t.dataset.receipt)); if (p) modal(`<h2>Comprobante</h2>${payTicket(p)}<div class="row-actions"><button class="btn btn-primary" data-act="cerrar">Cerrar</button></div>`); return; }
+  const act = t.dataset.act;
+  if (act === "cerrar") return closeModal();
+  if (act === "foto") { const val = $("#plate").value; return openEntry("", val, true); }
+  if (act === "registrar-ingreso") return registerEntry();
+  if (act === "buscar-salida") { const raw = $("#exitPlate").value; const s = findStay(raw); return s ? openQuote(s) : openExit("No hay un vehículo dentro con esa patente o ticket.", raw); }
+  if (act === "pagar") return pay(t.dataset.stay, t.dataset.paymethod);
+  if (act === "buscar-ticket") return searchTicket();
+  if (act === "abrir-turno") { S.shiftOpen = true; S.shiftStart = now(); closeModal(); render(); return toast("Turno iniciado."); }
+  if (act === "cerrar-turno") { if (S.inside.length && !confirm(`Quedan ${S.inside.length} vehículos dentro. ¿Cerrar el turno igual?`)) return; S.shiftOpen = false; render(); return toast("Turno cerrado (simulado)."); }
+  if (act === "ejemplos") return loadExamples();
+});
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape") closeModal();
+  if (ev.key === "Enter" && ev.target.id === "plate") registerEntry();
+  if (ev.key === "Enter" && ev.target.id === "exitPlate") { const raw = ev.target.value; const s = findStay(raw); s ? openQuote(s) : openExit("No hay un vehículo dentro con esa patente o ticket.", raw); }
+  if (ev.key === "Enter" && ev.target.id === "searchQ") searchTicket();
+});
+$("#menuBtn").addEventListener("click", () => $("#nav").classList.toggle("open"));
+setInterval(render, 30000);
+render();
+</script>
+</body>
+</html>
