@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Camera, Pencil, Plus, TriangleAlert } from "lucide-react";
+import { ArrowLeft, Camera, ListChecks, Pencil, Plus, TriangleAlert } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
@@ -61,6 +61,12 @@ export default function EstacionamientoDetalleAdmin({ parking, structure, compan
     <Link key="volver" href="/estacionamientos" className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold"><ArrowLeft className="h-4 w-4" /> Volver</Link>,
     <Link key="editar" href={`/estacionamientos/${parking.code}/editar`} className="inline-flex items-center gap-2 rounded-full border border-[#DCE8FF] bg-[#F5F9FF] px-4 py-2 text-sm font-semibold text-[#3150D8]"><Pencil className="h-4 w-4" /> Editar estacionamiento</Link>,
   ];
+  // Configurador y Revisión final (SOL-2026-10-29-013): la activación solo se
+  // hace ahí («Editar estacionamiento» rechaza el estado Activo); mientras no
+  // esté activo, el acceso se destaca.
+  headerActions.push(parking.status === "ACTIVE"
+    ? <Link key="configuracion" href={`/estacionamientos/${parking.code}/configuracion`} className="inline-flex items-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#3150D8] hover:text-[#3150D8]"><ListChecks className="h-4 w-4" /> Configuración</Link>
+    : <Link key="configuracion" href={`/estacionamientos/${parking.code}/configuracion`} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white"><ListChecks className="h-4 w-4" /> Configuración y activación</Link>);
   // Off Street, Fase 6: fotografía de patente en ENTRY. No aplica a On
   // Street (otro flujo operacional, sin POS de barrera con este ENTRY).
   if (!onStreet) {
