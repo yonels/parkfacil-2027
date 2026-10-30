@@ -41,12 +41,13 @@ const RELEASED_PLATE_REPORTS = flattenReports(subTree(["off-patentes"]));
 export const navigationItems = [
   { href: "/", label: "Inicio", icon: LayoutGrid, active: true },
   { href: "/modelo-dashboard", label: "Dashboard General", icon: BarChart3 },
-  // Para platform_admin (Root), este ítem nunca abre /data-entry con la
-  // sesión Root: Sidebar/MobileNavigation lo interceptan y llevan al login
-  // real de operador en el origen del Portal Cliente. Root nunca opera el
-  // terminal directamente (PORTAL_FORBIDDEN se mantiene intacto). Ver
-  // src/lib/auth/operatorAccessUrl.mjs y src/app/acceso-operador/page.js.
-  { href: "/data-entry", label: "Data Entry", icon: ScanLine, platformAdminGateway: true },
+  // «Data Entry» (SOL-2026-10-30-003, decisión del usuario 2026-10-30): solo
+  // Root lo ve, y abre el POS en modo demostración para mostrar a clientes
+  // (sin servidor, impresora ni cobro). Al vivir bajo /administracion queda
+  // oculto en el Portal Cliente (administradores y operadores). La ruta
+  // /data-entry y el acceso /acceso-operador siguen existiendo; solo dejan de
+  // ofrecerse en el menú.
+  { href: "/administracion/data-entry-demo", label: "Data Entry", icon: ScanLine },
 
   // ============================================================
   // OFF STREET -- árbol propio, en paralelo a On Street (ya no hay un nodo

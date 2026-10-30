@@ -24,7 +24,7 @@ const modules = [
   { title: "Cupones", description: "Cupones, minutos gratis y beneficios aplicables.", icon: TicketPercent, href: "/cupones", state: "Disponible" },
   { title: "Convenios", description: "Acuerdos comerciales y beneficios para empresas asociadas.", icon: Handshake, href: "/convenios", state: "Disponible" },
   { title: "Facturación", description: "Prefacturación, documentos, cuenta corriente, cobranza y conciliación de clientes.", icon: ReceiptText, href: "/facturacion", state: "Disponible" },
-  { title: "Data Entry", description: "Ingreso, salida y cobro operacional de vehículos.", icon: ScanLine, href: "/data-entry", state: "Disponible" },
+  { title: "Data Entry", description: "Demostración del POS para clientes: ingreso, salida y cobro simulados.", icon: ScanLine, href: "/administracion/data-entry-demo", state: "Disponible" },
   { title: "Medios de pago", description: "Configuración y consulta de formas de pago.", icon: CreditCard, href: "/recaudacion#medios-de-pago", state: "Disponible" },
   { title: "Abonados y credenciales", description: "Administración de abonados, vehículos y accesos.", icon: KeyRound, href: "/abonados", state: "Disponible" },
   { title: "Simulador de tarifas", description: "Comparación de escenarios tarifarios sin alterar la tarifa vigente.", icon: Calculator, href: "/simulador-tarifas", state: "Disponible" },
