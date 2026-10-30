@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeft, ChevronRight, Home } from "lucide-react";
 import { getParentHref } from "@/lib/navigationParent.mjs";
+import { useWizardReturnHref, useWizardReturnLinks } from "@/components/companySetup/wizardReturnStore";
 
 function formatSegment(segment) {
   return segment
@@ -15,7 +16,10 @@ function formatSegment(segment) {
 export default function Breadcrumbs({ onBack }) {
   const pathname = usePathname();
   const segments = pathname.split("/").filter(Boolean);
-  const parentHref = getParentHref(pathname);
+  // Pantalla abierta desde el asistente «Configurar empresa»: «Volver» regresa al asistente (SOL-2026-10-29-014).
+  const wizardReturnHref = useWizardReturnHref(pathname);
+  const parentHref = wizardReturnHref || getParentHref(pathname);
+  useWizardReturnLinks(wizardReturnHref);
 
   const items = [];
   let href = "";
@@ -30,7 +34,7 @@ export default function Breadcrumbs({ onBack }) {
 
   return (
     <nav aria-label="Ubicación actual" className="flex flex-wrap items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-2 text-sm text-slate-600 lg:flex-nowrap">
-      {onBack ? (
+      {onBack && !wizardReturnHref ? (
         <button type="button" onClick={onBack} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-1 font-semibold text-[#3150D8] shadow-sm transition hover:bg-[#EEF4FF]" aria-label="Volver a la página principal de Facturación"><ArrowLeft className="h-4 w-4" /><span>Volver</span></button>
       ) : parentHref ? <Link href={parentHref} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-1 font-semibold text-[#3150D8] shadow-sm transition hover:bg-[#EEF4FF]" aria-label="Volver a la página padre"><ArrowLeft className="h-4 w-4" /><span>Volver</span></Link> : null}
       <span className="hidden text-[10px] font-bold uppercase tracking-wider text-slate-400 xl:inline">Estás en</span>

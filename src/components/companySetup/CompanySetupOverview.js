@@ -12,6 +12,7 @@ import { STEP_COLORS } from "@/lib/companySetup/companySetupGuide.mjs";
 import CompanySetupGuideDrawer from "./CompanySetupGuideDrawer";
 import CompanySetupWizard from "./CompanySetupWizard";
 import { STEP_ICONS } from "./companySetupIcons";
+import { forgetWizardReturn, rememberWizardReturn } from "./wizardReturnStore";
 
 const LOGO_COLORS = ["#3150D8", "#0891B2", "#7C3AED", "#EA580C", "#DB2777", "#0F766E", "#0284C7"];
 const tint = (hex, alpha) => `${hex}${alpha}`;
@@ -70,6 +71,9 @@ export default function CompanySetupOverview() {
   }, []);
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
+
+  // De vuelta en «Configurar empresa», la marca de «Volver» ya se usó.
+  useEffect(() => { forgetWizardReturn(); }, []);
 
   // ?asistente=nueva | <id de empresa>: al volver de una pantalla de un paso
   // (botón «Atrás»), el asistente se reabre donde estaba.
@@ -226,8 +230,8 @@ export default function CompanySetupOverview() {
                         <StateChip state={step.state} active={parking.active} />
                         {step.state !== "lock" && step.href ? (
                           step.state === "ok"
-                            ? <Link href={step.href} className="text-xs font-semibold text-[#3150D8] hover:underline">Ver o editar</Link>
-                            : <Link href={step.href} className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-white shadow-sm" style={{ background: color }}>Completar →</Link>
+                            ? <Link href={step.href} onClick={() => rememberWizardReturn(step.href)} className="text-xs font-semibold text-[#3150D8] hover:underline">Ver o editar</Link>
+                            : <Link href={step.href} onClick={() => rememberWizardReturn(step.href)} className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-bold text-white shadow-sm" style={{ background: color }}>Completar →</Link>
                         ) : null}
                         <button type="button" onClick={() => setGuideStep(step)} title="Guía del paso" aria-label={`Guía del paso ${step.n}`} className="grid h-8 w-8 place-items-center rounded-full text-slate-500 hover:bg-slate-100"><BookOpen className="h-4 w-4" /></button>
                       </div>

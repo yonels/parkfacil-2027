@@ -13,6 +13,7 @@ import { STEP_COLORS, STEP_GUIDES } from "@/lib/companySetup/companySetupGuide.m
 import { buildCompanyCreatePayload, canOpenWizardStep, currentWizardStep, defaultParkingCode, emptyWizardDraft, validateDraftStep } from "@/lib/companySetup/companySetupWizardCore.mjs";
 import CompanySetupGuideDrawer from "./CompanySetupGuideDrawer";
 import { STEP_ICONS } from "./companySetupIcons";
+import { rememberWizardReturn } from "./wizardReturnStore";
 
 const DRAFT_KEY = "pf-configurar-empresa-borrador-v1";
 const tint = (hex, alpha) => `${hex}${alpha}`;
@@ -388,7 +389,7 @@ function RealStep({ step, meta, color, setup, company, state }) {
       {state !== "lock" && real.href ? (
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-dashed border-slate-300 px-4 py-3">
           <p className="flex-1 text-sm text-slate-600">{state === "ok" ? "Puedes revisarlo o cambiarlo en su pantalla." : `Se completa en la pantalla de ${meta.name}. Al volver aquí, el asistente detecta el avance.`}</p>
-          <Link href={real.href} className="inline-flex items-center gap-1 rounded-full px-4 py-2 text-sm font-bold text-white shadow-md" style={{ background: color }}>{state === "ok" ? "Ver o editar" : `Abrir ${meta.name}`} →</Link>
+          <Link href={real.href} onClick={() => rememberWizardReturn(real.href)} className="inline-flex items-center gap-1 rounded-full px-4 py-2 text-sm font-bold text-white shadow-md" style={{ background: color }}>{state === "ok" ? "Ver o editar" : `Abrir ${meta.name}`} →</Link>
         </div>
       ) : null}
     </>

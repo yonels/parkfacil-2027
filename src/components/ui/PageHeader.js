@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { getParentHref } from "@/lib/navigationParent.mjs";
+import { useWizardReturnHref } from "@/components/companySetup/wizardReturnStore";
 
 function containsBackAction(actions) {
   return Children.toArray(actions).some((action) => {
@@ -51,8 +52,10 @@ export default function PageHeader({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const effectiveOnBack = onBack || (backToHistory ? () => router.back() : undefined);
-  const parentHref = backHref === undefined ? getParentHref(pathname) : backHref;
+  // Pantalla abierta desde el asistente «Configurar empresa»: «Volver» regresa al asistente (SOL-2026-10-29-014).
+  const wizardReturnHref = useWizardReturnHref(pathname);
+  const effectiveOnBack = wizardReturnHref ? undefined : onBack || (backToHistory ? () => router.back() : undefined);
+  const parentHref = wizardReturnHref || (backHref === undefined ? getParentHref(pathname) : backHref);
   const renderBack = showBack && (effectiveOnBack || parentHref) && !containsBackAction(actions);
   const palette = TONES[tone] || TONES.brand;
 
