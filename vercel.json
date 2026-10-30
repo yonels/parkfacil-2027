@@ -7,6 +7,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "fix/usuario-duplicado": false,
       "feature/clave-operador-admin": false,
       "feature/sms-reportes-cliente": false,
       "feature/clave-ficha-usuario": false,
