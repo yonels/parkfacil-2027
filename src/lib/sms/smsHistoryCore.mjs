@@ -237,3 +237,27 @@ export function toCsv(columns, rows) {
   for (const row of rows) lines.push(columns.map((c) => csvCell(typeof c.value === "function" ? c.value(row) : row[c.key])).join(";"));
   return `﻿${lines.join("\r\n")}\r\n`;
 }
+
+// Alcance de empresa (SOL-2026-10-29-007): el administrador de empresa del
+// Portal Cliente solo ve SMS de su empresa; Root no tiene alcance (ve todo).
+export function smsCompanyScope(context) {
+  return context?.role === "company_admin" && context?.portal === "client" && context?.companyId ? String(context.companyId) : null;
+}
+
+// Fuerza la empresa del alcance sobre los filtros pedidos desde el navegador.
+export function scopeSmsFilters(filters, companyScope) {
+  return companyScope ? { ...filters, companyId: companyScope } : filters;
+}
+
+// Lo que el cliente no ve: saldo de la cuenta de ParkFacil en Sentraland,
+// tarifas, costos internos y SMS recibidos (no tienen empresa).
+export function clientSafeSummary(data) {
+  const { last_balance: _balance, inbound: _inbound, inbound_enabled: _inboundEnabled, ...rest } = data || {};
+  return { ...rest, viewer: "COMPANY" };
+}
+
+export function clientSafeConsumption(data) {
+  const strip = (rows) => (rows || []).map(({ cost: _cost, currency: _currency, ...row }) => row);
+  const { tariffs: _tariffs, lastBalance: _lastBalance, cost_by_currency: _costs, priced: _priced, mixed_currency: _mixed, by_company: _byCompany, ...rest } = data || {};
+  return { ...rest, by_module: strip(rest.by_module), by_parking: strip(rest.by_parking), by_period: strip(rest.by_period), viewer: "COMPANY" };
+}

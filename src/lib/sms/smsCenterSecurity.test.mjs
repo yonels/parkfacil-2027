@@ -21,14 +21,14 @@ async function walk(dir, predicate) {
 
 const read = (file) => readFile(file, "utf8");
 
-test("todas las rutas /api/centro-sms exigen sesión Root + permiso sms:* en cada método", async () => {
+test("todas las rutas /api/centro-sms exigen sesión (Root, o admin. de empresa en lecturas) + permiso sms:* en cada método", async () => {
   const routes = await walk(join(root, "src/app/api/centro-sms"), (n) => n === "route.js");
   assert.ok(routes.length >= 18, `rutas encontradas: ${routes.length}`);
   for (const file of routes) {
     const source = await read(file);
     const methods = [...source.matchAll(/export async function (GET|POST|PUT|PATCH|DELETE)\(/g)].map((m) => m[1]);
     assert.ok(methods.length, file);
-    const guards = [...source.matchAll(/authorizeSmsRequest\(request, PERMISSIONS\.SMS_[A-Z_]+\)/g)].length;
+    const guards = [...source.matchAll(/authorizeSms(?:Read)?Request\(request, PERMISSIONS\.SMS_[A-Z_]+\)/g)].length;
     assert.equal(guards, methods.length, `${file}: cada método debe autorizar`);
     assert.equal([...source.matchAll(/if \(authorization\.response\) return authorization\.response;/g)].length, methods.length, file);
   }

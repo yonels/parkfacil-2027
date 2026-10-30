@@ -67,15 +67,18 @@ export async function listSmsHistory(filters, context, db = getSupabaseAdminClie
   };
 }
 
-async function loadHistoryRow(db, source, sourceId) {
+async function loadHistoryRow(db, source, sourceId, companyScope = null) {
   if (!HISTORY_SOURCES[source] || !/^[0-9a-f-]{36}$/i.test(String(sourceId || ""))) return null;
-  const { data, error } = await db.from("sms_history_v").select("*").eq("source", source).eq("source_id", sourceId).maybeSingle();
+  let query = db.from("sms_history_v").select("*").eq("source", source).eq("source_id", sourceId);
+  // Administrador de empresa: un SMS de otra empresa simplemente no existe.
+  if (companyScope) query = query.eq("company_id", companyScope);
+  const { data, error } = await query.maybeSingle();
   if (error) throw dbError(error);
   return data;
 }
 
 export async function getSmsHistoryDetail(source, sourceId, context, db = getSupabaseAdminClient()) {
-  const row = await loadHistoryRow(db, source, sourceId);
+  const row = await loadHistoryRow(db, source, sourceId, context?.smsCompanyScope || null);
   if (!row) return null;
   let events = [];
   let related = [];
@@ -114,15 +117,19 @@ export async function revealSmsPhone(source, sourceId, context, db = getSupabase
   return { phone: row.phone_normalized || null };
 }
 
-export async function listSmsFilterOptions(db = getSupabaseAdminClient()) {
-  const [companies, parkings] = await Promise.all([
-    db.from("companies").select("id,business_name,trade_name").order("business_name"),
-    db.from("parkings").select("id,name,code,company_id").order("name"),
-  ]);
+export async function listSmsFilterOptions(db = getSupabaseAdminClient(), companyScope = null) {
+  let companiesQuery = db.from("companies").select("id,business_name,trade_name").order("business_name");
+  let parkingsQuery = db.from("parkings").select("id,name,code,company_id").order("name");
+  if (companyScope) {
+    companiesQuery = companiesQuery.eq("id", companyScope);
+    parkingsQuery = parkingsQuery.eq("company_id", companyScope);
+  }
+  const [companies, parkings] = await Promise.all([companiesQuery, parkingsQuery]);
   if (companies.error) throw dbError(companies.error);
   if (parkings.error) throw dbError(parkings.error);
   return {
     companies: (companies.data || []).map((c) => ({ id: c.id, name: c.trade_name || c.business_name || c.id })),
     parkings: (parkings.data || []).map((p) => ({ id: p.id, name: p.code ? `${p.name} (${p.code})` : p.name, companyId: p.company_id })),
+    viewer: companyScope ? "COMPANY" : "ROOT",
   };
 }

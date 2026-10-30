@@ -58,6 +58,11 @@ export const PERMISSIONS = Object.freeze({
 const ROLE_PERMISSIONS = Object.freeze({
   [ROLES.PLATFORM_ADMIN]: new Set(Object.values(PERMISSIONS)),
   [ROLES.COMPANY_ADMIN]: new Set([
+    // Reportes SMS de su empresa (SOL-2026-10-29-007): solo lectura, sin
+    // teléfono completo, envíos, reenvíos ni configuración.
+    PERMISSIONS.SMS_READ,
+    PERMISSIONS.SMS_CONTENT_READ,
+    PERMISSIONS.SMS_EXPORT,
     PERMISSIONS.COMPANY_READ,
     PERMISSIONS.COMPANY_MANAGE,
     PERMISSIONS.USERS_MANAGE,
@@ -141,8 +146,13 @@ const ROOT_ONLY_PREFIXES = [
   "/on-street-qr/areas",
   "/on-street-qr/calles",
   "/on-street-qr/tramos",
-  // Centro de Control SMS (SOL-2026-10-29-007): transversal a todas las empresas.
-  "/centro-sms",
+  // Centro de Control SMS (SOL-2026-10-29-007): Resumen, Historial y Consumo
+  // también los ve el administrador de empresa (solo su empresa, ver
+  // COMPANY_ADMIN_PREFIXES); el resto es solo de Root.
+  "/centro-sms/recibidos",
+  "/centro-sms/fallos",
+  "/centro-sms/diagnostico",
+  "/centro-sms/configuracion",
 ];
 // "/dashboard-off-street" (Fase 3), "/reportes-off-street" (Fase 4) y
 // "/recaudacion" (Fase 2, agregado en la validación Fase 5 -- §17: quedaba
@@ -165,7 +175,7 @@ const ROOT_ONLY_PREFIXES = [
 // administrador; el operador no los gestiona.
 // "/tarifas/modulos/boleta-electronica" (SOL-2026-10-20-001): API Key de Haulmer
 // de la empresa, solo administrador (Root solo ve el estado).
-const COMPANY_ADMIN_PREFIXES = ["/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion", "/deudas", "/pagos-tarjeta", "/pago-liberado", "/cupones", "/tarifas/modulos/boleta-electronica"];
+const COMPANY_ADMIN_PREFIXES = ["/centro-sms", "/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion", "/deudas", "/pagos-tarjeta", "/pago-liberado", "/cupones", "/tarifas/modulos/boleta-electronica"];
 
 // Prefijos de ruta que exigen un producto habilitado (Portal Cliente/
 // Terminal no aplica -- Root nunca pasa por aquí, ver canAccessPath). El

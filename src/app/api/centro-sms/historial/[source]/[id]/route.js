@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
-import { authorizeSmsRequest, smsErrorResponse } from "@/lib/sms/smsApiAuth";
+import { authorizeSmsReadRequest, scopeSmsFilters, smsErrorResponse } from "@/lib/sms/smsApiAuth";
 import { getSmsHistoryDetail } from "@/lib/sms/smsCenterRepository";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // Ficha de un SMS con su línea de tiempo. El teléfono completo se pide aparte
 // (POST .../telefono) para que cada revelación quede auditada.
 export async function GET(request, { params }) {
-  const authorization = await authorizeSmsRequest(request, PERMISSIONS.SMS_READ);
+  const authorization = await authorizeSmsReadRequest(request, PERMISSIONS.SMS_READ);
   if (authorization.response) return authorization.response;
   try {
     const { source, id } = await params;

@@ -270,8 +270,9 @@ export const navigationItems = [
 
   // ============================================================
   // CENTRO DE CONTROL SMS (SOL-2026-10-29-007) -- transversal a On Street,
-  // Off Street, alertas y Mesa de Ayuda. Solo Root ("/centro-sms" está en
-  // ROOT_ONLY_PREFIXES de permissions.mjs).
+  // Off Street, alertas y Mesa de Ayuda. Root ve todo; el administrador de
+  // empresa ve Resumen, Historial y Consumo de su empresa (canAccessPath filtra
+  // los submenús según ROOT_ONLY_PREFIXES / COMPANY_ADMIN_PREFIXES).
   // ============================================================
   {
     label: "Centro de Control SMS",
