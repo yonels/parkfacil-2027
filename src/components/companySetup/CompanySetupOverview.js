@@ -5,12 +5,14 @@
 // enlace a la pantalla actual de cada paso. No crea ni modifica nada.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { BadgeDollarSign, BookOpen, Building2, CheckCircle2, ChevronRight, Clock3, Lock, MapPin, PanelLeftClose, PanelLeftOpen, ParkingSquare, RefreshCw, Search, Users, X } from "lucide-react";
+import { BookOpen, Building2, ChevronRight, Lock, PanelLeftClose, PanelLeftOpen, Plus, RefreshCw, Search } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
-import { STEP_COLORS, STEP_GUIDES } from "@/lib/companySetup/companySetupGuide.mjs";
+import { STEP_COLORS } from "@/lib/companySetup/companySetupGuide.mjs";
+import CompanySetupGuideDrawer from "./CompanySetupGuideDrawer";
+import CompanySetupWizard from "./CompanySetupWizard";
+import { STEP_ICONS } from "./companySetupIcons";
 
-const STEP_ICONS = { empresa: Building2, estacionamiento: MapPin, usuarios: Users, tarifas: BadgeDollarSign, zonas: ParkingSquare, activacion: CheckCircle2, turnos: Clock3 };
 const LOGO_COLORS = ["#3150D8", "#0891B2", "#7C3AED", "#EA580C", "#DB2777", "#0F766E", "#0284C7"];
 const tint = (hex, alpha) => `${hex}${alpha}`;
 
@@ -37,45 +39,6 @@ function StepDots({ steps }) {
   );
 }
 
-function GuideDrawer({ step, onClose }) {
-  if (!step) return null;
-  const guide = STEP_GUIDES[step.key];
-  const color = STEP_COLORS[step.key];
-  const Icon = STEP_ICONS[step.key];
-  const blocks = [
-    ["🎯 Para qué sirve", "border-indigo-200 bg-indigo-50", <p key="p">{guide.para}</p>],
-    ["🧰 Ten a mano", "border-cyan-200 bg-cyan-50", <ul key="u" className="list-disc space-y-1 pl-5">{guide.tener.map((item) => <li key={item}>{item}</li>)}</ul>],
-    ["⚠️ Cuidado con", "border-orange-200 bg-orange-50", <ul key="u" className="list-disc space-y-1 pl-5">{guide.cuidado.map((item) => <li key={item}>{item}</li>)}</ul>],
-    ["🏁 Sabrás que terminaste cuando", "border-emerald-200 bg-emerald-50", <p key="p">{guide.fin}</p>],
-  ];
-  return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={`Guía del paso ${step.n}`}>
-      <button type="button" aria-label="Cerrar guía" onClick={onClose} className="absolute inset-0 bg-[#041E42]/35 backdrop-blur-[2px]" />
-      <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
-        <div className="flex items-center gap-4 p-5 text-white" style={{ background: `linear-gradient(135deg, ${color}, #041E42)` }}>
-          <span className="grid h-12 w-12 place-items-center rounded-2xl bg-white/20"><Icon className="h-6 w-6" /></span>
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] opacity-85">Paso {step.n} de 7 · {step.name}</p>
-            <h3 className="text-xl font-bold">{step.question}</h3>
-          </div>
-          <button type="button" onClick={onClose} aria-label="Cerrar" className="ml-auto grid h-9 w-9 place-items-center rounded-full bg-white/20"><X className="h-4 w-4" /></button>
-        </div>
-        <div className="grid gap-3 overflow-auto p-5 text-sm text-slate-700">
-          {blocks.map(([title, tone, body]) => (
-            <section key={title} className={`rounded-2xl border p-4 ${tone}`}>
-              <h4 className="mb-1.5 font-bold text-[#041E42]">{title}</h4>
-              {body}
-            </section>
-          ))}
-        </div>
-        <div className="mt-auto border-t border-slate-200 p-4 text-right">
-          <button type="button" onClick={onClose} className="rounded-full px-5 py-2 text-sm font-bold text-white" style={{ background: color }}>Entendido</button>
-        </div>
-      </aside>
-    </div>
-  );
-}
-
 export default function CompanySetupOverview() {
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -85,6 +48,9 @@ export default function CompanySetupOverview() {
   const [selected, setSelected] = useState(null); // { companyId, index }
   const [guideStep, setGuideStep] = useState(null);
   const [panelOpen, setPanelOpen] = useState(true);
+  // Asistente (F2): null = diagnóstico; { companyId } = asistente de una cuenta
+  // ya creada; { companyId: null } = empresa nueva (borrador del navegador).
+  const [wizard, setWizard] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -105,6 +71,37 @@ export default function CompanySetupOverview() {
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [load]);
 
+  // ?asistente=nueva | <id de empresa>: al volver de una pantalla de un paso
+  // (botón «Atrás»), el asistente se reabre donde estaba.
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get("asistente");
+    if (!value) return undefined;
+    const timer = window.setTimeout(() => { setWizard({ companyId: value === "nueva" ? null : value }); setPanelOpen(false); }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  function setAsistenteParam(value) {
+    const url = new URL(window.location.href);
+    if (value) url.searchParams.set("asistente", value); else url.searchParams.delete("asistente");
+    window.history.replaceState(window.history.state, "", url);
+  }
+
+  function openWizard(companyId = null) {
+    setWizard({ companyId });
+    setPanelOpen(false); // el asistente usa todo el ancho; el panel queda a un clic
+    setAsistenteParam(companyId || "nueva");
+  }
+
+  function exitWizard(companyId = null) {
+    setWizard(null);
+    setPanelOpen(true);
+    setAsistenteParam(null);
+    if (companyId) {
+      setSelected({ companyId, index: 0 });
+      setOpen((current) => new Set([...current, companyId]));
+    }
+  }
+
   const visible = useMemo(() => {
     const term = filter.trim().toLowerCase();
     if (!term) return companies;
@@ -123,10 +120,11 @@ export default function CompanySetupOverview() {
       return next;
     });
     setSelected({ companyId, index: 0 });
+    if (wizard) exitWizard();
   }
 
   return (
-    <AppShell title="Configurar empresa" description="Siete pasos, siete preguntas: qué tiene completo cada cuenta y qué le falta (solo lectura).">
+    <AppShell title="Configurar empresa" description="Siete pasos, siete preguntas: qué tiene completo cada cuenta, qué le falta y un asistente para crear empresas nuevas.">
       {error ? <p role="alert" className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</p> : null}
       <div className="flex flex-col items-start gap-5 lg:flex-row">
         {/* Panel lateral propio de la pantalla: árbol Empresa → Estacionamientos, plegable. */}
@@ -147,7 +145,8 @@ export default function CompanySetupOverview() {
                   <Search className="h-3.5 w-3.5 text-slate-400" />
                   <input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Buscar empresa o RUT…" className="w-full bg-transparent text-[13px] outline-none" />
                 </label>
-                <div className="max-h-[60vh] overflow-y-auto pr-1 lg:max-h-[calc(100vh-11rem)]">
+                <button type="button" onClick={() => openWizard(null)} className="mb-2 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#3150D8] to-[#7C3AED] px-3 py-2 text-sm font-bold text-white shadow-md hover:brightness-110"><Plus className="h-4 w-4" />Nueva empresa</button>
+                <div className="max-h-[60vh] overflow-y-auto pr-1 lg:max-h-[calc(100vh-14rem)]">
                   {!loading && !visible.length ? <p className="p-4 text-center text-sm text-slate-500">No hay empresas que coincidan.</p> : null}
                   {visible.map((item, companyIndex) => {
                     const isOpen = open.has(item.id);
@@ -165,7 +164,7 @@ export default function CompanySetupOverview() {
                         {isOpen ? item.parkings.map((entry, index) => {
                           const isSelected = selected?.companyId === item.id && selected?.index === index;
                           return (
-                            <button key={entry.id || "sin-estacionamiento"} type="button" onClick={() => setSelected({ companyId: item.id, index })} title={entry.name} className={`ml-6 block w-[calc(100%-1.5rem)] rounded-r-xl border-l-2 px-2.5 py-1.5 text-left ${isSelected ? "border-[#3150D8] bg-indigo-50" : "border-slate-200 hover:bg-slate-50"}`}>
+                            <button key={entry.id || "sin-estacionamiento"} type="button" onClick={() => { setSelected({ companyId: item.id, index }); if (wizard) exitWizard(); }} title={entry.name} className={`ml-6 block w-[calc(100%-1.5rem)] rounded-r-xl border-l-2 px-2.5 py-1.5 text-left ${isSelected ? "border-[#3150D8] bg-indigo-50" : "border-slate-200 hover:bg-slate-50"}`}>
                               <span className="flex items-center gap-1.5 text-[12.5px] font-bold text-slate-800"><span className="min-w-0 truncate">{entry.name}</span><StatusPill parking={entry} /></span>
                               <StepDots steps={entry.steps} />
                             </button>
@@ -189,7 +188,9 @@ export default function CompanySetupOverview() {
         </aside>
 
         <div className="w-full min-w-0 flex-1">
-          {company && parking ? (
+          {wizard ? (
+            <CompanySetupWizard key={wizard.companyId || "nueva"} companies={companies} onReload={load} onExit={exitWizard} existingCompanyId={wizard.companyId} />
+          ) : company && parking ? (
             <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
               <div className="flex flex-wrap items-center gap-4 border-b border-slate-200 bg-gradient-to-r from-indigo-50 via-pink-50 to-cyan-50 px-6 py-5">
                 <div className="grid h-16 w-16 shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(#16A34A ${doneRatio}%, #E2E8F0 0)` }}>
@@ -199,6 +200,9 @@ export default function CompanySetupOverview() {
                   <h2 className="text-xl font-bold text-[#041E42]">{company.name}</h2>
                   <p className="flex flex-wrap items-center gap-2 text-sm text-slate-600">{parking.name}{parking.code ? ` · ${parking.code}` : ""} <StatusPill parking={parking} /></p>
                 </div>
+                {!parking.active && parking.id && company.parkings.length === 1 ? (
+                  <button type="button" onClick={() => openWizard(company.id)} className="ml-auto rounded-full bg-gradient-to-r from-[#3150D8] to-[#7C3AED] px-4 py-2 text-sm font-bold text-white shadow-md hover:brightness-110">Continuar en el asistente →</button>
+                ) : null}
               </div>
               {parking.active && parking.pendingCount ? (
                 <p className="mx-6 mt-5 rounded-2xl border border-pink-200 bg-pink-50 px-4 py-3 text-sm text-pink-900">📡 Este estacionamiento <b>está operando</b>. Lo pendiente se muestra como aviso: <b>no se bloquea nada</b> y el POS sigue funcionando.</p>
@@ -238,7 +242,7 @@ export default function CompanySetupOverview() {
           ) : null}
         </div>
       </div>
-      <GuideDrawer step={guideStep} onClose={() => setGuideStep(null)} />
+      <CompanySetupGuideDrawer step={guideStep} onClose={() => setGuideStep(null)} />
     </AppShell>
   );
 }
