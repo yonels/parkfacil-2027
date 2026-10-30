@@ -1,3 +1,4 @@
+import { normalizeAccessUsername } from "./userCredentialCore.mjs";
 // Valida y normaliza la edición de datos básicos de un usuario
 // (company_admin/operator) desde la ficha de administración individual.
 // Deliberadamente NO incluye reasignación de empresa ni de
@@ -50,11 +51,12 @@ export function buildUserProfileUpdate(payload) {
   }
 
   if (Object.prototype.hasOwnProperty.call(source, "usuarioAcceso") || Object.prototype.hasOwnProperty.call(source, "correo")) {
-    const correo = String(source.usuarioAcceso ?? source.correo ?? "").trim().toLowerCase();
-    if (!EMAIL_PATTERN.test(correo)) {
-      errors.push("El correo electrónico no es válido.");
+    // Correo o usuario simple (SOL-2026-10-29-011).
+    const acceso = normalizeAccessUsername(source.usuarioAcceso ?? source.correo);
+    if (acceso.error) {
+      errors.push(acceso.error);
     } else {
-      email = correo;
+      email = acceso.email;
     }
   }
 

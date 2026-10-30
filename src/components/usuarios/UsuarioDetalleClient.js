@@ -26,6 +26,7 @@ import { UsuarioFichaModal } from "@/components/usuarios/UsuariosPorRolClient";
 import { getPerfilLabel } from "@/data/usuarios.mjs";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import { generateSecurePassword } from "@/lib/generateSecurePassword";
+import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
 import { permissionsForRole } from "@/lib/auth/permissions.mjs";
 
 const ROL_LISTADO = {
@@ -230,7 +231,7 @@ export default function UsuarioDetalleClient({ userId }) {
   }
 
   function abrirClaveDirecta() {
-    setClaveDirectaDraft({ password: "", confirmacion: "", mustChangePassword: true });
+    setClaveDirectaDraft({ password: "", confirmacion: "", mustChangePassword: usuario?.perfilPrincipal !== "operator" });
     setClaveDirectaError("");
     setClaveDirectaAbierta(true);
   }
@@ -247,7 +248,7 @@ export default function UsuarioDetalleClient({ userId }) {
       setClaveDirectaError("Las claves no coinciden.");
       return;
     }
-    const confirmado = window.confirm(`Se establecerá una nueva clave directamente para ${usuario.usuarioAcceso}. ¿Continuar?`);
+    const confirmado = window.confirm(`Se establecerá una nueva clave directamente para ${extractDisplayUsername(usuario.usuarioAcceso || usuario.correo || "")}. ¿Continuar?`);
     if (!confirmado) return;
     setClaveDirectaError("");
     setClaveDirectaEnviando(true);
@@ -272,7 +273,7 @@ export default function UsuarioDetalleClient({ userId }) {
   function abrirEdicion() {
     setEditDraft({
       nombreCompleto: usuario.nombreCompleto || "",
-      usuarioAcceso: usuario.usuarioAcceso || usuario.correo || "",
+      usuarioAcceso: extractDisplayUsername(usuario.usuarioAcceso || usuario.correo || ""),
       recoveryEmail: usuario.recoveryEmail || "",
       telefono: usuario.telefono && usuario.telefono !== "Sin teléfono informado" ? usuario.telefono : "",
       estado: usuario.estado === "pending" || usuario.estado === "inactive" ? usuario.estado : "active",
@@ -292,8 +293,8 @@ export default function UsuarioDetalleClient({ userId }) {
       return;
     }
     const usuarioAccesoNuevo = editDraft.usuarioAcceso.trim().toLowerCase();
-    const cambiaUsuarioAcceso = usuarioAccesoNuevo !== (usuario.usuarioAcceso || usuario.correo || "").toLowerCase();
-    if (cambiaUsuarioAcceso && !window.confirm(`Se cambiará el Usuario de acceso de ${usuario.usuarioAcceso || usuario.correo} a ${usuarioAccesoNuevo}. El correo de recuperación no cambiará. ¿Continuar?`)) {
+    const cambiaUsuarioAcceso = usuarioAccesoNuevo !== extractDisplayUsername(usuario.usuarioAcceso || usuario.correo || "");
+    if (cambiaUsuarioAcceso && !window.confirm(`Se cambiará el Usuario de acceso de ${extractDisplayUsername(usuario.usuarioAcceso || usuario.correo || "")} a ${usuarioAccesoNuevo}. El correo de recuperación no cambiará. ¿Continuar?`)) {
       return;
     }
     setEditError("");
@@ -334,7 +335,7 @@ export default function UsuarioDetalleClient({ userId }) {
 
         <PageHeader
           title={usuario.nombreCompleto}
-          description={`${usuario.usuarioAcceso || usuario.correo} · ${getPerfilLabel(usuario.perfilPrincipal)}`}
+          description={`${extractDisplayUsername(usuario.usuarioAcceso || usuario.correo || "")} · ${getPerfilLabel(usuario.perfilPrincipal)}`}
           backHref={listado.href}
           backLabel={`Volver a ${listado.label}`}
         />
@@ -368,7 +369,9 @@ export default function UsuarioDetalleClient({ userId }) {
                   <label className="block space-y-1.5 text-sm text-slate-700">
                     <span className="font-medium text-slate-500">Usuario de acceso</span>
                     <input
-                      type="email"
+                      type="text"
+                      autoComplete="off"
+                      placeholder="operuno o nombre@empresa.cl"
                       value={editDraft.usuarioAcceso}
                       onChange={(event) => setEditDraft((current) => ({ ...current, usuarioAcceso: event.target.value }))}
                       className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]"
@@ -424,7 +427,7 @@ export default function UsuarioDetalleClient({ userId }) {
             ) : (
               <div className="mt-6 grid gap-4 sm:grid-cols-2">
                 <DetailItem label="Nombre completo" value={usuario.nombreCompleto} />
-                <DetailItem label="Usuario de acceso" value={usuario.usuarioAcceso || usuario.correo} />
+                <DetailItem label="Usuario de acceso" value={extractDisplayUsername(usuario.usuarioAcceso || usuario.correo || "")} />
                 <DetailItem label="Correo de recuperación" value={usuario.recoveryEmail || "Sin configurar"} />
                 <DetailItem label="Teléfono" value={usuario.telefono} />
                 <DetailItem label="Rol" value={getPerfilLabel(usuario.perfilPrincipal)} />

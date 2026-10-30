@@ -4,7 +4,7 @@ import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { requireCompanyResource, requirePermission, requirePlatformAdmin } from "@/lib/auth/apiAuthorizationCore.mjs";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
-import { validateDirectPassword } from "@/lib/userCredentialCore.mjs";
+import { canSetDirectPassword, validateDirectPassword } from "@/lib/userCredentialCore.mjs";
 
 function createTemporaryPassword() {
   return `Pf!${randomBytes(9).toString("base64url")}9a`;
@@ -28,7 +28,6 @@ export async function POST(request, { params }) {
   const directPassword = String(payload?.password || "");
   const isDirectChange = directPassword.length > 0;
   if (isDirectChange) {
-    try { requirePlatformAdmin(authorization.context); } catch (error) { return authorizationErrorResponse(request, error, authorization.context); }
     const passwordErrors = validateDirectPassword(directPassword);
     if (passwordErrors.length) {
       return NextResponse.json({ error: passwordErrors[0], details: passwordErrors, code: "PASSWORD_POLICY_INVALID" }, { status: 400 });
@@ -49,6 +48,11 @@ export async function POST(request, { params }) {
       { error: "La generación de claves está disponible para administradores de empresa y operadores.", code: "ROLE_NOT_SUPPORTED" },
       { status: 400 },
     );
+  }
+  // Clave directa: Root, o el administrador de empresa para sus operadores
+  // (SOL-2026-10-29-011); la empresa ya se validó con requireCompanyResource.
+  if (isDirectChange && !canSetDirectPassword(authorization.context, member.role)) {
+    try { requirePlatformAdmin(authorization.context); } catch (error) { return authorizationErrorResponse(request, error, authorization.context); }
   }
   const { data: authData, error: authError } = await db.auth.admin.getUserById(id);
   if (authError || !authData?.user) {
