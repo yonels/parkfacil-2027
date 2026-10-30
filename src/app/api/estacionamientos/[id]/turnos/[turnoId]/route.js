@@ -6,6 +6,7 @@ import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
 import { loadShiftPresentations } from "@/lib/shiftPresentationRepository";
 import { shiftEditViolation } from "@/lib/turnosParkingCore.mjs";
+import { isParkingActive, PARKING_NOT_ACTIVE } from "@/lib/parkingActiveGuard.mjs";
 
 const EDITABLE_SHIFT_STATES = ["PROGRAMMED", "OPEN", "CANCELLED"];
 
@@ -62,6 +63,7 @@ export async function PATCH(request, { params }) {
     };
     // Abrir desde Editar registra cuándo y quién, igual que la apertura en el POS.
     if (row.status === "OPEN" && currentShift.status !== "OPEN") {
+      if (!isParkingActive(parking)) return NextResponse.json({ error: PARKING_NOT_ACTIVE.adminMessage, code: PARKING_NOT_ACTIVE.code }, { status: 409 });
       row.opened_at = new Date().toISOString();
       row.opened_by = context.userId;
     }
