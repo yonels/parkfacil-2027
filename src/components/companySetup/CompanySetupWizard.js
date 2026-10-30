@@ -6,7 +6,7 @@
 // abre la pantalla actual; al volver, el estado sale de los datos reales.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { BookOpen, Check, Lock, LogOut, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Check, Lock, LogOut, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import { SETUP_STEPS } from "@/lib/companySetup/companySetupCore.mjs";
 import { STEP_COLORS, STEP_GUIDES } from "@/lib/companySetup/companySetupGuide.mjs";
@@ -167,10 +167,18 @@ export default function CompanySetupWizard({ companies, onReload, onExit, existi
     setDraft(emptyWizardDraft()); setView(null); setErrors({}); setResumed(false); setCreateError("");
   }
 
-  function finishAndExit() {
-    const companyId = draft.createdCompanyId;
-    if (!existingCompanyId) clearDraft();
-    onExit(companyId);
+  // Salir conserva el borrador (se retoma con «Continúa donde quedaste»); solo
+  // se borra al terminar los 7 pasos o con «Descartar» / «Empezar otra empresa».
+  function exitWizard({ finished = false } = {}) {
+    if (finished && !existingCompanyId) clearDraft();
+    onExit(draft.createdCompanyId);
+  }
+
+  // «Volver» en cada paso: al paso anterior; en el paso 1, a «Cuentas existentes».
+  function goBack() {
+    if (step === 1) { exitWizard(); return; }
+    setErrors({}); setCreateError(""); setResumed(false);
+    setView(step > 7 ? 7 : step - 1);
   }
 
   const meta = step <= 7 ? SETUP_STEPS[step - 1] : null;
@@ -196,7 +204,7 @@ export default function CompanySetupWizard({ companies, onReload, onExit, existi
             {draft.createdCompanyId ? <button type="button" onClick={() => void refresh()} disabled={refreshing} className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"><RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />Actualizar estado</button> : null}
             {!draft.createdCompanyId && draft.done[1] ? <button type="button" onClick={discard} className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-rose-700"><Trash2 className="h-3.5 w-3.5" />Descartar borrador</button> : null}
             {draft.createdCompanyId && !existingCompanyId ? <button type="button" onClick={startAnother} className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"><Plus className="h-3.5 w-3.5" />Empezar otra empresa</button> : null}
-            <button type="button" onClick={finishAndExit} className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"><LogOut className="h-3.5 w-3.5" />Salir del asistente</button>
+            <button type="button" onClick={() => exitWizard()} className="inline-flex items-center gap-1 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"><LogOut className="h-3.5 w-3.5" />Salir del asistente</button>
           </div>
         </div>
         <div className="mt-3 grid grid-cols-7 gap-1.5" aria-hidden="true">
@@ -234,6 +242,7 @@ export default function CompanySetupWizard({ companies, onReload, onExit, existi
         {meta ? (
           <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-wrap items-center gap-4 border-b px-6 py-5" style={{ background: `linear-gradient(120deg, ${tint(color, "29")}, ${tint(color, "08")} 70%)`, borderColor: tint(color, "33") }}>
+              <button type="button" onClick={goBack} title={step === 1 ? "Volver a Cuentas existentes" : `Volver al paso ${step - 1}`} className="inline-flex w-full items-center gap-1.5 text-sm font-bold text-slate-600 hover:text-[#041E42] sm:w-auto sm:basis-full"><ArrowLeft className="h-4 w-4" />Volver</button>
               {(() => { const Icon = STEP_ICONS[meta.key]; return <span className="grid h-14 w-14 place-items-center rounded-2xl text-white shadow-lg" style={{ background: color }}><Icon className="h-7 w-7" /></span>; })()}
               <div>
                 <p className="text-[11px] font-extrabold uppercase tracking-[0.14em]" style={{ color }}>Paso {step} de 7 · {meta.name}</p>
@@ -256,7 +265,7 @@ export default function CompanySetupWizard({ companies, onReload, onExit, existi
             </div>
 
             <div className="flex flex-wrap items-center gap-3 border-t border-slate-100 px-6 py-4">
-              <button type="button" disabled={step === 1} onClick={() => open(step - 1)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-40">← Anterior</button>
+              <button type="button" onClick={goBack} className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"><ArrowLeft className="h-4 w-4" />{step === 1 ? "Volver a Cuentas existentes" : `Volver al paso ${step - 1}`}</button>
               <span className="flex-1" />
               {!draft.createdCompanyId && step < 3 ? <button type="button" onClick={() => void saveDraftStep()} className="rounded-full px-5 py-2.5 text-sm font-bold text-white shadow-md" style={{ background: color }}>Guardar y continuar → {SETUP_STEPS[step].question}</button> : null}
               {!draft.createdCompanyId && step === 3 ? <button type="button" onClick={() => void createCompany()} disabled={saving} className="rounded-full px-5 py-2.5 text-sm font-bold text-white shadow-md disabled:opacity-60" style={{ background: color }}>{saving ? "Creando…" : "Crear empresa y continuar →"}</button> : null}
@@ -269,7 +278,10 @@ export default function CompanySetupWizard({ companies, onReload, onExit, existi
             <h2 className="mt-2 text-2xl font-bold text-[#041E42]">¡{parkingSetup?.name || "El estacionamiento"} está listo para operar!</h2>
             <p className="mx-auto mt-2 max-w-lg text-sm text-slate-600">Completaste las 7 preguntas. Puedes volver a cualquier paso para revisarlo.</p>
             <div className="mt-5 flex flex-wrap justify-center gap-2">{SETUP_STEPS.map((item) => <span key={item.key} className="rounded-full px-3 py-1.5 text-xs font-bold text-white" style={{ background: STEP_COLORS[item.key] }}>{item.question} ✓</span>)}</div>
-            <button type="button" onClick={finishAndExit} className="mt-6 rounded-full bg-[#3150D8] px-5 py-2.5 text-sm font-bold text-white">Ver en «Cuentas existentes»</button>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <button type="button" onClick={goBack} className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-bold text-slate-700"><ArrowLeft className="h-4 w-4" />Volver</button>
+              <button type="button" onClick={() => exitWizard({ finished: true })} className="rounded-full bg-[#3150D8] px-5 py-2.5 text-sm font-bold text-white">Ver en «Cuentas existentes»</button>
+            </div>
           </div>
         )}
       </div>
