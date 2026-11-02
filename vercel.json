@@ -7,6 +7,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/on-street-sms-avisos": false,
       "feature/plazas-sin-contrato": false,
       "feature/zonas-nivel-eliminar": false,
       "feature/zonas-nivel-modificar": false,

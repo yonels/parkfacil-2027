@@ -21,3 +21,9 @@ test("telefono invalido o distinto al de la sesion no es elegible", async () => 
 test("pago no autorizado no es elegible", async () => assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ paymentStatus: "REJECTED" }), notification, now), false));
 test("una extension valida el pago del nuevo ciclo", async () => assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ extensionPaymentId: "pay-extension" }), notification, now), true));
 test("el vencimiento de un ciclo anterior deja de ser elegible tras extender", async () => assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ expiresAt: "2026-08-24T11:15:00.000Z" }), notification, now), false));
+test("con envío atrasado solo es elegible el aviso vigente", async () => {
+  const late = "2026-08-24T10:06:00.000Z";
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), { ...notification, reminder_minutes: 15 }, late), false);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), { ...notification, reminder_minutes: 10 }, late), true);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), { ...notification, reminder_minutes: 5 }, late), false);
+});

@@ -3,6 +3,7 @@ import { ROLES } from "./auth/permissions.mjs";
 import { maskAdminPhone, normalizeOnStreetFilters, paymentTypeFromTransaction, visibleOnStreetStatus } from "./onStreetAdminCore.mjs";
 import { applySortAndPaginate, computeKpis, durationDistribution, extensionsBreakdown, locationRanking, minutesDistribution, occupancyRate, operationalAlerts, paymentMethodBreakdown, paymentRevenueByGroup, paymentsByDay, placePerformanceRanking, resolveParkingCompanyFilter, resolvePeriodBounds, revenueBreakdown, revenueByDay, revenueByHourOfDay, revenueTimeSeries, segmentCapacity, sessionsByHourOfDay, sessionStateBreakdown, sessionsByDay, soonToExpireCount, sortLocationRanking, sortPlacePerformance, statusDistribution } from "./onStreetDashboardCore.mjs";
 import { computeInspectionKpis, emptyInspectionKpis } from "./onStreetInspectionsAdminCore.mjs";
+import { selectCurrentReminder } from "./onStreetSms.mjs";
 function fail(result){if(result.error)throw result.error;return result.data||[];}
 // CORRECCIÓN "Reportes On Street -> Pagos: No fue posible cargar el
 // reporte" (2026-08-30). Causa raíz real (confirmada reproduciendo la
@@ -457,7 +458,7 @@ export async function getOnStreetSessionDetail(db,context,id){const listed=await
   const inspections=fail(await db.from("on_street_inspections").select("id,license_plate_normalized,inspector_user_id,inspection_type,vehicle_still_present,observations,inspected_at,sms_status,sms_sent_at").eq("session_id",id).order("inspected_at"));
   // SMS previo al vencimiento (§11): historial real por sesión (puede haber
   // más de un recordatorio si la sesión se extendió varias veces).
-  const smsReminders=fail(await db.from("on_street_pilot_notifications").select("id,type,status,scheduled_at,sent_at,attempts,error_code").eq("session_id",id).order("scheduled_at"));
+  const smsReminders=fail(await db.from("on_street_pilot_notifications").select("id,type,reminder_minutes,status,scheduled_at,sent_at,attempts,error_code").eq("session_id",id).order("scheduled_at"));
   return{session,extensions,transactions,inspections,smsReminders};}
 
 // Dashboard On Street: KPIs, series y rankings reales (no genera datos
@@ -639,19 +640,13 @@ export async function getOnStreetReport(db,context,input={}){
     const sessionIds=sessions.map(s=>s.id);
     // Mismo defecto que las extensiones (ver selectInChunks arriba):
     // sessionIds puede acercarse a REPORT_ROW_CAP=1000, así que el .in()
-    // se trocea en lotes. El ".order(scheduled_at desc)" original solo
-    // servía para que "el primero por sesión" fuera el más reciente -- al
-    // trocear, cada lote llega ordenado por separado, así que ya no hay un
-    // orden global. Se reemplaza por una comparación explícita (se queda
-    // el recordatorio más reciente por sesión, sin importar en qué lote ni
-    // en qué orden llegó) -- mismo resultado final, ahora sin depender del
-    // orden de llegada.
+    // se trocea en lotes. Cada sesión tiene hasta 3 avisos por ciclo
+    // (SOL-2026-11-02-004): selectCurrentReminder elige cuál la representa,
+    // sin depender del lote ni del orden de llegada.
     const reminderRows=await selectInChunks(chunk=>db.from("on_street_pilot_notifications").select("session_id,status,sent_at,scheduled_at").eq("type","EXPIRING_SOON").in("session_id",chunk),sessionIds);
-    const reminderBySession=new Map();
-    for(const row of reminderRows){
-      const current=reminderBySession.get(row.session_id);
-      if(!current||new Date(row.scheduled_at)>new Date(current.scheduled_at))reminderBySession.set(row.session_id,row);
-    }
+    const remindersBySession=new Map();
+    for(const row of reminderRows)remindersBySession.set(row.session_id,[...(remindersBySession.get(row.session_id)||[]),row]);
+    const reminderBySession=new Map([...remindersBySession].map(([sessionId,rows])=>[sessionId,selectCurrentReminder(rows)]));
     // Fiscalizado Sí/No + Inspector (§25 del brief): una sesión puede tener
     // como máximo una fiscalización OVERSTAY real (índice único parcial en
     // on_street_inspections, ver migración de Inspectores Etapa 2) -- basta

@@ -17,7 +17,7 @@ async function claimNotification(db, id) {
     .update({ status: "PROCESSING", updated_at: new Date().toISOString() })
     .eq("id", id)
     .eq("status", "PENDING")
-    .select("id,session_id,type,phone_normalized,message,scheduled_at,target_expires_at,attempts")
+    .select("id,session_id,type,phone_normalized,message,scheduled_at,target_expires_at,reminder_minutes,attempts")
     .maybeSingle();
   if (claim.error) throw claim.error;
   return claim.data;
@@ -56,7 +56,7 @@ export async function processDueOnStreetSms({ origin, provider, db, now = new Da
     const sentAt = new Date().toISOString();
     let result;
     try {
-      const message = publicSmsMessage(origin, claimed.message);
+      const message = publicSmsMessage(origin, claimed.message, claimed.reminder_minutes);
       if (!message) throw Object.assign(new Error("SMS_MESSAGE_INVALID"), { code: "SMS_MESSAGE_INVALID" });
       result = await provider.send({ to: claimed.phone_normalized, message });
     } catch (cause) {
