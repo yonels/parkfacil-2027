@@ -100,6 +100,14 @@ export function validateZone(input, zones = [], currentId = null) {
   return errors;
 }
 
+// Ninguna tabla referencia parking_zones, así que borrar una zona no toca estadías ni turnos.
+// Lo que sí se pierde es capacidad: el POS la calcula con las zonas activas.
+export function zoneDeleteBlockReason(zone, { parkingStatus, otherActiveZones }) {
+  if (Number(zone?.occupied) > 0) return "La zona tiene unidades ocupadas. Déjalas en 0 antes de eliminarla.";
+  if (parkingStatus === "ACTIVE" && zone?.status === "ACTIVE" && otherActiveZones < 1) return "Es la última zona activa de un estacionamiento en operación. Crea o activa otra zona antes de eliminarla.";
+  return null;
+}
+
 function minutes(value) {
   const match = /^(\d{2}):(\d{2})$/.exec(text(value));
   return match ? Number(match[1]) * 60 + Number(match[2]) : null;
