@@ -1,5 +1,6 @@
 import "server-only";
 import { shapeContactDisplay } from "./companyContactDisplayCore.mjs";
+import { pickContractedSpacesRow } from "./contractedSpacesInput.mjs";
 
 function relationUnavailable(error) {
   return ["42P01", "PGRST204", "PGRST205"].includes(error?.code);
@@ -167,11 +168,11 @@ export async function listCompanies(supabase, { companyId = null } = {}) {
   let contractedSpacesByParkingId = {},parkingLinks=[];
   if (parkingIds.length) {
     const { data: contractedSpaces, error: contractedSpacesError } = await supabase
-      .from("contract_parking_spaces").select("contract_id,parking_id,contracted_spaces").in("parking_id", parkingIds);
+      .from("contract_parking_spaces").select("contract_id,parking_id,contracted_spaces,updated_at").in("parking_id", parkingIds);
     // La tabla puede no existir aún en un entorno recién provisionado (42P01/PGRST205);
     // en ese caso se degrada a "sin dato" en vez de romper el listado de empresas.
     if (contractedSpacesError && !relationUnavailable(contractedSpacesError)) throw contractedSpacesError;
-    contractedSpacesByParkingId = Object.fromEntries((contractedSpaces || []).map((row) => [row.parking_id, row.contracted_spaces]));
+    contractedSpacesByParkingId = Object.fromEntries(parkingIds.map((parkingId) => [parkingId, pickContractedSpacesRow((contractedSpaces || []).filter((row) => row.parking_id === parkingId))?.contracted_spaces ?? null]));
     parkingLinks=contractedSpaces||[];
   }
   return (companies || []).map((company) => mapCompany(
