@@ -59,8 +59,9 @@ export default function EmpresaEditButton({ empresa }) {
 
       // Plazas contratadas viven por estacionamiento (contract_parking_spaces), no en
       // company_contracts: se guardan aparte, reutilizando la misma API que consume el
-      // detalle del estacionamiento (que solo lee, nunca escribe, este dato).
-      if (contract) {
+      // detalle del estacionamiento (que solo lee, nunca escribe, este dato). Sin contrato
+      // vigente la API las guarda como ingreso manual.
+      {
         const entries = Object.entries(parkingSpaces).filter(([, value]) => value !== "" && value != null);
         const results = await Promise.all(entries.map(([parkingId, value]) => {
           const parking = (empresa.estacionamientos || []).find((item) => item.id === parkingId);
@@ -110,9 +111,9 @@ export default function EmpresaEditButton({ empresa }) {
             {[ ["valorMensual", "Valor mensual", "number"], ["fechaInicio", "Inicio", "date"], ["fechaTermino", "Término", "date"], ["avisoNoRenovacionDias", "Aviso no renovación (días)", "number"], ["descuentoAnualPorcentaje", "Descuento anual (%)", "number"], ["plazoPagoDias", "Plazo de pago (días)", "number"] ].map(([key, label, type]) => <label key={key} className="text-sm font-semibold text-slate-600"><span className="mb-1.5 block">{label}</span><input type={type} min={type === "number" ? "0" : undefined} step={key === "valorMensual" ? "0.01" : undefined} value={form.contrato[key] ?? ""} onChange={(event) => changeContract(key, event.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 font-normal" /></label>)}
             <label className="flex items-end text-sm font-semibold text-slate-600"><span className="flex w-full items-center gap-2 rounded-xl border border-slate-200 px-3 py-2.5"><input type="checkbox" checked={Boolean(form.contrato.renovacionAutomatica)} onChange={(event) => changeContract("renovacionAutomatica", event.target.checked)} /> Renovación automática</span></label>
           </fieldset> : null}
-          {form.contrato && empresa.estacionamientos?.length ? <fieldset className="grid gap-3 border-t border-slate-200 pt-5 sm:col-span-2">
-            <legend className="px-2 font-bold text-[#041E42]">Plazas contratadas — Contrato {form.contrato.numero || "vigente"}</legend>
-            <p className="text-xs font-normal text-slate-500">Defina la cantidad de plazas contratadas para cada estacionamiento asociado a este contrato.</p>
+          {empresa.estacionamientos?.length ? <fieldset className="grid gap-3 border-t border-slate-200 pt-5 sm:col-span-2">
+            <legend className="px-2 font-bold text-[#041E42]">{form.contrato ? `Plazas contratadas — Contrato ${form.contrato.numero || "vigente"}` : "Plazas contratadas — Ingreso manual"}</legend>
+            <p className="text-xs font-normal text-slate-500">{form.contrato ? "Estas son las plazas cargadas desde el contrato. Puede ajustarlas para cada estacionamiento." : "Esta empresa no tiene contrato. Ingrese las plazas contratadas de cada estacionamiento."}</p>
             <div className="grid gap-3 sm:grid-cols-2">
               {empresa.estacionamientos.map((parking) => <label key={parking.id} className="text-sm font-semibold text-slate-600">
                 <span className="mb-1.5 block">{parking.nombre} <span className="font-normal text-slate-400">({parking.codigo})</span></span>

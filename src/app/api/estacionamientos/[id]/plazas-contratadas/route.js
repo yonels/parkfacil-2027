@@ -23,7 +23,6 @@ export async function PUT(request, { params }) {
     const data = await setContractedSpaces(auth.db, { parkingId: auth.parking.id, companyId: auth.parking.companyId, contractedSpaces: input.contractedSpaces, notes: input.notes });
     return NextResponse.json({ data });
   } catch (error) {
-    if (error?.code === "CONTRACT_NOT_FOUND") return NextResponse.json({ error: "La empresa dueña de este estacionamiento no tiene un contrato vigente registrado.", code: "CONTRACT_NOT_FOUND" }, { status: 409 });
     return operationalError(error, "No fue posible guardar las plazas contratadas.", request);
   }
 }
