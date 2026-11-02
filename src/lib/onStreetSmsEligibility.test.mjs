@@ -27,3 +27,15 @@ test("con envío atrasado solo es elegible el aviso vigente", async () => {
   assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), { ...notification, reminder_minutes: 10 }, late), true);
   assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), { ...notification, reminder_minutes: 5 }, late), false);
 });
+const expiredNotice = { ...notification, type: "EXPIRED", reminder_minutes: 0 };
+test("el aviso al vencer es elegible con la sesión activa o ya vencida", async () => {
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), expiredNotice, "2026-08-24T10:15:00.000Z"), true);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ sessionStatus: "EXPIRED" }), expiredNotice, "2026-08-24T10:16:00.000Z"), true);
+});
+test("el aviso al vencer no es elegible antes de tiempo, muy tarde, finalizada, extendida o sin pago", async () => {
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), expiredNotice, "2026-08-24T10:14:59.000Z"), false);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), expiredNotice, "2026-08-24T10:30:00.000Z"), false);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ sessionStatus: "CLOSED" }), expiredNotice, "2026-08-24T10:16:00.000Z"), false);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ expiresAt: "2026-08-24T11:15:00.000Z" }), expiredNotice, "2026-08-24T10:16:00.000Z"), false);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ paymentStatus: "REJECTED" }), expiredNotice, "2026-08-24T10:16:00.000Z"), false);
+});

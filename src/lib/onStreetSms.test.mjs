@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { FINAL_SMS_MAX_LENGTH, isReminderWindowOpen, publicSmsMessage, secureSessionUrl, selectCurrentReminder } from "./onStreetSms.mjs";
+import { FINAL_SMS_MAX_LENGTH, isExpiredNoticeWindowOpen, isReminderWindowOpen, publicSmsMessage, secureSessionUrl, selectCurrentReminder } from "./onStreetSms.mjs";
 const migration = readFileSync(fileURLToPath(new URL("../../supabase/migrations/20260814180000_on_street_pilot_sms_notifications.sql", import.meta.url)), "utf8");
 const publicSessionRoute = readFileSync(fileURLToPath(new URL("../app/api/public/on-street/sessions/[token]/route.js", import.meta.url)), "utf8");
 test("programa aviso previo y aviso de vencimiento", () => { assert.match(migration, /'EXPIRING_SOON'.*expires_at-interval '10 minutes'/s); assert.match(migration, /'EXPIRED'.*new\.expires_at/s); });
@@ -60,4 +60,16 @@ test("la sesión se representa por su último aviso procesado o por el próximo 
   assert.equal(selectCurrentReminder([row("a", "SENT", "10"), row("b", "FAILED", "15"), row("c", "PENDING", "20")]).id, "b");
   assert.equal(selectCurrentReminder([row("c", "PENDING", "20"), row("b", "PENDING", "15")]).id, "b");
   assert.equal(selectCurrentReminder([row("a", "CANCELLED", "10"), row("b", "CANCELLED", "15")]).id, "b");
+});
+test("el aviso al vencer no ofrece extender y cabe en 160 caracteres con el dominio real", () => {
+  const message = publicSmsMessage("https://cliente.parkfacilapp.cl", STORED, 0, "EXPIRED");
+  assert.ok(message.startsWith("ParkFacil: tu tiempo terminó. Paga de nuevo o retira tu vehículo: https://cliente.parkfacilapp.cl/estacionar/sesion/"));
+  assert.ok(!message.includes("Extiende"));
+  assert.ok(message.length <= FINAL_SMS_MAX_LENGTH, `${message.length} caracteres`);
+});
+test("el aviso al vencer solo se envía desde el vencimiento y hasta 15 minutos después", () => {
+  assert.equal(isExpiredNoticeWindowOpen(1), false);
+  assert.equal(isExpiredNoticeWindowOpen(0), true);
+  assert.equal(isExpiredNoticeWindowOpen(-15 * MIN + 1), true);
+  assert.equal(isExpiredNoticeWindowOpen(-15 * MIN), false);
 });

@@ -27,13 +27,13 @@ begin
   select expires_at into v_vence from public.on_street_pilot_sessions where id = v_id;
   insert into resultado select 'sesión de 60 min programa 15, 10 y 5', pg_temp.pendientes(v_id) = '15,10,5', pg_temp.pendientes(v_id);
   select count(*) into v_n from public.on_street_pilot_notifications
-    where session_id = v_id and scheduled_at = v_vence - make_interval(mins => reminder_minutes) and target_expires_at = v_vence;
+    where session_id = v_id and type = 'EXPIRING_SOON' and scheduled_at = v_vence - make_interval(mins => reminder_minutes) and target_expires_at = v_vence;
   insert into resultado select 'cada aviso queda programado según su anticipación', v_n = 3, v_n::text;
 
   -- 2. extender cancela los pendientes y programa el nuevo ciclo
   update public.on_street_pilot_sessions set expires_at = v_vence + interval '30 minutes' where id = v_id;
   insert into resultado select 'extender deja 3 pendientes del nuevo vencimiento', pg_temp.pendientes(v_id) = '15,10,5', pg_temp.pendientes(v_id);
-  select count(*) into v_n from public.on_street_pilot_notifications where session_id = v_id and status = 'CANCELLED' and target_expires_at = v_vence;
+  select count(*) into v_n from public.on_street_pilot_notifications where session_id = v_id and type = 'EXPIRING_SOON' and status = 'CANCELLED' and target_expires_at = v_vence;
   insert into resultado select 'extender cancela los 3 avisos del ciclo anterior', v_n = 3, v_n::text;
 
   -- 3. finalizar cancela los pendientes
@@ -54,7 +54,27 @@ begin
   update public.on_street_pilot_sessions set expires_at = clock_timestamp() + interval '8 minutes' where id = v_id;
   insert into resultado select 'extender a 8 min programa solo 5', pg_temp.pendientes(v_id) = '5', pg_temp.pendientes(v_id);
 
-  -- 6. restricciones
+  -- 6. aviso al vencer
+  v_id := pg_temp.nueva_sesion(60);
+  select count(*) into v_n from public.on_street_pilot_notifications n join public.on_street_pilot_sessions s on s.id = n.session_id
+    where n.session_id = v_id and n.type = 'EXPIRED' and n.status = 'PENDING' and n.scheduled_at = s.expires_at and n.target_expires_at = s.expires_at;
+  insert into resultado select 'programa un aviso al vencer', v_n = 1, v_n::text;
+  update public.on_street_pilot_sessions set expires_at = expires_at + interval '30 minutes' where id = v_id;
+  select count(*) into v_n from public.on_street_pilot_notifications where session_id = v_id and type = 'EXPIRED' and status = 'PENDING';
+  insert into resultado select 'extender deja un solo aviso al vencer pendiente', v_n = 1, v_n::text;
+  update public.on_street_pilot_sessions set status = 'EXPIRED' where id = v_id;
+  select count(*) into v_n from public.on_street_pilot_notifications where session_id = v_id and type = 'EXPIRED' and status = 'PENDING';
+  insert into resultado select 'al vencer se conserva el aviso de vencimiento', v_n = 1, v_n::text;
+  insert into resultado select 'al vencer se cancelan los avisos previos', pg_temp.pendientes(v_id) = '', pg_temp.pendientes(v_id);
+  v_id := pg_temp.nueva_sesion(3);
+  select count(*) into v_n from public.on_street_pilot_notifications where session_id = v_id and type = 'EXPIRED' and status = 'PENDING';
+  insert into resultado select 'una sesión de 3 min también tiene aviso al vencer', v_n = 1, v_n::text;
+  update public.on_street_pilot_sessions set status = 'CLOSED', ended_at = clock_timestamp(), duration_seconds = 60 where id = v_id;
+  select count(*) into v_n from public.on_street_pilot_notifications where session_id = v_id and type = 'EXPIRED' and status = 'PENDING';
+  insert into resultado select 'finalizar cancela el aviso al vencer', v_n = 0, v_n::text;
+
+  -- 7. restricciones
+  v_id := pg_temp.nueva_sesion(60);
   begin
     update public.on_street_pilot_notifications set reminder_minutes = 7 where session_id = v_id;
     v_err := 'sin error';
