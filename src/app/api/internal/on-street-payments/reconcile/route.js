@@ -6,7 +6,7 @@ import { authorizeCronRequest } from "@/lib/onStreetCronAuth.mjs";
 // desde el navegador. En cada corrida, primero expira realmente (persiste
 // EXPIRED) cualquier sesión ACTIVE vencida en cualquier ubicación --
 // defensa contra el escenario 2026-08-26 donde una sesión vieja podía
-// quedar ACTIVE para siempre y bloquear on_street_one_active_phone_
+// quedar ACTIVE para siempre y bloquear on_street_one_active_plate_
 // location_idx indefinidamente -- y luego selecciona automáticamente dos
 // colas de candidatos: payment_transactions On-Street en COMMITTING más
 // allá del umbral seguro (autorizadas pero con finalización local fallida),

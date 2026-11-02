@@ -86,7 +86,7 @@ export async function closePilotSession(token, db = getSupabaseAdminClient()) {
 // un admin abre el panel de un estacionamiento específico), esta función es
 // el mecanismo real, automático y server-side que garantiza que ninguna
 // sesión vencida quede indefinidamente 'ACTIVE' bloqueando
-// on_street_one_active_phone_location_idx. La invoca el cron de
+// on_street_one_active_plate_location_idx. La invoca el cron de
 // reconciliación de pagos (ver onStreetPaymentReconcileCore.mjs) antes de
 // cada intento de recuperación.
 export async function expireDueOnStreetPilotSessions(db = getSupabaseAdminClient()) {

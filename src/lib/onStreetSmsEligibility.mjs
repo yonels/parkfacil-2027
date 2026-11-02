@@ -1,4 +1,4 @@
-import { isExpiredNoticeWindowOpen, isReminderWindowOpen } from "./onStreetSms.mjs";
+import { isExpiredNoticeWindowOpen } from "./onStreetSms.mjs";
 
 const CHILEAN_MOBILE = /^\+569\d{8}$/;
 
@@ -6,7 +6,7 @@ export async function isEligibleOnStreetSmsNotification(db, notification, nowIso
   const isExpiredNotice = notification.type === "EXPIRED";
   if ((notification.type !== "EXPIRING_SOON" && !isExpiredNotice) || !CHILEAN_MOBILE.test(notification.phone_normalized || "") || !notification.target_expires_at) return false;
   const now = new Date(nowIso).getTime(), target = new Date(notification.target_expires_at).getTime();
-  if (!Number.isFinite(target) || !(isExpiredNotice ? isExpiredNoticeWindowOpen(target - now) : isReminderWindowOpen(notification.reminder_minutes, target - now))) return false;
+  if (!Number.isFinite(target) || !(isExpiredNotice ? isExpiredNoticeWindowOpen(target - now) : target > now && target - now <= 15 * 60 * 1000)) return false;
   const sessionResult = await db.from("on_street_pilot_sessions").select("id,status,phone_normalized,expires_at,payment_transaction_id").eq("id", notification.session_id).maybeSingle();
   if (sessionResult.error) throw sessionResult.error;
   const session = sessionResult.data;
