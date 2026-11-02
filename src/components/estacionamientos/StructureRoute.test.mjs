@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { zoneDeleteBlockReason } from "../../lib/parkingOperations.mjs";
 
 const source = () => readFile(new URL("./StructureRoute.js", import.meta.url), "utf8");
 
@@ -15,4 +16,17 @@ test("el detalle del nivel enlaza a la edición de cada zona y muestra su estado
 test("el badge de estado traduce En mantenimiento", async () => {
   const src = await readFile(new URL("./EstadoEstacionamientoBadge.js", import.meta.url), "utf8");
   assert.match(src, /status === "MAINTENANCE" \? "En mantenimiento"/);
+});
+
+test("una zona con unidades ocupadas no se puede eliminar", () => {
+  const reason = zoneDeleteBlockReason({ status: "INACTIVE", occupied: 1 }, { parkingStatus: "CONFIGURING", otherActiveZones: 3 });
+  assert.match(reason, /unidades ocupadas/);
+});
+
+test("la última zona activa de un estacionamiento en operación no se puede eliminar", () => {
+  const zone = { status: "ACTIVE", occupied: 0 };
+  assert.match(zoneDeleteBlockReason(zone, { parkingStatus: "ACTIVE", otherActiveZones: 0 }), /última zona activa/);
+  assert.equal(zoneDeleteBlockReason(zone, { parkingStatus: "ACTIVE", otherActiveZones: 1 }), null);
+  assert.equal(zoneDeleteBlockReason(zone, { parkingStatus: "CONFIGURING", otherActiveZones: 0 }), null);
+  assert.equal(zoneDeleteBlockReason({ status: "INACTIVE", occupied: 0 }, { parkingStatus: "ACTIVE", otherActiveZones: 0 }), null);
 });
