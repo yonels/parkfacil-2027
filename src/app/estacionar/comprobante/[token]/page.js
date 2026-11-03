@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { getPublicPaymentIntent } from "@/lib/onStreetPaymentService";
 import { formatChileDateTime, isPublicToken } from "@/lib/onStreetPilot.mjs";
-import LiveRemainingTime from "@/components/on-street/LiveRemainingTime";
+import ReceiptTimeBox from "@/components/on-street/ReceiptTimeBox";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Comprobante | ParkFacil", robots: { index: false, follow: false } };
@@ -92,7 +92,7 @@ export default async function Page({ params, searchParams }) {
   // la transacción/token_ws anterior, porque simplemente enlaza a la página
   // pública del QR, que arma un intento de pago nuevo desde cero.
   const offerRetryToQr = !paid && !processing && !(isExtension && sessionUsable);
-  const qrPublicCode = offerRetryToQr ? await getQrPublicCode(db, intent.qr_location_id) : null;
+  const qrPublicCode = offerRetryToQr || paid ? await getQrPublicCode(db, intent.qr_location_id) : null;
 
   return (
     <Receipt title={title} message={message}>
@@ -103,10 +103,7 @@ export default async function Page({ params, searchParams }) {
           </p>
           {session ? (
             <>
-              <div className="mt-4 rounded-3xl bg-[#041E42] p-6 text-center text-white">
-                <p className="text-sm text-slate-300">Tiempo restante</p>
-                <p className="mt-1 text-5xl font-black tabular-nums"><LiveRemainingTime expiresAt={session.expiresAt} /></p>
-              </div>
+              <ReceiptTimeBox expiresAt={session.expiresAt} closed={session.status === "CLOSED"} qrCode={qrPublicCode} />
               <Link href={`/estacionar/sesion/${session.token}`} className="mt-5 block min-h-16 rounded-2xl bg-[#3150D8] p-5 text-center text-lg font-black text-white">
                 VOLVER A MI ESTACIONAMIENTO
               </Link>

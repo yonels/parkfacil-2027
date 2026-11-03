@@ -129,7 +129,7 @@ export async function reconcileDueOnStreetPayments({
 } = {}) {
   // Defensa obligatoria: antes de intentar recuperar cualquier pago, se
   // garantiza que ninguna sesión ACTIVE vencida siga bloqueando
-  // on_street_one_active_phone_location_idx. expireSessions() es un
+  // on_street_one_active_plate_location_idx. expireSessions() es un
   // barrido global (no depende de que este ciclo conozca de antemano qué
   // ubicación/teléfono es "relevante" para cada candidato) -- por eso se
   // ejecuta una sola vez por invocación, no una vez por candidato. No se

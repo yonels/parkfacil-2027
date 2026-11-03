@@ -59,7 +59,11 @@ export default function PublicParkingSession({ token }) {
   if (!data) return <main className="grid min-h-dvh place-items-center">{error}</main>;
 
   const s = data.session;
-  const active = s.status === "ACTIVE";
+  // La página sigue abierta al vencer: el estado se decide con el reloj, sin
+  // esperar a que el servidor marque la sesión como vencida.
+  const left = remainingSeconds(s.expiresAt, now);
+  const active = s.status === "ACTIVE" && left > 0;
+  const expired = s.status === "EXPIRED" || (s.status === "ACTIVE" && left === 0);
   const subject = encodeURIComponent(`Consulta estacionamiento - ${data.location.sectorName} - ${data.location.streetName} - ${data.location.segmentName}`);
 
   async function close() {
@@ -81,7 +85,6 @@ export default function PublicParkingSession({ token }) {
   // gratuita (piloto sin cobro) se eliminó junto con el resto del módulo —
   // ver §23 de la auditoría de producción. token no se usa directamente en
   // este render; queda disponible para depuración si hiciera falta.
-  const left = remainingSeconds(s.expiresAt, now);
   const extra = normalizePurchasedMinutes(extraMinutesInput);
   const extraAmount = simulatedAmount(extra, s.ratePerMinute);
   const newExpiry = extra ? new Date(Math.max(new Date(s.expiresAt).getTime(), now) + extra * 60000) : null;
@@ -120,7 +123,13 @@ export default function PublicParkingSession({ token }) {
     <main className="min-h-dvh bg-[#EEF4FF] p-4 text-[#041E42] sm:grid sm:place-items-center">
       <section className="mx-auto w-full max-w-md rounded-3xl bg-white p-6 shadow-xl">
         <p className="font-black text-[#3150D8]">ParkFacil</p>
-        <h1 className="text-3xl font-black">{active ? "Estacionamiento activo" : s.status === "EXPIRED" ? "Estacionamiento vencido" : "Estacionamiento finalizado"}</h1>
+        <h1 className="text-3xl font-black">{active ? "Estacionamiento activo" : expired ? "Tiempo vencido" : "Estacionamiento finalizado"}</h1>
+        {expired ? (
+          <div role="alert" className="mt-3 rounded-2xl bg-rose-50 p-4 text-sm font-semibold text-rose-800">
+            <p>Tu tiempo de estacionamiento terminó. Si sigues estacionado, paga un nuevo tiempo o retira tu vehículo.</p>
+            {data.location.qrCode ? <a href={`/estacionar/${data.location.qrCode}`} className="mt-3 block min-h-12 rounded-xl bg-rose-700 p-3 text-center font-black text-white">PAGAR NUEVO TIEMPO</a> : null}
+          </div>
+        ) : null}
         <p className="mt-3 text-sm"><b>Ubicación:</b> {data.location.sectorName} · {data.location.streetName} · {data.location.segmentName}</p>
         <div className="mt-5 rounded-3xl bg-[#041E42] p-6 text-center text-white">
           <p className="text-sm text-slate-300">Tiempo restante</p>

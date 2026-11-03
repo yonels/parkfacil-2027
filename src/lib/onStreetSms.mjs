@@ -6,14 +6,27 @@ export function secureSessionUrl(origin, message) {
   if (!match) return null;
   return `${String(origin || "").replace(/\/$/, "")}${match[0]}`;
 }
-export function publicSmsMessage(origin, storedMessage) {
+// Con la patente, quien paga por varios vehículos sabe a cuál se refiere cada aviso.
+export function publicSmsMessage(origin, storedMessage, { type = SMS_NOTIFICATION_TYPES.EXPIRING_SOON, plate = null } = {}) {
   const url = secureSessionUrl(origin, storedMessage);
   if (!url) return null;
-  const message = `ParkFacil: tu estacionamiento vence pronto. Extiende aquí: ${url}`;
+  // Una sesión vencida ya no se puede extender: se ofrece pagar de nuevo.
+  const message = type === SMS_NOTIFICATION_TYPES.EXPIRED
+    ? `ParkFacil: venció el tiempo de ${plate || "tu vehículo"}. Paga o retira tu vehículo: ${url}`
+    : plate
+      ? `ParkFacil: ${plate} vence en 15 minutos. Extiende aquí: ${url}`
+      : `ParkFacil: tu estacionamiento vence pronto. Extiende aquí: ${url}`;
   if (message.length > FINAL_SMS_MAX_LENGTH) {
     throw Object.assign(new Error("SMS_MESSAGE_TOO_LONG"), { code: "SMS_MESSAGE_TOO_LONG", length: message.length, max: FINAL_SMS_MAX_LENGTH });
   }
   return message;
+}
+
+// El aviso de vencimiento solo sirve poco después de vencer: si el envío se
+// atrasa más que esto, ya no se manda.
+export const EXPIRED_SMS_GRACE_MINUTES = 15;
+export function isExpiredNoticeWindowOpen(remainingMs) {
+  return Number.isFinite(remainingMs) && remainingMs <= 0 && remainingMs > -EXPIRED_SMS_GRACE_MINUTES * 60 * 1000;
 }
 
 export function resolveSmsPublicOrigin({ configuredOrigin, requestOrigin, nodeEnv = process.env.NODE_ENV } = {}) {

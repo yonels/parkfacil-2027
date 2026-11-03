@@ -16,6 +16,9 @@ export async function createInitialPaymentIntent(db,{qrCode,licensePlate,phone,m
   if(!/^[A-Z0-9]{4,8}$/.test(normalizedPlate)||!normalizedPhone||!normalizedMinutes)throw error("PAYMENT_INTENT_INPUT_INVALID");
   if(String(idempotencyKey||"").length<8)throw error("IDEMPOTENCY_KEY_REQUIRED");
   const location=await getPublicQrLocation(qrCode,db);if(!location)throw error("QR_LOCATION_NOT_FOUND",404);if(!location.rate)throw error("PILOT_RATE_NOT_FOUND",409);
+  // Antes de ir a Webpay: Transbank confirma el pago antes de crear la sesión, y
+  // la base rechazaría una segunda sesión activa de la misma patente en este QR.
+  const active=await db.from("on_street_pilot_sessions").select("id").eq("qr_location_id",location.qr.id).eq("license_plate_normalized",normalizedPlate).eq("status","ACTIVE").gt("expires_at",new Date().toISOString()).limit(1);if(active.error)throw active.error;if(active.data?.length)throw error("PLATE_ALREADY_ACTIVE",409);
   await enforceIntentRateLimit(db,location.qr.id,clientHash);
   const rate=Number(location.rate.minute_amount),amount=Math.round(normalizedMinutes*rate);if(!Number.isInteger(amount)||amount<=0)throw error("PAYMENT_AMOUNT_INVALID",409);
   const row={qr_location_id:location.qr.id,parking_id:location.parking.id,license_plate_normalized:normalizedPlate,phone_normalized:normalizedPhone,operation_type:"INITIAL",purchased_minutes:normalizedMinutes,rate_id:location.rate.id,rate_per_minute:rate,amount,currency:location.rate.currency||"CLP",location_snapshot:{parkingName:location.parking.name,sectorName:location.sector.name,streetName:location.street.name,segmentName:location.segment.name},rate_snapshot:{rateId:location.rate.id,ratePerMinute:rate,currency:location.rate.currency||"CLP"},idempotency_key:String(idempotencyKey),status:"PENDING_PAYMENT",expires_at:new Date(Date.now()+10*60*1000).toISOString()};

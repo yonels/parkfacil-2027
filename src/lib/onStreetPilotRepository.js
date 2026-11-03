@@ -71,7 +71,7 @@ export async function getPublicPilotSession(token, db = getSupabaseAdminClient()
   const location = await getPublicQrLocation(qr.public_code, db);
   const extensions=await db.from("on_street_pilot_extensions").select("id,additional_minutes,rate_per_minute,simulated_amount,new_expires_at,created_at").eq("session_id",session.id).order("created_at");
   if(extensions.error)throw extensions.error;
-  return location ? { session, location, extensions:extensions.data||[] } : null;
+  return location ? { session, location, qrCode:qr.public_code, extensions:extensions.data||[] } : null;
 }
 
 export async function closePilotSession(token, db = getSupabaseAdminClient()) {
@@ -86,7 +86,7 @@ export async function closePilotSession(token, db = getSupabaseAdminClient()) {
 // un admin abre el panel de un estacionamiento específico), esta función es
 // el mecanismo real, automático y server-side que garantiza que ninguna
 // sesión vencida quede indefinidamente 'ACTIVE' bloqueando
-// on_street_one_active_phone_location_idx. La invoca el cron de
+// on_street_one_active_plate_location_idx. La invoca el cron de
 // reconciliación de pagos (ver onStreetPaymentReconcileCore.mjs) antes de
 // cada intento de recuperación.
 export async function expireDueOnStreetPilotSessions(db = getSupabaseAdminClient()) {

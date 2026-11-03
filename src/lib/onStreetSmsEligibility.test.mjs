@@ -21,3 +21,18 @@ test("telefono invalido o distinto al de la sesion no es elegible", async () => 
 test("pago no autorizado no es elegible", async () => assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ paymentStatus: "REJECTED" }), notification, now), false));
 test("una extension valida el pago del nuevo ciclo", async () => assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ extensionPaymentId: "pay-extension" }), notification, now), true));
 test("el vencimiento de un ciclo anterior deja de ser elegible tras extender", async () => assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ expiresAt: "2026-08-24T11:15:00.000Z" }), notification, now), false));
+const expiredNotice = { ...notification, type: "EXPIRED" };
+test("el aviso al vencer es elegible con la sesión activa o ya vencida", async () => {
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), expiredNotice, "2026-08-24T10:15:00.000Z"), true);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ sessionStatus: "EXPIRED" }), expiredNotice, "2026-08-24T10:16:00.000Z"), true);
+});
+test("el aviso al vencer no es elegible antes de tiempo, muy tarde, finalizada, extendida o sin pago", async () => {
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), expiredNotice, "2026-08-24T10:14:59.000Z"), false);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), expiredNotice, "2026-08-24T10:30:00.000Z"), false);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ sessionStatus: "CLOSED" }), expiredNotice, "2026-08-24T10:16:00.000Z"), false);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ expiresAt: "2026-08-24T11:15:00.000Z" }), expiredNotice, "2026-08-24T10:16:00.000Z"), false);
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor({ paymentStatus: "REJECTED" }), expiredNotice, "2026-08-24T10:16:00.000Z"), false);
+});
+test("el aviso previo sigue sin enviarse después del vencimiento", async () => {
+  assert.equal(await isEligibleOnStreetSmsNotification(dbFor(), notification, "2026-08-24T10:15:00.000Z"), false);
+});

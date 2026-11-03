@@ -56,7 +56,9 @@ export async function processDueOnStreetSms({ origin, provider, db, now = new Da
     const sentAt = new Date().toISOString();
     let result;
     try {
-      const message = publicSmsMessage(origin, claimed.message);
+      const session = await db.from("on_street_pilot_sessions").select("license_plate_normalized").eq("id", claimed.session_id).maybeSingle();
+      if (session.error) throw session.error;
+      const message = publicSmsMessage(origin, claimed.message, { type: claimed.type, plate: session.data?.license_plate_normalized || null });
       if (!message) throw Object.assign(new Error("SMS_MESSAGE_INVALID"), { code: "SMS_MESSAGE_INVALID" });
       result = await provider.send({ to: claimed.phone_normalized, message });
     } catch (cause) {
