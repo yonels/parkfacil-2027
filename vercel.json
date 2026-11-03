@@ -3,10 +3,15 @@
     {
       "path": "/api/internal/sms-center/process",
       "schedule": "*/2 * * * *"
+    },
+    {
+      "path": "/api/internal/on-street-sms/process",
+      "schedule": "* * * * *"
     }
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/on-street-sms-cron": false,
       "feature/on-street-sms-avisos": false,
       "feature/plazas-sin-contrato": false,
       "feature/zonas-nivel-eliminar": false,
