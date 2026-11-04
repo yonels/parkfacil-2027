@@ -10,6 +10,7 @@ import { LoaderCircle, LogOut, Menu, QrCode, RefreshCw, X } from "lucide-react";
 
 import PosViewport from "@/components/pos/PosViewport";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
+import { POS_SESSION_RENEW_MS, renewPosSession } from "@/lib/pos/posSessionRenewal.mjs";
 import { splitChileTaxFromTotal, toOperationalDateTimeParts } from "@/lib/dataEntry.mjs";
 import { ticketHeaderData } from "@/lib/dataEntryPresentation.mjs";
 import { POS_FRONTEND_VERSION } from "@/lib/frontendVersion";
@@ -699,11 +700,33 @@ async function executeAutoPrint(payload, toAgentPayload, platePhoto) {
   return tryLocalAgentPrint(toAgentPayload(payload));
 }
 
+// Renueva la cookie de sesión del POS (SOL-2026-11-04-010). Nunca lanza: si falla, los mismos
+// controles de sesión de siempre deciden. Sin sesión local no hace nada.
+let posSessionRenewal = null;
+function renewPosSessionNow() {
+  if (posSessionRenewal) return posSessionRenewal;
+  const auth = getSupabaseBrowserClient().auth;
+  posSessionRenewal = renewPosSession({
+    getSession: async () => (await auth.getSession()).data?.session || null,
+    refreshSession: async () => (await auth.refreshSession()).data?.session || null,
+    postSession: async (accessToken) => (await fetch("/api/auth/session", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-parkfacil-portal": "terminal" },
+      cache: "no-store",
+      body: JSON.stringify({ accessToken, scope: "pos_operator" }),
+    })).status,
+  }).catch(() => ({ ok: false, reason: "ERROR" })).finally(() => { posSessionRenewal = null; });
+  return posSessionRenewal;
+}
+
 async function getSessionContext() {
-  const response = await fetch("/api/auth/session", {
+  const request = () => fetch("/api/auth/session", {
     headers: { "x-parkfacil-portal": "terminal" },
     cache: "no-store",
   });
+  let response = await request();
+  // Cookie vencida con la sesión aún válida: se renueva y se reintenta una vez.
+  if (response.status === 401 && (await renewPosSessionNow()).ok) response = await request();
   // Fase 1: también en error se lee el cuerpo ({ error, code }) -- el
   // código distingue un acceso revocado de una falla transitoria.
   const payload = await response.json().catch(() => ({}));
@@ -5863,6 +5886,19 @@ export default function PosTerminal() {
   // error de red NO se interpreta como sesión inválida. Además, si el
   // navegador restaura la página desde el back/forward cache (Atrás tras
   // cerrar sesión), se recarga para que el proxy vuelva a validar.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void renewPosSessionNow();
+    };
+    void renewPosSessionNow();
+    const timer = setInterval(() => void renewPosSessionNow(), POS_SESSION_RENEW_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     let consecutiveUnauthorized = 0;
