@@ -55,7 +55,7 @@ test("un rechazo del servidor se informa, no se da por renovada", async () => {
 test("el POS renueva en intervalo y reintenta una vez ante un 401 de sesión", async () => {
   const source = await readFile(new URL("../../components/pos/PosTerminal.js", import.meta.url), "utf8");
   assert.match(source, /setInterval\(\(\) => void renewPosSessionNow\(\), POS_SESSION_RENEW_MS\)/);
-  const fn = source.slice(source.indexOf("async function getSessionContext()"), source.indexOf("async function getPosVehicleSummary()"));
+  const fn = source.slice(source.indexOf("async function getSessionContext()"), source.indexOf("let posSessionRenewal = null;"));
   assert.match(fn, /status === 401/);
   assert.match(fn, /await renewPosSessionNow\(\)/);
 });
