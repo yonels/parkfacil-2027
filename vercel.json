@@ -11,6 +11,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "fix/comprobante-salida-liberada": false,
       "feature/on-street-sms-cron": false,
       "feature/on-street-sms-avisos": false,
       "feature/plazas-sin-contrato": false,

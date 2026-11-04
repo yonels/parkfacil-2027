@@ -110,6 +110,29 @@ export function releasedReceiptDetail(breakdown, entryAt, elapsedMinutes) {
   return { coveredMinutes, chargeableMinutes, chargeLines: [...coveredLines, ...bandLines] };
 }
 
+// Salida liberada a $0 (SOL-2026-11-04-001, D7): usa el mismo comprobante, sin boleta. La
+// respuesta de RELEASED_EXIT no trae desglose firmado; se arma con los minutos que calculó
+// el servidor. El medio de pago se imprime tal cual (la APK no conoce este valor).
+export const RELEASED_EXIT_PAYMENT_METHOD = "Sin cobro";
+
+export function releasedExitReceiptQuote(quote) {
+  if (!quote) return null;
+  const elapsedMinutes = Number(quote.elapsedMinutes);
+  const coveredMinutes = Number(quote.released?.coveredMinutes);
+  return {
+    ...quote,
+    total: 0,
+    snapshot: {
+      chargeBreakdown: {
+        kind: "RELEASED_PAYMENT",
+        coveredMinutes: Number.isFinite(coveredMinutes) ? coveredMinutes : Number.isFinite(elapsedMinutes) ? elapsedMinutes : 0,
+        chargeableMinutes: 0,
+        intervals: [],
+      },
+    },
+  };
+}
+
 // Línea «Tarifa» de una estadía liberada: «Diurno · Liberado 57 min · Cobrado 112 min»,
 // acortada si no cabe en el largo que imprime la APK.
 export function releasedReceiptRateDescription(rateName, detail) {

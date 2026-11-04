@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { toOperationalDateTimeParts } from "../dataEntry.mjs";
-import { RECEIPT_RATE_MAX_LENGTH, receiptChargeLines, receiptExitInstant, receiptRateDescription, releasedReceiptDetail, releasedReceiptRateDescription } from "./paymentReceiptCore.mjs";
+import { readFileSync } from "node:fs";
+import { RECEIPT_RATE_MAX_LENGTH, receiptChargeLines, receiptExitInstant, receiptRateDescription, releasedExitReceiptQuote, releasedReceiptDetail, releasedReceiptRateDescription } from "./paymentReceiptCore.mjs";
 
 // Caso real de QA (AAAA-95, 2026-10-18): cálculo de cobro 21:11, pago confirmado 21:12:14.
 const stay = { entry_at: "2026-10-18T17:23:06.310Z", exit_at: "2026-10-19T00:12:14.707Z" };
@@ -145,4 +146,38 @@ test("Pago liberado: Tarifa se acorta si no cabe en la línea impresa", () => {
   const text = releasedReceiptRateDescription("Tarifa con un nombre muy largo para el comprobante del POS", detail);
   assert.ok(text.length <= RECEIPT_RATE_MAX_LENGTH);
   assert.equal(text, "Liberado 1440 min · Cobrado 4320 min");
+});
+
+// Salida liberada a $0 (SOL-2026-11-04-001, D7): caso QAPL-02 en el PRO2.
+test("salida liberada a $0: el comprobante muestra el tiempo liberado y total $0", () => {
+  const quote = releasedExitReceiptQuote({ total: 0, elapsedMinutes: 25, rate: null, released: { coveredMinutes: 25, chargeableMinutes: 0, intervals: [] } });
+  assert.equal(quote.total, 0);
+  const detail = releasedReceiptDetail(quote.snapshot.chargeBreakdown, "2026-11-04T14:45:00.000Z", quote.elapsedMinutes);
+  assert.equal(detail.coveredMinutes, 25);
+  assert.equal(detail.chargeableMinutes, 0);
+  assert.equal(detail.chargeLines.length, 1);
+  assert.deepEqual(
+    [detail.chargeLines[0].label, detail.chargeLines[0].minutes, detail.chargeLines[0].amount],
+    ["PAGO LIBERADO", 25, 0],
+  );
+  assert.equal(releasedReceiptRateDescription(null, detail), "Liberado 25 min");
+});
+
+test("salida liberada a $0: sin minutos liberados informados usa los minutos de la estadía", () => {
+  const quote = releasedExitReceiptQuote({ elapsedMinutes: 12 });
+  assert.equal(quote.snapshot.chargeBreakdown.coveredMinutes, 12);
+  assert.equal(releasedExitReceiptQuote(null), null);
+});
+
+test("salida liberada a $0: el POS imprime tras registrar y una falla no repite la salida", () => {
+  const source = readFileSync(new URL("../../components/pos/PosTerminal.js", import.meta.url), "utf8");
+  const start = source.indexOf("async function registerReleasedExit()");
+  const body = source.slice(start, source.indexOf("async function confirmCashPayment()"));
+  const registered = body.indexOf('action: "RELEASED_EXIT"');
+  const printed = body.indexOf("printLastReceipt(receiptPayload)");
+  assert.ok(registered > 0 && printed > registered, "imprime solo después de registrar");
+  assert.equal(body.split('action: "RELEASED_EXIT"').length, 2, "una sola llamada al servidor");
+  assert.match(body, /RELEASED_EXIT_PAYMENT_METHOD/);
+  assert.match(body, /setPaymentStep\("PRINT_PROMPT"\)/);
+  assert.match(source, /Salida registrada sin cobro\. No fue posible imprimir el comprobante\./);
 });
