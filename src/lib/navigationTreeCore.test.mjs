@@ -409,4 +409,7 @@ test("el menú lateral del administrador incluye «Claves de operadores» en su 
   const labels = projectClientAdministrationNode(filterVisibleTree(navigationItems.filter((item) => item.label === "Administración"), visible)).map((item) => item.label);
   assert.ok(labels.includes("Claves de operadores"));
   assert.match(source, /id: "administracion"[\s\S]*?labels: \[[^\]]*"Claves de operadores"/);
+  // Lo mismo para Convenios (SOL-2026-11-04-005).
+  assert.ok(labels.includes("Convenios"));
+  assert.match(source, /id: "administracion"[\s\S]*?labels: \[[^\]]*"Convenios"/);
 });
