@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
-import { SHIFT_STATUS_LABELS, shiftEditStatusOptions } from "@/lib/turnosParkingCore.mjs";
+import { isParkingActive } from "@/lib/parkingActiveGuard.mjs";
+import { SHIFT_STATUS_LABELS, shiftStatusOptionsForParking } from "@/lib/turnosParkingCore.mjs";
 
 const emptyForm = {
   operatorId: "",
@@ -64,7 +65,8 @@ export default function ParkingShiftsManager({ parking, structure }) {
   const selectedAssignment = assignmentOptions.find((item) => item.id === form.assignmentId) || null;
   const editingShift = editingShiftId ? shifts.find((item) => item.id === editingShiftId) || null : null;
   const editingOpen = editingShift?.status === "OPEN";
-  const statusOptions = shiftEditStatusOptions(editingShift?.status || null);
+  const parkingActive = isParkingActive(parking);
+  const statusOptions = shiftStatusOptionsForParking(editingShift?.status || null, parkingActive);
   // Off Street: el turno de recinto se crea eligiendo operador (asignación base automática);
   // las asignaciones a tramos de calle (SOL-2026-10-23-001) no cambian eso.
   const allowOffStreetDirectOperator = parking.type === "OFF_STREET";
@@ -231,6 +233,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
       </div>
       {!assignmentOptions.length && !allowOffStreetDirectOperator ? <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">No hay asignaciones activas disponibles para crear turnos. Configura primero los operadores y sus asignaciones desde la estructura operativa.</div> : <form onSubmit={submit} className="mt-4 space-y-4">
         {formError ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{formError}</p> : null}
+        {!parkingActive ? <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Este estacionamiento aún no está activo: el turno queda «Programado» y podrás abrirlo después de activarlo desde <Link href={`/estacionamientos/${parking.code}/configuracion`} className="font-semibold underline">Configuración y activación</Link>.</p> : null}
         {editingOpen ? <p className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Turno abierto: aquí solo cambian el supervisor, el horario programado y las observaciones. Para terminarlo usa «Cerrar turno».</p> : null}
         {allowOffStreetDirectOperator ? <p className="rounded-2xl border border-cyan-200 bg-cyan-50 p-3 text-sm text-cyan-900">Off Street: cuando no existen asignaciones de estructura, el sistema genera una asignación operativa base para el operador seleccionado.</p> : null}
         <div className="grid gap-4 md:grid-cols-2">

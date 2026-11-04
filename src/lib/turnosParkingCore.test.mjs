@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { offStreetShiftParkings, pickShiftParking, shiftEditStatusOptions, shiftEditViolation } from "./turnosParkingCore.mjs";
+import { offStreetShiftParkings, pickShiftParking, shiftEditStatusOptions, shiftEditViolation, shiftStatusOptionsForParking } from "./turnosParkingCore.mjs";
 
 // Caso real ParkFacil Operaciones (2026-10-29): AAA es On Street y salía primero.
 const parkings = [
@@ -49,4 +49,13 @@ test("Editar: un programado puede abrirse o cancelarse; un cerrado no se edita",
   assert.equal(shiftEditViolation(programmed, { status: "OPEN", operatorId: "op-2", date: "2026-10-28" }), null);
   assert.equal(shiftEditViolation(programmed, { status: "CANCELLED", operatorId: "op-1", date: "2026-10-27" }), null);
   assert.ok(shiftEditViolation({ status: "CLOSED" }, { status: "CLOSED" }));
+});
+
+// SOL-2026-11-04-002: sin activar no se ofrece «Abierto».
+test("shiftStatusOptionsForParking: sin activar no ofrece Abierto; activo, sin cambios", () => {
+  assert.deepEqual(shiftStatusOptionsForParking(null, false), ["PROGRAMMED"]);
+  assert.deepEqual(shiftStatusOptionsForParking("PROGRAMMED", false), ["PROGRAMMED", "CANCELLED"]);
+  assert.deepEqual(shiftStatusOptionsForParking("OPEN", false), ["OPEN"]);
+  assert.deepEqual(shiftStatusOptionsForParking(null, true), ["PROGRAMMED", "OPEN"]);
+  assert.deepEqual(shiftStatusOptionsForParking("PROGRAMMED", true), ["PROGRAMMED", "OPEN", "CANCELLED"]);
 });
