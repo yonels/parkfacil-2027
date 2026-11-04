@@ -700,6 +700,20 @@ async function executeAutoPrint(payload, toAgentPayload, platePhoto) {
   return tryLocalAgentPrint(toAgentPayload(payload));
 }
 
+async function getSessionContext() {
+  const request = () => fetch("/api/auth/session", {
+    headers: { "x-parkfacil-portal": "terminal" },
+    cache: "no-store",
+  });
+  let response = await request();
+  // Cookie vencida con la sesión aún válida: se renueva y se reintenta una vez.
+  if (response.status === 401 && (await renewPosSessionNow()).ok) response = await request();
+  // Fase 1: también en error se lee el cuerpo ({ error, code }) -- el
+  // código distingue un acceso revocado de una falla transitoria.
+  const payload = await response.json().catch(() => ({}));
+  return { ok: response.ok, status: response.status, payload: payload || {} };
+}
+
 // Renueva la cookie de sesión del POS (SOL-2026-11-04-010). Nunca lanza: si falla, los mismos
 // controles de sesión de siempre deciden. Sin sesión local no hace nada.
 let posSessionRenewal = null;
@@ -717,20 +731,6 @@ function renewPosSessionNow() {
     })).status,
   }).catch(() => ({ ok: false, reason: "ERROR" })).finally(() => { posSessionRenewal = null; });
   return posSessionRenewal;
-}
-
-async function getSessionContext() {
-  const request = () => fetch("/api/auth/session", {
-    headers: { "x-parkfacil-portal": "terminal" },
-    cache: "no-store",
-  });
-  let response = await request();
-  // Cookie vencida con la sesión aún válida: se renueva y se reintenta una vez.
-  if (response.status === 401 && (await renewPosSessionNow()).ok) response = await request();
-  // Fase 1: también en error se lee el cuerpo ({ error, code }) -- el
-  // código distingue un acceso revocado de una falla transitoria.
-  const payload = await response.json().catch(() => ({}));
-  return { ok: response.ok, status: response.status, payload: payload || {} };
 }
 
 async function getPosVehicleSummary() {
