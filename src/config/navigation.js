@@ -1,4 +1,4 @@
-import { LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, MapPinned, UserCircle, Hash, BadgeCheck, MessageSquareText, Compass } from "lucide-react";
+import { Camera, LayoutGrid, BarChart3, ParkingSquare, ShieldCheck, KeyRound, Wallet, WalletCards, BadgeDollarSign, Layers, Users, Handshake, RadioTower, Monitor, FileChartColumnIncreasing, Settings2, Plug2, BookOpen, Calculator, SlidersHorizontal, ScanLine, TicketPercent, Clock3, ReceiptText, MapPinned, UserCircle, Hash, BadgeCheck, MessageSquareText, Compass } from "lucide-react";
 import { flattenReports, subTree } from "../lib/reports/engine/registry.mjs";
 
 const RELEASED_PLATE_REPORTS = flattenReports(subTree(["off-patentes"]));
@@ -65,7 +65,7 @@ export const navigationItems = [
     // primer ítem del árbol, mismo lugar que ocupa "Dashboard" en On Street
     // (/on-street-qr). No reemplaza /modelo-dashboard (Dashboard General de
     // Plataforma, fuera de este alcance) ni mezcla datos On Street.
-    activePrefix: ["/dashboard-off-street", "/reportes-off-street", "/estacionamientos", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/deudas", "/pagos-tarjeta", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo", "/pago-liberado", "/cupones"],
+    activePrefix: ["/dashboard-off-street", "/reportes-off-street", "/estacionamientos", "/fotografia-patente", "/operacion", "/turnos", "/control-accesos", "/recaudacion", "/deudas", "/pagos-tarjeta", "/abonados", "/tarifas", "/administracion-tarifas", "/simulador-tarifas", "/dispositivos", "/monitoreo", "/pago-liberado", "/cupones"],
     children: [
       { href: "/dashboard-off-street", label: "Dashboard", icon: BarChart3 },
       {
@@ -98,6 +98,8 @@ export const navigationItems = [
             ],
           },
           { href: "/control-accesos", label: "Accesos", icon: ShieldCheck },
+          // Antes solo se llegaba desde la ficha del estacionamiento (SOL-2026-11-04-007).
+          { href: "/fotografia-patente", label: "Fotografía de patente", icon: Camera },
         ],
       },
       {

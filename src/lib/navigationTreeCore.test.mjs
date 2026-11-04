@@ -413,3 +413,15 @@ test("el menú lateral del administrador incluye «Claves de operadores» en su 
   assert.ok(labels.includes("Convenios"));
   assert.match(source, /id: "administracion"[\s\S]*?labels: \[[^\]]*"Convenios"/);
 });
+
+// SOL-2026-11-04-007: Fotografía de patente, en Off Street, solo administrador y Off Street contratado.
+test("«Fotografía de patente» está en Off Street → Estacionamientos para el administrador, no para el operador", async () => {
+  const { canAccessPath, ROLES } = await import("./auth/permissions.mjs");
+  const offStreet = navigationItems.flatMap((item) => [item, ...(item.children || [])]).find((item) => item.label === "Off Street");
+  const estacionamientos = offStreet.children.find((item) => item.label === "Estacionamientos");
+  assert.ok(estacionamientos.children.some((item) => item.href === "/fotografia-patente"));
+  const path = "/fotografia-patente";
+  assert.equal(canAccessPath({ portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts: ["OFF_STREET"], companyId: "e" }, path), true);
+  assert.equal(canAccessPath({ portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts: ["ON_STREET"], companyId: "e" }, path), false);
+  assert.equal(canAccessPath({ portal: "client", role: ROLES.OPERATOR, enabledProducts: ["OFF_STREET"], companyId: "e" }, path), false);
+});
