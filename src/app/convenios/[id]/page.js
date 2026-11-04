@@ -1,4 +1,7 @@
 import AppShell from "@/components/layout/AppShell";
+import ConveniosSinDatos from "@/components/convenios/ConveniosSinDatos";
+import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
+import { canSeeDemoConvenios } from "@/lib/conveniosAccess.mjs";
 import EstadoConvenioBadge from "@/components/convenios/EstadoConvenioBadge";
 import TipoConvenioBadge from "@/components/convenios/TipoConvenioBadge";
 import ModalidadBeneficioBadge from "@/components/convenios/ModalidadBeneficioBadge";
@@ -37,8 +40,11 @@ export const metadata = {
 
 const referenceDate = "2026-07-25T10:15:00";
 
-export default function ConvenioDetallePage({ params }) {
-  const convenio = getConvenioById(params.id);
+export default async function ConvenioDetallePage({ params }) {
+  const context = await getCurrentServerContext().catch(() => null);
+  if (!canSeeDemoConvenios(context)) return <ConveniosSinDatos />;
+  const { id } = await params;
+  const convenio = getConvenioById(id);
 
   if (!convenio) {
     return (
