@@ -18,7 +18,7 @@ import { buildPrintableEntryPayload, entryPhotoRequirementMessage, platePhotoUna
 import { buildAgentEntryTicketPayload, formatTicketCoordinates } from "@/lib/pos/entryTicketPayload.mjs";
 import { photoToTicketRaster } from "@/lib/pos/ticketPhotoRaster.mjs";
 import { TUU_METHOD, TUU_OUTCOME, TUU_PACKAGE_DEV, TUU_RESULT_TIMEOUT_MS, buildTuuPaymentPayload, classifyTuuOutcome, parseTuuResult } from "@/lib/pos/tuuPayment.mjs";
-import { buildTuuRegistrationRequest, buildTuuResultReport, canStartTuuPayment, clearTuuPendingPayment, findTuuPendingPayment, findTuuPendingPaymentByAttempt, getOrCreatePosDeviceId, isProcessedTuuSequence, latestUnresolvedTuuPayment, loadQueuedTuuResultReports, loadTuuPendingPayments, markTuuPaymentApproved, markTuuPaymentUncertain, mergeTuuPendingViews, newTuuIdempotencyKey, noteTuuRegistrationFailure, queueTuuResultReport, reconcileTuuPendingWithServer, recoverTuuPendingPayments, rememberProcessedTuuSequence, removeQueuedTuuResultReport, saveTuuPaymentStarted, tuuRefreshResultMessage } from "@/lib/pos/tuuPendingPayments.mjs";
+import { reservationRetryKey, buildTuuRegistrationRequest, buildTuuResultReport, canStartTuuPayment, clearTuuPendingPayment, findTuuPendingPayment, findTuuPendingPaymentByAttempt, getOrCreatePosDeviceId, isProcessedTuuSequence, latestUnresolvedTuuPayment, loadQueuedTuuResultReports, loadTuuPendingPayments, markTuuPaymentApproved, markTuuPaymentUncertain, mergeTuuPendingViews, newTuuIdempotencyKey, noteTuuRegistrationFailure, queueTuuResultReport, reconcileTuuPendingWithServer, recoverTuuPendingPayments, rememberProcessedTuuSequence, removeQueuedTuuResultReport, saveTuuPaymentStarted, tuuRefreshResultMessage } from "@/lib/pos/tuuPendingPayments.mjs";
 import { createTuuResultRouter } from "@/lib/pos/tuuResultRouter.mjs";
 import { abandonNativeTuuAttempt, ackNativeTuuResult, planNativeTuuSync, readNativeDeviceId, readPendingTuuState, readTuuBridgeEnvironment, resolvePosDeviceId, shouldAbandonLostTuuAttempt, shouldAckTuuResult, tuuLaunchBridge } from "@/lib/pos/tuuNativeBridge.mjs";
 import { TuuPendingPaymentCard, TuuPendingPaymentsAlert, TuuPendingPaymentsBanner } from "@/components/pos/PosTuuPendingPayments";
@@ -1060,6 +1060,7 @@ export default function PosTerminal() {
   // obtenido a submitEntry para no depender de un estado aún sin actualizar.
   const [entryReleased, setEntryReleased] = useState(null);
   const [releasedExitBusy, setReleasedExitBusy] = useState(false);
+  const cardReservationRetryRef = useRef(null);
   const [photoCaptureOpen, setPhotoCaptureOpen] = useState(false);
   const [entryPhotoForPrint, setEntryPhotoForPrint] = useState(null);
   const [receiptPrintPayload, setReceiptPrintPayload] = useState(null);
@@ -2343,11 +2344,14 @@ export default function PosTerminal() {
         setCardPaymentMessage("Este equipo tiene un pago con tarjeta anterior sin cerrar. Verifica la conexión y vuelve a intentar. No se inició ningún cobro.");
         return;
       }
-      const idempotencyKey = newTuuIdempotencyKey();
+      // Si se perdió la respuesta de la reserva anterior, la misma clave la recupera (SOL-2026-11-04-008).
+      const quoteSignature = quoteSnapshot?.signature || null;
+      const idempotencyKey = reservationRetryKey(cardReservationRetryRef.current, { stayId: stay.id, paymentCardType, quoteSignature }) || newTuuIdempotencyKey();
       // Ambiente que declara la APK (comprobación de compatibilidad; el
       // servidor decide). La APK 0.3.13 no lo declara: solo opera en DEV.
       const tuuEnvironment = readTuuBridgeEnvironment(getNativeDeviceBridge());
       const reservation = await postCardPaymentAction({ action: "CARD_PAYMENT_RESERVE", stayId: stay.id, paymentCardType, quoteSnapshot, idempotencyKey, deviceId, ...(tuuEnvironment ? { tuuEnvironment } : {}) });
+      cardReservationRetryRef.current = reservation.network ? { stayId: stay.id, paymentCardType, quoteSignature, idempotencyKey } : null;
       const attempt = reservation.ok ? reservation.payload?.data?.attempt || null : null;
       if (!reservation.ok || !attempt?.id || attempt.status !== "RESERVED") {
         console.info("[pos:tuu]", { event: "RESERVATION_REJECTED", stayId: stay.id, code: reservation.code, status: reservation.status });
@@ -2362,7 +2366,7 @@ export default function PosTerminal() {
           setCardPaymentStatus("");
           setCardPaymentMessage("");
           setPaymentStep("MENU");
-          setPaymentMessage("Este ticket ya tiene un pago con tarjeta en curso o por resolver. No se inició ningún cobro.");
+          setPaymentMessage(reservation.payload?.error || "Este ticket ya tiene un pago con tarjeta en curso o por resolver. No se inició ningún cobro.");
           return;
         }
         if (["QUOTE_SNAPSHOT_EXPIRED", "QUOTE_SNAPSHOT_STALE", "QUOTE_SNAPSHOT_REQUIRED"].includes(reservation.code)) {

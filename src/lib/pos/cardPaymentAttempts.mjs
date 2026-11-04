@@ -127,6 +127,17 @@ export function cardAttemptBlocksStay(attempt, now = new Date()) {
   return !expires || Number.isNaN(expires.getTime()) || expires.getTime() > now.getTime();
 }
 
+// Mensaje cuando un intento bloquea el ticket (SOL-2026-11-04-008). Una reserva vigente nunca abrió
+// TUU, así que no hubo cobro y se libera sola; se dice cuánto falta. Otro estado sí pudo llegar a TUU
+// y no vence: conserva el mensaje que pide resolverlo.
+export function cardAttemptBlockedMessage(attempt, fallback, now = new Date()) {
+  if (attempt?.status !== CARD_ATTEMPT_STATUS.RESERVED) return fallback;
+  const expires = new Date(attempt.reservationExpiresAt).getTime() - new Date(now).getTime();
+  if (!(expires > 0)) return fallback;
+  const minutes = Math.ceil(expires / 60000);
+  return `Hay una reserva de pago con tarjeta que no llegó a iniciarse. No se realizó ningún cobro. El ticket se libera solo en ${minutes === 1 ? "1 minuto" : `${minutes} minutos`}; vuelve a intentar entonces.`;
+}
+
 // Regularización de un resultado incierto: solo administradores (empresa o
 // Root), nunca el operador. Política pendiente de aprobación funcional.
 export function canRegularizeCardPayments(role) {
