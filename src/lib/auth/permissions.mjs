@@ -175,7 +175,7 @@ const ROOT_ONLY_PREFIXES = [
 // administrador; el operador no los gestiona.
 // "/tarifas/modulos/boleta-electronica" (SOL-2026-10-20-001): API Key de Haulmer
 // de la empresa, solo administrador (Root solo ve el estado).
-const COMPANY_ADMIN_PREFIXES = ["/centro-sms", "/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion", "/deudas", "/pagos-tarjeta", "/pago-liberado", "/cupones", "/tarifas/modulos/boleta-electronica"];
+const COMPANY_ADMIN_PREFIXES = ["/fotografia-patente", "/centro-sms", "/usuarios", "/on-street-qr", "/dashboard-off-street", "/reportes-off-street", "/recaudacion", "/deudas", "/pagos-tarjeta", "/pago-liberado", "/cupones", "/tarifas/modulos/boleta-electronica"];
 
 // Prefijos de ruta que exigen un producto habilitado (Portal Cliente/
 // Terminal no aplica -- Root nunca pasa por aquí, ver canAccessPath). El
@@ -183,6 +183,7 @@ const COMPANY_ADMIN_PREFIXES = ["/centro-sms", "/usuarios", "/on-street-qr", "/d
 // hereda el mismo requisito que su raíz por matchesPrefix.
 const PRODUCT_PREFIXES = [
   { prefix: "/estacionamientos", product: PRODUCTS.OFF_STREET },
+  { prefix: "/fotografia-patente", product: PRODUCTS.OFF_STREET },
   { prefix: "/pago-liberado", product: PRODUCTS.OFF_STREET },
   { prefix: "/deudas", product: PRODUCTS.OFF_STREET },
   { prefix: "/pagos-tarjeta", product: PRODUCTS.OFF_STREET },
