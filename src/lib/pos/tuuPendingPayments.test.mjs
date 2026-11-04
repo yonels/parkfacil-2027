@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  reservationRetryKey,
   POS_DEVICE_STORAGE_KEY,
   TUU_PENDING_STATUS,
   TUU_PENDING_STORAGE_KEY,
@@ -312,4 +313,16 @@ test("servidor: el registro guarda el resultado aprobado antes de registrar, con
   assert.ok(combined > fn.indexOf("if (attempt.parking_id !== current.actor.parkingId)"));
   assert.ok(combined < fn.indexOf("if (![CARD_ATTEMPT_STATUS.APPROVED_PENDING_REGISTRATION, CARD_ATTEMPT_STATUS.PAID].includes(attempt.status)) {\n    return fail") || combined < fn.lastIndexOf("CARD_ATTEMPT_NOT_APPROVED"));
   assert.match(fn, /attempt = await reportCardPaymentAttemptResult\(current\.db, \{\s*attemptId, companyId, deviceId: sanitizeDeviceId\(approvedResult\.deviceId\), outcome: "APPROVED"/);
+});
+
+// SOL-2026-11-04-008: reintento tras perder la respuesta de la reserva.
+test("reservationRetryKey reutiliza la clave solo con el mismo ticket, medio y cálculo firmado", () => {
+  const pending = { stayId: "s1", paymentCardType: "CREDIT", quoteSignature: "firma", idempotencyKey: "clave-1" };
+  const same = { stayId: "s1", paymentCardType: "CREDIT", quoteSignature: "firma" };
+  assert.equal(reservationRetryKey(pending, same), "clave-1");
+  assert.equal(reservationRetryKey(pending, { ...same, stayId: "s2" }), null);
+  assert.equal(reservationRetryKey(pending, { ...same, paymentCardType: "DEBIT" }), null);
+  assert.equal(reservationRetryKey(pending, { ...same, quoteSignature: "firma-nueva" }), null, "monto recalculado: nunca la reserva anterior");
+  assert.equal(reservationRetryKey(pending, { ...same, quoteSignature: null }), null);
+  assert.equal(reservationRetryKey(null, same), null);
 });

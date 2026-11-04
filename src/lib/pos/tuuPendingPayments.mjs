@@ -85,6 +85,16 @@ function defaultRandomBytes(length) {
 
 // Clave de idempotencia de ParkFacil para UN intento de pago (formato UUID v4).
 // No usa crypto.randomUUID: el WebView del PRO2 (Chrome 83) no lo tiene.
+// Reintento tras perder la respuesta de una reserva (SOL-2026-11-04-008): la misma clave recupera la
+// misma reserva, en vez de quedar bloqueado por ella. Solo con el mismo ticket, medio y cálculo
+// firmado; si el monto se recalculó, nunca se reutiliza una reserva con el monto anterior.
+export function reservationRetryKey(pending, { stayId, paymentCardType, quoteSignature }) {
+  if (!pending?.idempotencyKey || !quoteSignature) return null;
+  return pending.stayId === stayId && pending.paymentCardType === paymentCardType && pending.quoteSignature === quoteSignature
+    ? pending.idempotencyKey
+    : null;
+}
+
 export function newTuuIdempotencyKey(randomBytes = defaultRandomBytes) {
   const bytes = Uint8Array.from(randomBytes(16));
   bytes[6] = (bytes[6] & 0x0f) | 0x40;

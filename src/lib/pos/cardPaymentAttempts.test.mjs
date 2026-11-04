@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import {
+  cardAttemptBlockedMessage,
   ACTIVE_CARD_ATTEMPT_STATUSES,
   CARD_ATTEMPTS_UNAVAILABLE,
   CARD_ATTEMPT_STATUS,
@@ -564,4 +565,16 @@ test("POS: el comprobante se imprime al aprobar TUU, en paralelo con el registro
   assert.match(approved, /const earlyPrint = earlyReceipt \? printLastReceipt\(earlyReceipt\) : null;/);
   assert.doesNotMatch(approved, /await printLastReceipt/);
   assert.match(source, /const printResult = earlyPrint \? await earlyPrint : receiptPayload \? await printLastReceipt\(receiptPayload\) : null;/);
+});
+
+// SOL-2026-11-04-008: una reserva que no abrió TUU informa que no hubo cobro y cuándo se libera.
+test("cardAttemptBlockedMessage distingue una reserva vigente de un pago que pudo llegar a TUU", () => {
+  const now = new Date("2026-11-04T19:45:00Z");
+  const reserved = { status: "RESERVED", reservationExpiresAt: "2026-11-04T19:47:40Z" };
+  assert.match(cardAttemptBlockedMessage(reserved, "X", now), /No se realizó ningún cobro\..*3 minutos/);
+  assert.match(cardAttemptBlockedMessage({ ...reserved, reservationExpiresAt: "2026-11-04T19:45:30Z" }, "X", now), /en 1 minuto;/);
+  assert.equal(cardAttemptBlockedMessage({ ...reserved, reservationExpiresAt: "2026-11-04T19:44:00Z" }, "X", now), "X");
+  for (const status of ["SENT_TO_TUU", "APPROVED_PENDING_REGISTRATION", "UNCERTAIN"]) {
+    assert.equal(cardAttemptBlockedMessage({ status, reservationExpiresAt: "2026-11-04T19:47:40Z" }, "X", now), "X", status);
+  }
 });

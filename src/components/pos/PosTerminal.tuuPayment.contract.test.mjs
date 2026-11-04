@@ -205,7 +205,9 @@ test("reserva central: TUU se abre únicamente después de reservar en el servid
   assert.equal((fn.match(/await startTuuPayment\(/g) || []).length, 1, "un único punto abre TUU");
   // La reserva envía ticket, medio, cálculo de cobro firmado, clave de idempotencia y equipo.
   assert.match(fn, /\{ action: "CARD_PAYMENT_RESERVE", stayId: stay\.id, paymentCardType, quoteSnapshot, idempotencyKey, deviceId, \.\.\.\(tuuEnvironment \? \{ tuuEnvironment \} : \{\}\) \}/);
-  assert.match(fn, /const idempotencyKey = newTuuIdempotencyKey\(\);/);
+  assert.match(fn, /const idempotencyKey = reservationRetryKey\(cardReservationRetryRef\.current, \{ stayId: stay\.id, paymentCardType, quoteSignature \}\) \|\| newTuuIdempotencyKey\(\);/);
+  // Solo un error de red conserva la clave para reintentar: un rechazo del servidor la descarta.
+  assert.match(fn, /cardReservationRetryRef\.current = reservation\.network \? \{ stayId: stay\.id, paymentCardType, quoteSignature, idempotencyKey \} : null;/);
 });
 
 test("fallo de reserva impide abrir TUU: sin conexión, ticket ya reservado o ambiente sin habilitar", () => {

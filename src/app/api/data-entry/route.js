@@ -7,7 +7,7 @@ import { couponsActiveForParking } from "@/lib/cupones/couponModuleServer";
 import { COUPON_MODULE_INACTIVE_ERROR } from "@/lib/cupones/couponModuleCore.mjs";
 import { couponAvailableForCharge } from "@/lib/cupones/couponInput.mjs";
 import { canStoreCardPaymentReference, validateCardPaymentReference } from "@/lib/pos/cardPaymentReference.mjs";
-import { CARD_ATTEMPT_OUTCOMES, CARD_ATTEMPT_STATUS, reservedPaymentCodeFrom, storedChargeSnapshotProblem, cardAttemptErrorResponse, cardRegistrationStayIdProblem, cardRegistrationStayMismatch, findActiveCardPaymentAttemptRow, getCardPaymentAttemptRow, isCardAttemptsStorageMissing, isUuid, mapCardPaymentAttemptForPos, markCardPaymentAttemptSent, normalizeDeclaredTuuEnvironment, paymentFromChargeSnapshot, registerCardPaymentAttempt, reportCardPaymentAttemptResult, reserveCardPaymentAttempt, sanitizeDeviceId, sanitizeIdempotencyKey, tuuEnvironmentCompatibilityProblem, tuuEnvironmentFromEnv } from "@/lib/pos/cardPaymentAttempts.mjs";
+import { cardAttemptBlockedMessage, mapCardPaymentAttempt, CARD_ATTEMPT_OUTCOMES, CARD_ATTEMPT_STATUS, reservedPaymentCodeFrom, storedChargeSnapshotProblem, cardAttemptErrorResponse, cardRegistrationStayIdProblem, cardRegistrationStayMismatch, findActiveCardPaymentAttemptRow, getCardPaymentAttemptRow, isCardAttemptsStorageMissing, isUuid, mapCardPaymentAttemptForPos, markCardPaymentAttemptSent, normalizeDeclaredTuuEnvironment, paymentFromChargeSnapshot, registerCardPaymentAttempt, reportCardPaymentAttemptResult, reserveCardPaymentAttempt, sanitizeDeviceId, sanitizeIdempotencyKey, tuuEnvironmentCompatibilityProblem, tuuEnvironmentFromEnv } from "@/lib/pos/cardPaymentAttempts.mjs";
 import { canRevertUnpaidMark, sanitizeUnpaidNotes } from "@/lib/parkingDebtsCore.mjs";
 import { buildDebtNoticeForPlate, getPendingUnpaidStay, listPendingUnpaidStaysForShift, markStayUnpaid, revertStayUnpaid } from "@/lib/parkingDebtsRepository";
 import { getDebtNoticeEnabled } from "@/lib/offStreet/debtNoticeSettingsRepository";
@@ -429,7 +429,9 @@ async function handleCardPaymentAttemptAction({ input, current, isPosRequest, po
     const mapped = cardAttemptErrorResponse(error);
     if (mapped) {
       log("REJECTED", { code: mapped.code });
-      return fail(mapped.error, mapped.status, { code: mapped.code });
+      // Reserva vigente de este ticket: se dice que no hubo cobro y cuándo se libera (SOL-2026-11-04-008).
+      const active = mapped.code === "CARD_ATTEMPT_ACTIVE" ? await activeCardAttemptOrNull(current.db, input.stayId).catch(() => null) : null;
+      return fail(active ? cardAttemptBlockedMessage(mapCardPaymentAttempt(active), mapped.error) : mapped.error, mapped.status, { code: mapped.code });
     }
     console.error("[data-entry:card-attempt]", { action: input.action, code: error?.code, message: error?.message });
     return fail("No fue posible confirmar la operación del pago con tarjeta.", 503, { code: "CARD_ATTEMPT_FAILED" });
@@ -841,7 +843,7 @@ export async function POST(request) {
     let blockingAttempt = null;
     try { blockingAttempt = await activeCardAttemptOrNull(current.db, stay.id); }
     catch { return fail("No fue posible cerrar y pagar la estadía.", 503); }
-    if (blockingAttempt) return fail(CARD_ATTEMPT_ACTIVE_MESSAGE, 409, { code: "CARD_PAYMENT_ATTEMPT_ACTIVE" });
+    if (blockingAttempt) return fail(cardAttemptBlockedMessage(mapCardPaymentAttempt(blockingAttempt), CARD_ATTEMPT_ACTIVE_MESSAGE), 409, { code: "CARD_PAYMENT_ATTEMPT_ACTIVE" });
     let paymentCardType;
     try { paymentCardType = validatePaymentCardType(input.paymentMethod, input.paymentCardType); }
     catch { return fail("El tipo de tarjeta no es válido.", 400, { code: "INVALID_PAYMENT_CARD_TYPE" }); }
@@ -976,7 +978,7 @@ export async function POST(request) {
     let unpaidBlockingAttempt = null;
     try { unpaidBlockingAttempt = await activeCardAttemptOrNull(current.db, stay.id); }
     catch { return fail("No fue posible registrar la salida sin pago.", 503); }
-    if (unpaidBlockingAttempt) return fail(CARD_ATTEMPT_ACTIVE_MESSAGE, 409, { code: "CARD_PAYMENT_ATTEMPT_ACTIVE" });
+    if (unpaidBlockingAttempt) return fail(cardAttemptBlockedMessage(mapCardPaymentAttempt(unpaidBlockingAttempt), CARD_ATTEMPT_ACTIVE_MESSAGE), 409, { code: "CARD_PAYMENT_ATTEMPT_ACTIVE" });
     let marked;
     try {
       marked = await markStayUnpaid(current.db, { stayId: stay.id, parkingId: current.actor.parkingId, actor: current.actor, shiftId: posShift.id, notes: sanitizeUnpaidNotes(input.notes) });
