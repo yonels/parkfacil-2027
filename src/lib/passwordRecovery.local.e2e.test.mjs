@@ -40,7 +40,7 @@ test("E2E local: login interno → recovery externo → nueva clave → mismo lo
       email: login,
       password: initialPassword,
       email_confirm: true,
-      app_metadata: { role: "operator", company_id: "emp-5q", access_scope: "pos_only" },
+      app_metadata: { role: "company_admin", company_id: "emp-5q", access_scope: "company" },
       user_metadata: { full_name: "QA Recovery E2E", must_change_password: true },
     });
     assert.ifError(created.error);
@@ -50,9 +50,9 @@ test("E2E local: login interno → recovery externo → nueva clave → mismo lo
       user_id: userId,
       company_id: "emp-5q",
       full_name: "QA Recovery E2E",
-      role: "operator",
+      role: "company_admin",
       status: "active",
-      pos_only: true,
+      pos_only: false,
       must_change_password: true,
       recovery_email: recoveryEmail,
     });

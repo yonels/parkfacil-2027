@@ -57,6 +57,11 @@ export async function POST(request, { params }) {
     );
   }
 
+  // La clave de un operador la cambia el administrador (SOL-2026-11-04-004).
+  if (member.role === "operator") {
+    return NextResponse.json({ error: "La clave de un operador la cambia el administrador desde «Cambiar clave».", code: "OPERATOR_RECOVERY_DISABLED" }, { status: 409 });
+  }
+
   const { data: authData, error: authError } = await db.auth.admin.getUserById(id);
   if (authError || !authData?.user?.email) {
     return NextResponse.json({ error: "No se encontró el usuario solicitado.", code: "USER_NOT_FOUND" }, { status: 404 });

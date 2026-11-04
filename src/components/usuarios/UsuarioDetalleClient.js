@@ -475,10 +475,10 @@ export default function UsuarioDetalleClient({ userId }) {
             {accionMensaje ? <p role="status" className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{accionMensaje}</p> : null}
 
             <div className="mt-5 flex flex-wrap gap-3">
-              <button type="button" onClick={enviarRecuperacion} disabled={!usuario.recoveryEmail || recuperacionEnviando} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1E5EFF] disabled:cursor-not-allowed disabled:opacity-50">
+              {usuario.perfilPrincipal !== "operator" ? <button type="button" onClick={enviarRecuperacion} disabled={!usuario.recoveryEmail || recuperacionEnviando} className="inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1E5EFF] disabled:cursor-not-allowed disabled:opacity-50">
                 {recuperacionEnviando ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {recuperacionEnviando ? "Enviando..." : "Enviar recuperación de contraseña"}
-              </button>
+              </button> : null}
               {/* Igual que la columna «Clave de acceso» de la lista de operadores (SOL-2026-10-29-010). */}
               <button type="button" onClick={generarClaveTemporal} disabled={claveTemporalGenerando} className="inline-flex items-center gap-2 rounded-full border border-[#3150D8] bg-white px-4 py-2.5 text-sm font-semibold text-[#3150D8] transition hover:bg-[#EEF4FF] disabled:cursor-not-allowed disabled:opacity-50">
                 {claveTemporalGenerando ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
@@ -490,7 +490,7 @@ export default function UsuarioDetalleClient({ userId }) {
                 </button>
               ) : null}
             </div>
-            {!usuario.recoveryEmail ? <p className="mt-2 text-sm text-amber-700">Debes configurar un correo de recuperación antes de enviar el enlace.</p> : null}
+            {!usuario.recoveryEmail && usuario.perfilPrincipal !== "operator" ? <p className="mt-2 text-sm text-amber-700">Debes configurar un correo de recuperación antes de enviar el enlace.</p> : null}
 
             {credencialResultado ? (
               <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">

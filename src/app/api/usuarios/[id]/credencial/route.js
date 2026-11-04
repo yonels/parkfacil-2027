@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { requireCompanyResource, requirePermission, requirePlatformAdmin } from "@/lib/auth/apiAuthorizationCore.mjs";
 import { PERMISSIONS } from "@/lib/auth/permissions.mjs";
+import { saveOperatorCredential } from "@/lib/operatorCredentialServer";
 import { canSetDirectPassword, validateDirectPassword } from "@/lib/userCredentialCore.mjs";
 
 function createTemporaryPassword() {
@@ -81,6 +82,11 @@ export async function POST(request, { params }) {
     console.error("[users:credential:update-member]", updatedMember.error);
   }
 
+  // Reporte de claves de operadores (SOL-2026-11-04-004).
+  const report = member.role === "operator"
+    ? await saveOperatorCredential(db, { userId: id, companyId: member.company_id, password: temporaryPassword, actorId: authorization.context.userId })
+    : { ok: true };
+
   return NextResponse.json({
     data: {
       userId: id,
@@ -88,7 +94,7 @@ export async function POST(request, { params }) {
       temporaryPassword,
       mustChangePassword,
       directChange: isDirectChange,
-      warning: updatedMember.error ? "La clave cambió, pero su indicador de seguridad requiere revisión." : null,
+      warning: report.warning || (updatedMember.error ? "La clave cambió, pero su indicador de seguridad requiere revisión." : null),
     },
   }, { headers: { "Cache-Control": "no-store" } });
 }
