@@ -60,7 +60,7 @@ test("toda ruta que fija la clave de un operador guarda la copia y las lecturas 
   assert.ok(!/console\.\w+\([^)]*password/.test(server));
   const list = await read("../app/api/usuarios/claves/route.js");
   assert.ok(!list.includes("password_ciphertext"), "la lista no lee claves");
-  const migration = await read("../../supabase/migrations/20261104150000_operator_credentials.sql");
+  const migration = await read("../../supabase/migrations/20261104190903_operator_credentials.sql");
   assert.match(migration, /revoke all on table public\.operator_credentials from public, anon, authenticated/);
   assert.match(migration, /operator_credentials enable row level security/);
 });
