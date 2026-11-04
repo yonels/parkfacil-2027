@@ -398,3 +398,15 @@ test("Portal Cliente con reglas reales: Off Street, On Street o ambos ven Admini
     assert.ok(!labels.includes("Administración") && !labels.includes("Usuarios") && !labels.includes("Empresas"), `${enabledProducts}: ${labels}`);
   }
 });
+
+// SOL-2026-11-04-004: el menú lateral solo muestra las etiquetas de sectionDefinitions, así que un
+// ítem de primer nivel del Portal Cliente que falte en esa lista queda invisible aunque tenga permiso.
+test("el menú lateral del administrador incluye «Claves de operadores» en su sección", async () => {
+  const { navigationVisibleForRole, ROLES } = await import("./auth/permissions.mjs");
+  const source = await readFile(new URL("../components/layout/Sidebar.js", import.meta.url), "utf8");
+  const context = { portal: "client", role: ROLES.COMPANY_ADMIN, enabledProducts: ["OFF_STREET"], companyId: "emp-1" };
+  const visible = (item) => navigationVisibleForRole(item, context) && !item.requiresModule;
+  const labels = projectClientAdministrationNode(filterVisibleTree(navigationItems.filter((item) => item.label === "Administración"), visible)).map((item) => item.label);
+  assert.ok(labels.includes("Claves de operadores"));
+  assert.match(source, /id: "administracion"[\s\S]*?labels: \[[^\]]*"Claves de operadores"/);
+});

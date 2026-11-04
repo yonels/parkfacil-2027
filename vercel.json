@@ -11,6 +11,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "fix/sidebar-claves-operadores": false,
       "feature/reporte-claves-operadores": false,
       "fix/volver-configurador": false,
       "fix/comprobante-salida-liberada": false,
