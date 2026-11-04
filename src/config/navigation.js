@@ -329,6 +329,8 @@ export const navigationItems = [
             { href: "/usuarios/operadores", label: "Ver y administrar operadores" },
             { href: "/usuarios/operadores/crear", label: "Crear operador" },
           ] },
+          // Reporte de claves de operadores (SOL-2026-11-04-004).
+          { href: "/usuarios/claves-operadores", label: "Claves de operadores", activePrefix: "/usuarios/claves-operadores" },
         ],
       },
       { href: "/seguridad", label: "Seguridad", icon: KeyRound, requiresModule: "seguridad" },

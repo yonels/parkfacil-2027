@@ -14,7 +14,7 @@ const AUTH_USER = {
   email_confirmed_at: "2026-01-01T00:00:00.000Z",
   deleted_at: null,
   banned_until: null,
-  app_metadata: { role: "operator" },
+  app_metadata: { role: "company_admin" },
 };
 
 function terminal(result) {
@@ -56,7 +56,7 @@ function createClientRecoveryMock({
     from(table) {
       if (table === "company_members") {
         return terminal({
-          data: member ? { company_id: "emp-5q", role: "operator", status: "active", recovery_email: recoveryEmail } : null,
+          data: member ? { company_id: "emp-5q", role: "company_admin", status: "active", recovery_email: recoveryEmail } : null,
           error: null,
         });
       }

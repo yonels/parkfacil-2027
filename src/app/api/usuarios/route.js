@@ -1,3 +1,4 @@
+import { saveOperatorCredential } from "@/lib/operatorCredentialServer";
 import { NextResponse } from "next/server";
 import { randomBytes } from "node:crypto";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
@@ -167,6 +168,11 @@ export async function POST(request) {
       }));
       const access = await db.from("company_member_parkings").insert(rows);
       if (access.error) throw access.error;
+    }
+
+    // Reporte de claves de operadores (SOL-2026-11-04-004).
+    if (payload.role === ROLES.OPERATOR) {
+      await saveOperatorCredential(db, { userId: createdUserId, companyId: targetCompanyId, password: temporaryPassword, actorId: authorization.context.userId });
     }
 
     const result = await listAuthorizedUsers(db, authorization.context);

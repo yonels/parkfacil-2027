@@ -434,7 +434,9 @@ export async function procesarRecuperacionContrasena({
   const membresia = portal === "cliente"
     ? await obtenerMembresiaClienteElegible(supabase, usuario)
     : null;
-  const elegible = portal === "root" ? validarRoot(usuario) : Boolean(membresia);
+  // Un operador no recupera su clave: la cambia el administrador (SOL-2026-11-04-004). Misma
+  // respuesta genérica, para no revelar qué cuentas son de operador.
+  const elegible = portal === "root" ? validarRoot(usuario) : Boolean(membresia) && membresia.role !== "operator";
 
   diagnosticar("Resultado de elegibilidad", elegible);
 
