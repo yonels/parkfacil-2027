@@ -29,3 +29,10 @@ test("resuelve flujos con un padre funcional especial", () => {
   assert.equal(getParentHref("/cierres-turno/cierre-1"), "/operacion");
   assert.equal(getParentHref("/simulador-tarifas"), "/modelo-dashboard");
 });
+
+test("Tarifas y Niveles de un estacionamiento vuelven al configurador", () => {
+  assert.equal(getParentHref("/estacionamientos/PF-1/tarifas"), "/estacionamientos/PF-1/configuracion");
+  assert.equal(getParentHref("/estacionamientos/PF-1/niveles"), "/estacionamientos/PF-1/configuracion");
+  assert.equal(getParentHref("/estacionamientos/PF-1/niveles/nuevo"), "/estacionamientos/PF-1/niveles");
+  assert.equal(getParentHref("/estacionamientos/PF-1/turnos"), "/estacionamientos/PF-1");
+});

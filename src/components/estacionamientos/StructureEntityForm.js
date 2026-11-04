@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useWizardReturnHref } from "@/components/companySetup/wizardReturnStore";
 import { OPERATIONAL_STATES, sanitizeCapacityEntity, sanitizeLevelCreateInput, sanitizeOnStreetSector, validateLevel, validateLevelCreateInput, validateOnStreetSector, validateStreet, validateZone } from "@/lib/parkingOperations.mjs";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 
@@ -40,6 +41,7 @@ function initialValues(kind, entity) {
 // onCancel, comportamiento IDÉNTICO al de siempre.
 export default function StructureEntityForm({ kind, parking, parent = null, entity = null, cancelHref: cancelHrefOverride = null, onSaved = null, onCancel = null }) {
   const router = useRouter();
+  const levelsWizardReturnHref = useWizardReturnHref(`/estacionamientos/${parking?.code}/niveles`);
   const editing = Boolean(entity);
   const [values, setValues] = useState(() => initialValues(kind, entity));
   const [errors, setErrors] = useState({});
@@ -56,6 +58,8 @@ export default function StructureEntityForm({ kind, parking, parent = null, enti
     const creatingLevel = kind === "level" && !editing;
     const payload = kind === "sector" ? sanitizeOnStreetSector(values) : kind === "level" ? { ...sanitizeLevelCreateInput(values), ...(editing ? { code: String(values.code || "").trim().toUpperCase() } : {}) } : sanitizeCapacityEntity(values);
     const validation = kind === "sector" ? validateOnStreetSector(payload) : creatingLevel ? validateLevelCreateInput(payload) : kind === "level" ? { ...validateLevel(payload), ...validateLevelCreateInput(payload) } : kind === "street" ? validateStreet(payload) : validateZone(payload);
+    // Zona nueva: el código lo asigna el servidor (SOL-2026-11-04-002).
+    if (kind === "zone" && !editing) delete validation.code;
     setErrors(validation);
     setRequestError("");
     if (Object.keys(validation).length) return;
@@ -68,7 +72,8 @@ export default function StructureEntityForm({ kind, parking, parent = null, enti
       if (onSaved) {
         onSaved(body.data);
       } else {
-        router.push(creatingLevel ? `/estacionamientos/${parking.code}/niveles/${body.data.id}?created=${encodeURIComponent(body.data.code)}` : cancelHref);
+        // Nivel nuevo: vuelve al configurador, o al asistente si se abrió desde allí (SOL-2026-11-04-002).
+        router.push(creatingLevel ? levelsWizardReturnHref || `/estacionamientos/${parking.code}/configuracion` : cancelHref);
         router.refresh();
       }
     } catch (error) {
@@ -123,7 +128,7 @@ export default function StructureEntityForm({ kind, parking, parent = null, enti
   return <form onSubmit={submit} noValidate className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
     {requestError && <p role="alert" className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{requestError}</p>}
     <div className="grid gap-4 md:grid-cols-2">
-      {kind !== "street" && !(kind === "level" && !editing) && <Field label="Código" error={errors.code}><input value={values.code ?? ""} readOnly={kind === "level"} onChange={(e) => set("code", kind === "sector" ? e.target.value.toUpperCase() : e.target.value)} maxLength={kind === "sector" ? 10 : undefined} className={`${inputClass} ${kind === "level" ? "bg-slate-100 text-slate-500" : ""}`} /></Field>}
+      {kind !== "street" && !(kind === "level" && !editing) && <Field label="Código" error={errors.code}><input value={kind === "zone" && !editing ? "Automático" : values.code ?? ""} readOnly={kind === "level" || kind === "zone"} onChange={(e) => set("code", kind === "sector" ? e.target.value.toUpperCase() : e.target.value)} maxLength={kind === "sector" ? 10 : undefined} className={`${inputClass} ${kind === "level" || kind === "zone" ? "bg-slate-100 text-slate-500" : ""}`} /></Field>}
       <Field label={kind === "street" ? "Nombre de la calle" : "Nombre *"} error={errors.name}><input maxLength={kind === "level" ? 120 : undefined} value={values.name ?? ""} onChange={(e) => set("name", e.target.value)} className={inputClass} /></Field>
       <Field label="Estado" error={errors.status}><select value={values.status ?? "ACTIVE"} onChange={(e) => set("status", e.target.value)} className={inputClass}>{OPERATIONAL_STATES.map((status) => <option key={status} value={status}>{labels[status]}</option>)}</select></Field>
       {(kind === "street" || kind === "zone") && <><Field label={kind === "street" ? "Capacidad asignada de autos estacionados" : "Capacidad"} error={errors.capacity}><input type="number" min="1" step="1" value={values.capacity ?? ""} onChange={(e) => set("capacity", e.target.value)} className={inputClass} /></Field><Field label="Unidades ocupadas" error={errors.occupied}><input type="number" min="0" step="1" value={values.occupied ?? ""} onChange={(e) => set("occupied", e.target.value)} className={inputClass} /></Field></>}
