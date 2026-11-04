@@ -26,6 +26,13 @@ export function shiftEditStatusOptions(currentStatus) {
   return [];
 }
 
+// Opciones que ofrece la pantalla (SOL-2026-11-04-002): sin activar no se puede abrir un turno
+// (regla del servidor, ver parkingActiveGuard), así que no se ofrece; un turno ya abierto la conserva.
+export function shiftStatusOptionsForParking(currentStatus, parkingActive) {
+  const options = shiftEditStatusOptions(currentStatus);
+  return parkingActive || currentStatus === "OPEN" ? options : options.filter((status) => status !== "OPEN");
+}
+
 // null si el cambio es válido; si no, el motivo para mostrar.
 export function shiftEditViolation(current, input) {
   if (!shiftEditStatusOptions(current?.status).includes(input?.status || "PROGRAMMED")) {
