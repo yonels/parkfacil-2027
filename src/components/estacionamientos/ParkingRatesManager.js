@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useWizardReturnHref } from "@/components/companySetup/wizardReturnStore";
 import { Plus, X } from "lucide-react";
 import { authenticatedFetch } from "@/lib/supabaseBrowser";
 import { rateStatusBadge } from "@/lib/rateStatusBadge.mjs";
@@ -79,7 +81,12 @@ function formFromRate(rate, mode) {
 // duplicar la lógica de carga/clasificación -- se reutiliza el mismo estado
 // `rates` que este componente ya mantiene. Opcional, no cambia nada para
 // los llamadores existentes que no lo pasan.
-export default function ParkingRatesManager({ parking, showCreateButton = true, openSignal, onRatesChange }) {
+// returnHrefAfterCreate (SOL-2026-11-04-002): en la pantalla del configurador, al crear una
+// tarifa o una nueva versión se vuelve a él (o al asistente, si se abrió desde allí). Los demás
+// usos del componente (ficha, On Street) no lo pasan y se quedan donde están.
+export default function ParkingRatesManager({ parking, showCreateButton = true, openSignal, onRatesChange, returnHrefAfterCreate = null }) {
+  const router = useRouter();
+  const wizardReturnHref = useWizardReturnHref(usePathname());
   const [rates, setRates] = useState([]);
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -163,6 +170,10 @@ export default function ParkingRatesManager({ parking, showCreateButton = true, 
         setRates((current) => current.map((rate) => (rate.id === body.data.id ? body.data : rate)));
       } else {
         setRates((current) => [body.data, ...current]);
+      }
+      if (returnHrefAfterCreate && form.mode !== "edit") {
+        router.push(wizardReturnHref || returnHrefAfterCreate);
+        return;
       }
       setForm(null);
     } catch (error) { setRequestError(error.message); } finally { setSaving(false); }

@@ -94,6 +94,13 @@ export function validateLevelCreateInput(input) {
   return errors;
 }
 
+// Código automático de zona (SOL-2026-11-04-002): ZON-001, ZON-002… por nivel. Sigue al mayor
+// ZON-nnn del nivel; los códigos antiguos con otro formato (GEN, VIP) no cuentan.
+export function nextZoneCode(existingCodes = []) {
+  const numbers = existingCodes.map((code) => /^ZON-(\d+)$/.exec(text(code).toUpperCase())).filter(Boolean).map((match) => Number(match[1]));
+  return `ZON-${String(Math.max(0, ...numbers) + 1).padStart(3, "0")}`;
+}
+
 export function validateZone(input, zones = [], currentId = null) {
   const errors = validateStreet(input, zones, currentId);
   if (!text(input?.code)) errors.code = "El código es obligatorio.";
