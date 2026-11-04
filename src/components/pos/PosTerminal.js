@@ -27,7 +27,7 @@ import PosStreetLocationPicker, { defaultStreetSegmentId } from "@/components/po
 import QrTicketScanner from "@/components/pos/QrTicketScanner";
 import { ChargeBreakdownList, ClosedUnpaidExitsSummary, DebtNoticeBanner, UnpaidExitAction, UnpaidExitsReview } from "@/components/pos/PosUnpaidExit";
 import { summarizeChargeBreakdown } from "@/lib/parkingTimeBands.mjs";
-import { receiptChargeLines, receiptExitInstant, receiptRateDescription, releasedReceiptDetail, releasedReceiptRateDescription } from "@/lib/pos/paymentReceiptCore.mjs";
+import { RELEASED_EXIT_PAYMENT_METHOD, receiptChargeLines, receiptExitInstant, receiptRateDescription, releasedExitReceiptQuote, releasedReceiptDetail, releasedReceiptRateDescription } from "@/lib/pos/paymentReceiptCore.mjs";
 import { QR_EXIT_STATUS, qrExitMessage, resolveStayFromQr, searchActiveStays } from "@/lib/pos/qrExitCore.mjs";
 import { hasNativeQrScanner, scanQrWithNativeScanner } from "@/lib/pos/nativeQrScanner.mjs";
 import { couponTokenForRequest, isCouponQrPayload } from "@/lib/cupones/couponInput.mjs";
@@ -2093,11 +2093,32 @@ export default function PosTerminal() {
         if (payload?.details?.code === "RELEASED_EXCESS_DUE") void openVehicleDetail(stay);
         return;
       }
-      setSelectedVehicle(null);
+      // La salida YA quedó registrada: desde aquí una falla de impresión nunca la
+      // revierte ni la repite; solo ofrece reintentar el mismo comprobante.
       setVehiclesInside((current) => Math.max(0, current - 1));
-      setCurrentView(POS_VIEWS.HOME);
-      void loadTerminalState(true);
-      void loadPaymentsToday();
+      const receiptPayload = buildPaymentReceiptPayload(
+        payload?.data?.stay || null,
+        releasedExitReceiptQuote(payload?.data?.quote || null),
+        payload?.data?.parking || parking,
+        RELEASED_EXIT_PAYMENT_METHOD,
+      );
+      setPaymentResult({ plate: payload?.data?.stay?.license_plate || stay.license_plate, total: 0, paymentMethod: RELEASED_EXIT_PAYMENT_METHOD, releasedExit: true });
+      setReceiptPrintPayload(receiptPayload);
+      setReceiptPrintStatus("");
+      const terminalRefresh = loadTerminalState(true);
+      let printResult = null;
+      try {
+        printResult = receiptPayload ? await printLastReceipt(receiptPayload) : null;
+      } catch {
+        printResult = { attempted: true, ok: false };
+      }
+      await terminalRefresh;
+      if (printResult?.attempted && !printResult.ok) {
+        setPaymentModalOpen(true);
+        setPaymentStep("PRINT_PROMPT");
+      } else {
+        finishPaidFlow();
+      }
     } catch {
       setSelectedVehicleError("Error de red al registrar la salida.");
     } finally {
@@ -2902,7 +2923,9 @@ export default function PosTerminal() {
         if (result.code) details.push(`Código: ${result.code}`);
         if (result.message) details.push(`Detalle: ${result.message}`);
         setReceiptPrintStatus([
-          "Pago registrado. No fue posible imprimir el recibo.",
+          printPayload.paymentMethod === RELEASED_EXIT_PAYMENT_METHOD
+            ? "Salida registrada sin cobro. No fue posible imprimir el comprobante."
+            : "Pago registrado. No fue posible imprimir el recibo.",
           ...details,
         ].join("\n"));
       }
@@ -5081,19 +5104,23 @@ export default function PosTerminal() {
     const couponControlsVisible = couponsEnabled && quoteView?.payable && !quote?.released && paymentStep === "MENU";
     // Total $0 por el cupón: salida sin cargo confirmada (efectivo $0), nunca TUU.
     const zeroTotalCoupon = isZeroTotalCouponCharge(quote);
+    // Salida liberada ya registrada (solo llega aquí si falló la impresión): cerrar
+    // termina el flujo, para no volver al detalle de una estadía ya cerrada.
+    const releasedExitDone = Boolean(paymentResult?.releasedExit);
+    const closeModal = releasedExitDone ? finishPaidFlow : closePaymentModal;
 
     return (
       // Alto máximo = pantalla y contenido desplazable (QA PRO2 2026-10-18,
       // SOL-2026-10-11-001): el aviso de pago incierto superaba el alto de la
       // pantalla y dejaba fuera de vista la X y CERRAR, sin forma de llegar a ellos.
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-rose-950/55 p-2 backdrop-blur-sm sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) closePaymentModal(); }}>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-rose-950/55 p-2 backdrop-blur-sm sm:p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal(); }}>
         <section className="flex w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" style={{ maxHeight: "calc(100vh - 1rem)" }}>
           <header className="flex shrink-0 items-center justify-between bg-rose-900 px-5 py-4 text-white">
             <div>
-              <p className="text-xs font-semibold text-rose-200">Pago operacional</p>
-              <h3 className="mt-1 text-xl font-black">Seleccione medio de pago</h3>
+              <p className="text-xs font-semibold text-rose-200">{releasedExitDone ? "Pago liberado" : "Pago operacional"}</p>
+              <h3 className="mt-1 text-xl font-black">{releasedExitDone ? "Salida sin cobro" : "Seleccione medio de pago"}</h3>
             </div>
-            <button type="button" onClick={closePaymentModal} className="rounded-full p-2 hover:bg-white/10" aria-label="Cerrar pago">
+            <button type="button" onClick={closeModal} className="rounded-full p-2 hover:bg-white/10" aria-label="Cerrar pago">
               <X className="h-5 w-5" />
             </button>
           </header>
@@ -5119,7 +5146,7 @@ export default function PosTerminal() {
                   </div>
                 </div>
               ) : (
-                <p className="mt-2 text-sm font-semibold text-slate-700">Total a pagar: <span className="font-black text-slate-900">{formatQuoteAmount(quote)}</span></p>
+                releasedExitDone ? null : <p className="mt-2 text-sm font-semibold text-slate-700">Total a pagar: <span className="font-black text-slate-900">{formatQuoteAmount(quote)}</span></p>
               )}
             </div>
 
@@ -5197,7 +5224,7 @@ export default function PosTerminal() {
             {paymentStep === "PRINT_PROMPT" ? (
               <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                 <div className="rounded-xl border border-emerald-300 bg-white px-3 py-3 text-sm font-black text-emerald-900">
-                  PAGO REGISTRADO ({formatPaymentMethodLabel(paymentResult?.paymentMethod)}{paymentResult?.cardLast4 ? ` ****${paymentResult.cardLast4}` : ""})<br />SALIDA COMPLETADA
+                  {releasedExitDone ? "SALIDA REGISTRADA SIN COBRO" : <>PAGO REGISTRADO ({formatPaymentMethodLabel(paymentResult?.paymentMethod)}{paymentResult?.cardLast4 ? ` ****${paymentResult.cardLast4}` : ""})<br />SALIDA COMPLETADA</>}
                   <div className="mt-2 text-xs font-semibold text-emerald-800">Patente: {paymentResult?.plate || "-"}</div>
                   {paymentResult?.boleta?.status === "ISSUED" ? (
                     <div className="mt-2 text-xs font-semibold text-emerald-800">
