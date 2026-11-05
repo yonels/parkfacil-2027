@@ -6,6 +6,8 @@ function one(value){return Array.isArray(value)?value[0]:value;}
 
 export class BillingDocumentRepository{
   constructor(db){this.db=db;}
+  // Datos del emisor desde Facturación → Configuración (SOL-2026-11-05-005, F1.4).
+  async getIssuer(){const{readSettingsRow}=await import("./settingsRepository");const{issuerForDocument}=await import("./settingsCore.mjs");return issuerForDocument(await readSettingsRow(this.db));}
   async getReadyPreinvoice(id){
     const r=await this.db.from("billing_preinvoices").select("id,company_id,contract_id,period,currency,status,due_date,net_amount,tax_amount,total_amount,companies!inner(business_name,rut_number,rut_dv,business_activity,address,district,city,email,status),company_contracts!inner(id,status),billing_preinvoice_lines!inner(description,quantity,unit_price,subtotal,total_amount,line_status,billable_concepts!inner(tax_category))").eq("id",id).maybeSingle();fail(r.error,"No fue posible resolver prefactura lista para emisión");if(!r.data)return null;
     const company=one(r.data.companies),lines=(r.data.billing_preinvoice_lines||[]).filter(x=>x.line_status==="ACTIVE");
