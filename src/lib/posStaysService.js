@@ -145,7 +145,7 @@ export async function quoteOpenPosStay(db, parkingId, stayId, options = {}) {
 // `scopedParkings` o se rechaza como recurso no encontrado (mismo criterio
 // que requireOperationalParking).
 export async function searchActivityReport(db, scopedParkings, options = {}) {
-  const { activity = null, parkingId = null, dateFrom = null, dateTo = null, paymentMethod = null, page, pageSize } = options;
+  const { activity = null, parkingId = null, dateFrom = null, dateTo = null, paymentMethod = null, cardType = null, page, pageSize } = options;
   const { page: safePage, pageSize: safeSize, offset } = normalizePagination({ page, pageSize });
 
   const parkings = Array.isArray(scopedParkings) ? scopedParkings : [];
@@ -170,6 +170,8 @@ export async function searchActivityReport(db, scopedParkings, options = {}) {
   let query = db.from("parking_stays").select(stayFields).in("parking_id", queryParkingIds);
   if (status) query = query.eq("status", status);
   if (paymentMethod) query = query.eq("payment_method", paymentMethod);
+  if (cardType === "NONE") query = query.is("payment_card_type", null);
+  else if (cardType) query = query.eq("payment_card_type", cardType);
   // Margen de ±1 día en UTC para no perder filas por el desfase de huso
   // horario frente a America/Santiago; el recorte exacto ocurre después con
   // filterRowsByExactOperationalDateRange, ya en memoria.

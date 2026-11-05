@@ -28,10 +28,11 @@ export async function GET(request) {
     const dateFrom = url.searchParams.get("dateFrom") || null;
     const dateTo = url.searchParams.get("dateTo") || null;
     const paymentMethod = url.searchParams.get("paymentMethod") || null;
+    const cardType = url.searchParams.get("cardType") || null;
     const page = url.searchParams.get("page");
     const pageSize = url.searchParams.get("pageSize");
 
-    const validation = validateReportFilters({ activity, dateFrom, dateTo, paymentMethod });
+    const validation = validateReportFilters({ activity, dateFrom, dateTo, paymentMethod, cardType });
     if (!validation.ok) return fail(validation.message, 400, { code: "INVALID_FILTERS" });
 
     // Mismo aislamiento por empresa/estacionamiento que /api/estacionamientos
@@ -46,6 +47,7 @@ export async function GET(request) {
       dateFrom,
       dateTo,
       paymentMethod,
+      cardType,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });

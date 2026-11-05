@@ -10,7 +10,8 @@ function formatSegment(segment) {
   return segment
     .replace(/-/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase())
-    .replace(/Documentos/g, "Documentación");
+    .replace(/Documentos/g, "Documentación")
+    .replace(/Modelo Dashboard/g, "Dashboard General");
 }
 
 export default function Breadcrumbs({ onBack }) {

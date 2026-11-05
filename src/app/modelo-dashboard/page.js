@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -29,53 +29,37 @@ import AppShell from "@/components/layout/AppShell";
 const periods = ["Hoy", "7 días", "Mes", "Año"];
 
 const activity = [
-  { id: "pendientes", label: "Vehículos pendientes", day: 1, month: 6, status: "Pendiente", icon: Clock3, tone: "warning" },
-  { id: "ingresos", label: "Ingresos", day: 41, month: 1388, status: "Registrados", icon: CarFront, tone: "info" },
-  { id: "salidas", label: "Salidas", day: 39, month: 1348, status: "Registradas", icon: LogOut, tone: "positive" },
-  { id: "anulados", label: "Anulados", day: 2, month: 37, status: "Anulados", icon: Ban, tone: "danger" },
+  { id: "pendientes", label: "Vehículos pendientes", status: "Pendiente", icon: Clock3, tone: "warning" },
+  { id: "ingresos", label: "Ingresos", status: "Registrados", icon: CarFront, tone: "info" },
+  { id: "salidas", label: "Salidas", status: "Registradas", icon: LogOut, tone: "positive" },
+  { id: "anulados", label: "Anulados", status: "Anulados", icon: Ban, tone: "danger" },
 ];
 
 const payments = [
-  { id: "efectivo", label: "Efectivo", day: 18450, month: 545670, share: 22, icon: Banknote },
-  { id: "debito", label: "Débito", day: 0, month: 0, share: 0, icon: CreditCard },
-  { id: "credito", label: "Crédito", day: 64780, month: 1932510, share: 78, icon: CreditCard },
+  { id: "efectivo", label: "Efectivo", icon: Banknote },
+  { id: "debito", label: "Débito", icon: CreditCard },
+  { id: "credito", label: "Crédito", icon: CreditCard },
 ];
+const UNCLASSIFIED_PAYMENT = { id: "sinClasificar", label: "Tarjeta sin clasificar", icon: CreditCard };
 
-const flowData = [
-  { label: "22 Jul", entries: 164, exits: 151 },
-  { label: "23 Jul", entries: 183, exits: 176 },
-  { label: "24 Jul", entries: 197, exits: 188 },
-  { label: "25 Jul", entries: 221, exits: 213 },
-  { label: "26 Jul", entries: 208, exits: 205 },
-  { label: "27 Jul", entries: 247, exits: 239 },
-  { label: "28 Jul", entries: 168, exits: 176 },
-];
+const count = (value) => new Intl.NumberFormat("es-CL").format(Number(value) || 0);
 
-const hourlyFlow = [
-  { hour: "00:00", entries: 8, exits: 14 },
-  { hour: "03:00", entries: 5, exits: 9 },
-  { hour: "06:00", entries: 18, exits: 11 },
-  { hour: "09:00", entries: 46, exits: 28 },
-  { hour: "12:00", entries: 37, exits: 42 },
-  { hour: "15:00", entries: 51, exits: 45 },
-  { hour: "18:00", entries: 34, exits: 53 },
-  { hour: "21:00", entries: 19, exits: 31 },
-  { hour: "23:00", entries: 10, exits: 16 },
-];
+// Marcas del eje de un gráfico: de 0 al máximo real, sin decimales.
+function axisTicks(max, steps) {
+  const top = Math.max(steps, Math.ceil(max / steps) * steps);
+  return Array.from({ length: steps + 1 }, (_, index) => top - (top / steps) * index);
+}
 
-const occupancyHeatmap = [
-  { day: "Lunes", values: [28, 52, 76, 84, 71, 42] },
-  { day: "Martes", values: [31, 58, 81, 88, 75, 45] },
-  { day: "Miércoles", values: [34, 61, 85, 92, 79, 48] },
-  { day: "Jueves", values: [36, 64, 87, 94, 82, 51] },
-  { day: "Viernes", values: [39, 69, 91, 97, 89, 63] },
-  { day: "Sábado", values: [22, 46, 68, 79, 73, 55] },
-  { day: "Domingo", values: [17, 35, 51, 64, 58, 38] },
-];
-
-const occupancyHours = ["06–09", "09–12", "12–15", "15–18", "18–21", "21–00"];
+// Datos reales de la pantalla (GET /api/dashboard-general).
+async function loadDashboardSection(params) {
+  const response = await fetch(`/api/dashboard-general?${new URLSearchParams(params).toString()}`, { cache: "no-store" });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(payload?.error || "No fue posible obtener los indicadores.");
+  return payload.data;
+}
 
 function heatTone(value) {
+  if (value === null) return "bg-slate-50 text-slate-400";
   if (value >= 90) return "bg-[#041E42] text-white";
   if (value >= 80) return "bg-[#3150D8] text-white";
   if (value >= 65) return "bg-[#2EA8FF] text-white";
@@ -88,18 +72,16 @@ function heatTone(value) {
 // src/lib/pos/activityReportCore.mjs (fuente de verdad del backend).
 const REPORT_ACTIVITIES = ["ingresos", "salidas", "pendientes", "anulados"];
 
-// Fecha de referencia real para el filtro "Periodo" — nunca una fecha
-// demostrativa fija: hoy es literalmente el día de hoy del navegador.
+// Fecha de referencia real para el filtro "Periodo": el día de hoy en Chile,
+// el mismo día operacional con que el servidor agrupa las cifras.
 function todayIso() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
 }
 
 const MONTH_ABBR_ES = { Ene: "01", Feb: "02", Mar: "03", Abr: "04", May: "05", Jun: "06", Jul: "07", Ago: "08", Sep: "09", Oct: "10", Nov: "11", Dic: "12" };
 
 // "22 Jul" (etiqueta del gráfico "Flujo de vehículos por día", sin año) ->
-// "2026-07-22", usando el año actual real. El gráfico en sí sigue siendo
-// demostrativo (fuera de alcance de esta corrección), pero al hacer clic en
-// una barra el modal que se abre sí debe consultar esa fecha real.
+// "2026-07-22", usando el año actual real.
 function parseDayLabelToIsoDate(label) {
   const match = /^(\d{1,2})\s+([A-Za-zÁ-ú]{3})$/.exec(String(label || "").trim());
   if (!match) return null;
@@ -119,32 +101,37 @@ function selectionToQueryParams(selection) {
 
   if (type === "ocupacion") return null;
 
+  // Un indicador «del día» abre el detalle de hoy; barras y distribución traen su rango.
+  const range = selection?.dateFrom ? { dateFrom: selection.dateFrom, dateTo: selection.dateTo } : id.startsWith("day-") ? { dateFrom: todayIso(), dateTo: todayIso() } : {};
+
   if (type === "pago" || type === "pago-dia") {
     // "pago-dia" usa el mismo prefijo "day-" que "actividad-dia" (ver las
     // tarjetas de "Actividad del día" más abajo: id: `day-${item.id}`).
     const barePaymentId = id.startsWith("day-") ? id.slice(4) : id;
-    if (barePaymentId === "ingresos-pie") return {}; // distribución total, no un medio específico
-    // payment_method en parking_stays solo distingue CASH/CARD — no hay
-    // débito vs crédito real para pagos POS (ver activityReportCore.mjs).
-    // Débito y Crédito comparten el mismo dato real (CARD) hasta que exista
-    // esa distinción en el backend.
-    const method = barePaymentId === "efectivo" ? "CASH" : barePaymentId === "debito" || barePaymentId === "credito" ? "CARD" : null;
-    return method ? { paymentMethod: method } : {};
+    // Los pagos se cuentan por fecha de salida, igual que Recaudación.
+    if (barePaymentId === "ingresos-pie") return { activity: "salidas", ...range };
+    if (barePaymentId === "efectivo") return { activity: "salidas", paymentMethod: "CASH", ...range };
+    if (barePaymentId === "debito") return { activity: "salidas", paymentMethod: "CARD", cardType: "DEBIT", ...range };
+    if (barePaymentId === "credito") return { activity: "salidas", paymentMethod: "CARD", cardType: "CREDIT", ...range };
+    if (barePaymentId === "sinClasificar") return { activity: "salidas", paymentMethod: "CARD", cardType: "NONE", ...range };
+    return { activity: "salidas", ...range };
   }
 
   if (type === "actividad" || type === "actividad-dia") {
     const bareId = id.startsWith("day-") ? id.slice(4) : id;
-    if (REPORT_ACTIVITIES.includes(bareId)) return { activity: bareId };
+    if (REPORT_ACTIVITIES.includes(bareId)) return { activity: bareId, ...range };
     if (bareId.startsWith("entries-") || bareId.startsWith("exits-")) {
       const activity = bareId.startsWith("entries-") ? "ingresos" : "salidas";
+      if (range.dateFrom) return { activity, ...range };
       const date = parseDayLabelToIsoDate(bareId.replace(/^(entries|exits)-/, ""));
       return date ? { activity, dateFrom: date, dateTo: date } : { activity };
     }
     return {};
   }
 
-  if (type === "general" && id === "Vehículos pendientes") return { activity: "pendientes" };
-  return {}; // "Total mensual cobrado" / "Transacciones totales": sin filtro de actividad
+  // La tarjeta cuenta todos los vehículos adentro, sin importar cuándo entraron.
+  if (type === "general" && id === "Vehículos pendientes") return { activity: "pendientes", allDates: true };
+  return { activity: "salidas" }; // "Total mensual cobrado" / "Transacciones totales": pagos del mes
 }
 
 function validateDateRange(from, to) {
@@ -287,7 +274,7 @@ export default function ModeloDashboardPage() {
   // del modal de detalle (bug real encontrado en la auditoría: cambiar uno
   // afectaba al otro sin ninguna relación). Ahora quedan desacoplados: este
   // es exclusivo del gráfico; el del modal vive en filterPeriodDraft.
-  const [flowPeriod, setFlowPeriod] = useState("Mes");
+  const [flowPeriod, setFlowPeriod] = useState("7 días");
   const [selection, setSelection] = useState({ type: "actividad", id: "ingresos", label: "Ingresos" });
   const [query, setQuery] = useState("");
   const [columnOrder, setColumnOrder] = useState(transactionColumns.map((column) => column.key));
@@ -296,11 +283,20 @@ export default function ModeloDashboardPage() {
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const [hourlyOpen, setHourlyOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [flowDate, setFlowDate] = useState("2026-07-28");
-  const [flowHour, setFlowHour] = useState("15:00");
+  const [flowDate, setFlowDate] = useState(() => todayIso());
+  const [flowHour, setFlowHour] = useState("09:00");
   const [incomePeriod, setIncomePeriod] = useState("month");
-  const [incomeMonth, setIncomeMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  const [incomeDate, setIncomeDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [incomeMonth, setIncomeMonth] = useState(() => todayIso().slice(0, 7));
+  const [incomeDate, setIncomeDate] = useState(() => todayIso());
+  const [overview, setOverview] = useState(null);
+  const [loadError, setLoadError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+  const [flow, setFlow] = useState(null);
+  const [flowError, setFlowError] = useState("");
+  const [income, setIncome] = useState(null);
+  const [incomeError, setIncomeError] = useState("");
+  const [hourly, setHourly] = useState(null);
+  const [hourlyError, setHourlyError] = useState("");
 
   // CAPA 1 — filtro superior del modal ("Estacionamiento"/"Periodo"/"Fecha
   // desde"/"Fecha hasta" + BUSCAR). Valores "draft": lo que el usuario está
@@ -328,24 +324,103 @@ export default function ModeloDashboardPage() {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState("");
 
-  const totalMonth = useMemo(() => payments.reduce((sum, item) => sum + item.month, 0), []);
-  const incomePayments = useMemo(() => {
-    const selectedDay = Number(incomeDate.slice(-2)) || 28;
-    const dayFactor = incomeDate === "2026-07-28" ? 1 : 0.78 + (selectedDay % 7) * 0.055;
-    const selectedMonth = Number(incomeMonth.slice(-2)) || 7;
-    const monthFactor = incomeMonth === "2026-07" ? 1 : 0.86 + (selectedMonth % 5) * 0.045;
-    const periodValues = payments.map((item) => Math.round((incomePeriod === "day" ? item.day * dayFactor : item.month * monthFactor)));
-    const periodTotal = periodValues.reduce((sum, value) => sum + value, 0);
-    return payments.map((item, index) => ({
-      ...item,
-      selectedAmount: periodValues[index],
-      selectedShare: periodTotal > 0 ? Math.round((periodValues[index] / periodTotal) * 100) : 0,
-    }));
-  }, [incomeDate, incomeMonth, incomePeriod]);
-  const incomeTotal = incomePayments.reduce((sum, item) => sum + item.selectedAmount, 0);
-  const cashShare = incomePayments.find((item) => item.id === "efectivo")?.selectedShare ?? 0;
-  const debitShare = incomePayments.find((item) => item.id === "debito")?.selectedShare ?? 0;
-  const creditShare = 100 - cashShare - debitShare;
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const data = await loadDashboardSection({ section: "overview" });
+        if (!active) return;
+        setOverview(data);
+        setLoadError("");
+      } catch (error) {
+        if (active) setLoadError(error.message);
+      }
+    })();
+    return () => { active = false; };
+  }, [reloadKey]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const data = await loadDashboardSection({ section: "flow", period: flowPeriod });
+        if (!active) return;
+        setFlow(data);
+        setFlowError("");
+      } catch (error) {
+        if (active) setFlowError(error.message);
+      }
+    })();
+    return () => { active = false; };
+  }, [flowPeriod, reloadKey]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const data = await loadDashboardSection(incomePeriod === "month" ? { section: "income", month: incomeMonth } : { section: "income", date: incomeDate });
+        if (!active) return;
+        setIncome(data);
+        setIncomeError("");
+      } catch (error) {
+        if (active) setIncomeError(error.message);
+      }
+    })();
+    return () => { active = false; };
+  }, [incomePeriod, incomeMonth, incomeDate, reloadKey]);
+
+  useEffect(() => {
+    if (!hourlyOpen) return undefined;
+    let active = true;
+    (async () => {
+      try {
+        const data = await loadDashboardSection({ section: "hourly", date: flowDate });
+        if (!active) return;
+        setHourly(data);
+        setHourlyError("");
+      } catch (error) {
+        if (active) setHourlyError(error.message);
+      }
+    })();
+    return () => { active = false; };
+  }, [hourlyOpen, flowDate]);
+
+  const ready = Boolean(overview);
+  const activityCards = activity.map((item) => ({ ...item, day: overview?.activity.day[item.id] ?? 0, month: overview?.activity.month[item.id] ?? 0 }));
+  const hasUnclassified = Boolean(overview?.payments.day.sinClasificar || overview?.payments.month.sinClasificar);
+  const paymentCards = [...payments, ...(hasUnclassified ? [UNCLASSIFIED_PAYMENT] : [])].map((item) => ({
+    ...item,
+    isPayment: true,
+    day: overview?.payments.day[item.id] ?? 0,
+    month: overview?.payments.month[item.id] ?? 0,
+    share: overview?.payments.month.shares[item.id] ?? 0,
+  }));
+  const incomeData = income?.payments;
+  const incomePayments = [...payments, ...(incomeData?.sinClasificar ? [UNCLASSIFIED_PAYMENT] : [])].map((item) => ({
+    ...item,
+    selectedAmount: incomeData?.[item.id] ?? 0,
+    selectedShare: incomeData?.shares[item.id] ?? 0,
+  }));
+  const incomeTotal = incomeData?.total ?? 0;
+  const incomeRange = income ? { dateFrom: income.dateFrom, dateTo: income.dateTo } : {};
+  const cashShare = incomeData?.shares.efectivo ?? 0;
+  const debitShare = incomeData?.shares.debito ?? 0;
+  const creditShare = incomeData?.shares.credito ?? 0;
+  const otherShare = incomeData?.shares.sinClasificar ?? 0;
+  const incomeStops = incomeTotal > 0
+    ? `#3150D8 0% ${creditShare}%, #10B981 ${creditShare}% ${creditShare + cashShare}%, #94A3B8 ${creditShare + cashShare}% ${creditShare + cashShare + debitShare}%, #F59E0B ${creditShare + cashShare + debitShare}% 100%`
+    : "#E2E8F0 0% 100%";
+  const flowSeries = flow?.series ?? [];
+  const flowTicks = axisTicks(Math.max(0, ...flowSeries.flatMap((item) => [item.entries, item.exits])), 5);
+  const flowTop = flowTicks[0];
+  const flowDescription = { Hoy: "Ingresos y salidas registrados hoy", "7 días": "Ingresos y salidas registrados durante los últimos siete días", Mes: "Ingresos y salidas registrados este mes", Año: "Ingresos y salidas registrados este año, por mes" }[flowPeriod];
+  const hourlyFlow = hourly?.date === flowDate ? hourly.hours : [];
+  const hourlyTicks = axisTicks(Math.max(0, ...hourlyFlow.flatMap((item) => [item.entries, item.exits])), 6);
+  const hourlyY = (value) => 320 - (value / hourlyTicks[0]) * 280;
+  const hourlyX = (index) => 75 + index * 112;
+  const occupancy = overview?.occupancy;
+  const occupancyHours = occupancy?.hours ?? [];
+  const occupancyRows = occupancy?.rows ?? [];
   // FUENTE ÚNICA DE FILAS — pipeline lineal, cada paso deriva del anterior,
   // sin estados duplicados desincronizables (Fase 9):
   //   rows (backend, ya filtrado por selección + Estacionamiento/fechas/
@@ -380,11 +455,11 @@ export default function ModeloDashboardPage() {
       const query = new URLSearchParams();
       if (params.activity) query.set("activity", params.activity);
       if (params.paymentMethod) query.set("paymentMethod", params.paymentMethod);
+      if (params.cardType) query.set("cardType", params.cardType);
       if (filtersValue.parking && filtersValue.parking !== "todos") query.set("parkingId", filtersValue.parking);
-      const dateFrom = params.dateFrom || filtersValue.from;
-      const dateTo = params.dateTo || filtersValue.to;
-      if (dateFrom) query.set("dateFrom", dateFrom);
-      if (dateTo) query.set("dateTo", dateTo);
+      // El rango del indicador ya viene en los filtros (openDetail), y el usuario puede cambiarlo.
+      if (filtersValue.from) query.set("dateFrom", filtersValue.from);
+      if (filtersValue.to) query.set("dateTo", filtersValue.to);
       query.set("page", String(page));
       query.set("pageSize", String(REPORT_PAGE_SIZE));
 
@@ -442,7 +517,7 @@ export default function ModeloDashboardPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `modelo-dashboard-${selection?.id || "detalle"}.csv`;
+    link.download = `dashboard-general-${selection?.id || "detalle"}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -476,25 +551,28 @@ export default function ModeloDashboardPage() {
     // reinician a sus valores por defecto — un rango aplicado en una
     // selección previa no debe ocultar silenciosamente filas de esta nueva
     // selección.
+    const params = selectionToQueryParams(nextSelection);
+    const from = params?.allDates ? "" : params?.dateFrom || DEFAULT_MODAL_FILTERS.from;
+    const to = params?.allDates ? "" : params?.dateTo || DEFAULT_MODAL_FILTERS.to;
     setFilterParkingDraft(DEFAULT_MODAL_FILTERS.parking);
     setFilterPeriodDraft(DEFAULT_MODAL_FILTERS.periodLabel);
-    setFilterFromDraft(DEFAULT_MODAL_FILTERS.from);
-    setFilterToDraft(DEFAULT_MODAL_FILTERS.to);
+    setFilterFromDraft(from);
+    setFilterToDraft(to);
     setFilterError("");
-    const defaultFilters = { parking: DEFAULT_MODAL_FILTERS.parking, from: DEFAULT_MODAL_FILTERS.from, to: DEFAULT_MODAL_FILTERS.to };
+    const defaultFilters = { parking: DEFAULT_MODAL_FILTERS.parking, from, to };
     setAppliedFilters(defaultFilters);
     setDetailOpen(true);
     void fetchActivityReport({ selectionValue: nextSelection, filtersValue: defaultFilters, page: 1 });
   };
 
   return (
-    <AppShell title="Modelo Dashboard" description="Prototipo para visualización y análisis">
+    <AppShell title="Dashboard General" description="Indicadores reales de operación y recaudación">
       <div className="space-y-5">
         <header className="flex flex-col gap-4 rounded-3xl border border-[#5271E8] bg-[#3150D8] p-5 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Modelo de prueba</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-200">Datos en vivo · Off Street</p>
             <h1 className="mt-2 text-2xl font-semibold">Resumen comercial y transaccional</h1>
-            <p className="mt-1 text-sm text-slate-300">Todos los indicadores, barras y filas son interactivos.</p>
+            <p className="mt-1 text-sm text-slate-300">Selecciona un indicador o una barra para ver su detalle.</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/simulador-tarifas" className="inline-flex w-fit items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#041E42] transition hover:bg-cyan-50">
@@ -506,11 +584,14 @@ export default function ModeloDashboardPage() {
           </div>
         </header>
 
+        {loadError ? <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700"><span>{loadError}</span><button type="button" onClick={() => setReloadKey((value) => value + 1)} className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-rose-700">Reintentar</button></div> : null}
+        {overview && !overview.hasOffStreet ? <p className="rounded-2xl border border-[#BFD2FF] bg-[#EEF4FF] px-4 py-3 text-sm text-[#041E42]">Este dashboard muestra la operación Off Street, y no hay estacionamientos Off Street disponibles. La información de On Street está en su propio Dashboard.</p> : null}
+
         <section className="grid gap-3 md:grid-cols-3">
           {[
-            { label: "Vehículos pendientes", value: "6", icon: Clock3, accent: "text-amber-600" },
-            { label: "Total mensual cobrado", value: money(totalMonth), icon: Banknote, accent: "text-emerald-600" },
-            { label: "Transacciones totales", value: "1.388", icon: ReceiptText, accent: "text-[#3150D8]" },
+            { label: "Vehículos pendientes", value: ready ? count(overview.kpis.pending) : "…", icon: Clock3, accent: "text-amber-600" },
+            { label: "Total mensual cobrado", value: ready ? money(overview.kpis.monthlyTotal) : "…", icon: Banknote, accent: "text-emerald-600" },
+            { label: "Transacciones totales", value: ready ? count(overview.kpis.transactions) : "…", icon: ReceiptText, accent: "text-[#3150D8]" },
           ].map(({ label, value, icon: Icon, accent }) => (
             <button key={label} type="button" onClick={() => openDetail({ type: "general", id: label, label })} className="flex items-center justify-between rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md">
               <div><p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</p><p className={`mt-3 text-3xl font-semibold ${accent}`}>{value}</p></div>
@@ -525,16 +606,16 @@ export default function ModeloDashboardPage() {
             <div><h2 className="text-2xl font-bold tracking-tight text-white">Actividad del mes actual</h2><p className="mt-1 text-sm text-blue-100">Selecciona un módulo para analizar su detalle.</p></div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {[...activity.slice(1), ...payments].map((item) => {
+            {[...activityCards.slice(1), ...paymentCards].map((item) => {
               const Icon = item.icon;
-              const isPayment = Object.hasOwn(item, "share");
+              const isPayment = Boolean(item.isPayment);
               const tone = isPayment ? (item.id === "efectivo" ? "positive" : "info") : item.tone;
               return (
                 <button key={item.id} type="button" onClick={() => openDetail({ type: isPayment ? "pago" : "actividad", id: item.id, label: item.label })} className="group flex min-h-36 items-center gap-4 rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3150D8] focus-visible:ring-offset-2">
                   <span className={`inline-flex shrink-0 rounded-2xl p-3 ${toneClasses[tone]}`}><Icon className="h-6 w-6" /></span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{item.label}</span>
-                    <span className="mt-2 block text-3xl font-semibold tracking-tight text-[#041E42]">{isPayment ? money(item.month) : new Intl.NumberFormat("es-CL").format(item.month)}</span>
+                    <span className="mt-2 block text-3xl font-semibold tracking-tight text-[#041E42]">{!ready ? "…" : isPayment ? money(item.month) : count(item.month)}</span>
                     <span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#3150D8]">Ver detalle <ArrowUpRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" /></span>
                   </span>
                 </button>
@@ -549,16 +630,16 @@ export default function ModeloDashboardPage() {
             <div><h2 className="text-2xl font-bold tracking-tight text-white">Actividad del día</h2><p className="mt-1 text-sm text-blue-100">Resumen de movimientos y recaudación de hoy.</p></div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {[...activity.slice(1), ...payments].map((item) => {
+            {[...activityCards.slice(1), ...paymentCards].map((item) => {
               const Icon = item.icon;
-              const isPayment = Object.hasOwn(item, "share");
+              const isPayment = Boolean(item.isPayment);
               const tone = isPayment ? (item.id === "efectivo" ? "positive" : "info") : item.tone;
               return (
                 <button key={`day-${item.id}`} type="button" onClick={() => openDetail({ type: isPayment ? "pago-dia" : "actividad-dia", id: `day-${item.id}`, label: `${item.label} del día` })} className="group flex min-h-36 items-center gap-4 rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-[#2EA8FF] hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2EA8FF] focus-visible:ring-offset-2">
                   <span className={`inline-flex shrink-0 rounded-2xl p-3 ${toneClasses[tone]}`}><Icon className="h-6 w-6" /></span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{item.label}</span>
-                    <span className="mt-2 block text-3xl font-semibold tracking-tight text-[#041E42]">{isPayment ? money(item.day) : new Intl.NumberFormat("es-CL").format(item.day)}</span>
+                    <span className="mt-2 block text-3xl font-semibold tracking-tight text-[#041E42]">{!ready ? "…" : isPayment ? money(item.day) : count(item.day)}</span>
                     <span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#3150D8]">Ver detalle <ArrowUpRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5" /></span>
                   </span>
                 </button>
@@ -571,7 +652,7 @@ export default function ModeloDashboardPage() {
           <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <div className="rounded-xl bg-[#EEF4FF] p-2 text-[#3150D8]"><BarChart3 className="h-5 w-5" /></div>
-              <div><h2 className="font-semibold text-[#041E42]">Flujo de vehículos por día</h2><p className="text-xs text-slate-500">Ingresos y salidas registrados durante los últimos siete días</p></div>
+              <div><h2 className="font-semibold text-[#041E42]">Flujo de vehículos por día</h2><p className="text-xs text-slate-500">{flowDescription}</p></div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex flex-wrap gap-1 rounded-xl bg-slate-100 p-1">
@@ -581,26 +662,28 @@ export default function ModeloDashboardPage() {
             </div>
           </div>
           <div className="overflow-x-auto">
-            <div className="grid min-h-[245px] min-w-[820px] grid-cols-[48px_1fr] gap-3 p-4">
-              <div className="flex flex-col justify-between pb-8 text-right text-xs text-slate-400"><span>250</span><span>200</span><span>150</span><span>100</span><span>50</span><span>0</span></div>
+            {flowError ? <p role="alert" className="p-6 text-sm font-medium text-rose-700">{flowError}</p> : !flow ? <p className="p-6 text-sm text-slate-500">Cargando…</p> : (
+            <div className="grid min-h-[245px] grid-cols-[48px_1fr] gap-3 p-4" style={{ minWidth: `${Math.max(820, flowSeries.length * 64)}px` }}>
+              <div className="flex flex-col justify-between pb-8 text-right text-xs text-slate-400">{flowTicks.map((tick) => <span key={tick}>{count(tick)}</span>)}</div>
               <div className="relative flex items-end justify-around gap-3 border-b border-l border-slate-200 bg-[linear-gradient(to_bottom,transparent_19%,#e2e8f0_20%,transparent_21%,transparent_39%,#e2e8f0_40%,transparent_41%,transparent_59%,#e2e8f0_60%,transparent_61%,transparent_79%,#e2e8f0_80%,transparent_81%)] px-4 pb-8">
-                {flowData.map((item) => (
+                {flowSeries.map((item) => (
                   <div key={item.label} className="relative flex h-[190px] flex-1 items-end justify-center gap-1.5">
-                    <button type="button" onClick={() => openDetail({ type: "actividad-dia", id: `entries-${item.label}`, label: `Ingresos · ${item.label}` })} className="group relative h-full w-[38%] max-w-12" aria-label={`Ver ${item.entries} ingresos del ${item.label}`}>
-                      <span className="absolute bottom-0 left-0 w-full rounded-t-md bg-[#3150D8] transition group-hover:bg-[#1E5EFF]" style={{ height: `${(item.entries / 250) * 100}%` }}><span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-semibold text-[#041E42]">{item.entries}</span></span>
+                    <button type="button" onClick={() => openDetail({ type: "actividad-dia", id: `entries-${item.label}`, label: `Ingresos · ${item.label}`, dateFrom: item.from, dateTo: item.to })} className="group relative h-full w-[38%] max-w-12" aria-label={`Ver ${item.entries} ingresos de ${item.label}`}>
+                      <span className="absolute bottom-0 left-0 w-full rounded-t-md bg-[#3150D8] transition group-hover:bg-[#1E5EFF]" style={{ height: `${(item.entries / flowTop) * 100}%` }}><span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-semibold text-[#041E42]">{item.entries}</span></span>
                     </button>
-                    <button type="button" onClick={() => openDetail({ type: "actividad-dia", id: `exits-${item.label}`, label: `Salidas · ${item.label}` })} className="group relative h-full w-[38%] max-w-12" aria-label={`Ver ${item.exits} salidas del ${item.label}`}>
-                      <span className="absolute bottom-0 left-0 w-full rounded-t-md bg-[#2EA8FF] transition group-hover:bg-[#0EA5E9]" style={{ height: `${(item.exits / 250) * 100}%` }}><span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-semibold text-slate-600">{item.exits}</span></span>
+                    <button type="button" onClick={() => openDetail({ type: "actividad-dia", id: `exits-${item.label}`, label: `Salidas · ${item.label}`, dateFrom: item.from, dateTo: item.to })} className="group relative h-full w-[38%] max-w-12" aria-label={`Ver ${item.exits} salidas de ${item.label}`}>
+                      <span className="absolute bottom-0 left-0 w-full rounded-t-md bg-[#2EA8FF] transition group-hover:bg-[#0EA5E9]" style={{ height: `${(item.exits / flowTop) * 100}%` }}><span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] font-semibold text-slate-600">{item.exits}</span></span>
                     </button>
                     <span className="absolute -bottom-6 whitespace-nowrap text-[11px] font-medium text-slate-600">{item.label}</span>
                   </div>
                 ))}
               </div>
             </div>
+            )}
           </div>
           <div className="grid gap-3 border-t border-slate-100 px-5 py-4 sm:grid-cols-[auto_1fr] sm:items-center">
             <div className="flex gap-5 text-xs text-slate-500"><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-sm bg-[#3150D8]" />Ingresos</span><span className="flex items-center gap-2"><i className="h-2.5 w-2.5 rounded-sm bg-[#2EA8FF]" />Salidas</span></div>
-            <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs sm:justify-end"><span className="text-slate-500">Día con mayor flujo: <b className="text-[#041E42]">27 Jul</b></span><span className="text-slate-500">Balance semanal: <b className="text-emerald-700">+40 vehículos</b></span><span className="text-slate-500">Promedio diario: <b className="text-[#041E42]">198 ingresos</b></span></div>
+            <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs sm:justify-end"><span className="text-slate-500">Mayor flujo: <b className="text-[#041E42]">{flow?.summary.busiestLabel || "Sin movimientos"}</b></span><span className="text-slate-500">Balance del período: <b className="text-emerald-700">{(flow?.summary.balance ?? 0) > 0 ? "+" : ""}{count(flow?.summary.balance ?? 0).replace("-", "−")} vehículos</b></span><span className="text-slate-500">Promedio: <b className="text-[#041E42]">{count(flow?.summary.averageEntries ?? 0)} ingresos</b></span></div>
           </div>
         </section>
 
@@ -625,7 +708,7 @@ export default function ModeloDashboardPage() {
           </div>
           <div className="grid items-center gap-6 p-5 lg:grid-cols-[minmax(280px,0.8fr)_1.2fr]">
             <div className="flex justify-center">
-              <button type="button" onClick={() => openDetail({ type: "pago", id: "ingresos-pie", label: `Distribución de ingresos · ${incomePeriod === "month" ? incomeMonth : incomeDate}` })} className="group relative grid h-44 w-44 place-items-center rounded-full transition hover:scale-[1.02] focus:outline-none focus-visible:ring-4 focus-visible:ring-[#3150D8]/20" style={{ background: `conic-gradient(#3150D8 0% ${creditShare}%, #10B981 ${creditShare}% ${creditShare + cashShare}%, #CBD5E1 ${creditShare + cashShare}% 100%)` }} aria-label="Analizar distribución de ingresos por medio de pago">
+              <button type="button" onClick={() => openDetail({ type: "pago", id: "ingresos-pie", label: `Distribución de ingresos · ${incomePeriod === "month" ? incomeMonth : incomeDate}`, ...incomeRange })} className="group relative grid h-44 w-44 place-items-center rounded-full transition hover:scale-[1.02] focus:outline-none focus-visible:ring-4 focus-visible:ring-[#3150D8]/20" style={{ background: `conic-gradient(${incomeStops})` }} aria-label="Analizar distribución de ingresos por medio de pago">
                 <span className="grid h-28 w-28 place-items-center rounded-full bg-white text-center shadow-inner">
                   <span><span className="block text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">Total {incomePeriod === "month" ? "mensual" : "diario"}</span><span className="mt-1 block text-base font-bold text-[#041E42]">{money(incomeTotal)}</span><span className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-[#3150D8]">Ver detalle <ArrowUpRight className="h-3 w-3" /></span></span>
                 </span>
@@ -633,16 +716,16 @@ export default function ModeloDashboardPage() {
             </div>
             <div className="space-y-3">
               {incomePayments.map((item) => {
-                const colors = { efectivo: "bg-emerald-500", debito: "bg-slate-300", credito: "bg-[#3150D8]" };
+                const colors = { efectivo: "bg-emerald-500", debito: "bg-slate-400", credito: "bg-[#3150D8]", sinClasificar: "bg-amber-500" };
                 return (
-                  <button key={`pie-${item.id}`} type="button" onClick={() => openDetail({ type: "pago", id: item.id, label: item.label })} className="group grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-2xl border border-slate-200 p-4 text-left transition hover:border-[#3150D8] hover:bg-[#F8FAFF]">
+                  <button key={`pie-${item.id}`} type="button" onClick={() => openDetail({ type: "pago", id: item.id, label: item.label, ...incomeRange })} className="group grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-2xl border border-slate-200 p-4 text-left transition hover:border-[#3150D8] hover:bg-[#F8FAFF]">
                     <span className={`h-4 w-4 rounded-full ${colors[item.id]}`} />
                     <span><span className="block text-sm font-bold text-[#041E42]">{item.label}</span><span className="mt-1 block h-1.5 overflow-hidden rounded-full bg-slate-100"><span className={`block h-full rounded-full ${colors[item.id]}`} style={{ width: `${item.selectedShare}%` }} /></span></span>
                     <span className="text-right"><span className="block font-bold tabular-nums text-[#041E42]">{money(item.selectedAmount)}</span><span className="text-xs font-semibold text-slate-500">{item.selectedShare}%</span></span>
                   </button>
                 );
               })}
-              <div className="rounded-2xl bg-[#EEF4FF] p-4 text-sm text-slate-600"><b className="text-[#041E42]">Lectura rápida:</b> el {creditShare}% de los ingresos corresponde a crédito, el {cashShare}% a efectivo y el {debitShare}% a débito.</div>
+              <div className="rounded-2xl bg-[#EEF4FF] p-4 text-sm text-slate-600">{incomeError ? <span className="font-medium text-rose-700">{incomeError}</span> : !income ? "Cargando…" : incomeTotal > 0 ? <><b className="text-[#041E42]">Lectura rápida:</b> el {creditShare}% de los ingresos corresponde a crédito, el {cashShare}% a efectivo y el {debitShare}% a débito{otherShare ? `; el ${otherShare}% es tarjeta sin clasificar` : ""}.</> : "No hay ingresos en el período seleccionado."}</div>
             </div>
           </div>
         </section>
@@ -651,22 +734,23 @@ export default function ModeloDashboardPage() {
           <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <span className="rounded-xl bg-[#EEF4FF] p-2 text-[#3150D8]"><CalendarClock className="h-5 w-5" /></span>
-              <div><h2 className="font-semibold text-[#041E42]">Días y horas de mayor ocupación</h2><p className="text-xs text-slate-500">Mapa de calor semanal por porcentaje de capacidad utilizada</p></div>
+              <div><h2 className="font-semibold text-[#041E42]">Días y horas de mayor ocupación</h2><p className="text-xs text-slate-500">Promedio de los últimos 28 días: vehículos presentes a mitad de cada franja horaria sobre la capacidad</p></div>
             </div>
-            <span className="w-fit rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700">Hora punta: viernes 15:00–18:00</span>
+            {occupancy?.peak ? <span className="w-fit rounded-full bg-rose-50 px-3 py-1.5 text-xs font-bold text-rose-700">Hora punta: {occupancy.peak.day.toLowerCase()} {occupancy.peak.hours}</span> : null}
           </div>
           <div className="overflow-x-auto p-5">
             <div className="min-w-[760px]">
               <div className="grid grid-cols-[110px_repeat(6,1fr)] gap-2">
+                {occupancy && !occupancy.capacity ? <p className="col-span-full rounded-xl bg-amber-50 p-3 text-sm text-amber-900">No hay capacidad configurada en zonas activas: el porcentaje de ocupación no se puede calcular.</p> : null}
                 <div className="rounded-xl bg-[#041E42] px-3 py-3 text-left text-sm font-bold text-white">Horario</div>
                 {occupancyHours.map((hour) => <div key={hour} className="rounded-xl border border-[#BFD2FF] bg-[#EEF4FF] px-3 py-3 text-center text-sm font-extrabold text-[#0B3D91] shadow-sm">{hour}</div>)}
-                {occupancyHeatmap.flatMap((row) => [
+                {occupancyRows.flatMap((row) => [
                   <div key={`${row.day}-label`} className="flex items-center pr-3 text-sm font-bold text-[#041E42]">{row.day}</div>,
                   ...row.values.map((value, index) => (
-                    <button key={`${row.day}-${occupancyHours[index]}`} type="button" onClick={() => openDetail({ type: "ocupacion", id: `${row.day}-${occupancyHours[index]}`, label: `Ocupación · ${row.day} ${occupancyHours[index]}` })} className={`group relative min-h-12 rounded-xl px-2 py-1.5 text-center transition hover:-translate-y-0.5 hover:ring-2 hover:ring-[#3150D8] hover:ring-offset-2 ${heatTone(value)}`} aria-label={`${row.day} de ${occupancyHours[index]}: ${value}% de ocupación`}>
-                      <span className="block text-base font-bold tabular-nums">{value}%</span>
-                      <span className="mt-0.5 block text-[9px] font-semibold uppercase tracking-wider opacity-75">{value >= 90 ? "Crítica" : value >= 80 ? "Alta" : value >= 65 ? "Media alta" : value >= 45 ? "Media" : "Baja"}</span>
-                    </button>
+                    <div key={`${row.day}-${occupancyHours[index]}`} className={`min-h-12 rounded-xl px-2 py-1.5 text-center ${heatTone(value)}`} aria-label={value === null ? `${row.day} de ${occupancyHours[index]}: sin datos` : `${row.day} de ${occupancyHours[index]}: ${value}% de ocupación`}>
+                      <span className="block text-base font-bold tabular-nums">{value === null ? "—" : `${value}%`}</span>
+                      <span className="mt-0.5 block text-[9px] font-semibold uppercase tracking-wider opacity-75">{value === null ? "Sin datos" : value >= 90 ? "Crítica" : value >= 80 ? "Alta" : value >= 65 ? "Media alta" : value >= 45 ? "Media" : "Baja"}</span>
+                    </div>
                   )),
                 ])}
               </div>
@@ -676,16 +760,16 @@ export default function ModeloDashboardPage() {
             <div className="flex flex-wrap gap-3 text-xs text-slate-600">
               {[["bg-slate-100", "Baja <45%"], ["bg-cyan-100", "Media 45–64%"], ["bg-[#2EA8FF]", "Media alta 65–79%"], ["bg-[#3150D8]", "Alta 80–89%"], ["bg-[#041E42]", "Crítica ≥90%"]].map(([color, label]) => <span key={label} className="inline-flex items-center gap-2"><i className={`h-3 w-3 rounded-sm ${color}`} />{label}</span>)}
             </div>
-            <div className="flex flex-wrap gap-4 text-xs"><span className="text-slate-500">Mayor ocupación: <b className="text-[#041E42]">97%</b></span><span className="text-slate-500">Día más exigente: <b className="text-[#041E42]">Viernes</b></span><span className="text-slate-500">Franja crítica: <b className="text-[#041E42]">15:00–18:00</b></span></div>
+            <div className="flex flex-wrap gap-4 text-xs">{occupancy?.peak ? <><span className="text-slate-500">Mayor ocupación: <b className="text-[#041E42]">{occupancy.peak.value}%</b></span><span className="text-slate-500">Día más exigente: <b className="text-[#041E42]">{occupancy.peak.day}</b></span><span className="text-slate-500">Franja horaria más alta: <b className="text-[#041E42]">{occupancy.peak.hours}</b></span></> : <span className="text-slate-500">Sin ocupación registrada en el período.</span>}</div>
           </div>
         </section>
 
         <div className="grid min-w-0 gap-5 xl:grid-cols-2">
           <ExcelTable title="Actividad" description="Resumen del día y del mes" icon={CarFront} columns={["", "Indicador", "Día actual", "Mes actual", "Estado", "Detalle"]}>
-            {activity.map(({ id, label, day, month, status, icon: Icon, tone }) => (
+            {activityCards.map(({ id, label, day, month, status, icon: Icon, tone }) => (
               <tr key={id} onClick={() => setSelection({ type: "actividad", id, label })} className={`cursor-pointer border-b border-slate-100 last:border-b-0 hover:bg-[#EEF4FF] ${selection.id === id ? "bg-[#EEF4FF]" : "even:bg-slate-50/60"}`}>
                 <td className="px-2 py-2.5"><span className={`inline-flex rounded-lg p-1.5 ${toneClasses[tone]}`}><Icon className="h-3.5 w-3.5" /></span></td>
-                <td className="break-words px-2 py-2.5 font-semibold leading-tight text-[#041E42]">{label}</td><td className="px-2 py-2.5 tabular-nums">{day}</td><td className="px-2 py-2.5 tabular-nums">{month}</td>
+                <td className="break-words px-2 py-2.5 font-semibold leading-tight text-[#041E42]">{label}</td><td className="px-2 py-2.5 tabular-nums">{ready ? count(day) : "…"}</td><td className="px-2 py-2.5 tabular-nums">{ready ? count(month) : "…"}</td>
                 <td className="px-2 py-2.5"><span className={`inline-flex max-w-full rounded-full px-2 py-1 text-[9px] font-semibold leading-tight ${toneClasses[tone]}`}>{status}</span></td>
                 <td className="px-2 py-2.5"><ArrowUpRight className="h-3.5 w-3.5 text-[#3150D8]" /></td>
               </tr>
@@ -693,7 +777,7 @@ export default function ModeloDashboardPage() {
           </ExcelTable>
 
           <ExcelTable title="Medios de pago" description="Distribución de la recaudación" icon={CreditCard} columns={["", "Medio", "Día actual", "Mes actual", "Participación", "Detalle"]}>
-            {payments.map(({ id, label, day, month, share, icon: Icon }) => (
+            {paymentCards.map(({ id, label, day, month, share, icon: Icon }) => (
               <tr key={id} onClick={() => setSelection({ type: "pago", id, label })} className={`cursor-pointer border-b border-slate-100 last:border-b-0 hover:bg-[#EEF4FF] ${selection.id === id ? "bg-[#EEF4FF]" : "even:bg-slate-50/60"}`}>
                 <td className="px-2 py-2.5"><span className="inline-flex rounded-lg bg-emerald-50 p-1.5 text-emerald-700"><Icon className="h-3.5 w-3.5" /></span></td>
                 <td className="break-words px-2 py-2.5 font-semibold leading-tight text-[#041E42]">{label}</td><td className="px-2 py-2.5 tabular-nums">{money(day)}</td><td className="px-2 py-2.5 tabular-nums">{money(month)}</td>
@@ -701,7 +785,7 @@ export default function ModeloDashboardPage() {
                 <td className="px-2 py-2.5"><ArrowUpRight className="h-3.5 w-3.5 text-[#3150D8]" /></td>
               </tr>
             ))}
-            <tr className="bg-[#041E42] font-semibold text-white"><td className="px-2 py-2.5" /><td className="px-2 py-2.5">Total cobrado</td><td className="px-2 py-2.5">{money(0)}</td><td className="px-2 py-2.5">{money(totalMonth)}</td><td className="px-2 py-2.5">100%</td><td className="px-2 py-2.5" /></tr>
+            <tr className="bg-[#041E42] font-semibold text-white"><td className="px-2 py-2.5" /><td className="px-2 py-2.5">Total cobrado</td><td className="px-2 py-2.5">{money(overview?.payments.day.total ?? 0)}</td><td className="px-2 py-2.5">{money(overview?.payments.month.total ?? 0)}</td><td className="px-2 py-2.5">100%</td><td className="px-2 py-2.5" /></tr>
           </ExcelTable>
         </div>
 
@@ -884,33 +968,33 @@ export default function ModeloDashboardPage() {
               <button type="button" onClick={() => setHourlyOpen(false)} className="rounded-full p-2 text-slate-300 transition hover:bg-white/10 hover:text-white" aria-label="Cerrar gráfico"><X className="h-5 w-5" /></button>
             </header>
 
-            <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <div className="grid gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:grid-cols-2 sm:items-end">
               <label className="space-y-1 text-xs font-semibold text-slate-600"><span>Día a analizar</span><input type="date" value={flowDate} onChange={(event) => setFlowDate(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-[#041E42] outline-none focus:border-[#3150D8]" /></label>
-              <label className="space-y-1 text-xs font-semibold text-slate-600"><span>Hora destacada</span><input type="time" step="3600" value={flowHour} onChange={(event) => setFlowHour(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-[#041E42] outline-none focus:border-[#3150D8]" /></label>
-              <button type="button" className="rounded-xl bg-[#3150D8] px-4 py-2.5 text-sm font-semibold text-white">Modificar análisis</button>
+              <label className="space-y-1 text-xs font-semibold text-slate-600"><span>Bloque destacado</span><select value={flowHour} onChange={(event) => setFlowHour(event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-[#041E42] outline-none focus:border-[#3150D8]">{["00:00", "03:00", "06:00", "09:00", "12:00", "15:00", "18:00", "21:00"].map((hour) => <option key={hour} value={hour}>{hour} a {String(Number(hour.slice(0, 2)) + 3).padStart(2, "0")}:00</option>)}</select></label>
             </div>
 
             <div className="p-4 sm:p-6">
+              {hourlyError ? <p role="alert" className="mb-3 rounded-xl bg-rose-50 p-3 text-sm font-medium text-rose-700">{hourlyError}</p> : null}
               <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
                 <svg viewBox="0 0 900 390" className="min-w-[760px]" role="img" aria-label="Gráfico de líneas de ingresos y salidas por hora">
                   {[60, 120, 180, 240, 300].map((y) => <line key={y} x1="65" y1={y} x2="865" y2={y} stroke="#E2E8F0" strokeWidth="1" />)}
                   <line x1="65" y1="320" x2="865" y2="320" stroke="#94A3B8" />
                   <line x1="65" y1="40" x2="65" y2="320" stroke="#94A3B8" />
-                  {[60, 50, 40, 30, 20, 10, 0].map((value, index) => <text key={value} x="52" y={45 + index * 46} textAnchor="end" fontSize="11" fill="#64748B">{60 - index * 10}</text>)}
-                  {hourlyFlow.map((item, index) => <text key={item.hour} x={75 + index * 96} y="345" textAnchor="middle" fontSize="11" fill="#64748B">{item.hour}</text>)}
-                  {hourlyFlow.map((item, index) => item.hour === flowHour ? <line key={`selected-${item.hour}`} x1={75 + index * 96} y1="40" x2={75 + index * 96} y2="320" stroke="#F59E0B" strokeWidth="2" strokeDasharray="5 5" /> : null)}
-                  <polyline fill="none" stroke="#3150D8" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" points={hourlyFlow.map((item, index) => `${75 + index * 96},${320 - item.entries * 4.5}`).join(" ")} />
-                  <polyline fill="none" stroke="#2EA8FF" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" points={hourlyFlow.map((item, index) => `${75 + index * 96},${320 - item.exits * 4.5}`).join(" ")} />
-                  {hourlyFlow.map((item, index) => <g key={`points-${item.hour}`}><circle cx={75 + index * 96} cy={320 - item.entries * 4.5} r="5" fill="#3150D8" /><circle cx={75 + index * 96} cy={320 - item.exits * 4.5} r="5" fill="#2EA8FF" /></g>)}
+                  {hourlyTicks.map((value, index) => <text key={value} x="52" y={45 + index * 46.7} textAnchor="end" fontSize="11" fill="#64748B">{count(value)}</text>)}
+                  {hourlyFlow.map((item, index) => <text key={item.hour} x={hourlyX(index)} y="345" textAnchor="middle" fontSize="11" fill="#64748B">{item.hour}</text>)}
+                  {hourlyFlow.map((item, index) => item.hour === flowHour ? <line key={`selected-${item.hour}`} x1={hourlyX(index)} y1="40" x2={hourlyX(index)} y2="320" stroke="#F59E0B" strokeWidth="2" strokeDasharray="5 5" /> : null)}
+                  <polyline fill="none" stroke="#3150D8" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" points={hourlyFlow.map((item, index) => `${hourlyX(index)},${hourlyY(item.entries)}`).join(" ")} />
+                  <polyline fill="none" stroke="#2EA8FF" strokeWidth="4" strokeLinejoin="round" strokeLinecap="round" points={hourlyFlow.map((item, index) => `${hourlyX(index)},${hourlyY(item.exits)}`).join(" ")} />
+                  {hourlyFlow.map((item, index) => <g key={`points-${item.hour}`}><circle cx={hourlyX(index)} cy={hourlyY(item.entries)} r="5" fill="#3150D8" /><circle cx={hourlyX(index)} cy={hourlyY(item.exits)} r="5" fill="#2EA8FF" /></g>)}
                 </svg>
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl bg-[#EEF4FF] p-4"><p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#3150D8]">Ingresos a las {flowHour}</p><p className="mt-2 text-2xl font-bold text-[#041E42]">{hourlyFlow.find((item) => item.hour === flowHour)?.entries ?? "—"}</p></div>
-                <div className="rounded-2xl bg-cyan-50 p-4"><p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#0369A1]">Salidas a las {flowHour}</p><p className="mt-2 text-2xl font-bold text-[#041E42]">{hourlyFlow.find((item) => item.hour === flowHour)?.exits ?? "—"}</p></div>
+                <div className="rounded-2xl bg-[#EEF4FF] p-4"><p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#3150D8]">Ingresos desde las {flowHour}</p><p className="mt-2 text-2xl font-bold text-[#041E42]">{hourlyFlow.find((item) => item.hour === flowHour)?.entries ?? "—"}</p></div>
+                <div className="rounded-2xl bg-cyan-50 p-4"><p className="text-xs font-semibold uppercase tracking-[0.1em] text-[#0369A1]">Salidas desde las {flowHour}</p><p className="mt-2 text-2xl font-bold text-[#041E42]">{hourlyFlow.find((item) => item.hour === flowHour)?.exits ?? "—"}</p></div>
                 <div className="rounded-2xl bg-amber-50 p-4"><p className="text-xs font-semibold uppercase tracking-[0.1em] text-amber-700">Lectura del flujo</p><p className="mt-2 text-sm font-semibold text-[#041E42]">Las líneas se cruzan cuando la demanda cambia de ingresos predominantes a salidas predominantes.</p></div>
               </div>
-              <div className="mt-4 flex justify-center gap-5 text-xs text-slate-600"><span className="flex items-center gap-2"><i className="h-2.5 w-6 rounded-full bg-[#3150D8]" />Ingresos</span><span className="flex items-center gap-2"><i className="h-2.5 w-6 rounded-full bg-[#2EA8FF]" />Salidas</span><span className="flex items-center gap-2"><i className="h-0.5 w-6 bg-amber-500" />Hora seleccionada</span></div>
+              <div className="mt-4 flex justify-center gap-5 text-xs text-slate-600"><span className="flex items-center gap-2"><i className="h-2.5 w-6 rounded-full bg-[#3150D8]" />Ingresos</span><span className="flex items-center gap-2"><i className="h-2.5 w-6 rounded-full bg-[#2EA8FF]" />Salidas</span><span className="flex items-center gap-2"><i className="h-0.5 w-6 bg-amber-500" />Bloque seleccionado</span></div>
             </div>
           </section>
         </div>
