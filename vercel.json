@@ -11,6 +11,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "fix/ocupacion-real": false,
       "fix/pos-renovar-sesion": false,
       "fix/pos-reintento-reserva-tarjeta": false,
       "fix/convenios-solo-cliente": false,

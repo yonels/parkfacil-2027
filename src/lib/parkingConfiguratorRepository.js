@@ -1,6 +1,7 @@
 import "server-only";
 import { getParking } from "@/lib/estacionamientosRepository";
 import { buildConfigurator } from "@/lib/parkingConfigurator.mjs";
+import { getOpenCountsByParking } from "@/lib/offStreetReportsService";
 
 function unavailable(error) {
   return ["42P01", "42703", "PGRST204", "PGRST205"].includes(error?.code);
@@ -20,16 +21,17 @@ export async function getConfigurator(db, identifier, { parking: authorizedParki
   const now = Date.now();
   try {
     if (parking.type === "OFF_STREET") {
-      const [levels, zones, shifts] = await Promise.all([
+      const [levels, zones, shifts, openCounts] = await Promise.all([
         rows(db, "parking_levels", parking.id, "id,status"),
-        rows(db, "parking_zones", parking.id, "id,status,capacity,occupied"),
+        rows(db, "parking_zones", parking.id, "id,status,capacity"),
         rows(db, "operator_shifts", parking.id, "id,status"),
+        getOpenCountsByParking(db, [parking.id]),
       ]);
       const active = zones.filter((item) => item.status === "ACTIVE");
       summary.levelCount = levels.length;
       summary.zoneCount = zones.length;
       summary.capacity = active.reduce((sum, item) => sum + Number(item.capacity || 0), 0);
-      summary.occupied = active.reduce((sum, item) => sum + Number(item.occupied || 0), 0);
+      summary.occupied = openCounts.get(parking.id) || 0;
       summary.shiftCount = shifts.length;
       availability.shifts = true;
       availability.closures = true;

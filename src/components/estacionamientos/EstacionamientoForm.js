@@ -92,7 +92,7 @@ export default function EstacionamientoForm({ parking = null, structure = null, 
   const [requestError, setRequestError] = useState("");
   const [typeWarning, setTypeWarning] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const metrics = structure?.metrics || parking?.metrics || { capacity: 0, occupied: 0, available: 0, occupancyPercentage: 0 };
+  const metrics = (parking?.type === "OFF_STREET" && parking.metrics) || structure?.metrics || parking?.metrics || { capacity: 0, occupied: 0, available: 0, occupancyPercentage: 0 };
   const structureCount = parking?.type === "ON_STREET" ? structure?.sectors?.length || 0 : structure?.levels?.length || 0;
   const typeLocked = editing && (structureCount > 0 || Number(metrics.capacity) > 0 || Number(metrics.occupied) > 0);
   const setValue = (field, value) => setValues((current) => ({ ...current, [field]: value }));
