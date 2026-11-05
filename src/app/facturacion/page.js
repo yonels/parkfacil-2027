@@ -99,6 +99,10 @@ export default function FacturacionPage() {
       <div className="space-y-6">
         <PageHeader title="Facturación" description="Gestión comercial, prefacturación, documentos, cuenta corriente y cobranza." eyebrow="BACKOFFICE PARKFACIL" />
 
+        <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <span className="font-semibold">Modo simulado.</span> La emisión de facturas y notas usa un proveedor de prueba: los documentos no se envían al SII y no tienen validez tributaria.
+        </div>
+
         {!activeModule ? (
           <>
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Resumen de facturación">
