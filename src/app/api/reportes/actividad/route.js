@@ -25,6 +25,7 @@ export async function GET(request) {
     const url = new URL(request.url);
     const activity = url.searchParams.get("activity") || null;
     const parkingId = url.searchParams.get("parkingId") || null;
+    const companyId = url.searchParams.get("companyId") || null;
     const dateFrom = url.searchParams.get("dateFrom") || null;
     const dateTo = url.searchParams.get("dateTo") || null;
     const paymentMethod = url.searchParams.get("paymentMethod") || null;
@@ -40,7 +41,8 @@ export async function GET(request) {
     // ruta, y se pasa ya resuelto a searchActivityReport (ver comentario en
     // posStaysService.js sobre por qué esa función no importa
     // estacionamientosRepository directamente).
-    const scopedParkings = await listParkings(authorization.db, authorization.scope);
+    // Empresa elegida en el Dashboard General: recorta dentro del alcance permitido.
+    const scopedParkings = (await listParkings(authorization.db, authorization.scope)).filter((parking) => !companyId || parking.companyId === companyId);
     const result = await searchActivityReport(authorization.db, scopedParkings, {
       activity,
       parkingId,
