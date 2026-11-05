@@ -10,6 +10,7 @@ import AccountWorkspace from "@/components/billing/AccountWorkspace";
 import ReconciliationWorkspace from "@/components/billing/ReconciliationWorkspace";
 import DocumentWorkspace from "@/components/billing/DocumentWorkspace";
 import DocumentJobPanel from "@/components/billing/DocumentJobPanel";
+import CatalogWorkspace from "@/components/billing/CatalogWorkspace";
 
 const column = (key, label, width = 150, pinned = false) => ({ key, label, width, pinned, required: pinned });
 
@@ -58,7 +59,7 @@ const moduleCards = [
     columns: [column("periodo", "Período", 130, true), column("cliente", "Cliente", 220), column("facturado", "Facturado", 140), column("notasCredito", "Notas de Crédito", 160), column("pagado", "Pagado", 130), column("pendiente", "Pendiente", 140), column("vencido", "Vencido", 130), column("saldo", "Saldo", 130)],
   },
   {
-    id: "configuracion", group: "administracion", title: "Configuración", description: "Parámetros comerciales propios de ParkFacil para etapas posteriores.", icon: Settings2,
+    id: "configuracion", group: "administracion", title: "Configuración", description: "Catálogo de servicios y productos que ParkFacil factura a sus clientes.", icon: Settings2,
     columns: [column("parametro", "Parámetro", 260, true), column("categoria", "Categoría", 190), column("valor", "Valor", 240), column("descripcion", "Descripción", 360), column("estado", "Estado", 140), column("actualizado", "Última actualización", 180)],
   },
 ];
@@ -135,7 +136,7 @@ export default function FacturacionPage() {
         ) : (
           <section className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#3150D8]">Planilla de Facturación</p><h2 className="mt-1 text-2xl font-bold text-[#041E42]">{activeModule.title}</h2><p className="mt-1 text-sm text-slate-600">{activeModule.description}</p></div><button type="button" onClick={closeModule} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] shadow-sm hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /> Volver a Facturación</button></div>
-            {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : activeModule.id === "facturas" ? <><DocumentJobPanel /><DocumentWorkspace type="INVOICE" /></> : activeModule.id === "notas-credito" ? <DocumentWorkspace type="CREDIT_NOTE" /> : activeModule.id === "notas-debito" ? <DocumentWorkspace type="DEBIT_NOTE" /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
+            {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : activeModule.id === "facturas" ? <><DocumentJobPanel /><DocumentWorkspace type="INVOICE" /></> : activeModule.id === "notas-credito" ? <DocumentWorkspace type="CREDIT_NOTE" /> : activeModule.id === "notas-debito" ? <DocumentWorkspace type="DEBIT_NOTE" /> : activeModule.id === "configuracion" ? <CatalogWorkspace /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
           </section>
         )}
       </div>
