@@ -92,4 +92,11 @@ test("la API exige el mismo permiso y aislamiento que el detalle", () => {
   const route = readFileSync(new URL("../app/api/dashboard-general/route.js", import.meta.url), "utf8");
   assert.match(route, /PERMISSIONS\.REPORTS_READ/);
   assert.match(route, /listParkings\(db, authorization\.scope\)/);
+  // El filtro de empresa y estacionamiento recorta lo permitido; nunca lo amplía.
+  assert.match(route, /resolveQueryParkingIds\(offStreet,/);
+  const activity = readFileSync(new URL("../app/api/reportes/actividad/route.js", import.meta.url), "utf8");
+  assert.match(activity, /listParkings\(authorization\.db, authorization\.scope\)\)\.filter\(\(parking\) => !companyId \|\| parking\.companyId === companyId\)/);
+  const page = readFileSync(new URL("../app/modelo-dashboard/page.js", import.meta.url), "utf8");
+  assert.match(page, /Todas las empresas/);
+  assert.match(page, /if \(companyFilter\) query\.set\("companyId", companyFilter\);/);
 });

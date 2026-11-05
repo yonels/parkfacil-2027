@@ -291,6 +291,9 @@ export default function ModeloDashboardPage() {
   const [overview, setOverview] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
+  const [companyFilter, setCompanyFilter] = useState("");
+  const [parkingFilter, setParkingFilter] = useState("");
+  const [scopeOptions, setScopeOptions] = useState(null);
   const [flow, setFlow] = useState(null);
   const [flowError, setFlowError] = useState("");
   const [income, setIncome] = useState(null);
@@ -324,26 +327,40 @@ export default function ModeloDashboardPage() {
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState("");
 
+  const scopeParams = useMemo(() => ({ ...(companyFilter ? { companyId: companyFilter } : {}), ...(parkingFilter ? { parkingId: parkingFilter } : {}) }), [companyFilter, parkingFilter]);
+  const scopeCompanies = scopeOptions?.companies ?? [];
+  const scopeParkings = (scopeOptions?.parkings ?? []).filter((parking) => !companyFilter || parking.companyId === companyFilter);
+  // Cambiar el alcance limpia las cifras para no mostrar las anteriores mientras cargan.
+  const changeScope = (company, parking) => {
+    setOverview(null);
+    setFlow(null);
+    setIncome(null);
+    setHourly(null);
+    setCompanyFilter(company);
+    setParkingFilter(parking);
+  };
+
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const data = await loadDashboardSection({ section: "overview" });
+        const data = await loadDashboardSection({ section: "overview", ...scopeParams });
         if (!active) return;
         setOverview(data);
+        setScopeOptions(data.options);
         setLoadError("");
       } catch (error) {
         if (active) setLoadError(error.message);
       }
     })();
     return () => { active = false; };
-  }, [reloadKey]);
+  }, [reloadKey, scopeParams]);
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const data = await loadDashboardSection({ section: "flow", period: flowPeriod });
+        const data = await loadDashboardSection({ section: "flow", period: flowPeriod, ...scopeParams });
         if (!active) return;
         setFlow(data);
         setFlowError("");
@@ -352,13 +369,13 @@ export default function ModeloDashboardPage() {
       }
     })();
     return () => { active = false; };
-  }, [flowPeriod, reloadKey]);
+  }, [flowPeriod, reloadKey, scopeParams]);
 
   useEffect(() => {
     let active = true;
     (async () => {
       try {
-        const data = await loadDashboardSection(incomePeriod === "month" ? { section: "income", month: incomeMonth } : { section: "income", date: incomeDate });
+        const data = await loadDashboardSection({ ...(incomePeriod === "month" ? { section: "income", month: incomeMonth } : { section: "income", date: incomeDate }), ...scopeParams });
         if (!active) return;
         setIncome(data);
         setIncomeError("");
@@ -367,14 +384,14 @@ export default function ModeloDashboardPage() {
       }
     })();
     return () => { active = false; };
-  }, [incomePeriod, incomeMonth, incomeDate, reloadKey]);
+  }, [incomePeriod, incomeMonth, incomeDate, reloadKey, scopeParams]);
 
   useEffect(() => {
     if (!hourlyOpen) return undefined;
     let active = true;
     (async () => {
       try {
-        const data = await loadDashboardSection({ section: "hourly", date: flowDate });
+        const data = await loadDashboardSection({ section: "hourly", date: flowDate, ...scopeParams });
         if (!active) return;
         setHourly(data);
         setHourlyError("");
@@ -383,7 +400,7 @@ export default function ModeloDashboardPage() {
       }
     })();
     return () => { active = false; };
-  }, [hourlyOpen, flowDate]);
+  }, [hourlyOpen, flowDate, scopeParams]);
 
   const ready = Boolean(overview);
   const activityCards = activity.map((item) => ({ ...item, day: overview?.activity.day[item.id] ?? 0, month: overview?.activity.month[item.id] ?? 0 }));
@@ -456,6 +473,7 @@ export default function ModeloDashboardPage() {
       if (params.activity) query.set("activity", params.activity);
       if (params.paymentMethod) query.set("paymentMethod", params.paymentMethod);
       if (params.cardType) query.set("cardType", params.cardType);
+      if (companyFilter) query.set("companyId", companyFilter);
       if (filtersValue.parking && filtersValue.parking !== "todos") query.set("parkingId", filtersValue.parking);
       // El rango del indicador ya viene en los filtros (openDetail), y el usuario puede cambiarlo.
       if (filtersValue.from) query.set("dateFrom", filtersValue.from);
@@ -554,12 +572,12 @@ export default function ModeloDashboardPage() {
     const params = selectionToQueryParams(nextSelection);
     const from = params?.allDates ? "" : params?.dateFrom || DEFAULT_MODAL_FILTERS.from;
     const to = params?.allDates ? "" : params?.dateTo || DEFAULT_MODAL_FILTERS.to;
-    setFilterParkingDraft(DEFAULT_MODAL_FILTERS.parking);
+    setFilterParkingDraft(parkingFilter || DEFAULT_MODAL_FILTERS.parking);
     setFilterPeriodDraft(DEFAULT_MODAL_FILTERS.periodLabel);
     setFilterFromDraft(from);
     setFilterToDraft(to);
     setFilterError("");
-    const defaultFilters = { parking: DEFAULT_MODAL_FILTERS.parking, from, to };
+    const defaultFilters = { parking: parkingFilter || DEFAULT_MODAL_FILTERS.parking, from, to };
     setAppliedFilters(defaultFilters);
     setDetailOpen(true);
     void fetchActivityReport({ selectionValue: nextSelection, filtersValue: defaultFilters, page: 1 });
@@ -584,6 +602,27 @@ export default function ModeloDashboardPage() {
           </div>
         </header>
 
+        {scopeCompanies.length > 1 || (scopeOptions?.parkings.length ?? 0) > 1 ? (
+          <section className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:items-end" aria-label="Filtrar el dashboard">
+            {scopeCompanies.length > 1 ? (
+              <label className="flex-1 space-y-1 text-xs font-semibold text-slate-600">
+                <span>Empresa</span>
+                <select value={companyFilter} onChange={(event) => changeScope(event.target.value, "")} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-[#041E42] outline-none focus:border-[#3150D8]">
+                  <option value="">Todas las empresas</option>
+                  {scopeCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+                </select>
+              </label>
+            ) : null}
+            <label className="flex-1 space-y-1 text-xs font-semibold text-slate-600">
+              <span>Estacionamiento</span>
+              <select value={parkingFilter} onChange={(event) => changeScope(companyFilter, event.target.value)} className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-normal text-[#041E42] outline-none focus:border-[#3150D8]">
+                <option value="">Todos los estacionamientos</option>
+                {scopeParkings.map((parking) => <option key={parking.id} value={parking.id}>{parking.name} ({parking.code}){parking.active ? "" : " · inactivo"}</option>)}
+              </select>
+            </label>
+            {companyFilter || parkingFilter ? <button type="button" onClick={() => changeScope("", "")} className="rounded-full border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:border-[#3150D8] hover:text-[#3150D8]">Ver todo</button> : null}
+          </section>
+        ) : null}
         {loadError ? <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700"><span>{loadError}</span><button type="button" onClick={() => setReloadKey((value) => value + 1)} className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-rose-700">Reintentar</button></div> : null}
         {overview && !overview.hasOffStreet ? <p className="rounded-2xl border border-[#BFD2FF] bg-[#EEF4FF] px-4 py-3 text-sm text-[#041E42]">Este dashboard muestra la operación Off Street, y no hay estacionamientos Off Street disponibles. La información de On Street está en su propio Dashboard.</p> : null}
 
