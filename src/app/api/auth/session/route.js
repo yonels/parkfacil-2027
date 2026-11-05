@@ -4,7 +4,7 @@ import { getAuthenticatedContext, SESSION_COOKIE } from "@/lib/auth/authenticate
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { hasPermission, PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { withCouponModuleStatus } from "@/lib/cupones/couponModuleSession";
-import { formatCompanyRut } from "@/lib/clientSidebarCore.mjs";
+import { formatCompanyRut } from "@/lib/portalSidebarCore.mjs";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,

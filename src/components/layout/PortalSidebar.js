@@ -1,15 +1,15 @@
 "use client";
 
-// Menú del Portal Cliente (SOL-2026-11-04-014), con el estilo del panel de «Configurar
-// empresa». Root sigue usando Sidebar.js. Las opciones salen del mismo árbol y del mismo
+// Menú de los portales Cliente y Root (SOL-2026-11-04-014 y SOL-2026-11-05-001), con el
+// estilo del panel de «Configurar empresa». Las opciones salen del mismo árbol y del mismo
 // filtro de permisos que el menú anterior.
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, BookOpen, Building2, ChevronRight, CircleUserRound, Handshake, KeyRound, LayoutGrid, LoaderCircle, LogOut, MapPinned, Menu, MessageSquareText, PanelLeftClose, PanelLeftOpen, ParkingSquare, Search, ShieldCheck, UserRound, Users, X } from "lucide-react";
+import { BarChart3, BookOpen, Building2, ChevronRight, CircleUserRound, Handshake, KeyRound, LayoutGrid, LoaderCircle, LogOut, MapPinned, Menu, MessageSquareText, PanelLeftClose, PanelLeftOpen, ParkingSquare, ScanLine, Search, Settings2, ShieldCheck, UserRound, Users, X } from "lucide-react";
 import { navigationItems } from "@/config/navigation";
 import { navigationVisibleForRole } from "@/lib/auth/permissions.mjs";
-import { clientMenuSections, countMenuOptions, filterMenuTree, hideUnhiredProducts } from "@/lib/clientSidebarCore.mjs";
+import { CLIENT_MENU_SECTIONS, countMenuOptions, filterMenuTree, hideUnhiredProducts, portalMenuSections, ROOT_MENU_SECTIONS } from "@/lib/portalSidebarCore.mjs";
 import { activeTreeKeys, filterVisibleTree, isItemActive, isTreeActive, matchesActivePrefix, projectClientAdministrationNode, projectSingleProductParkingNode, toggleExpandedNode } from "@/lib/navigationTreeCore.mjs";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 
@@ -20,6 +20,8 @@ const ITEM_STYLES = {
   "On Street": { icon: MapPinned, color: "#C17A4F" },
   Inicio: { icon: LayoutGrid, color: "#0891B2", note: "Resumen de tu empresa" },
   "Dashboard General": { icon: BarChart3, color: "#7C3AED", note: "Indicadores" },
+  "Data Entry": { icon: ScanLine, color: "#0F766E", note: "Demostración del POS" },
+  Administración: { icon: Settings2, color: "#EA580C" },
   "Centro de Control SMS": { icon: MessageSquareText, color: "#DB2777" },
   Administradores: { icon: Users, color: "#0F766E" },
   Operadores: { icon: UserRound, color: "#EA580C" },
@@ -46,30 +48,37 @@ function Tile({ item }) {
   return <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px] text-white" style={{ background: color }}><Icon className="h-4 w-4" aria-hidden="true" /></span>;
 }
 
-function CompanyIdentity({ userContext }) {
+function PortalIdentity({ userContext }) {
+  const isRoot = userContext?.role === "platform_admin";
+  const title = isRoot ? "ParkFacil" : userContext?.companyLegalName || "Empresa";
+  const detail = isRoot ? "Portal Root" : userContext?.companyRut ? `RUT ${userContext.companyRut}` : "";
   return (
     <div className="min-w-0 flex-1">
-      <p title={userContext?.companyLegalName || ""} className="line-clamp-2 text-sm font-extrabold leading-tight text-[#041E42]">{userContext?.companyLegalName || "Empresa"}</p>
-      {userContext?.companyRut ? <p className="mt-0.5 truncate text-xs font-semibold text-slate-600">RUT {userContext.companyRut}</p> : null}
+      <p title={title} className="line-clamp-2 text-sm font-extrabold leading-tight text-[#041E42]">{title}</p>
+      {detail ? <p className="mt-0.5 truncate text-xs font-semibold text-slate-600">{detail}</p> : null}
     </div>
   );
 }
 
-export default function ClientSidebar({ collapsed, onToggle, userContext, clientContext, mobileOpen, onMobileOpenChange }) {
+export default function PortalSidebar({ collapsed, onToggle, userContext, clientContext, mobileOpen, onMobileOpenChange }) {
   const pathname = usePathname();
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [signingOut, setSigningOut] = useState(false);
   const navRef = useRef(null);
 
+  const isRoot = userContext?.role === "platform_admin";
+  const definitions = isRoot ? ROOT_MENU_SECTIONS : CLIENT_MENU_SECTIONS;
   const items = useMemo(() => {
     const isVisible = (item) => navigationVisibleForRole(item, userContext) && (!clientContext || !item.requiresModule || clientContext.modules?.includes(item.requiresModule));
+    // Root conserva el árbol completo; las proyecciones son solo del Portal Cliente.
+    if (userContext?.role === "platform_admin") return filterVisibleTree(navigationItems, isVisible);
     return hideUnhiredProducts(projectClientAdministrationNode(projectSingleProductParkingNode(filterVisibleTree(navigationItems, isVisible))), userContext?.enabledProducts);
   }, [clientContext, userContext]);
   const [expanded, setExpanded] = useState(() => readExpanded(items, pathname));
 
   const searching = Boolean(query.trim());
-  const sections = useMemo(() => clientMenuSections(filterMenuTree(items, query)), [items, query]);
+  const sections = useMemo(() => portalMenuSections(filterMenuTree(items, query), definitions), [items, query, definitions]);
 
   // Cada página vuelve a montar el menú: se centra la opción activa una sola vez.
   const scrolledPath = useRef(null);
@@ -122,6 +131,7 @@ export default function ClientSidebar({ collapsed, onToggle, userContext, client
         </div>
       );
     }
+    if (!child.href) return null;
     return <Link key={child.label} href={child.href} onClick={onNavigate} aria-current={active ? "page" : undefined} className={`${base} ${active ? activeClasses : idle}`}><span className="min-w-0 flex-1">{child.label}</span></Link>;
   };
 
@@ -155,7 +165,7 @@ export default function ClientSidebar({ collapsed, onToggle, userContext, client
           <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar opción…" aria-label="Buscar opción del menú" className="w-full min-w-0 bg-transparent text-[13px] outline-none" />
         </label>
       </div>
-      <nav ref={withRef ? navRef : undefined} aria-label="Menú del Portal Cliente" className="min-h-0 flex-1 overflow-y-auto p-2">
+      <nav ref={withRef ? navRef : undefined} aria-label={isRoot ? "Menú del Portal Root" : "Menú del Portal Cliente"} className="min-h-0 flex-1 overflow-y-auto p-2">
         {sections.length ? sections.map((section) => (
           <div key={section.id}>
             <p className="mx-1.5 mb-1 mt-2.5 text-[10.5px] font-extrabold uppercase tracking-[0.14em] text-slate-400 first:mt-0.5">{section.title}</p>
@@ -165,7 +175,7 @@ export default function ClientSidebar({ collapsed, onToggle, userContext, client
       </nav>
       <div className="flex shrink-0 items-center gap-2 border-t border-slate-200 px-3 py-2">
         <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full bg-[#3150D8] text-[11px] font-extrabold text-white" aria-hidden="true">{String(userContext?.name || "U").trim().slice(0, 2).toUpperCase()}</span>
-        <div className="min-w-0 flex-1 leading-tight"><b className="block truncate text-[12.5px] text-[#041E42]">{userContext?.name}</b><small className="text-[11px] text-slate-500">Administrador de empresa</small></div>
+        <div className="min-w-0 flex-1 leading-tight"><b className="block truncate text-[12.5px] text-[#041E42]">{userContext?.name}</b><small className="text-[11px] text-slate-500">{isRoot ? "Administrador de plataforma" : "Administrador de empresa"}</small></div>
         <button type="button" onClick={signOut} disabled={signingOut} title="Cerrar sesión" aria-label="Cerrar sesión" className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-slate-100 disabled:opacity-50">{signingOut ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" /> : <LogOut className="h-4 w-4" aria-hidden="true" />}</button>
       </div>
     </>
@@ -178,15 +188,15 @@ export default function ClientSidebar({ collapsed, onToggle, userContext, client
 
   return (
     <>
-      <aside data-testid="client-sidebar" className={`sticky top-0 hidden h-screen shrink-0 p-2 lg:block ${collapsed ? "w-[78px]" : "w-[300px]"}`}>
+      <aside data-testid="portal-sidebar" className={`sticky top-0 hidden h-screen shrink-0 p-2 lg:block ${collapsed ? "w-[78px]" : "w-[300px]"}`}>
         <div className="pf-sidebar flex h-full flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
           <div className={`flex shrink-0 items-center gap-2 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-fuchsia-50 py-3 ${collapsed ? "justify-center px-0" : "px-3"}`}>
-            {!collapsed ? <><Building2 className="h-[18px] w-[18px] shrink-0 text-[#3150D8]" aria-hidden="true" /><CompanyIdentity userContext={userContext} /></> : null}
+            {!collapsed ? <><Building2 className="h-[18px] w-[18px] shrink-0 text-[#3150D8]" aria-hidden="true" /><PortalIdentity userContext={userContext} /></> : null}
             <button type="button" onClick={onToggle} title={collapsed ? "Mostrar menú" : "Plegar menú"} aria-label={collapsed ? "Mostrar menú" : "Plegar menú"} aria-expanded={!collapsed} className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-white">{collapsed ? <PanelLeftOpen className="h-4 w-4" aria-hidden="true" /> : <PanelLeftClose className="h-4 w-4" aria-hidden="true" />}</button>
           </div>
           {collapsed ? (
-            <nav ref={navRef} aria-label="Menú del Portal Cliente" className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5">
-              {clientMenuSections(items).flatMap((section) => section.items).map((item) => {
+            <nav ref={navRef} aria-label={isRoot ? "Menú del Portal Root" : "Menú del Portal Cliente"} className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-1.5">
+              {portalMenuSections(items, definitions).flatMap((section) => section.items).map((item) => {
                 const active = isTreeActive(pathname, item);
                 const classes = `flex w-full justify-center rounded-xl py-1.5 hover:bg-slate-50 ${active ? "bg-indigo-50" : ""}`;
                 if (item.children?.length) return <button key={item.label} type="button" onClick={() => openFromRail(item)} title={item.label} aria-label={item.label} className={classes}><Tile item={item} /></button>;
@@ -199,7 +209,7 @@ export default function ClientSidebar({ collapsed, onToggle, userContext, client
 
       <div className="flex items-center gap-2 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-fuchsia-50 px-4 py-3 lg:hidden">
         <Building2 className="h-[18px] w-[18px] shrink-0 text-[#3150D8]" aria-hidden="true" />
-        <CompanyIdentity userContext={userContext} />
+        <PortalIdentity userContext={userContext} />
         <button type="button" onClick={() => onMobileOpenChange(true)} aria-label="Abrir menú" className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-[#041E42] hover:border-[#3150D8]"><Menu className="h-4 w-4" aria-hidden="true" />Menú</button>
       </div>
 
@@ -208,7 +218,7 @@ export default function ClientSidebar({ collapsed, onToggle, userContext, client
           <div className="pf-sidebar flex h-full w-80 max-w-[88%] flex-col bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
             <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-fuchsia-50 p-3">
               <Building2 className="h-[18px] w-[18px] shrink-0 text-[#3150D8]" aria-hidden="true" />
-              <CompanyIdentity userContext={userContext} />
+              <PortalIdentity userContext={userContext} />
               <button type="button" onClick={() => onMobileOpenChange(false)} aria-label="Cerrar menú" className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-white"><X className="h-4 w-4" aria-hidden="true" /></button>
             </div>
             {panelBody(() => onMobileOpenChange(false), false)}

@@ -11,8 +11,8 @@ import {
   Phone,
 } from "lucide-react";
 
-import ClientSidebar from "@/components/layout/ClientSidebar";
 import MobileNavigation from "@/components/layout/MobileNavigation";
+import PortalSidebar from "@/components/layout/PortalSidebar";
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
@@ -53,10 +53,11 @@ function getUserContext(context) {
   };
 }
 
-// AppShell se vuelve a montar en cada página. La última sesión del Portal Cliente evita
+const PORTALS_WITH_NEW_MENU = ["client", "root"];
+
+// AppShell se vuelve a montar en cada página. La última sesión de estos portales evita
 // que su menú parpadee entre páginas; se revalida siempre y se borra si deja de ser válida.
-let lastClientSession = null;
-let lastPortal = null;
+let lastPortalSession = null;
 
 export default function AppShell({
   children,
@@ -82,15 +83,17 @@ export default function AppShell({
   const [
     clientContext,
     setClientContext,
-  ] = useState(lastClientSession?.clientContext ?? null);
+  ] = useState(lastPortalSession?.clientContext ?? null);
   const [
     userContext,
     setUserContext,
-  ] = useState(lastClientSession?.userContext ?? null);
+  ] = useState(lastPortalSession?.userContext ?? null);
   const [
     sessionResolved,
     setSessionResolved,
-  ] = useState(Boolean(lastClientSession));
+  ] = useState(Boolean(lastPortalSession));
+
+  const usesPortalMenu = PORTALS_WITH_NEW_MENU.includes(userContext?.portal);
 
   const showClientContextBanner =
     pathname === "/modelo-gestion-modulos";
@@ -151,8 +154,7 @@ export default function AppShell({
             modules: [],
           } : null;
           setClientContext(nextClientContext);
-          lastPortal = nextUserContext.portal;
-          lastClientSession = nextUserContext.portal === "client" ? { userContext: nextUserContext, clientContext: nextClientContext } : null;
+          lastPortalSession = PORTALS_WITH_NEW_MENU.includes(nextUserContext.portal) ? { userContext: nextUserContext, clientContext: nextClientContext } : null;
           setSessionResolved(true);
         })
         .catch(() => {
@@ -160,8 +162,7 @@ export default function AppShell({
             return;
           }
 
-          lastClientSession = null;
-          lastPortal = null;
+          lastPortalSession = null;
           setUserContext(null);
           setClientContext(null);
           setSessionResolved(true);
@@ -176,8 +177,7 @@ export default function AppShell({
               return;
             }
             if (event === "SIGNED_OUT") {
-              lastClientSession = null;
-              lastPortal = null;
+              lastPortalSession = null;
               setUserContext(null);
               setClientContext(null);
               setSessionResolved(true);
@@ -208,8 +208,8 @@ export default function AppShell({
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <div className="flex min-h-screen flex-col lg:flex-row">
         <div className="print:hidden">
-          {userContext?.portal === "client" ? (
-            <ClientSidebar
+          {usesPortalMenu ? (
+            <PortalSidebar
               mobileOpen={clientMenuOpen}
               onMobileOpenChange={setClientMenuOpen}
               collapsed={collapsed}
@@ -221,7 +221,7 @@ export default function AppShell({
               clientContext={clientContext}
               userContext={userContext}
             />
-          ) : !sessionResolved && lastPortal !== "root" ? (
+          ) : !sessionResolved ? (
             // Aún no se sabe el portal: evita mostrar por un instante el menú equivocado.
             <div className="hidden h-screen w-[300px] shrink-0 lg:block" aria-hidden="true" />
           ) : (
@@ -247,7 +247,7 @@ export default function AppShell({
               title={title}
               description={description}
               onMenuClick={() => {
-                if (userContext?.portal === "client") setClientMenuOpen(true);
+                if (usesPortalMenu) setClientMenuOpen(true);
               }}
               clientContext={clientContext}
               userContext={userContext}
@@ -303,7 +303,7 @@ export default function AppShell({
 
           <main className="min-w-0 flex-1 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
             <div className="mx-auto w-full max-w-7xl space-y-6">
-              {compactMobileHeader || userContext?.portal === "client" ? null : (
+              {compactMobileHeader || usesPortalMenu ? null : (
                 <MobileNavigation
                   onNavigate={() => {}}
                   clientContext={clientContext}

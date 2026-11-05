@@ -11,6 +11,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/sidebar-root": false,
       "feature/sidebar-cliente": false,
       "feature/empresa-activar-desactivar": false,
       "fix/ocupacion-real": false,

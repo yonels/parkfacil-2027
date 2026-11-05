@@ -1,9 +1,15 @@
-// Orden y búsqueda del menú del Portal Cliente (SOL-2026-11-04-014). Solo presenta lo
+// Orden y búsqueda del menú de los portales Cliente y Root (SOL-2026-11-04-014 y
+// SOL-2026-11-05-001). Solo presenta lo
 // que ya dejó visible el filtro de permisos: no agrega ni concede ninguna opción.
 export const CLIENT_MENU_SECTIONS = Object.freeze([
   { id: "plataforma", title: "Plataforma", labels: ["Off Street", "On Street", "Inicio", "Dashboard General"] },
   { id: "administracion", title: "Administración", labels: ["Centro de Control SMS", "Administradores", "Operadores", "Claves de operadores", "Seguridad", "Mi Cuenta", "Convenios"] },
   { id: "soporte", title: "Soporte", labels: ["Documentación"] },
+]);
+
+export const ROOT_MENU_SECTIONS = Object.freeze([
+  { id: "plataforma", title: "Plataforma", labels: ["Off Street", "On Street", "Inicio", "Dashboard General", "Data Entry"] },
+  { id: "administracion", title: "Administración", labels: ["Centro de Control SMS", "Administración"] },
 ]);
 
 // La carpeta de un producto no contratado no se muestra, aunque alguna de sus rutas
@@ -14,10 +20,10 @@ export function hideUnhiredProducts(items = [], enabledProducts = []) {
 }
 
 // Una opción nueva que nadie ubicó aquí queda en Administración: nunca desaparece.
-export function clientMenuSections(items = []) {
-  const known = new Set(CLIENT_MENU_SECTIONS.flatMap((section) => section.labels));
+export function portalMenuSections(items = [], definitions = CLIENT_MENU_SECTIONS) {
+  const known = new Set(definitions.flatMap((section) => section.labels));
   const unplaced = items.filter((item) => !known.has(item.label));
-  return CLIENT_MENU_SECTIONS.map((section) => ({
+  return definitions.map((section) => ({
     id: section.id,
     title: section.title,
     items: [
