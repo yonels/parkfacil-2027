@@ -1,4 +1,5 @@
 import {BillingProviderError,PROVIDER_RESULTS} from "./providers/BillingProviderAdapter.mjs";
+import {definitiveInvoiceAmounts} from "./taxCore.mjs";
 
 export class BillingServiceError extends Error{constructor(code,message,{retryable=false}={}){super(message);this.name="BillingServiceError";this.code=code;this.retryable=retryable;}}
 export class BillingService{
@@ -8,10 +9,12 @@ export class BillingService{
     for(const [key,value] of Object.entries({businessName:p.customer?.businessName,rut:p.customer?.rut,businessActivity:p.customer?.businessActivity,address:p.customer?.address,district:p.customer?.district,city:p.customer?.city,billingEmail:p.customer?.billingEmail}))if(!String(value||"").trim())throw new BillingServiceError("FISCAL_DATA_MISSING",`Falta dato fiscal: ${key}.`);
     if(!p.lines?.length)throw new BillingServiceError("DOCUMENT_LINES_REQUIRED","La prefactura no posee lineas.");
     if(p.lines.some(x=>!x.taxCategory||x.taxCategory==="UNDEFINED"))throw new BillingServiceError("TAX_CLASSIFICATION_REQUIRED","Existen conceptos sin clasificacion tributaria.");
-    let definitive={currency:p.currency,net:p.netAmount,tax:p.taxAmount,total:p.totalAmount};
+    // F1.3 (SOL-2026-11-05-005): montos definitivos en pesos y coherentes (neto, IVA 19 %, total).
+    let definitive=definitiveInvoiceAmounts({currency:p.currency,lines:p.lines});
     if(p.currency==="UF"){
       let rate;try{rate=await this.ufRateService.getUfByDate(invoiceDate);}catch{throw new BillingServiceError("BCCH_UNAVAILABLE","No fue posible obtener la UF definitiva.",{retryable:true});}
-      definitive={...definitive,ufReferenceDate:invoiceDate,ufValue:rate.value,ufSource:"Banco Central de Chile",amountUf:p.totalAmount,convertedAmountClp:Math.round(p.totalAmount*rate.value),currency:"CLP",total:Math.round(p.totalAmount*rate.value)};
+      const amounts=definitiveInvoiceAmounts({currency:"UF",lines:p.lines,ufValue:rate.value});
+      definitive={...amounts,ufReferenceDate:invoiceDate,ufValue:rate.value,ufSource:"Banco Central de Chile",amountUf:p.totalAmount,convertedAmountClp:amounts.total};
     }
     await this.repository.markIssuing({preinvoiceId,idempotencyKey,actorId,invoiceDate,definitive});
     const request={idempotencyKey,documentType:"INVOICE",issueDate:invoiceDate,currency:definitive.currency,issuer:p.issuer,customer:p.customer,lines:p.lines,totals:{net:definitive.net,tax:definitive.tax,total:definitive.total},references:{preinvoiceId,contractId:p.contractId},metadata:{period:p.period}};

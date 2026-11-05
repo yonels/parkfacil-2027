@@ -1,3 +1,5 @@
+import { clpTotals, lineTax, preinvoiceTotals, TaxClassificationError } from "./taxCore.mjs";
+
 export const PREINVOICE_STATUSES = Object.freeze(["DRAFT", "CALCULATED", "UNDER_REVIEW", "APPROVED", "READY_TO_ISSUE", "CANCELLED"]);
 
 export class BillingValidationError extends Error {
@@ -30,7 +32,8 @@ function round(value, decimals = 4) {
   return Math.round((Number(value) + Number.EPSILON) * factor) / factor;
 }
 
-export async function calculatePreinvoice({ contract, items, period, ufRateService, ufDate, taxResolver = () => 0 }) {
+// applyVat (SOL-2026-11-05-005, F1.3): IVA 19 % según la clasificación tributaria del catálogo (item.taxCategory).
+export async function calculatePreinvoice({ contract, items, period, ufRateService, ufDate, taxResolver = () => 0, applyVat = false }) {
   const range = parseBillingPeriod(period);
   if (!contract?.id || !contract?.companyId) throw new BillingValidationError("CONTRACT_REQUIRED", "Contrato invalido.");
   if (!overlapsPeriod({ validFrom: contract.startsOn, validTo: contract.endsOn }, range)) throw new BillingValidationError("CONTRACT_OUT_OF_PERIOD", "El contrato no esta vigente en el periodo.");
@@ -45,7 +48,7 @@ export async function calculatePreinvoice({ contract, items, period, ufRateServi
     const quantity = item.itemType === "DISCOUNT" ? Number(item.quantity) : Math.max(0, Number(item.quantity) - Number(item.includedQuantity || 0));
     const sign = item.itemType === "DISCOUNT" ? -1 : 1;
     const subtotal = round(sign * quantity * Number(item.unitPrice));
-    const taxAmount = round(Number(taxResolver(item, subtotal) || 0));
+    const taxAmount = applyVat ? lineTax({ net: subtotal, taxCategory: item.taxCategory }, contract.currency) : round(Number(taxResolver(item, subtotal) || 0));
     return {
       companyId: contract.companyId,
       conceptId: item.conceptId,
@@ -56,13 +59,19 @@ export async function calculatePreinvoice({ contract, items, period, ufRateServi
       sourceKey: preinvoiceSourceKey(item, period),
       description: item.description,
       quantity, unit: item.unit, unitPrice: Number(item.unitPrice), currency: item.currency,
-      subtotal, taxAmount, totalAmount: round(subtotal + taxAmount), validFrom: range.from, validTo: range.to,
+      subtotal, taxAmount, totalAmount: round(subtotal + taxAmount), validFrom: range.from, validTo: range.to, taxCategory: item.taxCategory || null,
     };
   }).filter((line) => line.quantity > 0 || line.subtotal !== 0);
 
-  const netAmount = round(lines.reduce((sum, line) => sum + line.subtotal, 0));
-  const taxAmount = round(lines.reduce((sum, line) => sum + line.taxAmount, 0));
-  const totalAmount = round(netAmount + taxAmount);
+  let netAmount = round(lines.reduce((sum, line) => sum + line.subtotal, 0));
+  let taxAmount = round(lines.reduce((sum, line) => sum + line.taxAmount, 0));
+  let totalAmount = round(netAmount + taxAmount);
+  let split = null;
+  if (applyVat) {
+    try { split = preinvoiceTotals(lines.map((line) => ({ net: line.subtotal, taxCategory: line.taxCategory })), contract.currency); }
+    catch (error) { if (error instanceof TaxClassificationError) throw new BillingValidationError("TAX_CLASSIFICATION_REQUIRED", "Hay servicios sin definir si son afectos o exentos de IVA: complétalo en Facturación → Configuración."); throw error; }
+    ({ netAmount, taxAmount, totalAmount } = split);
+  }
   const result = { period, range, currency: contract.currency, lines, netAmount, taxAmount, totalAmount, uf: null };
 
   if (contract.currency === "UF") {
@@ -71,7 +80,8 @@ export async function calculatePreinvoice({ contract, items, period, ufRateServi
     try { rate = await ufRateService.getUfByDate(ufDate); }
     catch (cause) { throw new BillingValidationError("UF_RATE_UNAVAILABLE", "No fue posible obtener la UF oficial.", { ufDate, cause: cause?.code || "UF_SERVICE_ERROR" }); }
     if (!rate?.value || rate.value <= 0) throw new BillingValidationError("UF_RATE_UNAVAILABLE", "La respuesta oficial no contiene una UF valida.", { ufDate });
-    result.uf = { date: rate.date || ufDate, value: Number(rate.value), source: "Banco Central de Chile", convertedAmountClp: round(totalAmount * Number(rate.value), 2) };
+    const clp = split ? clpTotals({ taxableNet: split.taxableNet, exemptNet: split.exemptNet, ufValue: Number(rate.value) }) : null;
+    result.uf = { date: rate.date || ufDate, value: Number(rate.value), source: "Banco Central de Chile", convertedAmountClp: clp ? clp.totalClp : round(totalAmount * Number(rate.value), 2), clp };
   }
   return result;
 }
