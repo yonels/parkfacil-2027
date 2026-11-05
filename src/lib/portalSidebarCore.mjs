@@ -49,6 +49,24 @@ export function filterMenuTree(items = [], query = "") {
   });
 }
 
+const digits = (value) => String(value || "").replace(/[^0-9kK]/g, "").toLowerCase();
+
+// Búsqueda de empresas (nombre, razón social o RUT) y estacionamientos (nombre, código o
+// empresa). Basta con las primeras letras o números; no distingue tildes ni mayúsculas, y
+// el RUT se compara sin puntos ni guion.
+export function searchEntities({ companies = [], parkings = [] } = {}, query = "", limit = 6) {
+  const term = normalizeMenuText(query);
+  if (!term) return { companies: [], parkings: [] };
+  const termDigits = digits(term);
+  const byRut = termDigits.length >= 2 && /^[0-9.\-kK ]+$/.test(term);
+  const matches = (texts, rut) => texts.some((text) => normalizeMenuText(text).includes(term)) || (byRut && digits(rut).startsWith(termDigits));
+  const found = {
+    companies: companies.filter((company) => matches([company.nombreFantasia, company.razonSocial], `${company.rutNumero || ""}${company.rutDv || ""}`)),
+    parkings: parkings.filter((parking) => matches([parking.name, parking.code, parking.companyName], "")),
+  };
+  return { companies: found.companies.slice(0, limit), parkings: found.parkings.slice(0, limit), more: found.companies.length > limit || found.parkings.length > limit };
+}
+
 export function countMenuOptions(item) {
   return item.children?.length ? item.children.reduce((sum, child) => sum + countMenuOptions(child), 0) : 1;
 }

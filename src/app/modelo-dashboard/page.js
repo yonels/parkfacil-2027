@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -268,7 +269,17 @@ function ExcelTable({ title, description, icon: Icon, columns, children }) {
   );
 }
 
-export default function ModeloDashboardPage() {
+// ?empresa=<id> (desde el buscador del menú) abre el dashboard filtrado por esa empresa.
+export default function DashboardGeneralPage() {
+  return <Suspense fallback={null}><DashboardGeneralWithParams /></Suspense>;
+}
+
+function DashboardGeneralWithParams() {
+  const empresa = useSearchParams().get("empresa") || "";
+  return <ModeloDashboardPage key={empresa} initialCompany={empresa} />;
+}
+
+function ModeloDashboardPage({ initialCompany = "" }) {
   // Estado del toggle "Hoy/7 días/Mes/Año" del gráfico "Flujo de vehículos
   // por día" — antes compartía el mismo estado que el selector "Periodo"
   // del modal de detalle (bug real encontrado en la auditoría: cambiar uno
@@ -291,7 +302,7 @@ export default function ModeloDashboardPage() {
   const [overview, setOverview] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
-  const [companyFilter, setCompanyFilter] = useState("");
+  const [companyFilter, setCompanyFilter] = useState(initialCompany);
   const [parkingFilter, setParkingFilter] = useState("");
   const [scopeOptions, setScopeOptions] = useState(null);
   const [flow, setFlow] = useState(null);

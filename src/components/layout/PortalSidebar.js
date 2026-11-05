@@ -9,7 +9,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { BarChart3, BookOpen, Building2, ChevronRight, CircleUserRound, Handshake, KeyRound, LayoutGrid, LoaderCircle, LogOut, MapPinned, Menu, MessageSquareText, PanelLeftClose, PanelLeftOpen, ParkingSquare, ScanLine, Search, Settings2, ShieldCheck, UserRound, Users, X } from "lucide-react";
 import { navigationItems } from "@/config/navigation";
 import { navigationVisibleForRole } from "@/lib/auth/permissions.mjs";
-import { CLIENT_MENU_SECTIONS, countMenuOptions, filterMenuTree, hideUnhiredProducts, portalMenuSections, ROOT_MENU_SECTIONS } from "@/lib/portalSidebarCore.mjs";
+import { CLIENT_MENU_SECTIONS, countMenuOptions, filterMenuTree, formatCompanyRut, hideUnhiredProducts, portalMenuSections, ROOT_MENU_SECTIONS, searchEntities } from "@/lib/portalSidebarCore.mjs";
 import { activeTreeKeys, filterVisibleTree, isItemActive, isTreeActive, matchesActivePrefix, projectClientAdministrationNode, projectSingleProductParkingNode, toggleExpandedNode } from "@/lib/navigationTreeCore.mjs";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
 
@@ -78,6 +78,28 @@ export default function PortalSidebar({ collapsed, onToggle, userContext, client
   const [expanded, setExpanded] = useState(() => readExpanded(items, pathname));
 
   const searching = Boolean(query.trim());
+  // Empresas y estacionamientos visibles para este usuario; se cargan al empezar a buscar.
+  const [entities, setEntities] = useState(null);
+  const [entitiesError, setEntitiesError] = useState(false);
+  useEffect(() => {
+    if (!searching || entities) return undefined;
+    let active = true;
+    (async () => {
+      try {
+        const read = async (url) => {
+          const response = await fetch(url, { cache: "no-store" });
+          if (!response.ok) throw new Error(String(response.status));
+          return (await response.json()).data || [];
+        };
+        const [companies, parkings] = await Promise.all([isRoot ? read("/api/empresas") : Promise.resolve([]), read("/api/estacionamientos")]);
+        if (active) setEntities({ companies, parkings });
+      } catch {
+        if (active) setEntitiesError(true);
+      }
+    })();
+    return () => { active = false; };
+  }, [searching, entities, isRoot]);
+  const found = useMemo(() => searchEntities(entities || {}, query), [entities, query]);
   const sections = useMemo(() => portalMenuSections(filterMenuTree(items, query), definitions), [items, query, definitions]);
 
   // Cada página vuelve a montar el menú: se centra la opción activa una sola vez.
@@ -162,16 +184,45 @@ export default function PortalSidebar({ collapsed, onToggle, userContext, client
       <div className="px-2 pt-2">
         <label className="flex items-center gap-2 rounded-xl border border-slate-300 px-2.5 py-1.5 focus-within:border-[#3150D8]">
           <Search className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden="true" />
-          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar opción…" aria-label="Buscar opción del menú" className="w-full min-w-0 bg-transparent text-[13px] outline-none" />
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder={isRoot ? "Buscar empresa, RUT u opción…" : "Buscar estacionamiento u opción…"} aria-label="Buscar en el menú, empresas y estacionamientos" className="w-full min-w-0 bg-transparent text-[13px] outline-none" />
         </label>
       </div>
       <nav ref={withRef ? navRef : undefined} aria-label={isRoot ? "Menú del Portal Root" : "Menú del Portal Cliente"} className="min-h-0 flex-1 overflow-y-auto p-2">
+        {searching && found.companies.length ? (
+          <div>
+            <p className="mx-1.5 mb-1 mt-0.5 text-[10.5px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Empresas</p>
+            {found.companies.map((company) => (
+              <div key={company.id} className="flex items-center gap-1 rounded-xl hover:bg-slate-50">
+                <Link href={`/empresas/${company.id}`} onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-2 p-1.5">
+                  <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px] bg-[#3150D8] text-[10px] font-extrabold text-white">{String(company.nombreFantasia || company.razonSocial || "E").slice(0, 2).toUpperCase()}</span>
+                  <span className="min-w-0 flex-1 leading-tight"><b className="block truncate text-[13px] text-[#041E42]">{company.nombreFantasia || company.razonSocial}</b><small className="block truncate text-[11px] text-slate-500">{[formatCompanyRut(company.rutNumero, company.rutDv) && `RUT ${formatCompanyRut(company.rutNumero, company.rutDv)}`, company.razonSocial !== company.nombreFantasia && company.razonSocial].filter(Boolean).join(" · ")}</small></span>
+                </Link>
+                <Link href={`/modelo-dashboard?empresa=${encodeURIComponent(company.id)}`} onClick={onNavigate} title="Ver su Dashboard" aria-label={`Ver el Dashboard de ${company.nombreFantasia || company.razonSocial}`} className="grid h-8 w-8 shrink-0 place-items-center rounded-full text-slate-500 hover:bg-white hover:text-[#3150D8]"><BarChart3 className="h-4 w-4" aria-hidden="true" /></Link>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {searching && found.parkings.length ? (
+          <div>
+            <p className="mx-1.5 mb-1 mt-2.5 text-[10.5px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Estacionamientos</p>
+            {found.parkings.map((parking) => (
+              <Link key={parking.id} href={`/estacionamientos/${encodeURIComponent(parking.code)}`} onClick={onNavigate} className="flex items-center gap-2 rounded-xl p-1.5 hover:bg-slate-50">
+                <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-[9px] text-white" style={{ background: parking.type === "ON_STREET" ? "#C17A4F" : "#3150D8" }}>{parking.type === "ON_STREET" ? <MapPinned className="h-4 w-4" aria-hidden="true" /> : <ParkingSquare className="h-4 w-4" aria-hidden="true" />}</span>
+                <span className="min-w-0 flex-1 leading-tight"><b className="block truncate text-[13px] text-[#041E42]">{parking.name}</b><small className="block truncate text-[11px] text-slate-500">{[parking.code, isRoot && parking.companyName].filter(Boolean).join(" · ")}</small></span>
+              </Link>
+            ))}
+          </div>
+        ) : null}
+        {searching && found.more ? <p className="px-2 pt-1 text-[11px] text-slate-500">Hay más coincidencias: escribe más letras para acotar.</p> : null}
+        {searching && !entities && !entitiesError ? <p className="px-2 pt-1 text-[11px] text-slate-500">Buscando empresas y estacionamientos…</p> : null}
+        {searching && entitiesError ? <p className="px-2 pt-1 text-[11px] text-rose-700">No se pudieron buscar empresas ni estacionamientos.</p> : null}
+        {sections.length && searching && (found.companies.length || found.parkings.length) ? <p className="mx-1.5 mb-1 mt-2.5 text-[10.5px] font-extrabold uppercase tracking-[0.14em] text-slate-400">Opciones del menú</p> : null}
         {sections.length ? sections.map((section) => (
           <div key={section.id}>
             <p className="mx-1.5 mb-1 mt-2.5 text-[10.5px] font-extrabold uppercase tracking-[0.14em] text-slate-400 first:mt-0.5">{section.title}</p>
             {section.items.map((item) => renderItem(item, onNavigate))}
           </div>
-        )) : <p className="p-4 text-center text-[13px] text-slate-500">No hay opciones que coincidan.</p>}
+        )) : searching && (found.companies.length || found.parkings.length || !entities) ? null : <p className="p-4 text-center text-[13px] text-slate-500">No hay coincidencias.</p>}
       </nav>
       <div className="flex shrink-0 items-center gap-2 border-t border-slate-200 px-3 py-2">
         <span className="grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full bg-[#3150D8] text-[11px] font-extrabold text-white" aria-hidden="true">{String(userContext?.name || "U").trim().slice(0, 2).toUpperCase()}</span>

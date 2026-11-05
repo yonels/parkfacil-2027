@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { navigationItems } from "../config/navigation.js";
 import { navigationVisibleForRole } from "./auth/permissions.mjs";
-import { countMenuOptions, filterMenuTree, formatCompanyRut, hideUnhiredProducts, portalMenuSections, ROOT_MENU_SECTIONS } from "./portalSidebarCore.mjs";
+import { countMenuOptions, filterMenuTree, formatCompanyRut, hideUnhiredProducts, portalMenuSections, ROOT_MENU_SECTIONS, searchEntities } from "./portalSidebarCore.mjs";
 import { filterVisibleTree, projectClientAdministrationNode, projectSingleProductParkingNode } from "./navigationTreeCore.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -43,6 +43,28 @@ test("la búsqueda ignora tildes, deja el camino al hijo y conserva una carpeta 
   assert.deepEqual(filterMenuTree(tree, "inexistente"), []);
   assert.equal(filterMenuTree(tree, " "), tree);
   assert.equal(countMenuOptions(tree[0]), 3);
+});
+
+test("buscar empresas por nombre, razón social o RUT con las primeras letras o números", () => {
+  const datos = {
+    companies: [
+      { id: "a", nombreFantasia: "Viapark", razonSocial: "Inversiones Vía Park SpA", rutNumero: "76123456", rutDv: "K" },
+      { id: "b", nombreFantasia: "Clínica Ramis", razonSocial: "Sociedad Médica Integral", rutNumero: "76345890", rutDv: "2" },
+    ],
+    parkings: [{ id: "p", code: "PC-001", name: "Parking Centro", companyName: "ParkFacil Operaciones" }],
+  };
+  const ids = (q) => searchEntities(datos, q).companies.map((c) => c.id);
+  assert.deepEqual(ids("via"), ["a"]);
+  assert.deepEqual(ids("VÍA PA"), ["a"]);
+  assert.deepEqual(ids("clinica"), ["b"]);
+  assert.deepEqual(ids("medica"), ["b"]);
+  assert.deepEqual(ids("76.12"), ["a"]);
+  assert.deepEqual(ids("763458902"), ["b"]);
+  assert.deepEqual(ids("76"), ["a", "b"]);
+  assert.deepEqual(ids("zzz"), []);
+  assert.deepEqual(searchEntities(datos, "pc-0").parkings.map((p) => p.id), ["p"]);
+  assert.deepEqual(searchEntities(datos, "operaciones").parkings.map((p) => p.id), ["p"]);
+  assert.deepEqual(searchEntities(datos, " "), { companies: [], parkings: [] });
 });
 
 test("el RUT se muestra con puntos y dígito verificador", () => {
