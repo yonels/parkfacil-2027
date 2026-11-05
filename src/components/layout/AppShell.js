@@ -11,6 +11,7 @@ import {
   Phone,
 } from "lucide-react";
 
+import ClientSidebar from "@/components/layout/ClientSidebar";
 import MobileNavigation from "@/components/layout/MobileNavigation";
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
@@ -47,8 +48,15 @@ function getUserContext(context) {
     enabledProducts: context.enabledProducts || [],
     // Módulo Cupones de la empresa (SOL-2026-10-19-002): menú vía canAccessPath.
     couponModuleStatus: context.couponModuleStatus,
+    companyLegalName: context.companyIdentity?.legalName || context.membership?.company?.business_name || context.membership?.company?.trade_name || "",
+    companyRut: context.companyIdentity?.rut || "",
   };
 }
+
+// AppShell se vuelve a montar en cada página. La última sesión del Portal Cliente evita
+// que su menú parpadee entre páginas; se revalida siempre y se borra si deja de ser válida.
+let lastClientSession = null;
+let lastPortal = null;
 
 export default function AppShell({
   children,
@@ -69,18 +77,20 @@ export default function AppShell({
 
   const [collapsed, setCollapsed] =
     useState(false);
+  const [clientMenuOpen, setClientMenuOpen] =
+    useState(false);
   const [
     clientContext,
     setClientContext,
-  ] = useState(null);
+  ] = useState(lastClientSession?.clientContext ?? null);
   const [
     userContext,
     setUserContext,
-  ] = useState(null);
+  ] = useState(lastClientSession?.userContext ?? null);
   const [
     sessionResolved,
     setSessionResolved,
-  ] = useState(false);
+  ] = useState(Boolean(lastClientSession));
 
   const showClientContextBanner =
     pathname === "/modelo-gestion-modulos";
@@ -132,13 +142,17 @@ export default function AppShell({
           if (!response.ok) throw new Error("SESSION_INVALID");
           const payload = await response.json();
           const context = payload.data;
-          setUserContext(getUserContext(context));
+          const nextUserContext = getUserContext(context);
+          setUserContext(nextUserContext);
           const company = context.membership?.company;
-          setClientContext(company ? {
+          const nextClientContext = company ? {
             name: company.trade_name || company.business_name,
             email: resolveDisplayEmail(context.email),
             modules: [],
-          } : null);
+          } : null;
+          setClientContext(nextClientContext);
+          lastPortal = nextUserContext.portal;
+          lastClientSession = nextUserContext.portal === "client" ? { userContext: nextUserContext, clientContext: nextClientContext } : null;
           setSessionResolved(true);
         })
         .catch(() => {
@@ -146,7 +160,10 @@ export default function AppShell({
             return;
           }
 
+          lastClientSession = null;
+          lastPortal = null;
           setUserContext(null);
+          setClientContext(null);
           setSessionResolved(true);
         });
 
@@ -159,6 +176,8 @@ export default function AppShell({
               return;
             }
             if (event === "SIGNED_OUT") {
+              lastClientSession = null;
+              lastPortal = null;
               setUserContext(null);
               setClientContext(null);
               setSessionResolved(true);
@@ -189,19 +208,37 @@ export default function AppShell({
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <div className="flex min-h-screen flex-col lg:flex-row">
         <div className="print:hidden">
-          <Sidebar
-            collapsed={collapsed}
-            onToggle={() =>
-              setCollapsed(
-                (value) => !value
-              )
-            }
-            onHomeNavigate={() =>
-              setCollapsed(true)
-            }
-            clientContext={clientContext}
-            userContext={userContext}
-          />
+          {userContext?.portal === "client" ? (
+            <ClientSidebar
+              mobileOpen={clientMenuOpen}
+              onMobileOpenChange={setClientMenuOpen}
+              collapsed={collapsed}
+              onToggle={() =>
+                setCollapsed(
+                  (value) => !value
+                )
+              }
+              clientContext={clientContext}
+              userContext={userContext}
+            />
+          ) : !sessionResolved && lastPortal !== "root" ? (
+            // Aún no se sabe el portal: evita mostrar por un instante el menú equivocado.
+            <div className="hidden h-screen w-[300px] shrink-0 lg:block" aria-hidden="true" />
+          ) : (
+            <Sidebar
+              collapsed={collapsed}
+              onToggle={() =>
+                setCollapsed(
+                  (value) => !value
+                )
+              }
+              onHomeNavigate={() =>
+                setCollapsed(true)
+              }
+              clientContext={clientContext}
+              userContext={userContext}
+            />
+          )}
         </div>
 
         <div className="flex min-h-screen min-w-0 flex-1 flex-col">
@@ -209,7 +246,9 @@ export default function AppShell({
             <Topbar
               title={title}
               description={description}
-              onMenuClick={() => {}}
+              onMenuClick={() => {
+                if (userContext?.portal === "client") setClientMenuOpen(true);
+              }}
               clientContext={clientContext}
               userContext={userContext}
               sessionResolved={sessionResolved}
@@ -264,7 +303,7 @@ export default function AppShell({
 
           <main className="min-w-0 flex-1 overflow-x-hidden px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
             <div className="mx-auto w-full max-w-7xl space-y-6">
-              {compactMobileHeader ? null : (
+              {compactMobileHeader || userContext?.portal === "client" ? null : (
                 <MobileNavigation
                   onNavigate={() => {}}
                   clientContext={clientContext}
