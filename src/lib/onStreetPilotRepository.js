@@ -45,7 +45,7 @@ export async function getPublicQrLocation(publicCode, db = getSupabaseAdminClien
   if (!parkingResult.data || !sectorResult.data || !streetResult.data || !segmentResult.data) return null;
   const now=new Date().toISOString();
   const [companyResult,rate]=await Promise.all([
-    db.from("companies").select("business_name,trade_name,rut_number,rut_dv,email,phone").eq("id",parkingResult.data.company_id).maybeSingle(),
+    db.from("companies").select("business_name,trade_name,rut_number,rut_dv,email,phone,status").eq("id",parkingResult.data.company_id).maybeSingle(),
     resolveQrRate(db, qr, now),
   ]);
   if(companyResult.error)throw companyResult.error;

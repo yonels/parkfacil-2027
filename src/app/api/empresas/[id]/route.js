@@ -4,6 +4,7 @@ import { getCompany } from "@/lib/companiesRepository";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { requirePlatformAdmin } from "@/lib/auth/apiAuthorizationCore.mjs";
 import { PRODUCTS } from "@/lib/auth/permissions.mjs";
+import { companyStatusFromEditForm } from "@/lib/companyServiceStatus.mjs";
 
 const clean = (value) => String(value || "").trim();
 const numberOrNull = (value) => value === "" || value === null || value === undefined ? null : Number(value);
@@ -54,7 +55,7 @@ export async function PATCH(request, { params }) {
 
   const { id } = await params;
   const db = getSupabaseAdminClient();
-  const existing = await db.from("companies").select("id").eq("id", id).maybeSingle();
+  const existing = await db.from("companies").select("id,status").eq("id", id).maybeSingle();
   if (existing.error) return NextResponse.json({ error: "No fue posible consultar la empresa.", code: "COMPANY_READ_FAILED" }, { status: 500 });
   if (!existing.data) return NextResponse.json({ error: "No se encontró la empresa solicitada.", code: "COMPANY_NOT_FOUND" }, { status: 404 });
   const input = await request.json();
@@ -85,7 +86,7 @@ export async function PATCH(request, { params }) {
     country: clean(input.country) || "Chile",
     notes: clean(input.notes),
     commercial_plan: planCode[input.plan] || "UNASSIGNED",
-    status: ["Activo", "active"].includes(input.status) ? "active" : ["En implementación", "onboarding"].includes(input.status) ? "onboarding" : "inactive",
+    status: companyStatusFromEditForm(existing.data.status, ["Activo", "active"].includes(input.status) ? "active" : ["En implementación", "onboarding"].includes(input.status) ? "onboarding" : "inactive"),
     updated_at: new Date().toISOString(),
   }).eq("id", id).select("id").single();
   if (companyResult.error) {

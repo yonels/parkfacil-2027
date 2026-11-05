@@ -183,7 +183,7 @@ export default function EmpresasPage() {
 
           <div className="mt-6">
             {resultados.length > 0 ? (
-              <EmpresasTable empresas={resultados} />
+              <EmpresasTable onEstadoChanged={(id, status) => setEmpresas((current) => current.map((item) => item.id === id ? { ...item, estado: status } : item))} empresas={resultados} />
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-sm text-slate-600">
                 No hay empresas que coincidan con los filtros aplicados.

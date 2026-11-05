@@ -4,6 +4,7 @@ import { processDueOnStreetSms as processDueOnStreetSmsCore, processOnStreetSmsD
 import { resolveSmsPublicOrigin } from "./onStreetSms.mjs";
 import { resolveOnStreetPublicOrigin } from "./onStreetPublicOrigin.mjs";
 import { isEligibleOnStreetSmsNotification } from "./onStreetSmsEligibility.mjs";
+import { isSessionCompanyActive } from "./companyServiceStatus.mjs";
 
 // Envoltorio real para el resto de la aplicación: provee los valores por
 // defecto (Supabase real, proveedor resuelto por SMS_PROVIDER) sobre la
@@ -19,7 +20,7 @@ import { isEligibleOnStreetSmsNotification } from "./onStreetSmsEligibility.mjs"
 export async function processDueOnStreetSms({ origin, provider = resolveSmsProvider(), db = getSupabaseAdminClient(), now } = {}) {
   const canonicalOrigin = resolveOnStreetPublicOrigin({ requestOrigin: origin });
   const publicOrigin = resolveSmsPublicOrigin({ configuredOrigin: canonicalOrigin });
-  return processDueOnStreetSmsCore({ origin: publicOrigin, provider, db, now, eligibilityCheck: (notification, at) => isEligibleOnStreetSmsNotification(db, notification, at) });
+  return processDueOnStreetSmsCore({ origin: publicOrigin, provider, db, now, eligibilityCheck: async (notification, at) => await isEligibleOnStreetSmsNotification(db, notification, at) && await isSessionCompanyActive(db, notification.session_id) });
 }
 
 export async function processOnStreetSmsDeliveryStatus({ provider = resolveSmsProvider(), db = getSupabaseAdminClient(), limit } = {}) {
