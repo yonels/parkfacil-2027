@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { classifyParkingPersistenceError, sanitizeParkingInput, validateParkingInput } from "@/lib/estacionamientos.mjs";
 import { listParkings, createParkingWithCatalogCode, CatalogCodeNotAvailableError } from "@/lib/estacionamientosRepository";
+import { withLiveOccupancy } from "@/lib/parkingLiveOccupancyServer";
 import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiAuthorization";
 import { assignedParkingIds } from "@/lib/auth/parkingAuthorization";
 import { parkingQueryScope } from "@/lib/auth/parkingAuthorizationCore.mjs";
@@ -29,7 +30,7 @@ export async function GET(request) {
     const data = auth.context.role === ROLES.PLATFORM_ADMIN
       ? parkings
       : parkings.filter((parking) => hasEnabledProduct(auth.context.enabledProducts, parking.type === "ON_STREET" ? PRODUCTS.ON_STREET : PRODUCTS.OFF_STREET));
-    return NextResponse.json({ data });
+    return NextResponse.json({ data: await withLiveOccupancy(db, data) });
   } catch (error) { if (error?.status) return authorizationErrorResponse(request, error, auth.context); return fail(error, "No fue posible obtener los estacionamientos."); }
 }
 

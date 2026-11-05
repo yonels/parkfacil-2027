@@ -4,6 +4,15 @@ import { getParking } from "@/lib/estacionamientosRepository";
 import { getCurrentServerContext } from "@/lib/auth/currentServerContext";
 import { assignedParkingIds } from "@/lib/auth/parkingAuthorization";
 import { parkingQueryScope } from "@/lib/auth/parkingAuthorizationCore.mjs";
+import { withLiveOccupancy } from "@/lib/parkingLiveOccupancyServer";
+
+// Para pantallas que muestran ocupación: un error no cae en los valores manuales.
+export async function getParkingWithLiveOccupancy(identifier) {
+  const parking = await getParkingPageData(identifier);
+  if (!parking) return null;
+  const [live] = await withLiveOccupancy(getSupabaseAdminClient(), [parking]);
+  return live;
+}
 
 export async function getParkingPageData(identifier) {
   try {

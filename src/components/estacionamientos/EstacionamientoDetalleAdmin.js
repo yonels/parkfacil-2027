@@ -49,7 +49,7 @@ export default function EstacionamientoDetalleAdmin({ parking, structure, compan
     return <AppShell title="Detalle de estacionamiento" description="Estacionamiento no encontrado"><div className="rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center"><p className="text-lg font-semibold text-[#041E42]">No se encontró el estacionamiento solicitado.</p><Link href="/estacionamientos" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#3150D8]"><ArrowLeft className="h-4 w-4" /> Volver a estacionamientos</Link></div></AppShell>;
   }
 
-  const metrics = structure?.metrics || parking.metrics;
+  const metrics = parking.type === "ON_STREET" ? structure?.metrics || parking.metrics : parking.metrics;
   const onStreet = parking.type === "ON_STREET";
   const tabs = parkingDetailTabs(parking);
 
