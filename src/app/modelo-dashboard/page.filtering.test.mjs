@@ -42,9 +42,14 @@ test("actividad: Ingresos/Salidas/Pendientes/Anulados se traducen 1:1 al paráme
   assert.deepEqual(selectionToQueryParams({ type: "actividad", id: "anulados" }), { activity: "anulados" });
 });
 
-test("actividad-dia: 'day-<id>' se traduce a la misma actividad real, sin el prefijo 'day-'", () => {
-  assert.deepEqual(selectionToQueryParams({ type: "actividad-dia", id: "day-pendientes" }), { activity: "pendientes" });
-  assert.deepEqual(selectionToQueryParams({ type: "actividad-dia", id: "day-salidas" }), { activity: "salidas" });
+test("actividad-dia: 'day-<id>' se traduce a la misma actividad real, solo de hoy", () => {
+  const hoy = driver().todayIso();
+  assert.deepEqual(selectionToQueryParams({ type: "actividad-dia", id: "day-pendientes" }), { activity: "pendientes", dateFrom: hoy, dateTo: hoy });
+  assert.deepEqual(selectionToQueryParams({ type: "actividad-dia", id: "day-salidas" }), { activity: "salidas", dateFrom: hoy, dateTo: hoy });
+});
+
+test("una barra del gráfico con rango propio (mes del período Año) consulta ese rango", () => {
+  assert.deepEqual(selectionToQueryParams({ type: "actividad-dia", id: "entries-Oct 2026", dateFrom: "2026-10-01", dateTo: "2026-10-31" }), { activity: "ingresos", dateFrom: "2026-10-01", dateTo: "2026-10-31" });
 });
 
 test("barras del gráfico semanal (entries-<día>/exits-<día>): activity real + rango de un solo día real", () => {
@@ -53,28 +58,30 @@ test("barras del gráfico semanal (entries-<día>/exits-<día>): activity real +
   assert.deepEqual(selectionToQueryParams({ type: "actividad-dia", id: "exits-27 Jul" }), { activity: "salidas", dateFrom: `${year}-07-27`, dateTo: `${year}-07-27` });
 });
 
-test("pago: Efectivo -> CASH; Débito y Crédito -> CARD (parking_stays no distingue débito de crédito)", () => {
-  assert.deepEqual(selectionToQueryParams({ type: "pago", id: "efectivo" }), { paymentMethod: "CASH" });
-  assert.deepEqual(selectionToQueryParams({ type: "pago", id: "debito" }), { paymentMethod: "CARD" });
-  assert.deepEqual(selectionToQueryParams({ type: "pago", id: "credito" }), { paymentMethod: "CARD" });
+test("pago: cada medio consulta sus propias salidas pagadas, separando débito y crédito", () => {
+  assert.deepEqual(selectionToQueryParams({ type: "pago", id: "efectivo" }), { activity: "salidas", paymentMethod: "CASH" });
+  assert.deepEqual(selectionToQueryParams({ type: "pago", id: "debito" }), { activity: "salidas", paymentMethod: "CARD", cardType: "DEBIT" });
+  assert.deepEqual(selectionToQueryParams({ type: "pago", id: "credito" }), { activity: "salidas", paymentMethod: "CARD", cardType: "CREDIT" });
+  assert.deepEqual(selectionToQueryParams({ type: "pago", id: "sinClasificar" }), { activity: "salidas", paymentMethod: "CARD", cardType: "NONE" });
 });
 
-test("pago-dia: mismo mapeo de medio de pago que 'pago'", () => {
-  assert.deepEqual(selectionToQueryParams({ type: "pago-dia", id: "day-efectivo" }), { paymentMethod: "CASH" });
+test("pago-dia: mismo mapeo de medio de pago, solo de hoy", () => {
+  const hoy = driver().todayIso();
+  assert.deepEqual(selectionToQueryParams({ type: "pago-dia", id: "day-efectivo" }), { activity: "salidas", paymentMethod: "CASH", dateFrom: hoy, dateTo: hoy });
 });
 
-test("pie de distribución de ingresos (ingresos-pie): representa el total, sin filtro de medio", () => {
-  assert.deepEqual(selectionToQueryParams({ type: "pago", id: "ingresos-pie" }), {});
+test("pie de distribución de ingresos: todos los pagos del período elegido", () => {
+  assert.deepEqual(selectionToQueryParams({ type: "pago", id: "ingresos-pie", dateFrom: "2026-11-01", dateTo: "2026-11-30" }), { activity: "salidas", dateFrom: "2026-11-01", dateTo: "2026-11-30" });
 });
 
 test("ocupacion (mapa de calor): devuelve null -> nunca se consulta el backend", () => {
   assert.equal(selectionToQueryParams({ type: "ocupacion", id: "Lunes-06–09" }), null);
 });
 
-test("general: 'Vehículos pendientes' -> activity pendientes; el resto (KPIs agregados) sin filtro de actividad", () => {
-  assert.deepEqual(selectionToQueryParams({ type: "general", id: "Vehículos pendientes" }), { activity: "pendientes" });
-  assert.deepEqual(selectionToQueryParams({ type: "general", id: "Total mensual cobrado" }), {});
-  assert.deepEqual(selectionToQueryParams({ type: "general", id: "Transacciones totales" }), {});
+test("general: pendientes sin límite de fecha; total y transacciones son los pagos del mes", () => {
+  assert.deepEqual(selectionToQueryParams({ type: "general", id: "Vehículos pendientes" }), { activity: "pendientes", allDates: true });
+  assert.deepEqual(selectionToQueryParams({ type: "general", id: "Total mensual cobrado" }), { activity: "salidas" });
+  assert.deepEqual(selectionToQueryParams({ type: "general", id: "Transacciones totales" }), { activity: "salidas" });
 });
 
 test("parseDayLabelToIsoDate usa el año real actual, no un año demostrativo fijo", () => {

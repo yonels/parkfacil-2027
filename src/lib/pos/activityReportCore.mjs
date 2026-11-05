@@ -8,6 +8,8 @@ import { OPERATIONAL_TIME_ZONE, toOperationalDateTimeParts } from "../dataEntry.
 
 export const REPORT_ACTIVITIES = Object.freeze(["ingresos", "salidas", "pendientes", "anulados"]);
 export const REPORT_PAYMENT_METHODS = Object.freeze(["CASH", "CARD"]);
+// NONE: pagos con tarjeta sin tipo registrado.
+export const REPORT_CARD_TYPES = Object.freeze(["CREDIT", "DEBIT", "NONE"]);
 
 const STATUS_BY_ACTIVITY = { pendientes: "OPEN", salidas: "PAID", anulados: "CANCELLED" };
 
@@ -29,7 +31,7 @@ export function isValidIsoDate(value) {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-export function validateReportFilters({ activity, dateFrom, dateTo, paymentMethod } = {}) {
+export function validateReportFilters({ activity, dateFrom, dateTo, paymentMethod, cardType } = {}) {
   if (activity && !REPORT_ACTIVITIES.includes(activity)) {
     return { ok: false, message: `activity debe ser una de: ${REPORT_ACTIVITIES.join(", ")}.` };
   }
@@ -38,6 +40,9 @@ export function validateReportFilters({ activity, dateFrom, dateTo, paymentMetho
   if (dateFrom && dateTo && dateFrom > dateTo) return { ok: false, message: "dateFrom no puede ser posterior a dateTo." };
   if (paymentMethod && !REPORT_PAYMENT_METHODS.includes(paymentMethod)) {
     return { ok: false, message: `paymentMethod debe ser una de: ${REPORT_PAYMENT_METHODS.join(", ")}.` };
+  }
+  if (cardType && !REPORT_CARD_TYPES.includes(cardType)) {
+    return { ok: false, message: `cardType debe ser una de: ${REPORT_CARD_TYPES.join(", ")}.` };
   }
   return { ok: true, message: "" };
 }
