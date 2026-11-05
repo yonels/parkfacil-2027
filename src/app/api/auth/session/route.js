@@ -4,6 +4,7 @@ import { getAuthenticatedContext, SESSION_COOKIE } from "@/lib/auth/authenticate
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { hasPermission, PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { withCouponModuleStatus } from "@/lib/cupones/couponModuleSession";
+import { formatCompanyRut } from "@/lib/clientSidebarCore.mjs";
 
 const COOKIE_OPTIONS = {
   httpOnly: true,
@@ -23,7 +24,20 @@ function publicContext(context) {
     // Módulo Cupones (SOL-2026-10-19-002): el menú lo usa vía canAccessPath.
     ...(context.couponModuleStatus ? { couponModuleStatus: context.couponModuleStatus } : {}),
     membership: context.membership,
+    ...(context.companyIdentity ? { companyIdentity: context.companyIdentity } : {}),
   };
+}
+
+// Razón social y RUT del encabezado del menú del Portal Cliente (SOL-2026-11-04-014).
+// Si la consulta falla, la sesión sigue siendo válida y el menú usa el nombre disponible.
+async function withCompanyIdentity(context) {
+  if (context.portal !== "client" || !context.companyId) return context;
+  const result = await getSupabaseAdminClient().from("companies").select("business_name,rut_number,rut_dv").eq("id", context.companyId).maybeSingle();
+  if (result.error) {
+    console.error("[auth:session:company-identity]", result.error?.code || result.error?.message);
+    return context;
+  }
+  return { ...context, companyIdentity: { legalName: result.data?.business_name || "", rut: formatCompanyRut(result.data?.rut_number, result.data?.rut_dv) } };
 }
 
 function failure(error) {
@@ -76,7 +90,7 @@ async function validatePosOperatorScope(context) {
 export async function GET(request) {
   try {
     // Módulo Cupones: el menú del Portal Cliente lo necesita (canAccessPath).
-    return NextResponse.json({ data: publicContext(await withCouponModuleStatus(await getAuthenticatedContext(request), "/cupones")) });
+    return NextResponse.json({ data: publicContext(await withCompanyIdentity(await withCouponModuleStatus(await getAuthenticatedContext(request), "/cupones"))) });
   } catch (error) {
     return failure(error);
   }
