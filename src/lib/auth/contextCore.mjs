@@ -43,7 +43,8 @@ export async function resolveAuthenticatedContext({ user, portal, loadMembership
     throw new AuthorizationError("PERMISSION_FORBIDDEN", 403, "Esta cuenta no tiene permiso para operar el Terminal.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
   }
   if (!membership.company || membership.company.status !== "active" || membership.company.relationship_type !== "client") {
-    throw new AuthorizationError("COMPANY_INACTIVE", 403, "La empresa no está habilitada como cliente.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
+    const suspended = membership.company?.status === "inactive";
+    throw new AuthorizationError("COMPANY_INACTIVE", 403, suspended ? "El servicio de tu empresa está suspendido. Contacta a ParkFacil." : "La empresa no está habilitada como cliente.", { userId: user.id, companyId: membership.company_id, portal, role: membership.role });
   }
 
   return {

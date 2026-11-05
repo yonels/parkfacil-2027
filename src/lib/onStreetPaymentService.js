@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { getPublicQrLocation, getPublicPilotSession } from "./onStreetPilotRepository";
 import { normalizeChileanMobile, normalizePurchasedMinutes } from "./onStreetPilot.mjs";
+import { isParkingCompanyActive } from "./companyServiceStatus.mjs";
 import { normalizePlate } from "./dataEntry.mjs";
 import { abortPaymentTransactionByBuyOrder, claimTransactionCommit, createPaymentTransaction, finalizeAuthorizedPayment, getPaymentTransaction, getPaymentTransactionByToken, markTransactionFailed, markTransactionRedirected, storedProviderToken } from "./payments/paymentTransactionRepository";
 import { createTransbankWebpayProvider, isAuthorizedWebpayResponse, sanitizeWebpayResponse } from "./payments/transbankWebpayProvider";
@@ -15,7 +16,7 @@ export async function createInitialPaymentIntent(db,{qrCode,licensePlate,phone,m
   const normalizedPlate=normalizePlate(licensePlate,{truncate:false}),normalizedPhone=normalizeChileanMobile(phone),normalizedMinutes=normalizePurchasedMinutes(minutes);
   if(!/^[A-Z0-9]{4,8}$/.test(normalizedPlate)||!normalizedPhone||!normalizedMinutes)throw error("PAYMENT_INTENT_INPUT_INVALID");
   if(String(idempotencyKey||"").length<8)throw error("IDEMPOTENCY_KEY_REQUIRED");
-  const location=await getPublicQrLocation(qrCode,db);if(!location)throw error("QR_LOCATION_NOT_FOUND",404);if(!location.rate)throw error("PILOT_RATE_NOT_FOUND",409);
+  const location=await getPublicQrLocation(qrCode,db);if(!location||location.company?.status==="inactive")throw error("QR_LOCATION_NOT_FOUND",404);if(!location.rate)throw error("PILOT_RATE_NOT_FOUND",409);
   // Antes de ir a Webpay: Transbank confirma el pago antes de crear la sesión, y
   // la base rechazaría una segunda sesión activa de la misma patente en este QR.
   const active=await db.from("on_street_pilot_sessions").select("id").eq("qr_location_id",location.qr.id).eq("license_plate_normalized",normalizedPlate).eq("status","ACTIVE").gt("expires_at",new Date().toISOString()).limit(1);if(active.error)throw active.error;if(active.data?.length)throw error("PLATE_ALREADY_ACTIVE",409);
@@ -29,7 +30,7 @@ export async function createInitialPaymentIntent(db,{qrCode,licensePlate,phone,m
 
 export async function createExtensionPaymentIntent(db,{sessionToken,minutes,idempotencyKey,clientHash}){
   const normalizedMinutes=normalizePurchasedMinutes(minutes);if(!normalizedMinutes||String(idempotencyKey||"").length<8)throw error("PAYMENT_INTENT_INPUT_INVALID");
-  const current=await getPublicPilotSession(sessionToken,db);if(!current||current.session.status!=="ACTIVE")throw error("PILOT_SESSION_NOT_ACTIVE",409);
+  const current=await getPublicPilotSession(sessionToken,db);if(!current||current.session.status!=="ACTIVE")throw error("PILOT_SESSION_NOT_ACTIVE",409);if(current.location.company?.status==="inactive")throw error("COMPANY_SERVICE_SUSPENDED",409);
   await enforceIntentRateLimit(db,current.session.qr_location_id,clientHash);
   const rate=Number(current.location.rate?.minute_amount);if(!rate)throw error("PILOT_RATE_NOT_FOUND",409);const amount=Math.round(normalizedMinutes*rate);
   const row={qr_location_id:current.session.qr_location_id,parking_id:current.session.parking_id,license_plate_normalized:current.session.license_plate_normalized,phone_normalized:current.session.phone_normalized,operation_type:"EXTENSION",target_session_id:current.session.id,purchased_minutes:normalizedMinutes,rate_id:current.location.rate.id,rate_per_minute:rate,amount,currency:current.location.rate.currency||"CLP",location_snapshot:{parkingName:current.location.parking.name,sectorName:current.location.sector.name,streetName:current.location.street.name,segmentName:current.location.segment.name},rate_snapshot:{rateId:current.location.rate.id,ratePerMinute:rate,currency:current.location.rate.currency||"CLP"},idempotency_key:String(idempotencyKey),status:"PENDING_PAYMENT",expires_at:new Date(Date.now()+10*60*1000).toISOString()};
@@ -39,7 +40,7 @@ export async function createExtensionPaymentIntent(db,{sessionToken,minutes,idem
 export async function getPublicPaymentIntent(db,token){const result=await db.from("on_street_payment_intents").select(intentSelect).eq("public_token",token).maybeSingle();if(result.error)throw result.error;return result.data;}
 
 export async function startWebpayPayment(db,{intentToken,idempotencyKey,returnUrl,provider=createTransbankWebpayProvider()}){
-  const intent=await getPublicPaymentIntent(db,intentToken);if(!intent)throw error("PAYMENT_INTENT_NOT_FOUND",404);if(new Date(intent.expires_at)<=new Date())throw error("PAYMENT_INTENT_EXPIRED",409);
+  const intent=await getPublicPaymentIntent(db,intentToken);if(!intent)throw error("PAYMENT_INTENT_NOT_FOUND",404);if(!await isParkingCompanyActive(db,intent.parking_id))throw error("COMPANY_SERVICE_SUSPENDED",409);if(new Date(intent.expires_at)<=new Date())throw error("PAYMENT_INTENT_EXPIRED",409);
   const transactionId=randomUUID(),buyOrder=`PF${transactionId.replaceAll("-","").slice(0,24)}`,providerSessionId=transactionId.replaceAll("-","").slice(0,61);
   const created=await createPaymentTransaction(db,{intentToken,idempotencyKey,buyOrder,providerSessionId});const transaction=await getPaymentTransaction(db,created.transactionId);
   if(created.reused){if(transaction.status==="REDIRECTED")return{transactionId:transaction.id,url:transaction.gateway_url,token:storedProviderToken(transaction),reused:true};if(transaction.status==="COMMITTED")return{transactionId:transaction.id,completed:true,reused:true};throw error("PAYMENT_ALREADY_PROCESSING",409);}

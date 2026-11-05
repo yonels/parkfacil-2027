@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { quoteParkingStayById } from "@/lib/parkingStayQuoteService";
 import { isInternalServiceKeyValid } from "@/lib/internalServiceAuth.mjs";
+import { isStayCompanyActive, PUBLIC_SERVICE_UNAVAILABLE_MESSAGE } from "@/lib/companyServiceStatus.mjs";
 import { getSupabaseAdminClient, isSupabaseConfigurationError } from "@/lib/supabaseServer";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -36,6 +37,9 @@ export async function POST(request) {
     }
 
     const db = getSupabaseAdminClient();
+    if (!(await isStayCompanyActive(db, stayId))) {
+      return NextResponse.json({ ok: false, code: "SERVICE_UNAVAILABLE", mensaje: PUBLIC_SERVICE_UNAVAILABLE_MESSAGE }, { status: 409 });
+    }
     const result = await quoteParkingStayById(db, stayId, { now: new Date() });
 
     if (!result.ok) {

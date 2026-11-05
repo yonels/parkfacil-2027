@@ -3,13 +3,13 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Building2, ChevronDown, ChevronRight, ExternalLink, Mail, MapPin, ParkingSquare, Phone, UserRound } from "lucide-react";
-import EstadoEmpresaBadge from "./EstadoEmpresaBadge";
+import EmpresaEstadoControl from "./EmpresaEstadoControl";
 import TipoRelacionBadge from "./TipoRelacionBadge";
 import { formatearRut } from "@/data/empresas.mjs";
 
 const headers = ["Empresa matriz", "RUT", "Ciudad / País", "Relación", "Estado", "Estacionamientos", "Acciones"];
 
-export default function EmpresasTable({ empresas }) {
+export default function EmpresasTable({ empresas, onEstadoChanged }) {
   const [expanded, setExpanded] = useState({});
   const ordered = useMemo(() => [...empresas].sort((a, b) => a.nombreFantasia.localeCompare(b.nombreFantasia, "es")), [empresas]);
   const toggle = (id) => setExpanded((current) => ({ ...current, [id]: !current[id] }));
@@ -40,7 +40,7 @@ export default function EmpresasTable({ empresas }) {
                   <td className="whitespace-nowrap border border-slate-300 px-4 py-4 font-semibold text-[#3150D8]">{rut}</td>
                   <td className="border border-slate-300 px-4 py-4"><strong className="block font-medium">{empresa.ciudad || "—"}</strong><small className="text-slate-500">{empresa.pais || "—"}</small></td>
                   <td className="border border-slate-300 px-4 py-4"><TipoRelacionBadge tipo={empresa.tipoRelacion} /></td>
-                  <td className="border border-slate-300 px-4 py-4"><EstadoEmpresaBadge estado={empresa.estado} /></td>
+                  <td className="border border-slate-300 px-4 py-4"><EmpresaEstadoControl empresa={empresa} onChanged={onEstadoChanged} /></td>
                   <td className="border border-slate-300 px-4 py-4"><span className="inline-flex items-center gap-2 font-semibold"><ParkingSquare className="h-4 w-4 text-[#3150D8]" />{empresa.estacionamientos.length} asociados</span><small className="mt-1 block text-slate-500">{offStreet} Off Street · {onStreet} On Street</small></td>
                   <td className="border border-slate-300 px-4 py-4"><Link href={`/empresas/${empresa.id}`} className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-slate-200 bg-white px-3 py-2 font-semibold text-[#3150D8]"><ExternalLink className="h-4 w-4" />Ver empresa</Link></td>
                 </tr>,
