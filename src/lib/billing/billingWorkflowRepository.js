@@ -1,5 +1,5 @@
 import "server-only";
-import { adjustmentAmount, BillingWorkflowError, normalizeReviewComment, requireEditable, requireExpectedVersion, requireTransition, validateApproval } from "./billingWorkflowCore.mjs";
+import { adjustmentAmount, BillingWorkflowError, normalizeReviewComment, requireEditable, requireExpectedVersion, requireTransition, validateApproval, approvalWarnings } from "./billingWorkflowCore.mjs";
 import { calculatePreinvoice } from "./preinvoiceCore.mjs";
 import { UfRateService } from "./ufRateService";
 
@@ -12,16 +12,18 @@ export async function transitionPreinvoice(db,id,{target,action,actorId,expected
   const current=await row(db,id);
   if(current.status===target)return {id,status:target,version:current.version,reused:true};
   requireExpectedVersion(current.version,expectedVersion);requireTransition(current.status,target);
+  let warnings=[];
   if(target==="APPROVED"){
     const count=await db.from("billing_preinvoice_lines").select("id",{count:"exact",head:true}).eq("preinvoice_id",id).eq("line_status","ACTIVE");fail(count.error,"No fue posible validar lineas");
     validateApproval({status:current.status,companyActive:current.companies?.status==="active",contractActive:current.company_contracts?.status==="active",lineCount:count.count,totalAmount:current.total_amount,currency:current.currency,ufIsProvisional:current.uf_is_provisional});
+    warnings=approvalWarnings({companyActive:current.companies?.status==="active"});
   }
   if(target==="CANCELLED"&&!String(reason||"").trim())throw new BillingWorkflowError("CANCELLATION_REASON_REQUIRED","El motivo es obligatorio.",422);
   const changes={status:target,version:current.version+1,updated_at:new Date().toISOString()};
   if(target==="APPROVED")Object.assign(changes,{approved_by:actorId,approved_at:new Date().toISOString(),uf_is_provisional:current.currency==="UF"});
   if(target==="CANCELLED")Object.assign(changes,{cancelled_by:actorId,cancelled_at:new Date().toISOString(),cancellation_reason:String(reason).trim()});
   const updated=await db.from("billing_preinvoices").update(changes).eq("id",id).eq("version",expectedVersion).eq("status",current.status).select("id,status,version").maybeSingle();fail(updated.error,"No fue posible cambiar estado");if(!updated.data)throw new BillingWorkflowError("PREINVOICE_VERSION_CONFLICT","La prefactura fue modificada por otro usuario.");
-  await audit(db,current,{action,actorId,from:current.status,to:target,reason,requestId});return {...updated.data,reused:false};
+  await audit(db,current,{action,actorId,from:current.status,to:target,reason:warnings.length?warnings.map(w=>w.message).join(" "):reason,requestId});return {...updated.data,reused:false,warnings};
 }
 
 export async function addPreinvoiceComment(db,id,{text,actorId,expectedVersion,requestId}){
