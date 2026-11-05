@@ -74,7 +74,7 @@ test("el cambio de estado es solo de Root y queda registrado en una transacción
   const route = read("../app/api/empresas/[id]/estado/route.js");
   assert.match(route, /requirePlatformAdmin\(authorization\.context\)/);
   assert.match(route, /rpc\("set_company_service_status"/);
-  const migration = read("../../supabase/migrations/20261105010000_company_status_events.sql");
+  const migration = read("../../supabase/migrations/20261105005409_company_status_events.sql");
   assert.match(migration, /relationship_type <> 'client'/);
   assert.match(migration, /revoke all on function public\.set_company_service_status/);
   assert.match(migration, /enable row level security/);
