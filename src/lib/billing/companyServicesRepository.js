@@ -1,5 +1,6 @@
 import "server-only";
-import { CompanyServiceError, contractNumberFor, itemTypeForCategory, suggestedUnitPrice } from "./companyServicesCore.mjs";
+import { CompanyServiceError, contractEndDate, contractNumberFor, itemTypeForCategory, suggestedUnitPrice } from "./companyServicesCore.mjs";
+import { readSettingsRow } from "./settingsRepository";
 import { fromCatalogRow } from "./catalogCore.mjs";
 
 // Servicios a facturar por empresa (SOL-2026-11-05-005, F1.2). Usa el cliente de servicio; las rutas
@@ -40,6 +41,26 @@ export async function currentContract(db, companyId, onDate = today()) {
   return result.data?.[0] || null;
 }
 
+// Decisión del usuario 2026-11-06: se factura aunque no haya contrato vigente, e incluso sin contrato. Se usa el contrato
+// vigente; si no hay, el último no anulado (vencido, suspendido o terminado); si no existe ninguno, al agregar el primer
+// servicio se crea un registro de facturación (contrato mínimo en UF, renovación automática) sin pedir datos.
+export async function billingContract(db, companyId) {
+  const current = await currentContract(db, companyId);
+  if (current) return { contract: current, current: true };
+  const latest = await db.from("company_contracts").select(CONTRACT_COLUMNS).eq("company_id", companyId).neq("status", "cancelled").order("starts_on", { ascending: false }).limit(1);
+  fail(latest.error, "No fue posible leer los contratos de la empresa");
+  return { contract: latest.data?.[0] || null, current: false };
+}
+
+async function ensureBillingContract(db, companyId, actorId) {
+  const found = await billingContract(db, companyId);
+  if (found.contract) return found.contract;
+  const settings = await readSettingsRow(db);
+  const startsOn = `${new Date().toISOString().slice(0, 7)}-01`;
+  const created = await createMinimalContract(db, companyId, { startsOn, durationMonths: 12, endsOn: contractEndDate(startsOn, 12), automaticRenewal: true, paymentDueDays: Number(settings.default_payment_due_days ?? 6), currency: "UF" }, actorId);
+  return (await currentContract(db, companyId)) || { id: created.id, currency: created.currency };
+}
+
 async function getCompany(db, companyId) {
   const result = await db.from("companies").select("id,business_name,rut_number,rut_dv,status,relationship_type").eq("id", companyId).maybeSingle();
   fail(result.error, "No fue posible leer la empresa");
@@ -68,7 +89,7 @@ export async function listBillingCompanies(db) {
 
 export async function getCompanyServices(db, companyId) {
   const company = await getCompany(db, companyId);
-  const contract = await currentContract(db, companyId);
+  const { contract, current: contractIsCurrent } = await billingContract(db, companyId);
   let items = [];
   if (contract) {
     const result = await db.from("contract_billable_items").select(ITEM_COLUMNS).eq("company_id", companyId).eq("contract_id", contract.id).order("valid_from", { ascending: false }).order("created_at", { ascending: false });
@@ -81,7 +102,7 @@ export async function getCompanyServices(db, companyId) {
   const mappedContract = mapContract(contract);
   return {
     company: { id: company.id, name: company.business_name, rut: company.rut_number ? `${company.rut_number}-${company.rut_dv}` : "", status: company.status },
-    contract: mappedContract,
+    contract: mappedContract ? { ...mappedContract, current: contractIsCurrent } : null,
     items,
     catalog: (catalog.data || []).map((row) => { const concept = fromCatalogRow(row); return { ...concept, suggestedPrice: mappedContract ? suggestedUnitPrice(concept, mappedContract.currency) : null }; }),
   };
@@ -108,8 +129,7 @@ export async function createMinimalContract(db, companyId, values, actorId) {
 }
 
 export async function addServiceItem(db, companyId, values, actorId) {
-  const contract = await currentContract(db, companyId);
-  if (!contract) throw new CompanyServiceError("CONTRACT_REQUIRED", "La empresa no tiene contrato vigente: créalo antes de agregar servicios.");
+  const contract = await ensureBillingContract(db, companyId, actorId);
   const concept = await db.from("billable_concepts").select("id,code,name,category,unit,status").eq("id", values.conceptId).maybeSingle();
   fail(concept.error, "No fue posible leer el servicio del catálogo");
   if (!concept.data || concept.data.status !== "ACTIVE") throw new CompanyServiceError("SERVICE_CONCEPT_INVALID", "El servicio o producto no existe o está inactivo.", "conceptId");

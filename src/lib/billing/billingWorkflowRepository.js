@@ -17,7 +17,7 @@ async function recomputeTotals(db,current,version){
 import { UfRateService } from "./ufRateService";
 
 function fail(error,message){if(error){error.message=`${message}: ${error.message}`;throw error;}}
-async function row(db,id){const r=await db.from("billing_preinvoices").select("*,companies!inner(status),company_contracts!inner(status,starts_on,ends_on)").eq("id",id).maybeSingle();fail(r.error,"No fue posible resolver la prefactura");if(!r.data)throw new BillingWorkflowError("RESOURCE_NOT_FOUND","Prefactura no encontrada.",404);return r.data;}
+async function row(db,id){const r=await db.from("billing_preinvoices").select("*,companies!inner(status),company_contracts!inner(status,starts_on,ends_on,automatic_renewal)").eq("id",id).maybeSingle();fail(r.error,"No fue posible resolver la prefactura");if(!r.data)throw new BillingWorkflowError("RESOURCE_NOT_FOUND","Prefactura no encontrada.",404);return r.data;}
 async function audit(db,p,{action,actorId,from,to,reason=null,metadata={},requestId=null}){const r=await db.from("billing_audit_events").insert({company_id:p.company_id,preinvoice_id:p.id,action,actor_id:actorId,reason,previous_value:{status:from,version:p.version},new_value:{status:to,...metadata},request_id:requestId});fail(r.error,"No fue posible registrar auditoria");}
 async function reserveVersion(db,current,expectedVersion){const r=await db.from("billing_preinvoices").update({version:current.version+1,updated_at:new Date().toISOString()}).eq("id",current.id).eq("version",expectedVersion).eq("status",current.status).select("version").maybeSingle();fail(r.error,"No fue posible reservar la prefactura");if(!r.data)throw new BillingWorkflowError("PREINVOICE_VERSION_CONFLICT","La prefactura fue modificada por otro usuario.");return r.data.version;}
 
@@ -29,7 +29,8 @@ export async function transitionPreinvoice(db,id,{target,action,actorId,expected
   if(target==="APPROVED"){
     const count=await db.from("billing_preinvoice_lines").select("id",{count:"exact",head:true}).eq("preinvoice_id",id).eq("line_status","ACTIVE");fail(count.error,"No fue posible validar lineas");
     validateApproval({status:current.status,companyActive:current.companies?.status==="active",contractActive:current.company_contracts?.status==="active",lineCount:count.count,totalAmount:current.total_amount,currency:current.currency,ufIsProvisional:current.uf_is_provisional});
-    warnings=approvalWarnings({companyActive:current.companies?.status==="active"});
+    const contract=current.company_contracts||{};const today=new Date().toISOString().slice(0,10);
+    warnings=approvalWarnings({companyActive:current.companies?.status==="active",contractActive:contract.status==="active"&&(!contract.ends_on||contract.ends_on>=today||Boolean(contract.automatic_renewal))});
   }
   if(target==="CANCELLED"&&!String(reason||"").trim())throw new BillingWorkflowError("CANCELLATION_REASON_REQUIRED","El motivo es obligatorio.",422);
   const changes={status:target,version:current.version+1,updated_at:new Date().toISOString()};
@@ -83,7 +84,7 @@ export async function recalculatePreinvoice(db,id,{actorId,expectedVersion,reque
   const contract={id:current.contract_id,companyId:current.company_id,currency:current.currency,startsOn:current.company_contracts.starts_on,endsOn:current.company_contracts.ends_on};
   const source=await db.from("contract_billable_items").select("*,billable_concepts(tax_category)").eq("company_id",current.company_id).eq("contract_id",current.contract_id).eq("status","ACTIVE");fail(source.error,"No fue posible resolver items contractuales");
   const items=(source.data||[]).map(x=>({contractItemId:x.id,conceptId:x.concept_id,itemType:x.item_type,description:x.description,quantity:Number(x.quantity),includedQuantity:Number(x.included_quantity),unit:x.unit,unitPrice:Number(x.unit_price),currency:x.currency,classification:x.commercial_classification,validFrom:x.valid_from,validTo:x.valid_to,status:x.status,parkingId:x.parking_id,deviceId:x.device_id,taxCategory:(Array.isArray(x.billable_concepts)?x.billable_concepts[0]:x.billable_concepts)?.tax_category||null}));
-  const calculation=await calculatePreinvoice({contract,items,period:current.period,ufDate:current.currency==="UF"?new Date().toISOString().slice(0,10):null,ufRateService,applyVat:true}); // UF del día del recálculo (decisión 2026-11-05).
+  const calculation=await calculatePreinvoice({contract,items,period:current.period,ufDate:current.currency==="UF"?new Date().toISOString().slice(0,10):null,ufRateService,applyVat:true,requireContractInPeriod:false}); // UF del día del recálculo (decisión 2026-11-05).
   const removed=await db.from("billing_preinvoice_lines").delete().eq("preinvoice_id",id).is("adjustment_id",null);fail(removed.error,"No fue posible regenerar lineas");
   const rows=calculation.lines.map(line=>({preinvoice_id:id,company_id:current.company_id,concept_id:line.conceptId,contract_item_id:line.contractItemId,parking_id:line.parkingId,device_id:line.deviceId,source_type:line.sourceType,source_key:line.sourceKey,description:line.description,quantity:line.quantity,unit:line.unit,unit_price:line.unitPrice,currency:line.currency,subtotal:line.subtotal,tax_amount:line.taxAmount,total_amount:line.totalAmount,valid_from:line.validFrom,valid_to:line.validTo}));
   const inserted=await db.from("billing_preinvoice_lines").insert(rows);fail(inserted.error,"No fue posible regenerar lineas");

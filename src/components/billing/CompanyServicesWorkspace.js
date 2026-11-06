@@ -198,19 +198,10 @@ export default function CompanyServicesWorkspace() {
           </section>
 
           {!contract ? (
-            <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-              <p className="font-semibold">Esta empresa no tiene un contrato vigente.</p>
-              <p className="mt-1">Para agregarle servicios se crea un contrato mínimo. Después puedes completarlo al editar la empresa.</p>
-              <div className="mt-4 grid gap-3 md:grid-cols-5">
-                <Field label="Inicio" error={fieldError.startsOn}><input type="date" value={contractForm.startsOn} onChange={setContractField("startsOn")} className="w-full rounded-lg border border-slate-300 bg-white p-2" /></Field>
-                <Field label="Plazo (meses)" error={fieldError.durationMonths}><input type="number" min="1" max="120" value={contractForm.durationMonths} onChange={setContractField("durationMonths")} className="w-full rounded-lg border border-slate-300 bg-white p-2" /></Field>
-                <Field label="Días de pago" error={fieldError.paymentDueDays}><input type="number" min="0" max="120" value={contractForm.paymentDueDays} onChange={setContractField("paymentDueDays")} className="w-full rounded-lg border border-slate-300 bg-white p-2" /></Field>
-                <Field label="Moneda" error={fieldError.currency}><select value={contractForm.currency} onChange={setContractField("currency")} className="w-full rounded-lg border border-slate-300 bg-white p-2"><option value="UF">UF</option><option value="CLP">CLP</option></select></Field>
-                <label className="mt-6 flex items-center gap-2"><input type="checkbox" checked={contractForm.automaticRenewal} onChange={setContractField("automaticRenewal")} /> Renovación automática</label>
-              </div>
-              <button type="button" disabled={saving} onClick={createContract} className="mt-4 rounded-lg bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Crear contrato</button>
-            </section>
-          ) : (
+            <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">Esta empresa no tiene contrato. Puedes facturarle igual: al agregar el primer servicio se crea automáticamente un registro de facturación (UF, renovación automática, días de pago de Configuración).</p>
+          ) : !contract.current ? (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">El contrato {contract.number} no está vigente ({contract.status}). Sus servicios activos se siguen facturando; al aprobar la prefactura verás una advertencia.</p>
+          ) : null}
             <section className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="text-sm text-slate-700">
@@ -222,7 +213,7 @@ export default function CompanyServicesWorkspace() {
               <ParkFacilDataGrid storageKey="facturacion:servicios-empresa" columns={columns} rows={rows} onRowDoubleClick={openEdit} globalSearchPlaceholder="Buscar servicios de la empresa..." emptyMessage="Sin servicios asignados" exportFilename={`servicios_${data.company.rut || data.company.id}`} exportSheetName="Servicios" />
               <p className="text-xs text-slate-500">Doble clic en una fila para editarla, terminarla o eliminarla.</p>
             </section>
-          )}
+
         </>
       ) : null}
 
