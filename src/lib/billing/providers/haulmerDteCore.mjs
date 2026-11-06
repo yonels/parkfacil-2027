@@ -86,5 +86,21 @@ export function buildHaulmerDte(request, { environment }) {
     if (!ref.folio || !ref.date) fail("REFERENCE_REQUIRED", "La nota requiere el folio y la fecha de la factura de origen.");
     dte.Referencia = [{ NroLinRef: 1, TpoDocRef: "33", FolioRef: String(ref.folio), FchRef: ref.date, CodRef: tipo === 61 && request.correctionMode === "TOTAL" ? REFERENCE_CODES.VOID : REFERENCE_CODES.AMOUNT_CORRECTION, RazonRef: text(request.reason, 90) || "Corrige montos" }];
   }
+  // El correo al cliente lo envía ParkFacil (documentEmailService) con el PDF: no se pide sendEmail a Haulmer
+  // para no duplicar envíos (y porque desde su ambiente de pruebas no llegó, 2026-11-06).
   return { response: ["FOLIO", "RESOLUCION"], dte };
+}
+
+// Destinatarios del correo del documento (mismo formato que sendEmail de OpenFactura: to, CC, BCC).
+// En pruebas el documento va SOLO al correo del emisor: nunca a clientes reales con documentos de prueba.
+export function emailRecipients(request, { environment }) {
+  const issuer = request?.issuer || {};
+  if (!issuer.sendEmailOnIssue || !String(issuer.email || "").trim()) return null;
+  if (environment === "TEST") return { to: String(issuer.email).trim() };
+  const to = String(request?.customer?.billingEmail || "").trim();
+  if (!to) return null;
+  const result = { to };
+  if (String(issuer.emailCc || "").trim()) result.CC = String(issuer.emailCc).trim();
+  result.BCC = String(issuer.email).trim();
+  return result;
 }

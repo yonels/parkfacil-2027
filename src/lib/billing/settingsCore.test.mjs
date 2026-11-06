@@ -34,3 +34,13 @@ test("datos del emisor para el documento e indicación de lo que falta", () => {
   assert.deepEqual(partial.missing, ["dirección", "comuna"]);
   assert.equal(fromSettingsRow({ issuer_rut_number: "77991619", issuer_rut_dv: "7" }).issuerRut, "77.991.619-7");
 });
+
+test("F2: envío por correo exige el correo del emisor y valida las copias", () => {
+  assert.equal(validateBillingSettings({ ...base, sendEmailOnIssue: true, emailCc: "a@b.cl, c@d.cl" }).email_cc, "a@b.cl,c@d.cl");
+  assert.throws(() => validateBillingSettings({ ...base, issuerEmail: "", sendEmailOnIssue: true }), (e) => e.code === "SETTINGS_EMAIL_REQUIRED");
+  assert.throws(() => validateBillingSettings({ ...base, emailCc: "no-es-correo" }), (e) => e.code === "SETTINGS_CC_INVALID");
+});
+test("copias: rechaza correos con espacios o sin punto en el dominio", () => {
+  assert.throws(() => validateBillingSettings({ ...base, emailCc: "a b@c.cl" }), (e) => e.code === "SETTINGS_CC_INVALID");
+  assert.throws(() => validateBillingSettings({ ...base, emailCc: "ab@ccl" }), (e) => e.code === "SETTINGS_CC_INVALID");
+});

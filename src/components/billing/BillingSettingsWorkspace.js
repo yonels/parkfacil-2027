@@ -101,6 +101,16 @@ export default function BillingSettingsWorkspace() {
         </Field>
       </div>
 
+      <div className="grid gap-4 border-t border-slate-100 pt-4 md:grid-cols-2">
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={Boolean(form.sendEmailOnIssue)} onChange={(event) => setForm((current) => ({ ...current, sendEmailOnIssue: event.target.checked }))} className="mt-1" />
+          <span><span className="font-semibold text-slate-700">Enviar documentos por correo al emitir</span><span className="mt-1 block text-xs text-slate-500">Haulmer envía la factura o nota cuando el SII la acepta: al correo del cliente, con copia oculta al correo del emisor. En ambiente de pruebas se envía solo al correo del emisor.</span></span>
+        </label>
+        <Field label="Copias (opcional, separadas por coma)" error={fieldError.emailCc}>
+          <input value={form.emailCc || ""} onChange={set("emailCc")} placeholder="contabilidad@parkfacil.cl" className="w-full rounded-lg border border-slate-300 p-2" />
+        </Field>
+      </div>
+
       {message ? <p role="status" className="rounded-xl bg-slate-100 p-3 text-sm text-slate-700">{message}</p> : null}
       <button type="button" disabled={saving} onClick={save} className="rounded-lg bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Guardar configuración</button>
     </section>

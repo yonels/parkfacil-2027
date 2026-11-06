@@ -26,3 +26,10 @@ export async function enqueueAndProcessInvoice({ db, provider, ufRateService, pr
   const processed = ["PENDING", "RETRY"].includes(queued.status) ? await processDocumentJob({ db, jobId: queued.jobId, actorId, provider }) : null;
   return { ...queued, processed };
 }
+
+// Envío automático del correo después de emitir (no hace fallar la emisión). SOL-2026-11-05-005, F2.
+export async function emailIssuedDocument(db, documentId) {
+  if (!documentId) return null;
+  try { const { sendDocumentEmail } = await import("./documentEmailService"); return await sendDocumentEmail({ db, documentId }); }
+  catch (error) { return { status: "FAILED", reason: error.message };}
+}

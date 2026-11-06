@@ -1,6 +1,19 @@
 import "server-only";
 import { adjustmentAmount, BillingWorkflowError, normalizeReviewComment, requireEditable, requireExpectedVersion, requireTransition, validateApproval, approvalWarnings } from "./billingWorkflowCore.mjs";
 import { calculatePreinvoice } from "./preinvoiceCore.mjs";
+import { clpTotals, lineTax, preinvoiceTotals, TaxClassificationError } from "./taxCore.mjs";
+
+// Servicio extra / ajuste (SOL-2026-11-05-005, F2): totales recalculados desde todas las líneas activas con su
+// clasificación tributaria (IVA 19 % sobre lo afecto) y, en UF, el equivalente en pesos con la UF guardada.
+async function recomputeTotals(db,current,version){
+  const lines=await db.from("billing_preinvoice_lines").select("subtotal,billable_concepts(tax_category)").eq("preinvoice_id",current.id).eq("line_status","ACTIVE");fail(lines.error,"No fue posible recalcular totales");
+  let totals;try{totals=preinvoiceTotals((lines.data||[]).map(x=>({net:Number(x.subtotal),taxCategory:(Array.isArray(x.billable_concepts)?x.billable_concepts[0]:x.billable_concepts)?.tax_category})),current.currency);}
+  catch(error){if(error instanceof TaxClassificationError)throw new BillingWorkflowError("TAX_CLASSIFICATION_REQUIRED","Hay servicios sin definir si son afectos o exentos de IVA.",422);throw error;}
+  const changes={net_amount:totals.netAmount,tax_amount:totals.taxAmount,total_amount:totals.totalAmount,updated_at:new Date().toISOString()};
+  if(current.currency==="UF"&&Number(current.uf_value)>0){changes.contract_amount_uf=totals.totalAmount;changes.converted_amount_clp=clpTotals({taxableNet:totals.taxableNet,exemptNet:totals.exemptNet,ufValue:Number(current.uf_value)}).totalClp;}
+  const updated=await db.from("billing_preinvoices").update(changes).eq("id",current.id).eq("version",version).select("version").maybeSingle();fail(updated.error,"No fue posible actualizar totales");if(!updated.data)throw new BillingWorkflowError("PREINVOICE_VERSION_CONFLICT","La prefactura fue modificada por otro usuario.");
+  return totals;
+}
 import { UfRateService } from "./ufRateService";
 
 function fail(error,message){if(error){error.message=`${message}: ${error.message}`;throw error;}}
@@ -39,11 +52,17 @@ export async function addPreinvoiceAdjustment(db,id,input){
   if(!String(input.reason||"").trim())throw new BillingWorkflowError("ADJUSTMENT_REASON_REQUIRED","El motivo es obligatorio.",422);
   if(input.currency!==current.currency)throw new BillingWorkflowError("ADJUSTMENT_CURRENCY_MISMATCH","El ajuste debe usar la moneda de la prefactura.",422);
   const quantity=Number(input.quantity),unitPrice=Number(input.unitPrice);const amount=adjustmentAmount({type:input.type,quantity,unitPrice});
+  if(!String(input.description||"").trim())throw new BillingWorkflowError("ADJUSTMENT_DESCRIPTION_REQUIRED","La descripción es obligatoria.",422);
+  const concept=await db.from("billable_concepts").select("id,status,tax_category").eq("id",input.conceptId).maybeSingle();fail(concept.error,"No fue posible leer el servicio del catálogo");
+  if(!concept.data||concept.data.status!=="ACTIVE")throw new BillingWorkflowError("ADJUSTMENT_CONCEPT_INVALID","Elige un servicio activo del catálogo.",422);
+  if(!["TAXABLE","EXEMPT"].includes(concept.data.tax_category))throw new BillingWorkflowError("TAX_CLASSIFICATION_REQUIRED","Ese servicio no tiene definido si es afecto o exento de IVA (Configuración).",422);
+  const lineTaxAmount=lineTax({net:amount,taxCategory:concept.data.tax_category},current.currency);
   const reservedVersion=await reserveVersion(db,current,input.expectedVersion);
   const adjustment=await db.from("billing_preinvoice_adjustments").insert({company_id:current.company_id,preinvoice_id:id,original_line_id:input.originalLineId||null,concept_id:input.conceptId,adjustment_type:input.type,description:input.description,quantity,unit:input.unit||"unit",unit_price:unitPrice,currency:input.currency,amount,reason:String(input.reason).trim(),created_by:input.actorId}).select("*").single();fail(adjustment.error,"No fue posible crear ajuste");
-  const line=await db.from("billing_preinvoice_lines").insert({company_id:current.company_id,preinvoice_id:id,concept_id:input.conceptId,contract_item_id:null,adjustment_id:adjustment.data.id,source_type:"MANUAL",source_key:`adjustment:${adjustment.data.id}`,description:input.description,quantity,unit:input.unit||"unit",unit_price:unitPrice,currency:input.currency,subtotal:amount,tax_amount:0,total_amount:amount,valid_from:`${current.period}-01`,valid_to:new Date(Date.UTC(Number(current.period.slice(0,4)),Number(current.period.slice(5,7)),0)).toISOString().slice(0,10)});fail(line.error,"No fue posible crear linea de ajuste");
-  const nextNet=Number(current.net_amount)+amount,nextTotal=Number(current.total_amount)+amount;
-  const updated=await db.from("billing_preinvoices").update({net_amount:nextNet,total_amount:nextTotal,updated_at:new Date().toISOString()}).eq("id",id).eq("version",reservedVersion).select("version").maybeSingle();if(!updated.data)throw new BillingWorkflowError("PREINVOICE_VERSION_CONFLICT","La prefactura fue modificada por otro usuario.");
+  const line=await db.from("billing_preinvoice_lines").insert({company_id:current.company_id,preinvoice_id:id,concept_id:input.conceptId,contract_item_id:null,adjustment_id:adjustment.data.id,source_type:"MANUAL",source_key:`adjustment:${adjustment.data.id}`,description:input.description,quantity,unit:input.unit||"unit",unit_price:unitPrice,currency:input.currency,subtotal:amount,tax_amount:lineTaxAmount,total_amount:Math.round((amount+lineTaxAmount)*10000)/10000,valid_from:`${current.period}-01`,valid_to:new Date(Date.UTC(Number(current.period.slice(0,4)),Number(current.period.slice(5,7)),0)).toISOString().slice(0,10)});
+  // Sin transacción: si la línea falla, el ajuste no puede quedar activo sin su línea (SOL-2026-11-05-005, F2).
+  if(line.error){await db.from("billing_preinvoice_adjustments").update({status:"REMOVED",removed_by:input.actorId||null,removed_at:new Date().toISOString(),removal_reason:"No se pudo crear la línea del servicio extra"}).eq("id",adjustment.data.id);fail(line.error,"No fue posible crear linea de ajuste");}
+  await recomputeTotals(db,current,reservedVersion);
   await audit(db,current,{action:"ADJUSTMENT_ADDED",actorId:input.actorId,from:current.status,to:current.status,reason:input.reason,metadata:{adjustmentId:adjustment.data.id,amount},requestId:input.requestId});return {...adjustment.data,version:reservedVersion};
 }
 
@@ -54,7 +73,7 @@ export async function removePreinvoiceAdjustment(db,id,adjustmentId,{actorId,exp
   const reservedVersion=await reserveVersion(db,current,expectedVersion);
   const changed=await db.from("billing_preinvoice_adjustments").update({status:"REMOVED",removed_by:actorId,removed_at:new Date().toISOString(),removal_reason:String(reason).trim()}).eq("id",adjustmentId).eq("status","ACTIVE");fail(changed.error,"No fue posible retirar ajuste");
   const line=await db.from("billing_preinvoice_lines").update({line_status:"REMOVED"}).eq("adjustment_id",adjustmentId);fail(line.error,"No fue posible retirar linea de ajuste");
-  const amount=Number(found.data.amount);const updated=await db.from("billing_preinvoices").update({net_amount:Number(current.net_amount)-amount,total_amount:Number(current.total_amount)-amount,updated_at:new Date().toISOString()}).eq("id",id).eq("version",reservedVersion).select("version").maybeSingle();if(!updated.data)throw new BillingWorkflowError("PREINVOICE_VERSION_CONFLICT","La prefactura fue modificada por otro usuario.");
+  const amount=Number(found.data.amount);await recomputeTotals(db,current,reservedVersion);
   await audit(db,current,{action:"ADJUSTMENT_REMOVED",actorId,from:current.status,to:current.status,reason,metadata:{adjustmentId,amount},requestId});return {id:adjustmentId,status:"REMOVED",version:reservedVersion};
 }
 

@@ -30,7 +30,7 @@ const moduleCards = [
   },
   {
     id: "prefacturacion", group: "operacion", title: "Prefacturación", description: "Preparación y revisión previa de documentos.", icon: FileCheck2,
-    columns: [column("prefactura", "Prefactura", 140, true), column("cliente", "Cliente", 220), column("rut", "RUT", 140), column("contrato", "Contrato", 150), column("periodo", "Período", 130), column("moneda", "Moneda", 110), column("neto", "Neto", 130), column("impuesto", "Impuesto", 130), column("total", "Total", 130), column("estado", "Estado", 140), column("fechaCalculo", "Fecha cálculo", 150), column("vencimiento", "Vencimiento", 150)],
+    columns: [column("prefactura", "Prefactura", 140, true), column("cliente", "Cliente", 220), column("rut", "RUT", 140), column("contrato", "Contrato", 150), column("periodo", "Período", 130), column("moneda", "Moneda", 110), column("neto", "Neto", 130), column("impuesto", "Impuesto", 130), column("total", "Total", 130), column("estado", "Estado", 140), column("fechaCalculo", "Fecha cálculo", 150), column("vencimiento", "Vencimiento estimado", 170)],
   },
   {
     id: "facturas", group: "operacion", title: "Facturas", description: "Consulta y administración de facturas emitidas.", icon: ReceiptText,

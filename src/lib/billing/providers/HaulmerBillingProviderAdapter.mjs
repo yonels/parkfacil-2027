@@ -40,6 +40,10 @@ export class HaulmerBillingProviderAdapter extends BillingProviderAdapter {
       if (status >= 400 && status < 500 && status !== 401 && !error.retryable) return { result: PROVIDER_RESULTS.REJECTED, provider: "haulmer", providerStatus: String(error.code || `HTTP_${status}`), providerCode: String(error.code || `HTTP_${status}`), message: `${error.message}${details ? ` (${details})` : ""}`, retryable: false };
       throw new BillingProviderError(error.code || "PROVIDER_ERROR", error.message, { retryable: Boolean(error.retryable) });
     }
+    // OF-06 (la misma Idempotency-Key ya emitió): Haulmer devuelve solo el token; el folio se lee del documento.
+    if (parsed.alreadyIssued && parsed.folio == null) {
+      try { const stored = await this.getDocument(parsed.token, "json"); parsed.folio = stored?.json?.Encabezado?.IdDoc?.Folio ?? null; } catch { /* el folio se puede completar después */ }
+    }
     return {
       result: parsed.alreadyIssued ? PROVIDER_RESULTS.DUPLICATE : PROVIDER_RESULTS.ISSUED,
       provider: "haulmer", providerDocumentId: parsed.token,

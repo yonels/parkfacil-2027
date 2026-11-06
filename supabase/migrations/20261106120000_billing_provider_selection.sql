@@ -100,3 +100,58 @@ begin
 end $$;
 revoke all on function public.billing_begin_related_document(text,uuid,text,text,text,numeric,date,text,uuid,text) from public,anon,authenticated;
 grant execute on function public.billing_begin_related_document(text,uuid,text,text,text,numeric,date,text,uuid,text) to service_role;
+
+-- F2: envío del documento por correo al cliente desde OpenFactura (sendEmail). Apagado por defecto.
+-- En ambiente de pruebas el correo va solo al correo del emisor (nunca a clientes reales).
+alter table public.billing_settings
+  add column if not exists send_email_on_issue boolean not null default false,
+  add column if not exists email_cc text not null default '';
+
+-- F2: el correo con el documento lo envía ParkFacil (Microsoft Graph, cuenta corporativa) adjuntando el PDF que
+-- entrega Haulmer por token (el envío desde el ambiente de pruebas de Haulmer no llegó, 2026-11-06). Registro por
+-- documento; estas columnas no forman parte de la protección de documentos emitidos.
+alter table public.billing_documents
+  add column if not exists email_status text null check (email_status in ('SENT','FAILED','SKIPPED')),
+  add column if not exists email_to text null,
+  add column if not exists email_sent_at timestamptz null,
+  add column if not exists email_error text null;
+
+-- F2: servicio extra en la prefactura. La validación de empresa exigía contract_item_id en toda línea de prefactura,
+-- lo que impedía las líneas manuales de ajustes (los ajustes nunca pudieron crearse). Ahora una línea sin servicio de
+-- contrato se acepta solo si apunta a un ajuste de la misma empresa y prefactura.
+create or replace function public.billing_validate_company_links()
+returns trigger language plpgsql as $$
+declare
+  linked_company text;
+  row_data jsonb := to_jsonb(new);
+  row_company text := row_data ->> 'company_id';
+  row_parking uuid := nullif(row_data ->> 'parking_id', '')::uuid;
+  row_contract uuid := nullif(row_data ->> 'contract_id', '')::uuid;
+  row_device uuid := nullif(row_data ->> 'device_id', '')::uuid;
+  row_preinvoice uuid := nullif(row_data ->> 'preinvoice_id', '')::uuid;
+  row_item uuid := nullif(row_data ->> 'contract_item_id', '')::uuid;
+begin
+  if tg_table_name = 'billing_devices' and row_parking is not null then
+    select company_id into linked_company from public.parkings where id = row_parking;
+    if linked_company is distinct from row_company then raise exception 'BILLING_COMPANY_MISMATCH' using errcode='23514'; end if;
+  elsif tg_table_name = 'contract_billable_items' then
+    select company_id into linked_company from public.company_contracts where id = row_contract;
+    if linked_company is distinct from row_company then raise exception 'BILLING_COMPANY_MISMATCH' using errcode='23514'; end if;
+    if row_parking is not null and not exists(select 1 from public.parkings where id=row_parking and company_id=row_company) then raise exception 'BILLING_PARKING_MISMATCH' using errcode='23514'; end if;
+    if row_device is not null and not exists(select 1 from public.billing_devices where id=row_device and company_id=row_company) then raise exception 'BILLING_DEVICE_MISMATCH' using errcode='23514'; end if;
+  elsif tg_table_name = 'billing_preinvoices' then
+    select company_id into linked_company from public.company_contracts where id = row_contract;
+    if linked_company is distinct from row_company then raise exception 'BILLING_COMPANY_MISMATCH' using errcode='23514'; end if;
+    if tg_op = 'UPDATE' and old.status in ('APPROVED','READY_TO_ISSUE') and row(new.net_amount,new.tax_amount,new.total_amount,new.uf_date,new.uf_value,new.converted_amount_clp) is distinct from row(old.net_amount,old.tax_amount,old.total_amount,old.uf_date,old.uf_value,old.converted_amount_clp) then raise exception 'APPROVED_PREINVOICE_IMMUTABLE' using errcode='23514'; end if;
+  elsif tg_table_name = 'billing_preinvoice_lines' then
+    if not exists(select 1 from public.billing_preinvoices where id=row_preinvoice and company_id=row_company) then raise exception 'BILLING_PREINVOICE_MISMATCH' using errcode='23514'; end if;
+    -- F2: las líneas manuales (servicio extra / ajuste) no vienen de un servicio de contrato: se validan por su ajuste.
+    if row_item is not null then
+      if not exists(select 1 from public.contract_billable_items where id=row_item and company_id=row_company) then raise exception 'BILLING_ITEM_MISMATCH' using errcode='23514'; end if;
+    elsif not exists(select 1 from public.billing_preinvoice_adjustments a where a.id=nullif(row_data ->> 'adjustment_id','')::uuid and a.company_id=row_company and a.preinvoice_id=row_preinvoice) then
+      raise exception 'BILLING_ITEM_MISMATCH' using errcode='23514';
+    end if;
+  end if;
+  return new;
+end;
+$$;

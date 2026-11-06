@@ -83,3 +83,21 @@ test("adaptador: el PDF recién emitido se reintenta si Haulmer responde 500 mie
   assert.equal(body.pdf, "JVBERi0=");
   assert.equal(calls, 3);
 });
+
+test("correo: en pruebas solo al emisor; en producción al cliente con copia y copia oculta al emisor", async () => {
+  const { emailRecipients } = await import("./haulmerDteCore.mjs");
+  const request = { issuer: { ...issuer, email: "facturacion@parkfacil.cl", sendEmailOnIssue: true, emailCc: "conta@parkfacil.cl" }, customer: { ...customer, billingEmail: "pagos@cliente.cl" } };
+  assert.deepEqual(emailRecipients(request, { environment: "TEST" }), { to: "facturacion@parkfacil.cl" });
+  assert.deepEqual(emailRecipients(request, { environment: "PRODUCTION" }), { to: "pagos@cliente.cl", CC: "conta@parkfacil.cl", BCC: "facturacion@parkfacil.cl" });
+  assert.equal(emailRecipients({ ...request, issuer: { ...request.issuer, sendEmailOnIssue: false } }, { environment: "PRODUCTION" }), null);
+  const payload = buildHaulmerDte({ ...invoice, issuer: request.issuer }, { environment: "TEST" });
+  assert.equal(payload.sendEmail, undefined); // lo envía ParkFacil, no Haulmer
+  assert.equal(buildHaulmerDte(invoice, { environment: "TEST" }).sendEmail, undefined);
+});
+
+test("adaptador: con OF-06 recupera el folio desde el documento ya emitido", async () => {
+  let call = 0;
+  const fetchImpl = async () => { call += 1; return call === 1 ? { status: 400, json: async () => ({ error: { code: "OF-06", message: "ya emitido", details: [{ field: "token", issue: "abcdef0123456789" }] } }) } : { status: 200, json: async () => ({ json: { Encabezado: { IdDoc: { Folio: "204999" } } } }) }; };
+  const result = await new HaulmerBillingProviderAdapter({ apiKey: "k", fetchImpl }).emitInvoice(invoice);
+  assert.deepEqual([result.result, result.folio], ["DUPLICATE", "204999"]);
+});

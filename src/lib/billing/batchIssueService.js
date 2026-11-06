@@ -1,7 +1,7 @@
 import "server-only";
 import { BATCH_PAUSE_MS, BatchIssueError, batchSummary, stepsFor } from "./batchIssueCore.mjs";
 import { transitionPreinvoice } from "./billingWorkflowRepository";
-import { enqueueAndProcessInvoice } from "./documentIssuanceService";
+import { emailIssuedDocument, enqueueAndProcessInvoice } from "./documentIssuanceService";
 import { createBillingProvider } from "./providers/providerFactory.mjs";
 import { UfRateService } from "./ufRateService";
 
@@ -24,6 +24,7 @@ async function readPreinvoice(db, id) {
 
 export async function issuePreinvoiceBatch({ db, ids, invoiceDate, actorId, batchId, scenario, ufRateService = new UfRateService() }) {
   const results = [];
+  const startedAt = Date.now();
   for (const [index, id] of ids.entries()) {
     if (index) await new Promise((resolve) => setTimeout(resolve, BATCH_PAUSE_MS));
     let current = null;
@@ -46,6 +47,14 @@ export async function issuePreinvoiceBatch({ db, ids, invoiceDate, actorId, batc
     } catch (error) {
       results.push({ id, ok: false, prefactura: current?.internal_number || null, empresa: current?.companyName || "", code: error.code || "BATCH_ITEM_FAILED", error: error.message || "No fue posible facturar esta prefactura.", warnings });
     }
+  }
+  // Correos al final del lote, con un límite de tiempo: los que no alcancen quedan para «Enviar por correo».
+  for (const item of results) {
+    if (!item.ok || item.documentStatus !== "ISSUED") continue;
+    if (Date.now() - startedAt > 240000) { item.email = "PENDING"; continue; }
+    const email = await emailIssuedDocument(db, item.documentId);
+    item.email = email?.status || null;
+    if (email?.status === "FAILED") item.emailError = email.reason;
   }
   return { batchId, invoiceDate, results, summary: batchSummary(results) };
 }

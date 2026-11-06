@@ -52,3 +52,12 @@ test("prefacturación incluye empresas inactivas (D3) y contratos con renovació
   assert.match(repo, /automatic_renewal\.eq\.true/);
   assert.match(repo, /endsOn:row\.automatic_renewal\?null:row\.ends_on/);
 });
+
+test("servicio extra: la ruta entrega la versión esperada y los totales se recalculan con IVA (F2)", async () => {
+  const route = await read("../../app/api/billing/preinvoices/[id]/adjustments/route.js");
+  assert.match(route, /expectedVersion:b\.version/);
+  const repo = await read("./billingWorkflowRepository.js");
+  assert.match(repo, /async function recomputeTotals/);
+  assert.match(repo, /tax_amount:lineTaxAmount/);
+  assert.doesNotMatch(repo, /nextNet|Number\(current\.net_amount\)-amount/);
+});
