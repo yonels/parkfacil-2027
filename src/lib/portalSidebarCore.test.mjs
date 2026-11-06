@@ -80,7 +80,12 @@ test("Root conserva todas sus opciones, con Off Street y On Street arriba", () =
   assert.deepEqual(labels(sections).sort(), items.map((item) => item.label).sort());
   assert.deepEqual(labels(sections).slice(0, 2), ["Off Street", "On Street"]);
   const admin = items.find((item) => item.label === "Administración");
-  for (const label of ["Empresas", "Configurar empresa", "Usuarios", "Facturación"]) assert.ok(admin.children.some((child) => child.label === label), label);
+  for (const label of ["Empresas", "Configurar empresa", "Usuarios"]) assert.ok(admin.children.some((child) => child.label === label), label);
+  // Facturación es opción propia del menú (SOL-2026-11-05-005), en la sección Administración.
+  assert.ok(!admin.children.some((child) => child.label === "Facturación"));
+  const adminSection = sections.find((section) => section.id === "administracion");
+  assert.deepEqual(adminSection.items.map((item) => item.label), ["Centro de Control SMS", "Facturación", "Administración"]);
+  assert.equal(items.find((item) => item.label === "Facturación").children.length, 11);
 });
 
 test("los portales Cliente y Root usan el menú nuevo; los demás, el anterior", () => {

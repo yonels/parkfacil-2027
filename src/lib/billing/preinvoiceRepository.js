@@ -30,19 +30,20 @@ export async function getPreinvoice(db, id, companyId = null) {
 }
 
 function ufDateFor(period) {
-  const range=parseBillingPeriod(period); const rule=process.env.BILLING_UF_DATE_RULE||"UNCONFIGURED";
+  const range=parseBillingPeriod(period); const rule=process.env.BILLING_UF_DATE_RULE||"CALCULATION_DATE"; // Decisión del usuario 2026-11-05: UF del día del cálculo (SOL-2026-11-05-005).
   if(rule==="PERIOD_START")return range.from;
   if(rule==="PERIOD_END")return range.to;
   if(rule==="CALCULATION_DATE")return new Date().toISOString().slice(0,10);
   return null;
 }
 
-function mapContract(row){return{id:row.id,companyId:row.company_id,currency:row.currency,startsOn:row.starts_on,endsOn:row.ends_on,paymentDueDays:Number(row.payment_due_days||0)};}
-function mapItem(row){return{contractItemId:row.id,conceptId:row.concept_id,itemType:row.item_type,description:row.description,quantity:number(row.quantity),includedQuantity:number(row.included_quantity),unit:row.unit,unitPrice:number(row.unit_price),currency:row.currency,classification:row.commercial_classification,validFrom:row.valid_from,validTo:row.valid_to,status:row.status,parkingId:row.parking_id,deviceId:row.device_id};}
+function mapContract(row){return{id:row.id,companyId:row.company_id,currency:row.currency,startsOn:row.starts_on,endsOn:row.automatic_renewal?null:row.ends_on,paymentDueDays:Number(row.payment_due_days||0)};}
+function mapItem(row){return{contractItemId:row.id,conceptId:row.concept_id,itemType:row.item_type,description:row.description,quantity:number(row.quantity),includedQuantity:number(row.included_quantity),unit:row.unit,unitPrice:number(row.unit_price),currency:row.currency,classification:row.commercial_classification,validFrom:row.valid_from,validTo:row.valid_to,status:row.status,parkingId:row.parking_id,deviceId:row.device_id,taxCategory:(Array.isArray(row.billable_concepts)?row.billable_concepts[0]:row.billable_concepts)?.tax_category||null};}
 
 export async function calculatePeriodPreinvoices(db,{period,actorId,idempotencyKey,companyId=null,ufRateService=new UfRateService()}){
   const range=parseBillingPeriod(period);
-  let contractsQuery=db.from("company_contracts").select("id,company_id,contract_number,currency,starts_on,ends_on,payment_due_days,companies!inner(status,relationship_type)").eq("status","active").lte("starts_on",range.to).gte("ends_on",range.from).eq("companies.status","active").eq("companies.relationship_type","client");
+  let contractsQuery=db.from("company_contracts").select("id,company_id,contract_number,currency,starts_on,ends_on,automatic_renewal,payment_due_days,companies!inner(status,relationship_type)").eq("status","active").lte("starts_on",range.to).or(`ends_on.gte.${range.from},automatic_renewal.eq.true`).eq("companies.relationship_type","client");
+  // D3 (SOL-2026-11-05-005): las empresas inactivas también se prefacturan. Un contrato con renovación automática sigue vigente después de su término.
   if(companyId)contractsQuery=contractsQuery.eq("company_id",companyId);
   const {data:contracts,error:contractsError}=await contractsQuery; fail(contractsError,"No fue posible resolver contratos");
   const results=[];
@@ -50,10 +51,10 @@ export async function calculatePeriodPreinvoices(db,{period,actorId,idempotencyK
     const contract=mapContract(row); const key=`${idempotencyKey}:${contract.id}:${period}`;
     const existing=await db.from("billing_preinvoices").select("id").eq("idempotency_key",key).maybeSingle(); fail(existing.error,"No fue posible verificar idempotencia");
     if(existing.data){results.push({id:existing.data.id,reused:true});continue;}
-    const itemsResult=await db.from("contract_billable_items").select("*").eq("company_id",contract.companyId).eq("contract_id",contract.id).eq("status","ACTIVE").lte("valid_from",range.to).or(`valid_to.is.null,valid_to.gte.${range.from}`);
+    const itemsResult=await db.from("contract_billable_items").select("*,billable_concepts(tax_category)").eq("company_id",contract.companyId).eq("contract_id",contract.id).eq("status","ACTIVE").lte("valid_from",range.to).or(`valid_to.is.null,valid_to.gte.${range.from}`);
     fail(itemsResult.error,"No fue posible resolver items contractuales");
     let calculation;
-    try{calculation=await calculatePreinvoice({contract,items:(itemsResult.data||[]).map(mapItem),period,ufDate:ufDateFor(period),ufRateService});}
+    try{calculation=await calculatePreinvoice({contract,items:(itemsResult.data||[]).map(mapItem),period,ufDate:ufDateFor(period),ufRateService,applyVat:true});}
     catch(error){if(error instanceof BillingValidationError){results.push({contractId:contract.id,status:"BLOCKED",code:error.code,message:error.message});continue;}throw error;}
     const due=new Date(`${range.to}T00:00:00Z`); due.setUTCDate(due.getUTCDate()+contract.paymentDueDays);
     const internalNumber=`PRE-${period.replace("-","")}-${randomUUID().slice(0,8).toUpperCase()}`;

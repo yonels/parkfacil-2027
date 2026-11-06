@@ -11,6 +11,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/facturacion-f1": false,
       "feature/facturacion-root": false,
       "feature/dashboard-general-filtros": false,
       "feature/dashboard-general-real": false,

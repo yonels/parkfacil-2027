@@ -9,7 +9,7 @@ export const CLIENT_MENU_SECTIONS = Object.freeze([
 
 export const ROOT_MENU_SECTIONS = Object.freeze([
   { id: "plataforma", title: "Plataforma", labels: ["Off Street", "On Street", "Inicio", "Dashboard General", "Data Entry"] },
-  { id: "administracion", title: "Administración", labels: ["Centro de Control SMS", "Administración"] },
+  { id: "administracion", title: "Administración", labels: ["Centro de Control SMS", "Facturación", "Administración"] },
 ]);
 
 // La carpeta de un producto no contratado no se muestra, aunque alguna de sus rutas

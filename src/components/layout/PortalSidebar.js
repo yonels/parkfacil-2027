@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, BookOpen, Building2, ChevronRight, CircleUserRound, Handshake, KeyRound, LayoutGrid, LoaderCircle, LogOut, MapPinned, Menu, MessageSquareText, PanelLeftClose, PanelLeftOpen, ParkingSquare, ScanLine, Search, Settings2, ShieldCheck, UserRound, Users, X } from "lucide-react";
+import { BarChart3, BookOpen, Building2, ChevronRight, CircleUserRound, Handshake, KeyRound, LayoutGrid, LoaderCircle, LogOut, MapPinned, Menu, MessageSquareText, PanelLeftClose, PanelLeftOpen, ParkingSquare, ReceiptText, ScanLine, Search, Settings2, ShieldCheck, UserRound, Users, X } from "lucide-react";
 import { navigationItems } from "@/config/navigation";
 import { navigationVisibleForRole } from "@/lib/auth/permissions.mjs";
 import { CLIENT_MENU_SECTIONS, countMenuOptions, filterMenuTree, formatCompanyRut, hideUnhiredProducts, portalMenuSections, ROOT_MENU_SECTIONS, searchEntities } from "@/lib/portalSidebarCore.mjs";
@@ -23,6 +23,7 @@ const ITEM_STYLES = {
   "Data Entry": { icon: ScanLine, color: "#0F766E", note: "Demostración del POS" },
   Administración: { icon: Settings2, color: "#EA580C" },
   "Centro de Control SMS": { icon: MessageSquareText, color: "#DB2777" },
+  "Facturación": { icon: ReceiptText, color: "#0D9488" },
   Administradores: { icon: Users, color: "#0F766E" },
   Operadores: { icon: UserRound, color: "#EA580C" },
   "Claves de operadores": { icon: KeyRound, color: "#CA8A04", note: "Reporte" },

@@ -6,8 +6,9 @@ export async function enqueueInvoice(db, input) {
   const r = await db.rpc("billing_enqueue_invoice", {
     p_preinvoice_id: input.preinvoiceId, p_invoice_date: input.invoiceDate,
     p_idempotency_key: input.idempotencyKey, p_actor_id: input.actorId,
-    p_currency: input.definitive.amountUf ? "UF" : input.definitive.currency, p_net: input.definitive.net,
-    p_tax: input.definitive.tax, p_total: input.definitive.amountUf || input.definitive.total,
+    // F1.3 (SOL-2026-11-05-005): el documento queda en pesos; amount_uf y uf_value quedan como referencia.
+    p_currency: input.definitive.currency, p_net: input.definitive.net,
+    p_tax: input.definitive.tax, p_total: input.definitive.total,
     p_amount_uf: input.definitive.amountUf || null,
     p_uf_reference_date: input.definitive.ufReferenceDate || null,
     p_uf_value: input.definitive.ufValue || null, p_uf_source: input.definitive.ufSource || null,

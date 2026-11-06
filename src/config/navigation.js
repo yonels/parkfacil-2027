@@ -293,6 +293,30 @@ export const navigationItems = [
   },
 
   // ============================================================
+  // FACTURACIÓN (SOL-2026-11-05-005) -- opción propia del menú lateral, con el mismo
+  // esquema que Centro de Control SMS y Administración (pedido del usuario 2026-11-05).
+  // Antes vivía dentro de Administración. Solo Root (prefijo /facturacion).
+  // ============================================================
+  {
+    label: "Facturación",
+    icon: ReceiptText,
+    activePrefix: "/facturacion",
+    children: [
+      { href: "/facturacion#servicios", label: "Servicios a facturar" },
+      { href: "/facturacion#prefacturacion", label: "Prefacturación" },
+      { href: "/facturacion#facturas", label: "Facturas" },
+      { href: "/facturacion#notas-credito", label: "Notas de Crédito" },
+      { href: "/facturacion#notas-debito", label: "Notas de Débito" },
+      { href: "/facturacion#cuenta-corriente", label: "Cuenta Corriente" },
+      { href: "/facturacion#pagos", label: "Pagos" },
+      { href: "/facturacion#cobranza", label: "Cobranza" },
+      { href: "/facturacion#conciliacion", label: "Conciliación" },
+      { href: "/facturacion#reportes", label: "Reportes" },
+      { href: "/facturacion#configuracion", label: "Configuración" },
+    ],
+  },
+
+  // ============================================================
   // ADMINISTRACIÓN -- funciones transversales de la plataforma, no
   // operación de un producto específico. Administradores/Operadores viven
   // aquí exclusivamente (única fuente de verdad, ver §7/§29 del brief);
@@ -305,7 +329,7 @@ export const navigationItems = [
   {
     label: "Administración",
     icon: Settings2,
-    activePrefix: ["/empresas", "/usuarios", "/seguridad", "/facturacion", "/contratos", "/convenios", "/modelo-gestion-modulos", "/documentos", "/mi-cuenta", "/administracion"],
+    activePrefix: ["/empresas", "/usuarios", "/seguridad", "/contratos", "/convenios", "/modelo-gestion-modulos", "/documentos", "/mi-cuenta", "/administracion"],
     children: [
       { href: "/empresas", label: "Empresas", icon: Users },
       // «Configurar empresa» (SOL-2026-10-29-014): diagnóstico de los 7 pasos de
@@ -337,23 +361,6 @@ export const navigationItems = [
       },
       { href: "/seguridad", label: "Seguridad", icon: KeyRound, requiresModule: "seguridad" },
       { href: "/mi-cuenta", label: "Mi Cuenta", icon: UserCircle },
-      {
-        href: "/facturacion",
-        label: "Facturación",
-        icon: ReceiptText,
-        children: [
-          { href: "/facturacion#prefacturacion", label: "Prefacturación" },
-          { href: "/facturacion#facturas", label: "Facturas" },
-          { href: "/facturacion#notas-credito", label: "Notas de Crédito" },
-          { href: "/facturacion#notas-debito", label: "Notas de Débito" },
-          { href: "/facturacion#cuenta-corriente", label: "Cuenta Corriente" },
-          { href: "/facturacion#pagos", label: "Pagos" },
-          { href: "/facturacion#cobranza", label: "Cobranza" },
-          { href: "/facturacion#conciliacion", label: "Conciliación" },
-          { href: "/facturacion#reportes", label: "Reportes" },
-          { href: "/facturacion#configuracion", label: "Configuración" },
-        ],
-      },
       { href: "/modelo-gestion-modulos", label: "Gestión de módulos", icon: SlidersHorizontal },
       // Catálogo de códigos de Estacionamiento/Proyecto (corrección
       // funcional 2026-08-29): exclusivo de Root a nivel de API
