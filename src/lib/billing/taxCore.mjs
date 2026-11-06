@@ -57,7 +57,7 @@ export function lineTax(line, currency) {
 }
 
 // Montos definitivos de la factura (siempre en pesos). ufValue solo para contratos en UF.
-// Cada línea se convierte y redondea a pesos (como la guarda la base, migración 20261105233000); el neto es la
+// Cada línea se convierte y redondea a pesos (como la guarda la base, migración 20261106000249); el neto es la
 // suma de las líneas redondeadas y el IVA se calcula sobre el neto afecto en pesos.
 export function definitiveInvoiceAmounts({ currency, lines, ufValue = null }) {
   splitNetByTax(lines);

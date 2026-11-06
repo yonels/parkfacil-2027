@@ -6,7 +6,7 @@
 --   * si el documento es CLP y la prefactura es UF, línea convertida: round(subtotal_UF × UF) y precio unitario
 --     round(precio_UF × UF, 2). La aplicación calcula el neto como suma de esas líneas redondeadas.
 --   * vencimiento = fecha de emisión + días de pago del contrato (o, si no tiene, los de billing_settings,
---     migración 20261105235000); en EasyDoc: emisión 01-11-2026, vencimiento 07-11-2026.
+--     migración 20261106000256); en EasyDoc: emisión 01-11-2026, vencimiento 07-11-2026.
 create or replace function public.billing_enqueue_invoice(
   p_preinvoice_id uuid,p_invoice_date date,p_idempotency_key text,p_actor_id uuid,
   p_currency text,p_net numeric,p_tax numeric,p_total numeric,p_amount_uf numeric,
