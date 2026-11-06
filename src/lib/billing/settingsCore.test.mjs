@@ -19,8 +19,10 @@ test("rechaza RUT con dígito verificador incorrecto, correo inválido y días f
   assert.throws(() => validateBillingSettings({ ...base, issuerBusinessName: "" }), (e) => e.field === "issuerBusinessName");
 });
 
-test("Haulmer aún no se puede elegir (se habilita en F2)", () => {
-  assert.throws(() => validateBillingSettings({ ...base, invoiceProvider: "HAULMER" }), (e) => e.code === "SETTINGS_PROVIDER_UNAVAILABLE");
+test("F2: Haulmer se puede elegir en pruebas; en producción exige Acteco", () => {
+  assert.equal(validateBillingSettings({ ...base, invoiceProvider: "HAULMER", providerEnvironment: "TEST" }).invoice_provider, "HAULMER");
+  assert.throws(() => validateBillingSettings({ ...base, invoiceProvider: "HAULMER", providerEnvironment: "PRODUCTION" }), (e) => e.code === "SETTINGS_ACTECO_REQUIRED");
+  assert.equal(validateBillingSettings({ ...base, issuerActivityCode: "620900", invoiceProvider: "HAULMER", providerEnvironment: "PRODUCTION" }).provider_environment, "PRODUCTION");
 });
 
 test("datos del emisor para el documento e indicación de lo que falta", () => {

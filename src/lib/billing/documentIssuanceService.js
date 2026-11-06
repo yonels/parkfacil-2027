@@ -1,6 +1,7 @@
 import "server-only";
 import { BillingServiceError } from "./BillingService.mjs";
 import { definitiveInvoiceAmounts } from "./taxCore.mjs";
+import { activeProviderName } from "./providers/providerResolver";
 import { BillingDocumentRepository } from "./billingDocumentRepository";
 import { enqueueInvoice } from "./documentJobRepository";
 import { processDocumentJob } from "./documentJobProcessor";
@@ -20,7 +21,8 @@ export async function enqueueAndProcessInvoice({ db, provider, ufRateService, pr
     const amounts = definitiveInvoiceAmounts({ currency: "UF", lines: preinvoice.lines, ufValue: rate.value });
     definitive = { ...amounts, ufReferenceDate: invoiceDate, ufValue: rate.value, ufSource: "Banco Central de Chile", amountUf: preinvoice.totalAmount, convertedAmountClp: amounts.total };
   }
-  const queued = await enqueueInvoice(db, { preinvoiceId, invoiceDate, idempotencyKey, actorId, definitive, customerSnapshot: preinvoice.customer });
+  const providerName = await activeProviderName(db);
+  const queued = await enqueueInvoice(db, { preinvoiceId, invoiceDate, idempotencyKey, actorId, definitive, customerSnapshot: preinvoice.customer, providerName });
   const processed = ["PENDING", "RETRY"].includes(queued.status) ? await processDocumentJob({ db, jobId: queued.jobId, actorId, provider }) : null;
   return { ...queued, processed };
 }

@@ -106,6 +106,14 @@ export default function FacturacionPage() {
     };
   }, []);
 
+  // F2: el aviso refleja el proveedor y ambiente elegidos en Configuración.
+  const [emission, setEmission] = useState(null);
+  useEffect(() => {
+    let active = true;
+    fetch("/api/billing/settings", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((payload) => { if (active && payload?.data) setEmission({ provider: payload.data.invoiceProvider, environment: payload.data.providerEnvironment }); }).catch(() => {});
+    return () => { active = false; };
+  }, [activeModuleId]);
+
   const openModule = (moduleId) => {
     window.history.replaceState(null, "", `/facturacion#${moduleId}`);
     setActiveModuleId(moduleId);
@@ -121,9 +129,19 @@ export default function FacturacionPage() {
       <div className="space-y-6">
         <PageHeader title="Facturación" description="Gestión comercial, prefacturación, documentos, cuenta corriente y cobranza." eyebrow="BACKOFFICE PARKFACIL" />
 
-        <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <span className="font-semibold">Modo simulado.</span> La emisión de facturas y notas usa un proveedor de prueba: los documentos no se envían al SII y no tienen validez tributaria.
-        </div>
+        {emission?.provider === "HAULMER" && emission?.environment === "PRODUCTION" ? (
+          <div role="status" className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            <span className="font-semibold">Emisión real con Haulmer.</span> Las facturas y notas se envían al SII con validez tributaria.
+          </div>
+        ) : emission?.provider === "HAULMER" ? (
+          <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <span className="font-semibold">Haulmer, ambiente de pruebas.</span> Los documentos se emiten en el ambiente de desarrollo de Haulmer a nombre de su empresa de prueba (HAULMER SPA) y no tienen validez tributaria.
+          </div>
+        ) : (
+          <div role="status" className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <span className="font-semibold">Modo simulado.</span> La emisión de facturas y notas usa un proveedor de prueba: los documentos no se envían al SII y no tienen validez tributaria.
+          </div>
+        )}
 
         {!activeModule ? (
           <>

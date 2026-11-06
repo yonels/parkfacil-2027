@@ -4,7 +4,7 @@ import { formatRut, parseRut } from "../companySetup/companySetupWizardCore.mjs"
 
 export const BILLING_PROVIDERS = Object.freeze({
   SIMULATED: { label: "Simulado (pruebas, sin validez ante el SII)", available: true },
-  HAULMER: { label: "Haulmer OpenFactura", available: false, note: "Se habilita en la etapa F2 (decisiones D8 y D9)." },
+  HAULMER: { label: "Haulmer OpenFactura", available: true, note: "En ambiente de pruebas los documentos salen a nombre de HAULMER SPA (empresa de prueba de Haulmer), sin validez tributaria (D9)." },
 });
 export const PROVIDER_ENVIRONMENTS = Object.freeze({ TEST: "Pruebas / certificación", PRODUCTION: "Producción" });
 
@@ -53,6 +53,8 @@ export function validateBillingSettings(input = {}) {
   const environment = String(input.providerEnvironment || "TEST");
   if (!PROVIDER_ENVIRONMENTS[environment]) throw new BillingSettingsError("SETTINGS_ENVIRONMENT_INVALID", "Ambiente no válido.", "providerEnvironment");
   row.provider_environment = environment;
+  // F2: para emitir en producción con Haulmer, el SII exige el código de actividad económica (Acteco) del emisor.
+  if (provider === "HAULMER" && environment === "PRODUCTION" && !/^\d{4,6}$/.test(row.issuer_activity_code)) throw new BillingSettingsError("SETTINGS_ACTECO_REQUIRED", "Para emitir en producción con Haulmer falta el código de actividad económica (Acteco) del emisor.", "issuerActivityCode");
   return row;
 }
 
