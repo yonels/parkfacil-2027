@@ -19,8 +19,10 @@ test("rechaza RUT con dígito verificador incorrecto, correo inválido y días f
   assert.throws(() => validateBillingSettings({ ...base, issuerBusinessName: "" }), (e) => e.field === "issuerBusinessName");
 });
 
-test("Haulmer aún no se puede elegir (se habilita en F2)", () => {
-  assert.throws(() => validateBillingSettings({ ...base, invoiceProvider: "HAULMER" }), (e) => e.code === "SETTINGS_PROVIDER_UNAVAILABLE");
+test("F2: Haulmer se puede elegir en pruebas; en producción exige Acteco", () => {
+  assert.equal(validateBillingSettings({ ...base, invoiceProvider: "HAULMER", providerEnvironment: "TEST" }).invoice_provider, "HAULMER");
+  assert.throws(() => validateBillingSettings({ ...base, invoiceProvider: "HAULMER", providerEnvironment: "PRODUCTION" }), (e) => e.code === "SETTINGS_ACTECO_REQUIRED");
+  assert.equal(validateBillingSettings({ ...base, issuerActivityCode: "620900", invoiceProvider: "HAULMER", providerEnvironment: "PRODUCTION" }).provider_environment, "PRODUCTION");
 });
 
 test("datos del emisor para el documento e indicación de lo que falta", () => {
@@ -31,4 +33,14 @@ test("datos del emisor para el documento e indicación de lo que falta", () => {
   const partial = issuerForDocument({ issuer_business_name: "ParkFacil SpA", issuer_rut_number: "77991619", issuer_rut_dv: "7", issuer_activity: "Giro" });
   assert.deepEqual(partial.missing, ["dirección", "comuna"]);
   assert.equal(fromSettingsRow({ issuer_rut_number: "77991619", issuer_rut_dv: "7" }).issuerRut, "77.991.619-7");
+});
+
+test("F2: envío por correo exige el correo del emisor y valida las copias", () => {
+  assert.equal(validateBillingSettings({ ...base, sendEmailOnIssue: true, emailCc: "a@b.cl, c@d.cl" }).email_cc, "a@b.cl,c@d.cl");
+  assert.throws(() => validateBillingSettings({ ...base, issuerEmail: "", sendEmailOnIssue: true }), (e) => e.code === "SETTINGS_EMAIL_REQUIRED");
+  assert.throws(() => validateBillingSettings({ ...base, emailCc: "no-es-correo" }), (e) => e.code === "SETTINGS_CC_INVALID");
+});
+test("copias: rechaza correos con espacios o sin punto en el dominio", () => {
+  assert.throws(() => validateBillingSettings({ ...base, emailCc: "a b@c.cl" }), (e) => e.code === "SETTINGS_CC_INVALID");
+  assert.throws(() => validateBillingSettings({ ...base, emailCc: "ab@ccl" }), (e) => e.code === "SETTINGS_CC_INVALID");
 });

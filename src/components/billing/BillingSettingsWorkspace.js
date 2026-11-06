@@ -31,6 +31,7 @@ export default function BillingSettingsWorkspace() {
   const [form, setForm] = useState(null);
   const [providers, setProviders] = useState({});
   const [environments, setEnvironments] = useState({});
+  const [keys, setKeys] = useState({});
   const [message, setMessage] = useState("");
   const [fieldError, setFieldError] = useState({});
   const [saving, setSaving] = useState(false);
@@ -42,7 +43,7 @@ export default function BillingSettingsWorkspace() {
       .then(({ ok, payload }) => {
         if (!active) return;
         if (!ok) { setMessage(payload.error || "No fue posible cargar la configuración."); return; }
-        setForm(payload.data); setProviders(payload.providers || {}); setEnvironments(payload.environments || {});
+        setForm(payload.data); setProviders(payload.providers || {}); setEnvironments(payload.environments || {}); setKeys(payload.keys || {});
       })
       .catch(() => { if (active) setMessage("No fue posible cargar la configuración."); });
     return () => { active = false; };
@@ -90,12 +91,23 @@ export default function BillingSettingsWorkspace() {
           <select value={form.invoiceProvider} onChange={set("invoiceProvider")} className="w-full rounded-lg border border-slate-300 p-2">
             {Object.entries(providers).map(([key, provider]) => <option key={key} value={key} disabled={!provider.available}>{provider.label}{provider.available ? "" : " — próximamente"}</option>)}
           </select>
-          <span className="mt-1 block text-xs text-slate-500">Haulmer OpenFactura se habilita en la etapa F2.</span>
+          <span className="mt-1 block text-xs text-slate-500">{form.invoiceProvider === "HAULMER" ? (providers.HAULMER?.note || "") : "Simulado: ningún documento se envía al SII."}</span>
+          <span className="mt-1 block text-xs text-slate-500">API Key de Haulmer en el servidor: pruebas {keys.TEST ? "configurada" : "no configurada"} · producción {keys.PRODUCTION ? "configurada" : "no configurada (se contrata OpenFactura al terminar las pruebas, D9)"}.</span>
         </Field>
         <Field label="Ambiente" error={fieldError.providerEnvironment}>
           <select value={form.providerEnvironment} onChange={set("providerEnvironment")} className="w-full rounded-lg border border-slate-300 p-2">
             {Object.entries(environments).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
           </select>
+        </Field>
+      </div>
+
+      <div className="grid gap-4 border-t border-slate-100 pt-4 md:grid-cols-2">
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" checked={Boolean(form.sendEmailOnIssue)} onChange={(event) => setForm((current) => ({ ...current, sendEmailOnIssue: event.target.checked }))} className="mt-1" />
+          <span><span className="font-semibold text-slate-700">Enviar documentos por correo al emitir</span><span className="mt-1 block text-xs text-slate-500">Haulmer envía la factura o nota cuando el SII la acepta: al correo del cliente, con copia oculta al correo del emisor. En ambiente de pruebas se envía solo al correo del emisor.</span></span>
+        </label>
+        <Field label="Copias (opcional, separadas por coma)" error={fieldError.emailCc}>
+          <input value={form.emailCc || ""} onChange={set("emailCc")} placeholder="contabilidad@parkfacil.cl" className="w-full rounded-lg border border-slate-300 p-2" />
         </Field>
       </div>
 

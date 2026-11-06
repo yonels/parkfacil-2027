@@ -42,8 +42,10 @@ function mapItem(row){return{contractItemId:row.id,conceptId:row.concept_id,item
 
 export async function calculatePeriodPreinvoices(db,{period,actorId,idempotencyKey,companyId=null,ufRateService=new UfRateService()}){
   const range=parseBillingPeriod(period);
-  let contractsQuery=db.from("company_contracts").select("id,company_id,contract_number,currency,starts_on,ends_on,automatic_renewal,payment_due_days,companies!inner(status,relationship_type)").eq("status","active").lte("starts_on",range.to).or(`ends_on.gte.${range.from},automatic_renewal.eq.true`).eq("companies.relationship_type","client");
-  // D3 (SOL-2026-11-05-005): las empresas inactivas también se prefacturan. Un contrato con renovación automática sigue vigente después de su término.
+  let contractsQuery=db.from("company_contracts").select("id,company_id,contract_number,currency,starts_on,ends_on,automatic_renewal,payment_due_days,companies!inner(status,relationship_type)").neq("status","cancelled").eq("companies.relationship_type","client");
+  // D3 (SOL-2026-11-05-005): las empresas inactivas también se prefacturan. Decisión 2026-11-06: se factura por los
+  // servicios activos del período aunque el contrato no esté vigente (vencido, suspendido o terminado); solo se excluyen
+  // los anulados. Un contrato sin servicios en el período se omite sin reportarlo como bloqueado.
   if(companyId)contractsQuery=contractsQuery.eq("company_id",companyId);
   const {data:contracts,error:contractsError}=await contractsQuery; fail(contractsError,"No fue posible resolver contratos");
   const results=[];
@@ -54,9 +56,10 @@ export async function calculatePeriodPreinvoices(db,{period,actorId,idempotencyK
     const itemsResult=await db.from("contract_billable_items").select("*,billable_concepts(tax_category)").eq("company_id",contract.companyId).eq("contract_id",contract.id).eq("status","ACTIVE").lte("valid_from",range.to).or(`valid_to.is.null,valid_to.gte.${range.from}`);
     fail(itemsResult.error,"No fue posible resolver items contractuales");
     let calculation;
-    try{calculation=await calculatePreinvoice({contract,items:(itemsResult.data||[]).map(mapItem),period,ufDate:ufDateFor(period),ufRateService,applyVat:true});}
-    catch(error){if(error instanceof BillingValidationError){results.push({contractId:contract.id,status:"BLOCKED",code:error.code,message:error.message});continue;}throw error;}
-    const due=new Date(`${range.to}T00:00:00Z`); due.setUTCDate(due.getUTCDate()+contract.paymentDueDays);
+    try{calculation=await calculatePreinvoice({contract,items:(itemsResult.data||[]).map(mapItem),period,ufDate:ufDateFor(period),ufRateService,applyVat:true,requireContractInPeriod:false});}
+    catch(error){if(error instanceof BillingValidationError&&error.code==="CONTRACT_ITEMS_MISSING"&&!(itemsResult.data||[]).length)continue;if(error instanceof BillingValidationError){results.push({contractId:contract.id,status:"BLOCKED",code:error.code,message:error.message});continue;}throw error;}
+    // Vencimiento estimado = fecha de cálculo + días de pago (el definitivo lo fija la factura: emisión + días). SOL-2026-11-05-005.
+    const due=new Date(`${new Date().toISOString().slice(0,10)}T00:00:00Z`); due.setUTCDate(due.getUTCDate()+contract.paymentDueDays);
     const internalNumber=`PRE-${period.replace("-","")}-${randomUUID().slice(0,8).toUpperCase()}`;
     const header={internal_number:internalNumber,company_id:contract.companyId,contract_id:contract.id,period,currency:contract.currency,status:"CALCULATED",calculated_at:new Date().toISOString(),due_date:due.toISOString().slice(0,10),net_amount:calculation.netAmount,tax_amount:calculation.taxAmount,total_amount:calculation.totalAmount,contract_amount_uf:contract.currency==="UF"?calculation.totalAmount:null,uf_date:calculation.uf?.date||null,uf_value:calculation.uf?.value||null,converted_amount_clp:calculation.uf?.convertedAmountClp||null,uf_source:calculation.uf?.source||null,uf_status:contract.currency==="UF"?"RESOLVED":"NOT_APPLICABLE",idempotency_key:key,created_by:actorId};
     const inserted=await db.from("billing_preinvoices").insert(header).select("id").single(); fail(inserted.error,"No fue posible crear prefactura");

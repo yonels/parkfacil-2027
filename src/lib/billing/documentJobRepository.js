@@ -14,6 +14,7 @@ export async function enqueueInvoice(db, input) {
     p_uf_value: input.definitive.ufValue || null, p_uf_source: input.definitive.ufSource || null,
     p_converted_amount_clp: input.definitive.convertedAmountClp || null,
     p_customer_snapshot: input.customerSnapshot || {},
+    p_provider: input.providerName || "mock",
   });
   fail(r.error); return r.data;
 }

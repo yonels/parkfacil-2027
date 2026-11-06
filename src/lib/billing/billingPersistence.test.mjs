@@ -46,9 +46,19 @@ test("Etapa 6 usa RPC atómica con locking, idempotencia, RLS y reverso", async(
 test("APIs de aplicaciones conservan permisos y scope server-side",async()=>{const apply=await read("../../app/api/billing/accounts/payments/[paymentId]/applications/route.js"),reverse=await read("../../app/api/billing/accounts/payments/[paymentId]/applications/[applicationId]/reverse/route.js");for(const source of [apply,reverse]){assert.match(source,/PERMISSIONS\.BILLING_MANAGE/);assert.match(source,/remainingCompanyScope/);assert.doesNotMatch(source,/body\.companyId/);}});
 test('Etapa 7A separa conciliación, usa locks, RLS, idempotencia y auditoría',async()=>{const m=await read('../../../supabase/migrations/20260811140000_billing_reconciliation_foundation.sql');assert.match(m,/billing_external_movements/);assert.match(m,/billing_reconciliations/);assert.match(m,/for update/gi);assert.match(m,/unique\(company_id,idempotency_key\)/i);assert.match(m,/enable row level security/gi);assert.match(m,/RECONCILIATION_CREATED/);assert.match(m,/RECONCILIATION_REVERSED/);assert.match(m,/EXTERNAL_MOVEMENT_IMPORTED/);assert.match(m,/RECONCILIATION_EXCEEDS_EXTERNAL_AVAILABLE/);assert.match(m,/RECONCILIATION_EXCEEDS_INTERNAL_AVAILABLE/);});
 
-test("prefacturación incluye empresas inactivas (D3) y contratos con renovación automática vencidos", async () => {
+test("prefacturación incluye empresas inactivas (D3) y factura por servicios aunque el contrato no esté vigente", async () => {
   const repo = await read("./preinvoiceRepository.js");
   assert.doesNotMatch(repo, /eq\("companies\.status","active"\)/);
-  assert.match(repo, /automatic_renewal\.eq\.true/);
+  assert.match(repo, /neq\("status","cancelled"\)/);
+  assert.match(repo, /requireContractInPeriod:false/);
   assert.match(repo, /endsOn:row\.automatic_renewal\?null:row\.ends_on/);
+});
+
+test("servicio extra: la ruta entrega la versión esperada y los totales se recalculan con IVA (F2)", async () => {
+  const route = await read("../../app/api/billing/preinvoices/[id]/adjustments/route.js");
+  assert.match(route, /expectedVersion:b\.version/);
+  const repo = await read("./billingWorkflowRepository.js");
+  assert.match(repo, /async function recomputeTotals/);
+  assert.match(repo, /tax_amount:lineTaxAmount/);
+  assert.doesNotMatch(repo, /nextNet|Number\(current\.net_amount\)-amount/);
 });

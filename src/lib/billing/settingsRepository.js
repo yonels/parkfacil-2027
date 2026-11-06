@@ -2,7 +2,7 @@ import "server-only";
 import { fromSettingsRow } from "./settingsCore.mjs";
 
 // Configuración de facturación (SOL-2026-11-05-005, F1.4). Una sola fila (id = 1).
-const COLUMNS = "issuer_business_name,issuer_rut_number,issuer_rut_dv,issuer_activity,issuer_activity_code,issuer_address,issuer_district,issuer_city,issuer_sii_office,issuer_email,issuer_phone,default_payment_due_days,invoice_provider,provider_environment,updated_at";
+const COLUMNS = "issuer_business_name,issuer_rut_number,issuer_rut_dv,issuer_activity,issuer_activity_code,issuer_address,issuer_district,issuer_city,issuer_sii_office,issuer_email,issuer_phone,default_payment_due_days,invoice_provider,provider_environment,send_email_on_issue,email_cc,updated_at";
 
 function fail(error, message) {
   if (!error) return;

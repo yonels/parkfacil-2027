@@ -33,10 +33,11 @@ function round(value, decimals = 4) {
 }
 
 // applyVat (SOL-2026-11-05-005, F1.3): IVA 19 % según la clasificación tributaria del catálogo (item.taxCategory).
-export async function calculatePreinvoice({ contract, items, period, ufRateService, ufDate, taxResolver = () => 0, applyVat = false }) {
+export async function calculatePreinvoice({ contract, items, period, ufRateService, ufDate, taxResolver = () => 0, applyVat = false, requireContractInPeriod = true }) {
   const range = parseBillingPeriod(period);
   if (!contract?.id || !contract?.companyId) throw new BillingValidationError("CONTRACT_REQUIRED", "Contrato invalido.");
-  if (!overlapsPeriod({ validFrom: contract.startsOn, validTo: contract.endsOn }, range)) throw new BillingValidationError("CONTRACT_OUT_OF_PERIOD", "El contrato no esta vigente en el periodo.");
+  // requireContractInPeriod=false: se factura por servicios aunque el contrato no esté vigente (decisión 2026-11-06).
+  if (requireContractInPeriod && !overlapsPeriod({ validFrom: contract.startsOn, validTo: contract.endsOn }, range)) throw new BillingValidationError("CONTRACT_OUT_OF_PERIOD", "El contrato no esta vigente en el periodo.");
 
   const activeItems = (items || []).filter((item) => item.status === "ACTIVE" && overlapsPeriod(item, range));
   if (!activeItems.length) throw new BillingValidationError("CONTRACT_ITEMS_MISSING", "El contrato no posee items facturables vigentes.");

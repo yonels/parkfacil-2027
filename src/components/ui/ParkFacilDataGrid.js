@@ -132,6 +132,9 @@ export default function ParkFacilDataGrid({
   // cada tarjeta es responsabilidad de quien la renderiza (mismo patrón
   // que columns[].render), no de este componente.
   renderMobileCard,
+  // onSelectionChange (SOL-2026-11-05-005, facturación en lote): OPCIONAL -- (ids: string[]) => void con las
+  // filas visibles marcadas. Si no se pasa, nada cambia.
+  onSelectionChange,
 }) {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState({ key: null, direction: null });
@@ -226,6 +229,8 @@ export default function ParkFacilDataGrid({
     const visibleSet = new Set(rowIds);
     return new Set(selectedIds.filter((id) => visibleSet.has(id)));
   }, [selectedIds, rowIds]);
+
+  useEffect(() => { onSelectionChange?.([...selectedSet]); }, [selectedSet, onSelectionChange]);
 
   const allSelected = rowIds.length > 0 && selectedSet.size === rowIds.length;
   const partiallySelected = selectedSet.size > 0 && !allSelected;
