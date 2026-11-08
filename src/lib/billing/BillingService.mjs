@@ -1,5 +1,6 @@
 import {BillingProviderError,PROVIDER_RESULTS} from "./providers/BillingProviderAdapter.mjs";
 import {definitiveInvoiceAmounts} from "./taxCore.mjs";
+import {invalidRutMessage,isValidRut} from "./rutCore.mjs";
 
 export class BillingServiceError extends Error{constructor(code,message,{retryable=false}={}){super(message);this.name="BillingServiceError";this.code=code;this.retryable=retryable;}}
 export class BillingService{
@@ -7,6 +8,7 @@ export class BillingService{
   async issueInvoice({preinvoiceId,invoiceDate,idempotencyKey,actorId}){
     const p=await this.repository.getReadyPreinvoice(preinvoiceId);if(!p||p.status!=="READY_TO_ISSUE")throw new BillingServiceError("PREINVOICE_NOT_READY","La prefactura no esta lista para emitir.");
     for(const [key,value] of Object.entries({businessName:p.customer?.businessName,rut:p.customer?.rut,businessActivity:p.customer?.businessActivity,address:p.customer?.address,district:p.customer?.district,city:p.customer?.city,billingEmail:p.customer?.billingEmail}))if(!String(value||"").trim())throw new BillingServiceError("FISCAL_DATA_MISSING",`Falta dato fiscal: ${key}.`);
+    if(!isValidRut(p.customer.rut))throw new BillingServiceError("CUSTOMER_RUT_INVALID",invalidRutMessage(p.customer.rut));
     if(!p.lines?.length)throw new BillingServiceError("DOCUMENT_LINES_REQUIRED","La prefactura no posee lineas.");
     if(p.lines.some(x=>!x.taxCategory||x.taxCategory==="UNDEFINED"))throw new BillingServiceError("TAX_CLASSIFICATION_REQUIRED","Existen conceptos sin clasificacion tributaria.");
     // F1.3 (SOL-2026-11-05-005): montos definitivos en pesos y coherentes (neto, IVA 19 %, total).

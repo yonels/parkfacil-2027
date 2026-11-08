@@ -101,3 +101,8 @@ test("adaptador: con OF-06 recupera el folio desde el documento ya emitido", asy
   const result = await new HaulmerBillingProviderAdapter({ apiKey: "k", fetchImpl }).emitInvoice(invoice);
   assert.deepEqual([result.result, result.folio], ["DUPLICATE", "204999"]);
 });
+
+test("RUT con dígito verificador inválido no se envía a Haulmer (OF-02 confuso)", () => {
+  assert.throws(() => buildHaulmerDte({ ...invoice, customer: { ...customer, rut: "13744807-9" } }, { environment: "TEST" }), (e) => e.code === "CUSTOMER_RUT_INVALID" && /dígito verificador/.test(e.message));
+  assert.doesNotThrow(() => buildHaulmerDte({ ...invoice, customer: { ...customer, rut: "13.744.807-6" } }, { environment: "TEST" }));
+});

@@ -1,6 +1,7 @@
 import "server-only";
 import { BillingServiceError } from "./BillingService.mjs";
 import { definitiveInvoiceAmounts } from "./taxCore.mjs";
+import { invalidRutMessage, isValidRut } from "./rutCore.mjs";
 import { activeProviderName } from "./providers/providerResolver";
 import { BillingDocumentRepository } from "./billingDocumentRepository";
 import { enqueueInvoice } from "./documentJobRepository";
@@ -10,6 +11,7 @@ export async function enqueueAndProcessInvoice({ db, provider, ufRateService, pr
   const preinvoice = await new BillingDocumentRepository(db).getReadyPreinvoice(preinvoiceId);
   if (!preinvoice || preinvoice.status !== "READY_TO_ISSUE") throw new BillingServiceError("PREINVOICE_NOT_READY", "La prefactura no está lista para emitir.");
   for (const [key, value] of Object.entries({ businessName: preinvoice.customer?.businessName, rut: preinvoice.customer?.rut, businessActivity: preinvoice.customer?.businessActivity, address: preinvoice.customer?.address, district: preinvoice.customer?.district, city: preinvoice.customer?.city, billingEmail: preinvoice.customer?.billingEmail })) if (!String(value || "").trim()) throw new BillingServiceError("FISCAL_DATA_MISSING", `Falta dato fiscal: ${key}.`);
+  if (!isValidRut(preinvoice.customer.rut)) throw new BillingServiceError("CUSTOMER_RUT_INVALID", invalidRutMessage(preinvoice.customer.rut));
   if (!preinvoice.lines?.length) throw new BillingServiceError("DOCUMENT_LINES_REQUIRED", "La prefactura no posee líneas.");
   const { missing } = await new BillingDocumentRepository(db).getIssuer();
   if (missing.length) throw new BillingServiceError("ISSUER_DATA_MISSING", `Faltan datos del emisor en Facturación → Configuración: ${missing.join(", ")}.`);
