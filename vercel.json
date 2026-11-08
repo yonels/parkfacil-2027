@@ -15,6 +15,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/facturacion-volver-ciclo": false,
       "feature/facturacion-f2b": false,
       "feature/facturacion-f2": false,
       "feature/facturacion-f1": false,

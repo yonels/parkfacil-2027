@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { readCycleReturn } from "./cycleReturnStore";
 import { Plus } from "lucide-react";
 import ParkFacilDataGrid from "@/components/ui/ParkFacilDataGrid";
 import { CATALOG_TAX_CATEGORIES } from "@/lib/billing/catalogCore.mjs";
@@ -59,6 +60,9 @@ export default function CompanyServicesWorkspace() {
     requestJson("GET", "/api/billing/company-services").then(({ ok, payload }) => {
       if (!active) return;
       if (ok) setCompanies(payload.data || []); else setMessage(payload.error || "No fue posible cargar las empresas.");
+      // Abierta desde el «Ciclo de facturación»: se preselecciona la empresa de la etapa.
+      const back = readCycleReturn();
+      if (ok && back && (payload.data || []).some((company) => company.id === back.companyId)) { setCompanyId(back.companyId); loadCompany(back.companyId); }
     });
     return () => { active = false; };
   }, []);

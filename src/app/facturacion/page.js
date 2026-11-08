@@ -15,6 +15,7 @@ import BillingSettingsWorkspace from "@/components/billing/BillingSettingsWorksp
 import CompanyServicesWorkspace from "@/components/billing/CompanyServicesWorkspace";
 import IssuedDocumentsWorkspace from "@/components/billing/IssuedDocumentsWorkspace";
 import BillingCycleWorkspace from "@/components/billing/BillingCycleWorkspace";
+import { forgetCycleReturn, readCycleReturn } from "@/components/billing/cycleReturnStore";
 
 const column = (key, label, width = 150, pinned = false) => ({ key, label, width, pinned, required: pinned });
 
@@ -124,6 +125,10 @@ export default function FacturacionPage() {
     return () => { active = false; };
   }, [activeModuleId]);
 
+  // Barra «Volver al ciclo» en las pantallas de detalle abiertas desde una etapa del ciclo (SOL-2026-11-05-005).
+  const [returnDismissed, setReturnDismissed] = useState(0);
+  const cycleReturn = useMemo(() => (activeModule && activeModule.id !== "ciclo" && typeof window !== "undefined" ? readCycleReturn() : null), [activeModule, returnDismissed]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const openModule = (moduleId) => {
     window.history.replaceState(null, "", `/facturacion#${moduleId}`);
     setActiveModuleId(moduleId);
@@ -185,6 +190,13 @@ export default function FacturacionPage() {
         ) : (
           <section className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#3150D8]">Planilla de Facturación</p><h2 className="mt-1 text-2xl font-bold text-[#041E42]">{activeModule.title}</h2><p className="mt-1 text-sm text-slate-600">{activeModule.description}</p></div><button type="button" onClick={closeModule} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] shadow-sm hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /> Volver a Facturación</button></div>
+            {cycleReturn ? (
+              <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+                <button type="button" onClick={() => openModule("ciclo")} className="rounded-full bg-[#3150D8] px-4 py-1.5 font-bold text-white shadow-sm">← Volver al ciclo</button>
+                <span><b>{cycleReturn.companyName}</b> · Etapa {cycleReturn.stepN}: {cycleReturn.stepShort}. Cuando termine aquí, vuelva para continuar con la etapa siguiente.</span>
+                <button type="button" onClick={() => { forgetCycleReturn(); setReturnDismissed((n) => n + 1); }} className="ml-auto text-indigo-500 hover:text-indigo-800" aria-label="Cerrar">✕</button>
+              </div>
+            ) : null}
             {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : activeModule.id === "facturas" ? <><DocumentJobPanel /><DocumentWorkspace type="INVOICE" /></> : activeModule.id === "notas-credito" ? <DocumentWorkspace type="CREDIT_NOTE" /> : activeModule.id === "notas-debito" ? <DocumentWorkspace type="DEBIT_NOTE" /> : activeModule.id === "configuracion" ? <div className="space-y-6"><BillingSettingsWorkspace /><CatalogWorkspace /></div> : activeModule.id === "servicios" ? <CompanyServicesWorkspace /> : activeModule.id === "documentos-emitidos" ? <IssuedDocumentsWorkspace /> : activeModule.id === "ciclo" ? <BillingCycleWorkspace /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
           </section>
         )}
