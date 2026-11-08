@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { forgetCycleReturn, readCycleReturn, rememberCycleReturn } from "./cycleReturnStore";
 import { CYCLE_ROLES, CYCLE_RUNS, CYCLE_STEPS, CYCLE_USES, FIXED_REQUIRED, NOT_AVAILABLE } from "@/lib/billing/billingCycleCore.mjs";
 
 // «Ciclo de facturación» por etapas (SOL-2026-11-05-005; prototipo aprobado por el usuario el 2026-11-08).
@@ -29,6 +30,15 @@ async function api(url, options) {
   return body.data;
 }
 
+// Enlaces a la factura para emitir una nota de crédito o débito, con retorno al ciclo.
+function NoteLinks({ row, period }) {
+  if (row.invoice?.status !== "ISSUED") return null;
+  const go = (noteKind) => rememberCycleReturn({ companyId: row.company.id, companyName: row.company.name, period, step: "emision", stepN: 6, stepShort: "Emisión", preinvoiceId: row.preinvoice?.id || null, documentId: row.invoice.id, noteKind });
+  return (
+    <span className="mt-3 block text-sm text-slate-600">¿Hay que corregir esta factura? <a href="/facturacion#facturas" onClick={() => go("CREDIT_NOTE")} className="font-semibold text-[#3150D8] underline">Emitir nota de crédito</a> · <a href="/facturacion#facturas" onClick={() => go("DEBIT_NOTE")} className="font-semibold text-[#3150D8] underline">Emitir nota de débito</a></span>
+  );
+}
+
 function Chip({ tone, children }) {
   const tones = { ok: "bg-emerald-100 text-emerald-800", warn: "bg-amber-100 text-amber-800", err: "bg-red-100 text-red-800", lock: "bg-slate-100 text-slate-500", info: "bg-blue-100 text-blue-800" };
   return <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${tones[tone] || tones.lock}`}>{children}</span>;
@@ -48,13 +58,16 @@ function Dots({ steps }) {
 }
 
 export default function BillingCycleWorkspace() {
-  const [period, setPeriod] = useState(() => chileToday().slice(0, 7));
+  // Al volver desde una pantalla de detalle abierta desde una etapa, se retoma la misma empresa y período.
+  const [initialReturn] = useState(() => (typeof window === "undefined" ? null : readCycleReturn()));
+  const [period, setPeriod] = useState(() => initialReturn?.period || chileToday().slice(0, 7));
   const [tab, setTab] = useState("ciclo");
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(() => initialReturn?.companyId || null);
+  useEffect(() => { if (initialReturn) forgetCycleReturn(); }, [initialReturn]);
   const [viewing, setViewing] = useState(null);
   const [filterStage, setFilterStage] = useState(null);
   const [search, setSearch] = useState("");
@@ -180,19 +193,21 @@ function CycleDetail({ row, period, viewing, setViewing, busy, runStep, reload, 
           );
         })}
       </div>
-      {row.finished && !viewing ? <div className="p-5"><p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">✓ Ciclo del mes terminado. Factura folio {row.invoice?.folio || "—"} · {money(row.invoice?.total)}.</p></div>
-        : shown ? <StepPanel key={`${row.company.id}-${shown.key}`} row={row} step={shown} readOnly={Boolean(viewing) && viewing !== row.stage} busy={busy} runStep={runStep} backToCurrent={() => setViewing(null)} reload={reload} setError={setError} setMessage={setMessage} /> : null}
+      {row.finished && !viewing ? <div className="p-5"><p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">✓ Ciclo del mes terminado. Factura folio {row.invoice?.folio || "—"} · {money(row.invoice?.total)}.</p><NoteLinks row={row} period={period} /></div>
+        : shown ? <StepPanel key={`${row.company.id}-${shown.key}`} row={row} period={period} step={shown} readOnly={Boolean(viewing) && viewing !== row.stage} busy={busy} runStep={runStep} backToCurrent={() => setViewing(null)} reload={reload} setError={setError} setMessage={setMessage} /> : null}
     </section>
   );
 }
 
-function StepPanel({ row, step, readOnly, busy, runStep, backToCurrent, reload, setError, setMessage }) {
+function StepPanel({ row, period, step, readOnly, busy, runStep, backToCurrent, reload, setError, setMessage }) {
   const color = COLORS[step.key];
   const [customer, setCustomer] = useState(() => ({ rut: row.company.rut, businessName: row.company.name, businessActivity: row.company.businessActivity, address: row.company.address, district: row.company.district, city: row.company.city, email: row.company.email }));
   const [invoiceDate, setInvoiceDate] = useState(chileToday());
   const [discardReason, setDiscardReason] = useState("");
   const pre = row.preinvoice;
   const inv = row.invoice;
+  // Recuerda empresa, período y etapa antes de abrir una pantalla de detalle (barra «Volver al ciclo»).
+  const goDetail = () => rememberCycleReturn({ companyId: row.company.id, companyName: row.company.name, period, step: step.key, stepN: step.n, stepShort: step.short, preinvoiceId: pre?.id || null });
   const issued = inv?.status === "ISSUED";
   const field = (key, label) => <label className="block text-sm"><span className="font-semibold text-slate-700">{label}</span><input value={customer[key] || ""} onChange={(e) => setCustomer((c) => ({ ...c, [key]: e.target.value }))} disabled={readOnly && issued} className={`${inputClass} mt-1`} /></label>;
 
@@ -212,7 +227,7 @@ function StepPanel({ row, step, readOnly, busy, runStep, backToCurrent, reload, 
       action = { label: readOnly ? "Guardar cambios" : "Guardar y continuar", run: () => runStep("datos", { payload: { customer } }), hide: readOnly && issued };
       break;
     case "servicios":
-      body = <div className="space-y-2 text-sm"><p><b>{row.services.active}</b> servicio(s) activo(s) en el período{row.services.untaxed ? <> · <b className="text-red-600">{row.services.untaxed} sin IVA definido</b></> : null}.</p><a href="/facturacion#servicios" className="font-semibold text-[#3150D8] underline">Editar servicios de la empresa</a>{row.services.untaxed ? <> · <a href="/facturacion#configuracion" className="font-semibold text-[#3150D8] underline">Definir IVA en el catálogo</a></> : null}</div>;
+      body = <div className="space-y-2 text-sm"><p><b>{row.services.active}</b> servicio(s) activo(s) en el período{row.services.untaxed ? <> · <b className="text-red-600">{row.services.untaxed} sin IVA definido</b></> : null}.</p><a onClick={goDetail} href="/facturacion#servicios" className="font-semibold text-[#3150D8] underline">Editar servicios de la empresa</a>{row.services.untaxed ? <> · <a onClick={goDetail} href="/facturacion#configuracion" className="font-semibold text-[#3150D8] underline">Definir IVA en el catálogo</a></> : null}</div>;
       action = { label: "Confirmar servicios", run: () => runStep("servicios") };
       break;
     case "prefactura":
@@ -220,7 +235,7 @@ function StepPanel({ row, step, readOnly, busy, runStep, backToCurrent, reload, 
       action = { label: "Calcular prefactura", run: () => runStep("prefactura") };
       break;
     case "revision":
-      body = <div className="space-y-2 text-sm">{pre ? <p>Prefactura <b>{pre.number}</b>: neto {money(pre.net, pre.currency)} · IVA {money(pre.tax, pre.currency)} · total <b>{money(pre.total, pre.currency)}</b>.</p> : null}<a href="/facturacion#prefacturacion" className="font-semibold text-[#3150D8] underline">Abrir la prefactura para agregar servicios extra, descuentos u observaciones</a></div>;
+      body = <div className="space-y-2 text-sm">{pre ? <p>Prefactura <b>{pre.number}</b>: neto {money(pre.net, pre.currency)} · IVA {money(pre.tax, pre.currency)} · total <b>{money(pre.total, pre.currency)}</b>.</p> : null}<a onClick={goDetail} href="/facturacion#prefacturacion" className="font-semibold text-[#3150D8] underline">Abrir la prefactura para agregar servicios extra, descuentos u observaciones</a></div>;
       action = { label: "Revisada, continuar", run: () => runStep("revision") };
       break;
     case "aprobacion":
@@ -228,7 +243,7 @@ function StepPanel({ row, step, readOnly, busy, runStep, backToCurrent, reload, 
       action = { label: "Aprobar", run: () => runStep("aprobacion") };
       break;
     case "emision":
-      body = issued ? <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">✓ Factura emitida · folio <b>{inv.folio}</b> · {money(inv.total)}{inv.provider === "haulmer" ? <> · <a href={`/api/billing/documents/${inv.id}/provider?value=pdf`} target="_blank" rel="noopener" className="underline">Ver PDF</a></> : null}</p>
+      body = issued ? <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">✓ Factura emitida · folio <b>{inv.folio}</b> · {money(inv.total)}{inv.provider === "haulmer" ? <> · <a href={`/api/billing/documents/${inv.id}/provider?value=pdf`} target="_blank" rel="noopener" className="underline">Ver PDF</a></> : null}<NoteLinks row={row} period={period} /></p>
         : inv && ["PROVIDER_REJECTED", "ISSUE_ERROR"].includes(inv.status) && !inv.folio ? (
           <div className="space-y-2 text-sm"><p className="rounded-xl bg-red-50 p-3 text-red-800">{step.problem || "La factura no se emitió."}</p>
             <label className="block"><span className="font-semibold text-slate-700">Motivo del descarte</span><input value={discardReason} onChange={(e) => setDiscardReason(e.target.value)} placeholder="Ej.: RUT del cliente con dígito verificador incorrecto" className={`${inputClass} mt-1`} /></label>
