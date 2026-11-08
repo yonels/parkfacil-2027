@@ -24,6 +24,12 @@ export async function enqueueExistingDocument(db, input) {
   fail(r.error); return r.data;
 }
 
+// Descarta un documento rechazado o con error que nunca llegó al SII (SOL-2026-11-05-005, 2026-11-08).
+export async function discardFailedDocument(db, input) {
+  const r = await db.rpc("billing_discard_failed_document", { p_company_id: input.companyId, p_document_id: input.documentId, p_actor_id: input.actorId, p_reason: input.reason });
+  fail(r.error); return r.data;
+}
+
 export async function claimDocumentJob(db, input) {
   const r = await db.rpc("billing_claim_document_job", { p_job_id: input.jobId, p_actor_id: input.actorId });
   fail(r.error); return r.data;

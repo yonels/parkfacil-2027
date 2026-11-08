@@ -302,15 +302,12 @@ export const navigationItems = [
     icon: ReceiptText,
     activePrefix: "/facturacion",
     children: [
-      { href: "/facturacion#servicios", label: "Servicios a facturar" },
-      { href: "/facturacion#prefacturacion", label: "Prefacturación" },
-      { href: "/facturacion#facturas", label: "Facturas" },
-      { href: "/facturacion#notas-credito", label: "Notas de Crédito" },
-      { href: "/facturacion#notas-debito", label: "Notas de Débito" },
+      // Propuesta aprobada 2026-11-08 (prototipo «Facturación por etapas»): las etapas viven dentro del ciclo; las
+      // pantallas de detalle (servicios, prefacturas, facturas, NC, ND, pagos, cobranza, conciliación) siguen en la
+      // portada de Facturación y se abren desde cada etapa.
+      { href: "/facturacion#ciclo", label: "Ciclo de facturación" },
+      { href: "/facturacion#documentos-emitidos", label: "Documentos SII" },
       { href: "/facturacion#cuenta-corriente", label: "Cuenta Corriente" },
-      { href: "/facturacion#pagos", label: "Pagos" },
-      { href: "/facturacion#cobranza", label: "Cobranza" },
-      { href: "/facturacion#conciliacion", label: "Conciliación" },
       { href: "/facturacion#reportes", label: "Reportes" },
       { href: "/facturacion#configuracion", label: "Configuración" },
     ],
