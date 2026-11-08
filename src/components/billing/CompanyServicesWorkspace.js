@@ -9,7 +9,7 @@ import { monthlyNetEstimate } from "@/lib/billing/companyServicesCore.mjs";
 // Servicios a facturar por empresa (SOL-2026-11-05-005, F1.2): se elige la empresa y se le agregan
 // servicios del catálogo con cantidad y precio, como en EasyDoc.
 const columns = [
-  { key: "conceptCode", label: "Servicio", width: 160, pinned: true, required: true },
+  { key: "conceptCode", label: "Código", width: 120, pinned: true, required: true },
   { key: "description", label: "Descripción", width: 280 },
   { key: "cantidad", label: "Cantidad", width: 100 },
   { key: "precio", label: "Precio unitario", width: 150 },
