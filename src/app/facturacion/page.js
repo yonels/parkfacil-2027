@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Banknote, ClipboardList, BarChart3, CircleDollarSign, FileCheck2, FileMinus2, FilePlus2, HandCoins, ReceiptText, RefreshCcw, Settings2, WalletCards } from "lucide-react";
+import { ArrowLeft, Banknote, ClipboardList, BarChart3, CircleDollarSign, FileCheck2, FileMinus2, FilePlus2, FileSearch, Workflow, HandCoins, ReceiptText, RefreshCcw, Settings2, WalletCards } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import ParkFacilDataGrid from "@/components/ui/ParkFacilDataGrid";
@@ -13,6 +13,8 @@ import DocumentJobPanel from "@/components/billing/DocumentJobPanel";
 import CatalogWorkspace from "@/components/billing/CatalogWorkspace";
 import BillingSettingsWorkspace from "@/components/billing/BillingSettingsWorkspace";
 import CompanyServicesWorkspace from "@/components/billing/CompanyServicesWorkspace";
+import IssuedDocumentsWorkspace from "@/components/billing/IssuedDocumentsWorkspace";
+import BillingCycleWorkspace from "@/components/billing/BillingCycleWorkspace";
 
 const column = (key, label, width = 150, pinned = false) => ({ key, label, width, pinned, required: pinned });
 
@@ -24,6 +26,10 @@ const summaryCards = [
 ];
 
 const moduleCards = [
+  {
+    id: "ciclo", group: "operacion", title: "Ciclo de facturación", description: "Cada empresa avanza por etapas hasta emitir y enviar su factura del mes. Incluye facturar en lote.", icon: Workflow,
+    columns: [],
+  },
   {
     id: "servicios", group: "operacion", title: "Servicios a facturar", description: "Servicios y productos del catálogo asignados a cada empresa.", icon: ClipboardList,
     columns: [],
@@ -43,6 +49,10 @@ const moduleCards = [
   {
     id: "notas-debito", group: "operacion", title: "Notas de Débito", description: "Gestión de documentos de ajuste por débito.", icon: FilePlus2,
     columns: [column("folioNd", "Folio ND", 130, true), column("facturaRelacionada", "Factura relacionada", 180), column("cliente", "Cliente", 220), column("fecha", "Fecha", 130), column("motivo", "Motivo", 240), column("neto", "Neto", 130), column("impuesto", "Impuesto", 130), column("total", "Total", 130), column("estado", "Estado", 140)],
+  },
+  {
+    id: "documentos-emitidos", group: "operacion", title: "Documentos SII", description: "Facturas y notas registradas en el SII, de cualquier origen: ParkFacil, EasyDoc, Registro de Ventas del SII y Haulmer.", icon: FileSearch,
+    columns: [],
   },
   {
     id: "cuenta-corriente", group: "cartera", title: "Cuenta Corriente", description: "Saldos y movimientos comerciales por cliente.", icon: WalletCards,
@@ -175,7 +185,7 @@ export default function FacturacionPage() {
         ) : (
           <section className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#3150D8]">Planilla de Facturación</p><h2 className="mt-1 text-2xl font-bold text-[#041E42]">{activeModule.title}</h2><p className="mt-1 text-sm text-slate-600">{activeModule.description}</p></div><button type="button" onClick={closeModule} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] shadow-sm hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /> Volver a Facturación</button></div>
-            {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : activeModule.id === "facturas" ? <><DocumentJobPanel /><DocumentWorkspace type="INVOICE" /></> : activeModule.id === "notas-credito" ? <DocumentWorkspace type="CREDIT_NOTE" /> : activeModule.id === "notas-debito" ? <DocumentWorkspace type="DEBIT_NOTE" /> : activeModule.id === "configuracion" ? <div className="space-y-6"><BillingSettingsWorkspace /><CatalogWorkspace /></div> : activeModule.id === "servicios" ? <CompanyServicesWorkspace /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
+            {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : activeModule.id === "facturas" ? <><DocumentJobPanel /><DocumentWorkspace type="INVOICE" /></> : activeModule.id === "notas-credito" ? <DocumentWorkspace type="CREDIT_NOTE" /> : activeModule.id === "notas-debito" ? <DocumentWorkspace type="DEBIT_NOTE" /> : activeModule.id === "configuracion" ? <div className="space-y-6"><BillingSettingsWorkspace /><CatalogWorkspace /></div> : activeModule.id === "servicios" ? <CompanyServicesWorkspace /> : activeModule.id === "documentos-emitidos" ? <IssuedDocumentsWorkspace /> : activeModule.id === "ciclo" ? <BillingCycleWorkspace /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
           </section>
         )}
       </div>

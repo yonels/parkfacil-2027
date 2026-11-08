@@ -74,6 +74,20 @@ export class HaulmerBillingProviderAdapter extends BillingProviderAdapter {
     throw new BillingProviderError(body?.error?.code || `HTTP_${status}`, body?.error?.message || "Haulmer no entregó el documento.", { retryable: status >= 500 || status === 429 });
   }
 
+  // Documentos emitidos por el contribuyente de la API Key (SOL-2026-11-05-005, F2b). Documentación «/document/issued»:
+  // POST con filtros { Page, TipoDTE, FchEmis, RUTRecep } y operadores eq/gte/lte; 30 documentos por página.
+  async listIssued({ page = 1, from, to, dteType, receiverRutNumber } = {}) {
+    const body = { Page: String(page) };
+    if (from || to) body.FchEmis = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
+    if (dteType) body.TipoDTE = { eq: String(dteType) };
+    if (receiverRutNumber) body.RUTRecep = { eq: Number(receiverRutNumber) };
+    const { status, body: response } = await this.#call("POST", "/v2/dte/document/issued", { body });
+    if (status === 429) throw new BillingProviderError("PROVIDER_RATE_LIMIT", "Haulmer pidió esperar antes de seguir consultando.", { retryable: true });
+    if (status === 401) throw new BillingProviderError("DTE_API_KEY_REJECTED", "Haulmer rechazó la API Key.");
+    if (status < 200 || status >= 300) throw new BillingProviderError(response?.error?.code || `HTTP_${status}`, response?.error?.message || "Haulmer no entregó el listado de documentos.", { retryable: status >= 500 });
+    return { page: Number(response?.current_page || page), lastPage: Number(response?.last_page || 1), total: Number(response?.total || 0), data: Array.isArray(response?.data) ? response.data : [] };
+  }
+
   async getDocumentStatus(token) {
     const body = await this.getDocument(token, "status");
     // Respuesta real de dev-api (2026-11-06): { estado: "Aceptado", token }.

@@ -7,10 +7,15 @@
     {
       "path": "/api/internal/on-street-sms/process",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/internal/billing/dte-sync",
+      "schedule": "15 11 * * *"
     }
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/facturacion-f2b": false,
       "feature/facturacion-f2": false,
       "feature/facturacion-f1": false,
       "feature/facturacion-root": false,

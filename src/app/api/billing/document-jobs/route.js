@@ -6,7 +6,7 @@ export async function GET(request) {
   const auth = await authorizeRemainingRequest(request, PERMISSIONS.BILLING_READ);
   if (auth.response) return auth.response;
   try {
-    let query = auth.db.from("billing_document_jobs").select("id,company_id,document_id,status,attempts,max_attempts,next_attempt_at,last_attempt_at,error_code,error_message,updated_at").order("updated_at", { ascending: false });
+    let query = auth.db.from("billing_document_jobs").select("id,company_id,document_id,status,attempts,max_attempts,next_attempt_at,last_attempt_at,error_code,error_message,updated_at,billing_documents(status,folio,document_type,provider_document_id,customer_snapshot)").order("updated_at", { ascending: false });
     const companyId = remainingCompanyScope(auth.context);
     if (companyId) query = query.eq("company_id", companyId);
     const result = await query;
