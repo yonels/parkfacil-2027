@@ -4,6 +4,7 @@
 // «Nota de Crédito» y «Nota de Débito», leída 2026-11-06): POST /v2/dte/document, nombres de campos del SII,
 // Folio 0 (lo asigna OpenFactura), Referencia { NroLinRef, TpoDocRef, FolioRef, FchRef, CodRef }.
 import { BillingProviderError } from "./BillingProviderAdapter.mjs";
+import { invalidRutMessage, isValidRut } from "../rutCore.mjs";
 
 export const DTE_TYPES = Object.freeze({ INVOICE: 33, CREDIT_NOTE: 61, DEBIT_NOTE: 56 });
 export const HAULMER_BASE_URLS = Object.freeze({ TEST: "https://dev-api.haulmer.com", PRODUCTION: "https://api.haulmer.com" });
@@ -35,6 +36,7 @@ export function issuerSection({ issuer = {}, environment }) {
   const missing = [["rut", "RUT"], ["businessName", "razón social"], ["businessActivity", "giro"], ["activityCode", "código de actividad"], ["address", "dirección"], ["district", "comuna"]]
     .filter(([key]) => !String(issuer[key] || "").trim()).map(([, label]) => label);
   if (missing.length) fail("ISSUER_DATA_MISSING", `Faltan datos del emisor para Haulmer: ${missing.join(", ")}.`);
+  if (!isValidRut(issuer.rut)) fail("ISSUER_RUT_INVALID", invalidRutMessage(issuer.rut, "del emisor").replace("en la ficha de la empresa", "en Facturación → Configuración"));
   const section = { RUTEmisor: cleanRut(issuer.rut), RznSoc: text(issuer.businessName, 100), GiroEmis: text(issuer.businessActivity, 80), Acteco: Number(issuer.activityCode), DirOrigen: text(issuer.address, 70), CmnaOrigen: text(issuer.district, 20) };
   if (String(issuer.siiBranchCode || "").trim()) section.CdgSIISucur = String(issuer.siiBranchCode).trim();
   return section;
@@ -44,6 +46,7 @@ export function receiverSection(customer = {}) {
   const missing = [["rut", "RUT"], ["businessName", "razón social"], ["businessActivity", "giro"], ["address", "dirección"], ["district", "comuna"]]
     .filter(([key]) => !String(customer[key] || "").trim()).map(([, label]) => label);
   if (missing.length) fail("FISCAL_DATA_MISSING", `Faltan datos tributarios del cliente: ${missing.join(", ")}.`);
+  if (!isValidRut(customer.rut)) fail("CUSTOMER_RUT_INVALID", invalidRutMessage(customer.rut));
   const section = { RUTRecep: cleanRut(customer.rut), RznSocRecep: text(customer.businessName, 100), GiroRecep: text(customer.businessActivity, 40), DirRecep: text(customer.address, 70), CmnaRecep: text(customer.district, 20) };
   if (String(customer.city || "").trim()) section.CiudadRecep = text(customer.city, 20);
   return section;
