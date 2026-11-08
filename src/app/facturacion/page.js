@@ -15,6 +15,7 @@ import BillingSettingsWorkspace from "@/components/billing/BillingSettingsWorksp
 import CompanyServicesWorkspace from "@/components/billing/CompanyServicesWorkspace";
 import IssuedDocumentsWorkspace from "@/components/billing/IssuedDocumentsWorkspace";
 import BillingCycleWorkspace from "@/components/billing/BillingCycleWorkspace";
+import NotesWorkspace from "@/components/billing/NotesWorkspace";
 import { forgetCycleReturn, readCycleReturn } from "@/components/billing/cycleReturnStore";
 
 const column = (key, label, width = 150, pinned = false) => ({ key, label, width, pinned, required: pinned });
@@ -29,6 +30,10 @@ const summaryCards = [
 const moduleCards = [
   {
     id: "ciclo", group: "operacion", title: "Ciclo de facturación", description: "Cada empresa avanza por etapas hasta emitir y enviar su factura del mes. Incluye facturar en lote.", icon: Workflow,
+    columns: [],
+  },
+  {
+    id: "notas", group: "operacion", title: "Notas de crédito y débito", description: "Busque una factura emitida por cualquier dato (folio, RUT, razón social, monto, fecha) y emita su nota de crédito o débito.", icon: FileMinus2,
     columns: [],
   },
   {
@@ -197,7 +202,7 @@ export default function FacturacionPage() {
                 <button type="button" onClick={() => { forgetCycleReturn(); setReturnDismissed((n) => n + 1); }} className="ml-auto text-indigo-500 hover:text-indigo-800" aria-label="Cerrar">✕</button>
               </div>
             ) : null}
-            {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : activeModule.id === "facturas" ? <><DocumentJobPanel /><DocumentWorkspace type="INVOICE" /></> : activeModule.id === "notas-credito" ? <DocumentWorkspace type="CREDIT_NOTE" /> : activeModule.id === "notas-debito" ? <DocumentWorkspace type="DEBIT_NOTE" /> : activeModule.id === "configuracion" ? <div className="space-y-6"><BillingSettingsWorkspace /><CatalogWorkspace /></div> : activeModule.id === "servicios" ? <CompanyServicesWorkspace /> : activeModule.id === "documentos-emitidos" ? <IssuedDocumentsWorkspace /> : activeModule.id === "ciclo" ? <BillingCycleWorkspace /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
+            {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : activeModule.id === "facturas" ? <><DocumentJobPanel /><DocumentWorkspace type="INVOICE" /></> : activeModule.id === "notas-credito" ? <DocumentWorkspace type="CREDIT_NOTE" /> : activeModule.id === "notas-debito" ? <DocumentWorkspace type="DEBIT_NOTE" /> : activeModule.id === "configuracion" ? <div className="space-y-6"><BillingSettingsWorkspace /><CatalogWorkspace /></div> : activeModule.id === "servicios" ? <CompanyServicesWorkspace /> : activeModule.id === "documentos-emitidos" ? <IssuedDocumentsWorkspace /> : activeModule.id === "ciclo" ? <BillingCycleWorkspace /> : activeModule.id === "notas" ? <NotesWorkspace /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
           </section>
         )}
       </div>
