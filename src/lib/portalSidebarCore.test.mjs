@@ -85,7 +85,7 @@ test("Root conserva todas sus opciones, con Off Street y On Street arriba", () =
   assert.ok(!admin.children.some((child) => child.label === "Facturación"));
   const adminSection = sections.find((section) => section.id === "administracion");
   assert.deepEqual(adminSection.items.map((item) => item.label), ["Centro de Control SMS", "Facturación", "Administración"]);
-  assert.equal(items.find((item) => item.label === "Facturación").children.length, 5);
+  assert.equal(items.find((item) => item.label === "Facturación").children.length, 6);
 });
 
 test("los portales Cliente y Root usan el menú nuevo; los demás, el anterior", () => {

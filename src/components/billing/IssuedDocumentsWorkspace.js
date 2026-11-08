@@ -54,6 +54,9 @@ export default function IssuedDocumentsWorkspace() {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [sync, setSync] = useState(null);
+  // Resultado visible de la última búsqueda (pedido del usuario 2026-11-09: «como se sabe que ejecutó la operación?»).
+  const [searchInfo, setSearchInfo] = useState(null);
+  const [badDate, setBadDate] = useState({ from: false, to: false });
 
   const load = useCallback(async (current) => {
     try {
@@ -65,7 +68,7 @@ export default function IssuedDocumentsWorkspace() {
   useEffect(() => {
     let active = true;
     fetchDocuments(applied)
-      .then((data) => { if (active) { setRows(data.rows || []); setImports(data.imports || []); setError(""); } })
+      .then((data) => { if (active) { setRows(data.rows || []); setImports(data.imports || []); setError(""); setSearchInfo({ count: (data.rows || []).length, at: new Date().toLocaleTimeString("es-CL"), filtered: Object.values(applied).some(Boolean) }); } })
       .catch((err) => { if (active) setError(err.message); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -107,7 +110,16 @@ export default function IssuedDocumentsWorkspace() {
     window.open(`/api/billing/dte-registry/${row.id}/pdf`, "_blank", "noopener");
   }
 
-  const set = (key) => (event) => setFilters((current) => ({ ...current, [key]: event.target.value }));
+  const set = (key) => (event) => {
+    // Un input de fecha con una fecha imposible (p. ej. 31 de noviembre) queda vacío: se avisa en vez de ignorarla.
+    if (key === "from" || key === "to") setBadDate((current) => ({ ...current, [key]: Boolean(event.target.validity?.badInput) }));
+    setFilters((current) => ({ ...current, [key]: event.target.value }));
+  };
+  function search() {
+    if (badDate.from || badDate.to) { setError("Hay una fecha que no existe (por ejemplo, 31 de noviembre). Corríjala y vuelva a buscar."); return; }
+    if (filters.from && filters.to && filters.from > filters.to) { setError("La fecha de inicio es posterior a la fecha de fin."); return; }
+    setError(""); setSearchInfo(null); setLoading(true); setApplied({ ...filters });
+  }
 
   return (
     <div className="space-y-5">
@@ -159,14 +171,15 @@ export default function IssuedDocumentsWorkspace() {
           <Field label="Folio SII"><input value={filters.folio} onChange={set("folio")} inputMode="numeric" className={inputClass} /></Field>
           <Field label="RUT cliente"><input value={filters.rut} onChange={set("rut")} placeholder="76540968-3" className={inputClass} /></Field>
           <Field label="Razón social"><input value={filters.name} onChange={set("name")} className={inputClass} /></Field>
-          <Field label="Fecha inicio"><input type="date" value={filters.from} onChange={set("from")} className={inputClass} /></Field>
-          <Field label="Fecha fin"><input type="date" value={filters.to} onChange={set("to")} className={inputClass} /></Field>
+          <Field label="Fecha inicio"><input type="date" value={filters.from} onChange={set("from")} onBlur={(e) => setBadDate((c) => ({ ...c, from: Boolean(e.target.validity?.badInput) }))} className={`${inputClass} ${badDate.from ? "border-red-500 bg-red-50" : ""}`} />{badDate.from ? <span className="mt-1 block text-xs font-semibold text-red-600">Fecha que no existe</span> : null}</Field>
+          <Field label="Fecha fin"><input type="date" value={filters.to} onChange={set("to")} onBlur={(e) => setBadDate((c) => ({ ...c, to: Boolean(e.target.validity?.badInput) }))} className={`${inputClass} ${badDate.to ? "border-red-500 bg-red-50" : ""}`} />{badDate.to ? <span className="mt-1 block text-xs font-semibold text-red-600">Fecha que no existe</span> : null}</Field>
           <Field label="Respuesta cliente"><select value={filters.response} onChange={set("response")} className={inputClass}><option value="">Todas</option>{RESPONSES.map((r) => <option key={r} value={r}>{r === "SIN_RESPUESTA" ? "Sin respuesta" : r}</option>)}</select></Field>
           <Field label="Origen"><select value={filters.source} onChange={set("source")} className={inputClass}><option value="">Todos</option>{Object.entries(DTE_SOURCES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
         </div>
         <div className="mt-3 flex gap-2">
-          <button type="button" onClick={() => { setLoading(true); setApplied({ ...filters }); }} className="inline-flex items-center gap-2 rounded-lg bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white"><Search className="h-4 w-4" />Buscar</button>
-          <button type="button" onClick={() => { setLoading(true); setFilters(EMPTY_FILTERS); setApplied({ ...EMPTY_FILTERS }); }} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold">Limpiar</button>
+          <button type="button" disabled={loading} onClick={search} className="inline-flex items-center gap-2 rounded-lg bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-[#2741b5] active:scale-95 disabled:cursor-wait disabled:opacity-60"><Search className={`h-4 w-4 ${loading ? "animate-pulse" : ""}`} />{loading ? "Buscando…" : "Buscar"}</button>
+          <button type="button" disabled={loading} onClick={() => { setError(""); setSearchInfo(null); setBadDate({ from: false, to: false }); setLoading(true); setFilters(EMPTY_FILTERS); setApplied({ ...EMPTY_FILTERS }); }} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold transition active:scale-95 disabled:opacity-60">Limpiar</button>
+          {searchInfo && !loading ? <span role="status" className={`self-center rounded-full px-3 py-1 text-sm font-semibold ${searchInfo.count ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{searchInfo.count ? `✓ ${searchInfo.count.toLocaleString("es-CL")} documento(s) encontrado(s)` : "Sin resultados para estos filtros"} · {searchInfo.at}</span> : null}
         </div>
       </section>
 

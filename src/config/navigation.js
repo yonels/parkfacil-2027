@@ -306,6 +306,7 @@ export const navigationItems = [
       // pantallas de detalle (servicios, prefacturas, facturas, NC, ND, pagos, cobranza, conciliación) siguen en la
       // portada de Facturación y se abren desde cada etapa.
       { href: "/facturacion#ciclo", label: "Ciclo de facturación" },
+      { href: "/facturacion#notas", label: "Notas de crédito y débito" },
       { href: "/facturacion#documentos-emitidos", label: "Documentos SII" },
       { href: "/facturacion#cuenta-corriente", label: "Cuenta Corriente" },
       { href: "/facturacion#reportes", label: "Reportes" },
