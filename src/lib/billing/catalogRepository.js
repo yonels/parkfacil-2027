@@ -30,7 +30,7 @@ async function audit(db, { conceptId, action, actorId, previous, next }) {
 }
 
 export async function listCatalog(db) {
-  const result = await db.from("billable_concepts").select(COLUMNS).order("status").order("name");
+  const result = await db.from("billable_concepts").select(COLUMNS).order("status").order("item_kind", { ascending: false }).order("code");
   fail(result.error, "No fue posible listar el catálogo");
   const rows = result.data || [];
   const usage = await usageByConcept(db, rows.map((row) => row.id));
@@ -54,10 +54,6 @@ export async function createCatalogItem(db, values, actorId) {
 
 export async function updateCatalogItem(db, id, values, actorId) {
   const previous = await getRow(db, id);
-  if (values.code && values.code !== previous.code) {
-    const usage = await usageByConcept(db, [id]);
-    if (usage.get(id)) throw new CatalogValidationError("CATALOG_CODE_LOCKED", "No se puede cambiar el código de un servicio o producto que ya se usó en contratos o prefacturas.", "code");
-  }
   const changes = { ...toCatalogRow(values, actorId), updated_at: new Date().toISOString() };
   const result = await db.from("billable_concepts").update(changes).eq("id", id).select(COLUMNS).single();
   fail(result.error, "No fue posible guardar el servicio o producto");

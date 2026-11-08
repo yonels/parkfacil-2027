@@ -3,7 +3,7 @@
 
 export const CATALOG_ITEM_KINDS = Object.freeze({ SERVICE: "Servicio", PRODUCT: "Producto" });
 export const CATALOG_CATEGORIES = Object.freeze({
-  FEE: "Fee", SUBSCRIPTION: "Suscripción", PARKING: "Estacionamiento", DEVICE: "Dispositivo",
+  FEE: "Cuota", SUBSCRIPTION: "Suscripción", PARKING: "Estacionamiento", DEVICE: "Dispositivo",
   IMPLEMENTATION: "Implementación", INTEGRATION: "Integración", SUPPORT: "Soporte",
   SERVICE: "Servicio", DISCOUNT: "Descuento", OTHER: "Otro",
 });
@@ -22,7 +22,8 @@ export class CatalogValidationError extends Error {
   }
 }
 
-const CODE_PATTERN = /^[A-Z0-9][A-Z0-9_]{1,39}$/;
+// Decisión del usuario 2026-11-08: el código lo asigna la base de datos (SERV-01, PROD-01…) y no se edita.
+export const CATALOG_CODE_PATTERN = /^(SERV|PROD)-[0-9]{2,}$/;
 
 function oneOf(value, allowed, code, message, field) {
   if (!Object.hasOwn(allowed, value)) throw new CatalogValidationError(code, message, field);
@@ -50,11 +51,6 @@ export function validateCatalogInput(input = {}, { partial = false } = {}) {
   const out = {};
   const has = (key) => !partial || Object.hasOwn(input, key);
 
-  if (has("code")) {
-    const code = normalizeCatalogCode(input.code);
-    if (!CODE_PATTERN.test(code)) throw new CatalogValidationError("CATALOG_CODE_INVALID", "El código debe tener entre 2 y 40 caracteres: letras, números o guion bajo.", "code");
-    out.code = code;
-  }
   if (has("name")) {
     const name = String(input.name || "").trim();
     if (name.length < 2 || name.length > 120) throw new CatalogValidationError("CATALOG_NAME_INVALID", "El nombre es obligatorio (2 a 120 caracteres).", "name");
@@ -84,7 +80,7 @@ export function validateCatalogInput(input = {}, { partial = false } = {}) {
 }
 
 export function toCatalogRow(values, actorId) {
-  const map = { code: "code", name: "name", description: "description", itemKind: "item_kind", category: "category", unit: "unit", taxCategory: "tax_category", periodicity: "periodicity", referenceCurrency: "reference_currency", referencePrice: "reference_price", status: "status" };
+  const map = { name: "name", description: "description", itemKind: "item_kind", category: "category", unit: "unit", taxCategory: "tax_category", periodicity: "periodicity", referenceCurrency: "reference_currency", referencePrice: "reference_price", status: "status" };
   const row = {};
   for (const [key, column] of Object.entries(map)) if (Object.hasOwn(values, key)) row[column] = values[key];
   if (actorId) row.updated_by = actorId;

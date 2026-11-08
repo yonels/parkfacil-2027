@@ -119,7 +119,6 @@ export default function CatalogWorkspace() {
   async function save() {
     const { id, usageCount: _usage, updatedAt: _updated, ...values } = form || {};
     if (!values.name?.trim()) { setFieldError({ name: "El nombre es obligatorio." }); return; }
-    if (!values.code?.trim()) { setFieldError({ code: "El código es obligatorio." }); return; }
     const ok = id ? await send("PATCH", `/api/billing/catalog/${id}`, values) : await send("POST", "/api/billing/catalog", values);
     if (ok) { setForm(null); setMessage(id ? "Servicio o producto actualizado." : "Servicio o producto creado."); }
   }
@@ -166,7 +165,7 @@ export default function CatalogWorkspace() {
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <Field label="Nombre" error={fieldError.name}><input value={form.name} onChange={(event) => set("name")(event.target.value)} className="w-full rounded-lg border border-slate-300 p-2" placeholder="Parkfacil servicios de software" /></Field>
-              <Field label="Código" error={fieldError.code}><input value={form.code} onChange={(event) => set("code")(event.target.value)} disabled={Boolean(form.id && form.usageCount)} className="w-full rounded-lg border border-slate-300 p-2 uppercase disabled:bg-slate-100" placeholder="SOFTWARE" /></Field>
+              <Field label="Código"><input value={form.code || "Se asigna al guardar"} disabled className="w-full rounded-lg border border-slate-300 bg-slate-100 p-2 text-slate-600" /><span className="mt-1 block text-xs text-slate-500">Automático: SERV-01, SERV-02… para servicios; PROD-01… para productos.</span></Field>
               <Field label="Tipo" error={fieldError.itemKind}><Select value={form.itemKind} onChange={set("itemKind")} options={CATALOG_ITEM_KINDS} /></Field>
               <Field label="Categoría" error={fieldError.category}><Select value={form.category} onChange={set("category")} options={CATALOG_CATEGORIES} /></Field>
               <Field label="Precio de referencia (neto)" error={fieldError.referencePrice}><input value={form.referencePrice} onChange={(event) => set("referencePrice")(event.target.value)} inputMode="decimal" className="w-full rounded-lg border border-slate-300 p-2" placeholder="Ej.: 1,5" /></Field>

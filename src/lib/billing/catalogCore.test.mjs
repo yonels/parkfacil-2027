@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { catalogAuditAction, fromCatalogRow, normalizeCatalogCode, parseReferencePrice, toCatalogRow, validateCatalogInput } from "./catalogCore.mjs";
+import { CATALOG_CODE_PATTERN, catalogAuditAction, fromCatalogRow, normalizeCatalogCode, parseReferencePrice, toCatalogRow, validateCatalogInput } from "./catalogCore.mjs";
 
 const base = { code: "software", name: "Parkfacil servicios de software", itemKind: "SERVICE", category: "SERVICE", unit: "mes", taxCategory: "TAXABLE", periodicity: "MONTHLY", referenceCurrency: "UF", referencePrice: "1,5" };
 
@@ -11,7 +11,7 @@ test("normaliza el código: mayúsculas, sin tildes ni espacios", () => {
 
 test("valida un servicio completo con precio en UF", () => {
   const value = validateCatalogInput(base);
-  assert.equal(value.code, "SOFTWARE");
+  assert.equal(Object.hasOwn(value, "code"), false); // el código lo asigna la base de datos
   assert.equal(value.referencePrice, 1.5);
   assert.equal(value.referenceCurrency, "UF");
   assert.equal(value.taxCategory, "TAXABLE");
@@ -25,9 +25,16 @@ test("precio acepta coma o punto decimal y miles con punto", () => {
   assert.throws(() => parseReferencePrice("abc"), (e) => e.code === "CATALOG_PRICE_INVALID");
 });
 
-test("exige nombre y código válidos", () => {
+test("exige nombre válido; el código enviado se ignora", () => {
   assert.throws(() => validateCatalogInput({ ...base, name: " " }), (e) => e.code === "CATALOG_NAME_INVALID" && e.field === "name");
-  assert.throws(() => validateCatalogInput({ ...base, code: "x" }), (e) => e.code === "CATALOG_CODE_INVALID");
+  assert.equal(validateCatalogInput({ ...base, code: "x" }).code, undefined);
+  assert.equal(toCatalogRow(validateCatalogInput({ ...base, code: "MANUAL" })).code, undefined);
+});
+
+test("formato del código automático", () => {
+  assert.match("SERV-01", CATALOG_CODE_PATTERN);
+  assert.match("PROD-120", CATALOG_CODE_PATTERN);
+  assert.doesNotMatch("MONTHLY_FEE", CATALOG_CODE_PATTERN);
 });
 
 test("rechaza valores fuera de las listas", () => {
