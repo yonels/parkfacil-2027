@@ -91,7 +91,8 @@ export function buildHaulmerDte(request, { environment }) {
   }
   // El correo al cliente lo envía ParkFacil (documentEmailService) con el PDF: no se pide sendEmail a Haulmer
   // para no duplicar envíos (y porque desde su ambiente de pruebas no llegó, 2026-11-06).
-  return { response: ["FOLIO", "RESOLUCION"], dte };
+  // «PDF» en la respuesta: Haulmer entrega el PDF junto con el folio (~1,4 s) en vez de generarlo después (~48 s).
+  return { response: ["FOLIO", "RESOLUCION", "PDF"], dte };
 }
 
 // Destinatarios del correo del documento (mismo formato que sendEmail de OpenFactura: to, CC, BCC).

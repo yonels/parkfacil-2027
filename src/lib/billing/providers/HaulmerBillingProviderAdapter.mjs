@@ -3,6 +3,7 @@
 import { BillingProviderAdapter, BillingProviderError, PROVIDER_RESULTS, validateBillingDocumentRequest } from "./BillingProviderAdapter.mjs";
 import { buildHaulmerDte, HAULMER_BASE_URLS } from "./haulmerDteCore.mjs";
 import { parseBoletaResponse } from "../../boletaElectronica/openFacturaCore.mjs";
+import { cachedIssuedPdf, rememberIssuedPdf } from "./haulmerPdfCache.mjs";
 
 export class HaulmerBillingProviderAdapter extends BillingProviderAdapter {
   constructor({ environment = "TEST", apiKey, fetchImpl = fetch, timeoutMs = 20000, retryDelayMs = 3000 } = {}) {
@@ -40,6 +41,7 @@ export class HaulmerBillingProviderAdapter extends BillingProviderAdapter {
       if (status >= 400 && status < 500 && status !== 401 && !error.retryable) return { result: PROVIDER_RESULTS.REJECTED, provider: "haulmer", providerStatus: String(error.code || `HTTP_${status}`), providerCode: String(error.code || `HTTP_${status}`), message: `${error.message}${details ? ` (${details})` : ""}`, retryable: false };
       throw new BillingProviderError(error.code || "PROVIDER_ERROR", error.message, { retryable: Boolean(error.retryable) });
     }
+    if (typeof body?.PDF === "string") rememberIssuedPdf(parsed.token, body.PDF);
     // OF-06 (la misma Idempotency-Key ya emitió): Haulmer devuelve solo el token; el folio se lee del documento.
     if (parsed.alreadyIssued && parsed.folio == null) {
       try { const stored = await this.getDocument(parsed.token, "json"); parsed.folio = stored?.json?.Encabezado?.IdDoc?.Folio ?? null; } catch { /* el folio se puede completar después */ }
@@ -63,6 +65,7 @@ export class HaulmerBillingProviderAdapter extends BillingProviderAdapter {
     // El PDF se genera al momento si no se pidió al emitir: se espera más (probado en dev-api 2026-11-06).
     // Probado en dev-api (2026-11-06): recién emitido, el PDF responde HTTP 500 mientras Haulmer lo genera y luego
     // queda disponible. Se reintenta hasta 3 veces con 3 s de espera.
+    if (value === "pdf") { const cached = cachedIssuedPdf(token); if (cached) return { pdf: cached }; }
     const isFile = value === "pdf" || value === "cedible";
     let status; let body;
     for (let attempt = 0; attempt < (isFile ? 4 : 1); attempt += 1) {
