@@ -229,7 +229,7 @@ function StepPanel({ row, period, step, readOnly, busy, runStep, backToCurrent, 
       action = { label: readOnly ? "Guardar cambios" : "Guardar y continuar", run: () => runStep("datos", { payload: { customer } }), hide: readOnly && issued };
       break;
     case "servicios":
-      body = <div className="space-y-2 text-sm"><p><b>{row.services.active}</b> servicio(s) activo(s) en el período{row.services.untaxed ? <> · <b className="text-red-600">{row.services.untaxed} sin IVA definido</b></> : null}.</p><a onClick={goDetail} href="/facturacion#servicios" className="font-semibold text-[#3150D8] underline">Editar servicios de la empresa</a>{row.services.untaxed ? <> · <a onClick={goDetail} href="/facturacion#configuracion" className="font-semibold text-[#3150D8] underline">Definir IVA en el catálogo</a></> : null}</div>;
+      body = <div className="space-y-2 text-sm"><p><b>{row.services.active}</b> servicio(s) activo(s) en el período{row.services.untaxed ? <> · <b className="text-red-600">{row.services.untaxed} sin IVA definido</b></> : null}.</p><a onClick={goDetail} href="/facturacion#servicios" className="font-semibold text-[#3150D8] underline">Editar servicios de la empresa</a>{row.services.untaxed ? <> · <a onClick={goDetail} href="/facturacion#catalogo" className="font-semibold text-[#3150D8] underline">Definir IVA en el catálogo</a></> : null}</div>;
       action = { label: "Confirmar servicios", run: () => runStep("servicios") };
       break;
     case "prefactura":

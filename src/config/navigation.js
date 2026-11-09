@@ -311,7 +311,12 @@ export const navigationItems = [
       { href: "/facturacion#documentos-emitidos", label: "Documentos SII" },
       { href: "/facturacion#cuenta-corriente", label: "Cuenta Corriente" },
       { href: "/facturacion#reportes", label: "Reportes" },
-      { href: "/facturacion#configuracion", label: "Configuración" },
+      // Configuración con ramas (pedido del usuario 2026-11-09): emisor y emisión, folios y catálogo.
+      { href: "/facturacion#configuracion", label: "Configuración", children: [
+        { href: "/facturacion#configuracion", label: "Emisor y emisión" },
+        { href: "/facturacion#folios", label: "Folios disponibles" },
+        { href: "/facturacion#catalogo", label: "Servicios y productos" },
+      ] },
     ],
   },
 
