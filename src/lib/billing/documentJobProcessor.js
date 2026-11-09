@@ -14,7 +14,7 @@ function requestFrom(document, issuer, origin = null) {
     issuer: { ...issuer, provider: document.provider }, customer: document.customer_snapshot,
     lines: document.lines.map(line => ({ description: line.description, quantity: Number(line.quantity), unitPrice: Number(line.unit_price), total: Number(line.subtotal), taxCategory: line.tax_category })),
     totals: { net: Number(document.net_amount), tax: Number(document.tax_amount), total: Number(document.total_amount) },
-    reference: document.document_reference_id ? { documentId: document.document_reference_id, folio: origin?.folio || null, date: origin?.invoice_date || null } : null,
+    reference: document.document_reference_id ? { documentId: document.document_reference_id, folio: origin?.folio || null, date: origin?.invoice_date || null, total: origin?.total_amount != null ? Number(origin.total_amount) : null } : null,
     reason: document.reason || null,
   };
 }
@@ -27,7 +27,7 @@ export async function processDocumentJob({ db, jobId, actorId, provider }) {
   try {
     const { issuer } = issuerForDocument(await readSettingsRow(db));
     let origin = null;
-    if (document.document_reference_id) { const ref = await db.from("billing_documents").select("folio,invoice_date").eq("id", document.document_reference_id).maybeSingle(); origin = ref.data || null; }
+    if (document.document_reference_id) { const ref = await db.from("billing_documents").select("folio,invoice_date,total_amount").eq("id", document.document_reference_id).maybeSingle(); origin = ref.data || null; }
     const request = requestFrom(document, issuer, origin);
     // F2: el proveedor es el del documento (el que estaba activo al pedir la emisión), no el de la ruta.
     const effectiveProvider = document.provider === "haulmer" ? await providerFor(db, "haulmer") : provider;

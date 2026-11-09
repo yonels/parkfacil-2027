@@ -76,6 +76,16 @@ export function detailAndTotals(lines, totals) {
   return { Detalle: detail, Totales: section };
 }
 
+// El SII solo acepta «anula documento» (CodRef 1) por el monto total original de la factura. Una nota «Total» después
+// de notas parciales acredita solo lo que resta: va como corrección de montos (CodRef 3). Probado en dev-api 2026-11-09:
+// CodRef 1 por 66.774 de 76.774 → OF-10.1 «Anulación presenta diff. de monto total con doc. referenciado»; CodRef 3 → OK.
+export function annulsWholeDocument(tipo, request) {
+  if (tipo !== 61 || request.correctionMode !== "TOTAL") return false;
+  const original = Number(request.reference?.total);
+  if (!Number.isFinite(original) || original <= 0) return true;
+  return Math.round(Number(request.totals?.total)) === Math.round(original);
+}
+
 export function buildHaulmerDte(request, { environment }) {
   const tipo = DTE_TYPES[request?.documentType];
   if (!tipo) fail("DOCUMENT_TYPE_INVALID", "Tipo de documento no soportado por Haulmer.");
@@ -87,7 +97,7 @@ export function buildHaulmerDte(request, { environment }) {
   if (tipo !== 33) {
     const ref = request.reference || {};
     if (!ref.folio || !ref.date) fail("REFERENCE_REQUIRED", "La nota requiere el folio y la fecha de la factura de origen.");
-    dte.Referencia = [{ NroLinRef: 1, TpoDocRef: "33", FolioRef: String(ref.folio), FchRef: ref.date, CodRef: tipo === 61 && request.correctionMode === "TOTAL" ? REFERENCE_CODES.VOID : REFERENCE_CODES.AMOUNT_CORRECTION, RazonRef: text(request.reason, 90) || "Corrige montos" }];
+    dte.Referencia = [{ NroLinRef: 1, TpoDocRef: "33", FolioRef: String(ref.folio), FchRef: ref.date, CodRef: annulsWholeDocument(tipo, request) ? REFERENCE_CODES.VOID : REFERENCE_CODES.AMOUNT_CORRECTION, RazonRef: text(request.reason, 90) || "Corrige montos" }];
   }
   // El correo al cliente lo envía ParkFacil (documentEmailService) con el PDF: no se pide sendEmail a Haulmer
   // para no duplicar envíos (y porque desde su ambiente de pruebas no llegó, 2026-11-06).

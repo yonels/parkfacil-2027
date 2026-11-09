@@ -307,6 +307,7 @@ export const navigationItems = [
       // portada de Facturación y se abren desde cada etapa.
       { href: "/facturacion#ciclo", label: "Ciclo de facturación" },
       { href: "/facturacion#notas", label: "Notas de crédito y débito" },
+      { href: "/facturacion#historial", label: "Historial del cliente" },
       { href: "/facturacion#documentos-emitidos", label: "Documentos SII" },
       { href: "/facturacion#cuenta-corriente", label: "Cuenta Corriente" },
       { href: "/facturacion#reportes", label: "Reportes" },

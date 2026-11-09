@@ -11,6 +11,8 @@ const dmy = (iso) => (iso ? String(iso).slice(0, 10).split("-").reverse().join("
 const chileToday = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
 const inputClass = "w-full rounded-xl border border-slate-300 px-3 py-2 text-sm";
 const PROVIDER = { haulmer: "Haulmer", mock: "Simulada" };
+// Disponible para acreditar, como la base: total − notas de crédito emitidas o en emisión.
+const creditable = (doc) => Math.max(0, Math.round(Number(doc.total_amount) || 0) - (doc.related || []).filter((x) => x.document_type === "CREDIT_NOTE" && ["ISSUING", "ISSUED", "PROVIDER_PENDING"].includes(x.status)).reduce((s, x) => s + Math.round(Number(x.total_amount) || 0), 0));
 const strip = (text) => String(text ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 function rut(doc) {
@@ -65,6 +67,7 @@ export default function NotesWorkspace() {
     const { doc, kind } = form;
     if (form.reason.trim().length < 5) { setError("Escriba el motivo (al menos 5 caracteres)."); return; }
     if ((kind === "DEBIT_NOTE" || form.mode === "PARTIAL") && !(Number(form.amount) > 0)) { setError("Indique un monto mayor que cero."); return; }
+    if (kind === "CREDIT_NOTE" && form.mode === "PARTIAL" && Number(form.amount) > creditable(doc)) { setError(`El monto supera lo disponible para acreditar (${money(creditable(doc))}).`); return; }
     setSaving(true); setError("");
     try {
       const path = kind === "CREDIT_NOTE" ? "credit-notes" : "debit-notes";
@@ -116,13 +119,14 @@ export default function NotesWorkspace() {
                   <td className="px-3 py-2 text-xs">{notes.length ? notes.map((n) => `${n.document_type === "CREDIT_NOTE" ? "NC" : "ND"} ${n.folio || ""} ${money(n.total_amount)}`).join(" · ") : "—"}</td>
                   <td className="px-3 py-2 text-right">{d.balance != null ? money(d.balance) : "—"}</td>
                   <td className="px-3 py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-bold ${d.provider === "haulmer" ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-600"}`}>{PROVIDER[d.provider] || d.provider}</span></td>
-                  <td className="whitespace-nowrap px-3 py-2"><button type="button" onClick={() => open(d, "CREDIT_NOTE")} className="mr-2 inline-flex items-center gap-1 rounded-lg bg-[#3150D8] px-3 py-1.5 text-xs font-bold text-white"><FileMinus2 className="h-3.5 w-3.5" />Nota de crédito</button><button type="button" onClick={() => open(d, "DEBIT_NOTE")} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold"><FilePlus2 className="h-3.5 w-3.5" />Nota de débito</button></td>
+                  <td className="whitespace-nowrap px-3 py-2">{creditable(d) <= 0 ? <span className="mr-2 inline-block rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-800" title="Ya fue acreditada por completo: no queda monto para otra nota de crédito">Anulada</span> : null}<button type="button" disabled={creditable(d) <= 0} title={creditable(d) <= 0 ? "Ya fue acreditada por completo" : ""} onClick={() => open(d, "CREDIT_NOTE")} className="mr-2 inline-flex items-center gap-1 rounded-lg bg-[#3150D8] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"><FileMinus2 className="h-3.5 w-3.5" />Nota de crédito</button><button type="button" onClick={() => open(d, "DEBIT_NOTE")} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-bold"><FilePlus2 className="h-3.5 w-3.5" />Nota de débito</button></td>
                 </tr>,
                 form?.doc.id === d.id ? (
                   <tr key={`${d.id}-form`} className="bg-indigo-50"><td colSpan={9} className="px-4 pb-4">
                     <div className="rounded-xl border border-indigo-200 bg-white p-4">
                       <h4 className="font-bold text-[#041E42]">{form.kind === "CREDIT_NOTE" ? "Nueva nota de crédito" : "Nueva nota de débito"} · factura {d.folio} · {client(d)} · {money(d.total_amount)}</h4>
                       <p className="mt-1 text-xs text-slate-500">{form.kind === "CREDIT_NOTE" ? "Total anula la factura completa; Parcial descuenta solo el monto indicado (con IVA incluido)." : "Cobra un monto adicional sobre esta factura (con IVA incluido)."} Se emite con el mismo proveedor de la factura.</p>
+                      <p className="mt-2 rounded-lg bg-indigo-50 p-2 text-sm">{(d.related || []).filter((x) => x.status === "ISSUED").length ? <><b>Ya tiene:</b> {(d.related || []).filter((x) => x.status === "ISSUED").map((n) => `${n.document_type === "CREDIT_NOTE" ? "NC" : "ND"} ${n.folio || ""} ${n.correction_mode === "TOTAL" ? "(total) " : ""}${money(n.total_amount)}`).join(" · ")}<br /></> : <b>Sin notas previas. </b>}{form.kind === "CREDIT_NOTE" ? <b>Disponible para acreditar: {money(creditable(d))}</b> : "La nota de débito suma un cobro a esta factura."}</p>
                       <div className="mt-3 grid gap-3 md:grid-cols-4">
                         {form.kind === "CREDIT_NOTE" ? <label className="text-sm"><span className="font-semibold text-slate-700">Tipo</span><select value={form.mode} onChange={(e) => setForm({ ...form, mode: e.target.value })} className={`${inputClass} mt-1`}><option value="PARTIAL">Parcial</option><option value="TOTAL">Total (anula la factura)</option></select></label> : null}
                         {form.kind === "DEBIT_NOTE" || form.mode === "PARTIAL" ? <label className="text-sm"><span className="font-semibold text-slate-700">Monto total (CLP)</span><input type="number" min="1" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className={`${inputClass} mt-1`} /></label> : null}
