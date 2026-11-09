@@ -15,6 +15,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/historial-planilla": false,
       "feature/historial-cliente": false,
       "perf/facturacion-pdf-en-emision": false,
       "fix/documentos-sii-buscar": false,
