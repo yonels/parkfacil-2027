@@ -15,6 +15,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "perf/facturacion-pdf-en-emision": false,
       "fix/documentos-sii-buscar": false,
       "feature/facturacion-volver-ciclo": false,
       "feature/facturacion-f2b": false,

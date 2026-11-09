@@ -9,7 +9,7 @@ const invoice = { idempotencyKey: "inv-1", documentType: "INVOICE", issueDate: "
 
 test("factura 33 con la estructura del ejemplo oficial de OpenFactura", () => {
   const { response, dte } = buildHaulmerDte(invoice, { environment: "PRODUCTION" });
-  assert.deepEqual(response, ["FOLIO", "RESOLUCION"]);
+  assert.deepEqual(response, ["FOLIO", "RESOLUCION", "PDF"]);
   assert.deepEqual(dte.Encabezado.IdDoc, { TipoDTE: 33, Folio: 0, FchEmis: "2026-11-06", FmaPago: "2", FchVenc: "2026-11-12" });
   assert.equal(dte.Encabezado.Emisor.RUTEmisor, "77991619-7");
   assert.equal(dte.Encabezado.Emisor.Acteco, 620900);
@@ -105,4 +105,17 @@ test("adaptador: con OF-06 recupera el folio desde el documento ya emitido", asy
 test("RUT con dígito verificador inválido no se envía a Haulmer (OF-02 confuso)", () => {
   assert.throws(() => buildHaulmerDte({ ...invoice, customer: { ...customer, rut: "13744807-9" } }, { environment: "TEST" }), (e) => e.code === "CUSTOMER_RUT_INVALID" && /dígito verificador/.test(e.message));
   assert.doesNotThrow(() => buildHaulmerDte({ ...invoice, customer: { ...customer, rut: "13.744.807-6" } }, { environment: "TEST" }));
+});
+
+test("el PDF que llega con la emisión se reutiliza sin volver a pedirlo a Haulmer", async () => {
+  let pdfCalls = 0;
+  const fetchImpl = async (url) => {
+    if (String(url).endsWith("/pdf")) { pdfCalls += 1; return { status: 500, json: async () => ({}) }; }
+    return { status: 200, json: async () => ({ TOKEN: "abcdef0123456789abcdef", FOLIO: 77, PDF: "JVBERi0xLjQ=" }) };
+  };
+  const adapter = new HaulmerBillingProviderAdapter({ apiKey: "k", fetchImpl, retryDelayMs: 0 });
+  const issued = await adapter.emitInvoice(invoice);
+  assert.equal(issued.folio, "77");
+  assert.deepEqual(await adapter.getDocument("abcdef0123456789abcdef", "pdf"), { pdf: "JVBERi0xLjQ=" });
+  assert.equal(pdfCalls, 0);
 });
