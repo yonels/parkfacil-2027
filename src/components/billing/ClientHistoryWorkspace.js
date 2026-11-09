@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { HISTORY_TYPES } from "@/lib/billing/clientHistoryCore.mjs";
+import ParkFacilDataGrid from "@/components/ui/ParkFacilDataGrid";
 
 // «Historial del cliente» (SOL-2026-11-05-005; prototipo aprobado por el usuario el 2026-11-09).
 const ICONS = { pre: ["🧾", "#7C3AED"], fac: ["📄", "#3150D8"], nc: ["➖", "#DC2626"], nd: ["➕", "#EA580C"], pago: ["💵", "#16A34A"], mail: ["✉", "#0284C7"], sii: ["🏛", "#0F766E"], cambio: ["✎", "#64748B"] };
@@ -10,6 +11,43 @@ const dmy = (iso) => (iso ? String(iso).slice(0, 10).split("-").reverse().join("
 const hm = (iso) => (String(iso).length > 10 ? new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" }) : "");
 const chileToday = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
 const inputClass = "rounded-xl border border-slate-300 px-3 py-2 text-sm";
+
+// Planilla tipo Excel (pedido del usuario 2026-11-09: «has esto clickeable y el reporte sea tipo excell»): cada tarjeta
+// del resumen abre el detalle de su monto; la planilla filtra, ordena y descarga XLSX con el componente común.
+const CATEGORIES = {
+  facturado: { label: "Facturado", test: (r) => r.kind === "fac" },
+  nc: { label: "Notas de crédito", test: (r) => r.kind === "nc" },
+  nd: { label: "Notas de débito", test: (r) => r.kind === "nd" },
+  pagado: { label: "Pagado", test: (r) => r.kind === "pago" },
+  saldo: { label: "Saldo pendiente", test: (r) => r.kind === "fac" && r.saldo > 0 && !r.importada },
+  vencidas: { label: "Facturas vencidas", test: (r) => r.kind === "fac" && r.estado === "Vencida" },
+};
+const LEDGER_COLUMNS = [
+  // La planilla muestra el valor de exportValue: la fecha ya viene como dd-mm-aaaa (no se vuelve a formatear).
+  { key: "fecha", label: "Fecha", width: 110, exportValue: (r) => dmy(r.fecha) },
+  { key: "tipo", label: "Tipo", width: 150 },
+  { key: "folio", label: "Folio", width: 100 },
+  { key: "factura", label: "Factura", width: 100 },
+  { key: "origen", label: "Origen", width: 160 },
+  { key: "estado", label: "Estado", width: 230 },
+  { key: "monto", label: "Monto", width: 130, render: (v) => money(v), exportValue: (r) => r.monto },
+  { key: "saldo", label: "Saldo factura", width: 130, render: (v, r) => (r.kind === "fac" && !r.importada ? money(v) : "—"), exportValue: (r) => (r.kind === "fac" && !r.importada ? r.saldo : "") },
+  { key: "detalle", label: "Detalle", width: 320 },
+];
+const KIND_LABEL = { fac: "Factura", nc: "Nota de crédito", nd: "Nota de débito", pago: "Pago" };
+
+function ledgerRows(invoices) {
+  const rows = [];
+  for (const inv of invoices) {
+    if (inv.rejected) continue;
+    rows.push({ id: `f-${inv.key}`, kind: "fac", fecha: inv.date, tipo: KIND_LABEL.fac, folio: inv.folio || "—", factura: inv.folio || "—", origen: inv.origin, estado: inv.status.label, monto: inv.total, saldo: inv.balance, importada: Boolean(inv.imported), detalle: [inv.sii ? `SII: ${inv.sii}` : "", inv.response || ""].filter(Boolean).join(" · ") });
+    inv.events.forEach((e, i) => {
+      if (!["nc", "nd", "pago"].includes(e.type) || e.amount == null) return;
+      rows.push({ id: `e-${inv.key}-${i}`, kind: e.type, fecha: String(e.at).slice(0, 10), tipo: KIND_LABEL[e.type], folio: (e.title.match(/folio (\S+)/) || [])[1] || "—", factura: inv.folio || "—", origen: inv.origin, estado: e.type === "pago" ? "Aplicado" : "Emitida", monto: Math.abs(e.amount), saldo: 0, importada: Boolean(inv.imported), detalle: [e.title, e.sub].filter(Boolean).join(" · ") });
+    });
+  }
+  return rows.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+}
 
 function Chip({ tone, children }) { return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ${TONES[tone] || TONES.lock}`}>{children}</span>; }
 function Amount({ e }) {
@@ -34,6 +72,7 @@ export default function ClientHistoryWorkspace() {
   const [open, setOpen] = useState(() => new Set());
   const [note, setNote] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [category, setCategory] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -59,14 +98,12 @@ export default function ClientHistoryWorkspace() {
   const invoices = (data?.invoices || []).filter((i) => (!hideSimulated || !i.simulated) && inPeriod(i.date));
   const timeline = (data?.timeline || []).filter((e) => types.has(e.type) && inPeriod(e.at) && (!hideSimulated || !/MOCK-|simulada/i.test(`${e.invoiceFolio || ""} ${e.sub || ""}`)));
   const s = data?.summary;
+  const ledger = useMemo(() => ledgerRows(invoices), [invoices]);
+  const ledgerShown = category ? ledger.filter(CATEGORIES[category].test) : ledger;
+  const ledgerTotal = ledgerShown.reduce((sum, r) => sum + (category === "saldo" ? r.saldo : r.monto), 0);
+  const openCategory = (key) => { setCategory(key); setView("planilla"); };
   const toggleType = (t) => setTypes((cur) => { const n = new Set(cur); n.has(t) ? n.delete(t) : n.add(t); return n; });
 
-  function exportCsv() {
-    const rows = [["Fecha", "Tipo", "Detalle", "Factura", "Monto"], ...timeline.map((e) => [String(e.at).slice(0, 16).replace("T", " "), HISTORY_TYPES[e.type], `${e.title}${e.sub ? ` — ${e.sub}` : ""}`, e.invoiceFolio || "", e.amount ?? ""])];
-    const csv = "﻿" + rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(";")).join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a"); a.href = url; a.download = `cartola_${(data?.company.rut || "cliente").replace(/\W/g, "")}_${period}.csv`; a.click(); URL.revokeObjectURL(url);
-  }
 
   return (
     <div className="space-y-4">
@@ -85,21 +122,31 @@ export default function ClientHistoryWorkspace() {
       {data && !loading ? (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-            {[["Facturado", money(s.invoiced), ""], ["Notas de crédito", `−${money(s.credited)}`, "text-red-600"], ["Notas de débito", `+${money(s.debited)}`, ""], ["Pagado", money(s.paid), "text-emerald-700"], ["Saldo pendiente", money(s.balance), s.balance ? "text-red-600" : "text-emerald-700"], ["Facturas vencidas", String(s.overdue), s.overdue ? "text-red-600" : ""]].map(([l, v, c]) => (
-              <div key={l} className="rounded-2xl border border-slate-200 bg-white p-3"><p className="text-xs font-semibold text-slate-500">{l}</p><p className={`text-lg font-extrabold text-[#041E42] ${c}`}>{v}</p></div>
+            {[["facturado", "Facturado", money(s.invoiced), ""], ["nc", "Notas de crédito", `−${money(s.credited)}`, "text-red-600"], ["nd", "Notas de débito", `+${money(s.debited)}`, ""], ["pagado", "Pagado", money(s.paid), "text-emerald-700"], ["saldo", "Saldo pendiente", money(s.balance), s.balance ? "text-red-600" : "text-emerald-700"], ["vencidas", "Facturas vencidas", String(s.overdue), s.overdue ? "text-red-600" : ""]].map(([key, l, v, c]) => (
+              <button key={key} type="button" onClick={() => openCategory(key)} title={`Ver el detalle de «${l}» en planilla`} className={`rounded-2xl border bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-[#3150D8] hover:shadow-md ${view === "planilla" && category === key ? "border-[#3150D8] ring-2 ring-[#3150D8]/30" : "border-slate-200"}`}><p className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-500">{l}<span className="text-[#3150D8]">Ver detalle →</span></p><p className={`text-lg font-extrabold text-[#041E42] ${c}`}>{v}</p></button>
             ))}
           </div>
           <p className="-mt-2 text-xs text-slate-500">El resumen no incluye facturas simuladas{s.simulated ? ` (${s.simulated})` : ""}. Las importadas de EasyDoc o del SII suman a lo facturado, pero no al saldo: sus pagos no están registrados en ParkFacil.</p>
 
           <section className="flex flex-wrap items-center gap-2 rounded-2xl border border-slate-200 bg-white p-3">
-            <div className="flex rounded-full border border-slate-200 bg-slate-50 p-0.5">{[["factura", "Por factura"], ["tiempo", "Línea de tiempo"]].map(([k, l]) => <button key={k} type="button" onClick={() => setView(k)} className={`rounded-full px-3 py-1.5 text-sm font-bold ${view === k ? "bg-[#041E42] text-white" : "text-slate-500"}`}>{l}</button>)}</div>
+            <div className="flex rounded-full border border-slate-200 bg-slate-50 p-0.5">{[["factura", "Por factura"], ["tiempo", "Línea de tiempo"], ["planilla", "Planilla"]].map(([k, l]) => <button key={k} type="button" onClick={() => { setView(k); if (k !== "planilla") setCategory(null); }} className={`rounded-full px-3 py-1.5 text-sm font-bold ${view === k ? "bg-[#041E42] text-white" : "text-slate-500"}`}>{l}</button>)}</div>
             <select value={period} onChange={(e) => setPeriod(e.target.value)} className="rounded-full border border-slate-300 px-3 py-1.5 text-sm"><option value="all">Todo el historial</option>{periods.map((p) => <option key={p} value={p}>{new Date(`${p}-15T12:00:00Z`).toLocaleDateString("es-CL", { month: "long", year: "numeric", timeZone: "UTC" })}</option>)}</select>
             {view === "tiempo" ? Object.entries(HISTORY_TYPES).map(([k, l]) => <button key={k} type="button" onClick={() => toggleType(k)} className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${types.has(k) ? "text-white" : "bg-white text-slate-500"}`} style={types.has(k) ? { background: ICONS[k][1], borderColor: ICONS[k][1] } : undefined}>{ICONS[k][0]} {l}</button>) : null}
             <label className="flex items-center gap-1.5 text-sm text-slate-600"><input type="checkbox" checked={hideSimulated} onChange={(e) => setHideSimulated(e.target.checked)} />Ocultar simuladas</label>
-            <button type="button" onClick={exportCsv} className="ml-auto rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold">⬇ Exportar cartola (CSV para Excel)</button>
+            <button type="button" onClick={() => openCategory(null)} className="ml-auto rounded-full border border-slate-300 px-3 py-1.5 text-sm font-semibold">⬇ Cartola en planilla (Excel)</button>
           </section>
 
-          {view === "factura" ? (
+          {view === "planilla" ? (
+            <section className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="font-semibold text-[#041E42]">{category ? `Detalle de «${CATEGORIES[category].label}»` : "Cartola completa"}</span>
+                <span className="text-slate-500">· {ledgerShown.length} fila(s){category === "vencidas" ? "" : ` · total ${money(ledgerTotal)}`}</span>
+                {category ? <button type="button" onClick={() => setCategory(null)} className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold">Ver todo</button> : null}
+                <span className="text-xs text-slate-500">Filtre por columna, ordene y descargue con los botones CSV / XLSX de la planilla.</span>
+              </div>
+              <ParkFacilDataGrid storageKey="facturacion:historial-planilla" columns={LEDGER_COLUMNS} rows={ledgerShown} rowIdKey="id" globalSearchPlaceholder="Buscar en la cartola..." emptyMessage="Sin movimientos para este detalle." exportFilename={`cartola_${String(data.company.rut || "cliente").replace(/\W/g, "")}${category ? `_${category}` : ""}`} exportSheetName={category ? CATEGORIES[category].label : "Cartola"} />
+            </section>
+          ) : view === "factura" ? (
             <div className="space-y-3">
               {!invoices.length ? <p className="rounded-2xl border border-slate-200 bg-white p-5 text-sm text-slate-500">Sin facturas en el período.</p> : null}
               {invoices.map((inv) => {
