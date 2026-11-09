@@ -119,3 +119,11 @@ test("el PDF que llega con la emisión se reutiliza sin volver a pedirlo a Haulm
   assert.deepEqual(await adapter.getDocument("abcdef0123456789abcdef", "pdf"), { pdf: "JVBERi0xLjQ=" });
   assert.equal(pdfCalls, 0);
 });
+
+test("NC total después de una parcial va como corrección de montos (CodRef 3), no como anulación", async () => {
+  const { buildHaulmerDte: build, annulsWholeDocument } = await import("./haulmerDteCore.mjs");
+  const note = { ...invoice, documentType: "CREDIT_NOTE", correctionMode: "TOTAL", reason: "Anula saldo", lines: [{ description: "Saldo", quantity: 1, total: 56113, taxCategory: "TAXABLE" }], totals: { net: 56113, tax: 10661, total: 66774 } };
+  assert.equal(build({ ...note, reference: { folio: "204989", date: "2026-11-08", total: 76774 } }, { environment: "TEST" }).dte.Referencia[0].CodRef, "3");
+  assert.equal(build({ ...note, reference: { folio: "204989", date: "2026-11-08", total: 66774 } }, { environment: "TEST" }).dte.Referencia[0].CodRef, "1");
+  assert.equal(annulsWholeDocument(61, { ...note, reference: { folio: "1", date: "2026-11-08" } }), true, "sin total de origen conocido se mantiene el comportamiento anterior");
+});
