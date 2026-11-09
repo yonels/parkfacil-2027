@@ -8,6 +8,9 @@ export const HISTORY_TYPES = Object.freeze({
 const CREDIT_USED = ["ISSUING", "ISSUED", "PROVIDER_PENDING"];
 const PRE_ACTIONS = { CALCULATE: "Prefactura calculada", RECALCULATE: "Prefactura recalculada", RECALCULATED: "Prefactura recalculada", REVIEW_STARTED: "Prefactura en revisión", APPROVED: "Prefactura aprobada", MARKED_READY_TO_ISSUE: "Prefactura lista para emitir", CANCELLED: "Prefactura anulada", ADJUSTMENT_ADDED: "Ajuste agregado a la prefactura", ADJUSTMENT_REMOVED: "Ajuste quitado de la prefactura", COMMENT_ADDED: "Observación en la prefactura" };
 const amount = (doc) => Math.round(Number(doc?.total_amount) || 0);
+// Neto (incluye exento) e IVA de un documento o fila importada; si no vienen, el neto es el total menos el IVA.
+const taxOf = (doc) => Math.round(Number(doc?.tax_amount) || 0);
+const netOf = (doc) => (doc?.net_amount != null ? Math.round(Number(doc.net_amount) || 0) + Math.round(Number(doc.exempt_amount) || 0) : amount(doc) - taxOf(doc));
 const day = (value) => String(value || "").slice(0, 10);
 
 function siiLabel(status) {
@@ -64,7 +67,7 @@ export function buildClientHistory({ documents = [], preinvoices = [], applicati
     const events = [];
     for (const a of (auditsByPre.get(doc.preinvoice_id) || [])) events.push(event("pre", a.created_at, `${PRE_ACTIONS[a.action]}${pre?.internal_number ? ` · ${pre.internal_number}` : ""}`, a.reason || ""));
     if (discarded || rejected) events.push(event("fac", doc.created_at, rejected ? "Factura rechazada por el proveedor" : "Factura rechazada", `${doc.provider_status || ""}${doc.folio ? "" : " · sin folio"}`.trim()));
-    else events.push(event("fac", doc.created_at, `Factura emitida${doc.folio ? ` · folio ${doc.folio}` : ""}`, simulated ? "Simulada (sin validez en el SII)" : doc.provider === "haulmer" ? "Haulmer" : "", total, { documentId: doc.id }));
+    else events.push(event("fac", doc.created_at, `Factura emitida${doc.folio ? ` · folio ${doc.folio}` : ""}`, simulated ? "Simulada (sin validez en el SII)" : doc.provider === "haulmer" ? "Haulmer" : "", total, { documentId: doc.id, net: netOf(doc), tax: taxOf(doc) }));
     const discardAudit = audits.find((a) => a.action === "DOCUMENT_DISCARDED" && a.new_value?.documentId === doc.id);
     if (discardAudit) events.push(event("cambio", discardAudit.created_at, "Documento descartado", `Motivo: ${discardAudit.new_value?.reason || "—"}`));
     if (doc.email_sent_at || doc.email_status) events.push(event("mail", doc.email_sent_at || doc.updated_at, doc.email_status === "SENT" ? "Correo con PDF enviado" : doc.email_status === "FAILED" ? "Correo no enviado" : "Correo omitido", doc.email_status === "SENT" ? doc.email_to || "" : doc.email_error || ""));
@@ -73,14 +76,14 @@ export function buildClientHistory({ documents = [], preinvoices = [], applicati
     for (const n of notes) {
       const credit = n.document_type === "CREDIT_NOTE";
       const ok = n.status === "ISSUED";
-      events.push(event(credit ? "nc" : "nd", n.created_at, `${credit ? "Nota de crédito" : "Nota de débito"}${credit && n.correction_mode ? ` ${n.correction_mode === "TOTAL" ? "TOTAL" : "PARCIAL"}` : ""}${ok ? " emitida" : n.status === "DISCARDED" ? " descartada" : " no emitida"}${n.folio ? ` · folio ${n.folio}` : ""}`, n.reason ? `Motivo: ${n.reason}` : "", ok ? (credit ? -amount(n) : amount(n)) : null, { documentId: n.id }));
+      events.push(event(credit ? "nc" : "nd", n.created_at, `${credit ? "Nota de crédito" : "Nota de débito"}${credit && n.correction_mode ? ` ${n.correction_mode === "TOTAL" ? "TOTAL" : "PARCIAL"}` : ""}${ok ? " emitida" : n.status === "DISCARDED" ? " descartada" : " no emitida"}${n.folio ? ` · folio ${n.folio}` : ""}`, n.reason ? `Motivo: ${n.reason}` : "", ok ? (credit ? -amount(n) : amount(n)) : null, { documentId: n.id, net: netOf(n), tax: taxOf(n) }));
       if (n.email_sent_at && n.email_status === "SENT") events.push(event("mail", n.email_sent_at, `Correo con PDF de la ${credit ? "NC" : "ND"} enviado`, n.email_to || ""));
     }
     for (const a of apps) events.push(event("pago", a.created_at, "Pago aplicado", a.reference || "", -Math.round(Number(a.amount) || 0)));
     events.sort((a, b) => a.at.localeCompare(b.at));
     invoices.push({
       key: doc.id, documentId: doc.id, origin: simulated ? "ParkFacil (simulada)" : "ParkFacil", provider: doc.provider, folio: doc.folio || null,
-      date: day(doc.invoice_date), dueDate: day(doc.due_date), total, credited, debited, paid,
+      date: day(doc.invoice_date), dueDate: day(doc.due_date), total, net: netOf(doc), tax: taxOf(doc), credited, debited, paid,
       creditable: discarded || rejected ? 0 : Math.max(0, total - credited),
       balance: discarded || rejected ? 0 : Math.max(0, total + debited - credited - paid),
       rejected: discarded || rejected, discarded, simulated, sii,
@@ -99,14 +102,14 @@ export function buildClientHistory({ documents = [], preinvoices = [], applicati
     const debited = notes.filter((n) => Number(n.dte_type) === 56 && !n.voided).reduce((s, n) => s + Math.round(Number(n.total_amount) || 0), 0);
     const total = Math.round(Number(r.total_amount) || 0);
     const source = { EASYDOC: "EasyDoc", SII_RCV: "Registro de Ventas SII", HAULMER: "Haulmer" }[r.source] || r.source;
-    const events = [event("fac", r.issue_date, `Factura folio ${r.folio} (${source}, importada)`, r.voided ? "Anulada en el sistema de origen" : "", total, { registryId: r.id, providerToken: r.provider_token || null })];
+    const events = [event("fac", r.issue_date, `Factura folio ${r.folio} (${source}, importada)`, r.voided ? "Anulada en el sistema de origen" : "", total, { registryId: r.id, providerToken: r.provider_token || null, net: netOf(r), tax: taxOf(r) })];
     if (r.sii_status) events.push(event("sii", r.issue_date, `Estado SII: ${r.sii_status}`));
     if (r.customer_response) events.push(event("sii", r.updated_at || r.issue_date, `Respuesta del cliente: ${r.customer_response}`));
-    for (const n of notes) events.push(event(Number(n.dte_type) === 61 ? "nc" : "nd", n.issue_date, `${Number(n.dte_type) === 61 ? "Nota de crédito" : "Nota de débito"} folio ${n.folio} (${source})`, "", Number(n.dte_type) === 61 ? -Math.round(Number(n.total_amount) || 0) : Math.round(Number(n.total_amount) || 0)));
+    for (const n of notes) events.push(event(Number(n.dte_type) === 61 ? "nc" : "nd", n.issue_date, `${Number(n.dte_type) === 61 ? "Nota de crédito" : "Nota de débito"} folio ${n.folio} (${source})`, "", Number(n.dte_type) === 61 ? -Math.round(Number(n.total_amount) || 0) : Math.round(Number(n.total_amount) || 0), { net: netOf(n), tax: taxOf(n) }));
     events.sort((a, b) => a.at.localeCompare(b.at));
     invoices.push({
       key: `reg-${r.id}`, registryId: r.id, providerToken: r.provider_token || null, origin: source, folio: String(r.folio), date: day(r.issue_date), dueDate: "",
-      total, credited, debited, paid: 0, creditable: Math.max(0, total - credited), balance: Math.max(0, total + debited - credited),
+      total, net: netOf(r), tax: taxOf(r), credited, debited, paid: 0, creditable: Math.max(0, total - credited), balance: Math.max(0, total + debited - credited),
       rejected: false, imported: true, voided: Boolean(r.voided), sii: r.sii_status || "", response: r.customer_response || "",
       notes: notes.map((n) => ({ type: Number(n.dte_type) === 61 ? "CREDIT_NOTE" : "DEBIT_NOTE", folio: String(n.folio), amount: Math.round(Number(n.total_amount) || 0) })),
       status: r.voided ? { tone: "lock", label: "Anulada en origen" } : invoiceStatus({ imported: true, total, credited, debited, paid: 0, today }),

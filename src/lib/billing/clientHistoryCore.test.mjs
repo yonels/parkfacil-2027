@@ -72,3 +72,13 @@ test("línea de tiempo con cambios de servicios y datos, de lo más reciente a l
   assert.ok(h.timeline.some((e) => /Datos tributarios confirmados/.test(e.title)));
   assert.ok(h.timeline[0].at >= h.timeline[1].at);
 });
+
+test("neto e IVA por factura y por nota (planilla: Monto neto, IVA, Total)", () => {
+  const h = buildClientHistory({ documents: [inv({ net_amount: "61935", tax_amount: "11768" }), note({ net_amount: "61935", tax_amount: "11768" })], registry: [{ id: "g1", source: "EASYDOC", issuer_rut: "77991619-7", dte_type: 33, folio: 262, issue_date: "2026-10-01", net_amount: 160123, exempt_amount: 0, tax_amount: 30423, total_amount: 190546 }], today });
+  const own = h.invoices.find((i) => i.folio === "204997");
+  assert.deepEqual([own.net, own.tax, own.total], [61935, 11768, 73703]);
+  const nc = own.events.find((e) => e.type === "nc");
+  assert.deepEqual([nc.net, nc.tax], [61935, 11768]);
+  const imported = h.invoices.find((i) => i.imported);
+  assert.deepEqual([imported.net, imported.tax, imported.total], [160123, 30423, 190546]);
+});

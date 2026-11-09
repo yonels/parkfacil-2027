@@ -17,13 +17,13 @@ export async function getClientHistory(db, companyId, { today } = {}) {
   if (!company.data) { const error = new Error("La empresa no existe."); error.code = "COMPANY_NOT_FOUND"; error.status = 404; throw error; }
   const rut = company.data.rut_number ? normalizeRut(`${company.data.rut_number}-${company.data.rut_dv}`) : "";
   const [documents, preinvoices, audits, items, confirmations, registryByCompany, registryByRut] = await Promise.all([
-    db.from("billing_documents").select("id,document_type,document_reference_id,preinvoice_id,provider,provider_status,provider_document_id,folio,status,correction_mode,reason,invoice_date,due_date,total_amount,email_status,email_to,email_error,email_sent_at,created_at,updated_at").eq("company_id", companyId).order("created_at"),
+    db.from("billing_documents").select("id,document_type,document_reference_id,preinvoice_id,provider,provider_status,provider_document_id,folio,status,correction_mode,reason,invoice_date,due_date,net_amount,tax_amount,total_amount,email_status,email_to,email_error,email_sent_at,created_at,updated_at").eq("company_id", companyId).order("created_at"),
     db.from("billing_preinvoices").select("id,internal_number,period,status,created_at").eq("company_id", companyId),
     db.from("billing_audit_events").select("preinvoice_id,action,reason,new_value,created_at").eq("company_id", companyId).order("created_at").limit(2000),
     db.from("contract_billable_items").select("description,quantity,unit_price,currency,valid_from,status,created_at,billable_concepts(code)").eq("company_id", companyId),
     db.from("billing_cycle_confirmations").select("step,period,confirmed_at").eq("company_id", companyId),
-    db.from("billing_dte_registry").select("id,source,issuer_rut,dte_type,folio,issue_date,total_amount,voided,sii_status,customer_response,reference_folio,provider_token,billing_document_id,updated_at").eq("company_id", companyId),
-    rut ? db.from("billing_dte_registry").select("id,source,issuer_rut,dte_type,folio,issue_date,total_amount,voided,sii_status,customer_response,reference_folio,provider_token,billing_document_id,updated_at").eq("receiver_rut", rut) : Promise.resolve({ data: [] }),
+    db.from("billing_dte_registry").select("id,source,issuer_rut,dte_type,folio,issue_date,net_amount,exempt_amount,tax_amount,total_amount,voided,sii_status,customer_response,reference_folio,provider_token,billing_document_id,updated_at").eq("company_id", companyId),
+    rut ? db.from("billing_dte_registry").select("id,source,issuer_rut,dte_type,folio,issue_date,net_amount,exempt_amount,tax_amount,total_amount,voided,sii_status,customer_response,reference_folio,provider_token,billing_document_id,updated_at").eq("receiver_rut", rut) : Promise.resolve({ data: [] }),
   ]);
   for (const [result, label] of [[documents, "documentos"], [preinvoices, "prefacturas"], [audits, "auditoría"], [items, "servicios"], [confirmations, "confirmaciones"], [registryByCompany, "documentos importados"], [registryByRut, "documentos importados"]]) fail(result.error, `No fue posible leer ${label}`);
   const ids = (documents.data || []).map((d) => d.id);
