@@ -87,8 +87,16 @@ const moduleCards = [
     columns: [column("periodo", "Período", 130, true), column("cliente", "Cliente", 220), column("facturado", "Facturado", 140), column("notasCredito", "Notas de Crédito", 160), column("pagado", "Pagado", 130), column("pendiente", "Pendiente", 140), column("vencido", "Vencido", 130), column("saldo", "Saldo", 130)],
   },
   {
-    id: "configuracion", group: "administracion", title: "Configuración", description: "Datos del emisor, vencimiento, proveedor de emisión y catálogo de servicios y productos.", icon: Settings2,
+    id: "configuracion", group: "administracion", title: "Configuración", description: "Datos del emisor, vencimiento, proveedor de emisión y envío por correo.", icon: Settings2,
     columns: [column("parametro", "Parámetro", 260, true), column("categoria", "Categoría", 190), column("valor", "Valor", 240), column("descripcion", "Descripción", 360), column("estado", "Estado", 140), column("actualizado", "Última actualización", 180)],
+  },
+  {
+    id: "folios", group: "administracion", title: "Folios disponibles", description: "Folios (CAF) que quedan por tipo de documento y su vencimiento, según Haulmer.", icon: FileSearch,
+    columns: [],
+  },
+  {
+    id: "catalogo", group: "administracion", title: "Servicios y productos", description: "Catálogo de lo que ParkFacil factura: código, precio de referencia e IVA.", icon: ClipboardList,
+    columns: [],
   },
 ];
 
@@ -208,7 +216,7 @@ export default function FacturacionPage() {
                 <button type="button" onClick={() => { forgetCycleReturn(); setReturnDismissed((n) => n + 1); }} className="ml-auto text-indigo-500 hover:text-indigo-800" aria-label="Cerrar">✕</button>
               </div>
             ) : null}
-            {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : activeModule.id === "facturas" ? <><DocumentJobPanel /><DocumentWorkspace type="INVOICE" /></> : activeModule.id === "notas-credito" ? <DocumentWorkspace type="CREDIT_NOTE" /> : activeModule.id === "notas-debito" ? <DocumentWorkspace type="DEBIT_NOTE" /> : activeModule.id === "configuracion" ? <div className="space-y-6"><BillingSettingsWorkspace /><FoliosPanel /><CatalogWorkspace /></div> : activeModule.id === "servicios" ? <CompanyServicesWorkspace /> : activeModule.id === "documentos-emitidos" ? <IssuedDocumentsWorkspace /> : activeModule.id === "ciclo" ? <BillingCycleWorkspace /> : activeModule.id === "notas" ? <NotesWorkspace /> : activeModule.id === "historial" ? <ClientHistoryWorkspace /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
+            {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : activeModule.id === "facturas" ? <><DocumentJobPanel /><DocumentWorkspace type="INVOICE" /></> : activeModule.id === "notas-credito" ? <DocumentWorkspace type="CREDIT_NOTE" /> : activeModule.id === "notas-debito" ? <DocumentWorkspace type="DEBIT_NOTE" /> : activeModule.id === "configuracion" ? <BillingSettingsWorkspace /> : activeModule.id === "folios" ? <FoliosPanel /> : activeModule.id === "catalogo" ? <CatalogWorkspace /> : activeModule.id === "servicios" ? <CompanyServicesWorkspace /> : activeModule.id === "documentos-emitidos" ? <IssuedDocumentsWorkspace /> : activeModule.id === "ciclo" ? <BillingCycleWorkspace /> : activeModule.id === "notas" ? <NotesWorkspace /> : activeModule.id === "historial" ? <ClientHistoryWorkspace /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
           </section>
         )}
       </div>

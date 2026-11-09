@@ -15,6 +15,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/configuracion-ramas": false,
       "feature/folios-disponibles": false,
       "feature/historial-neto-iva": false,
       "feature/historial-planilla": false,
