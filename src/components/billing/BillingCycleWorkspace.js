@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { forgetCycleReturn, readCycleReturn, rememberCycleReturn } from "./cycleReturnStore";
+import FoliosPanel from "./FoliosPanel";
 import { CYCLE_ROLES, CYCLE_RUNS, CYCLE_STEPS, CYCLE_USES, FIXED_REQUIRED, NOT_AVAILABLE } from "@/lib/billing/billingCycleCore.mjs";
 
 // «Ciclo de facturación» por etapas (SOL-2026-11-05-005; prototipo aprobado por el usuario el 2026-11-08).
@@ -126,6 +127,7 @@ export default function BillingCycleWorkspace() {
 
       {error ? <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
       {message ? <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">{message}</p> : null}
+      <FoliosPanel variant="alert" />
 
       {tab === "config" ? <CycleConfig onSaved={() => load(period)} /> : loading && !data ? <p className="text-sm text-slate-500">Cargando…</p> : data ? (
         <>
@@ -295,6 +297,7 @@ function BatchModal({ lote, setLote, data, period, onDone }) {
         <div className="flex items-start gap-3 border-b border-slate-200 p-5"><div><h3 className="text-xl font-bold text-[#041E42]">⚡ Facturar en lote · <span className="capitalize">{monthLabel(period)}</span></h3><p className="text-sm text-slate-500">Lleva cada empresa marcada desde su etapa actual hasta la emisión, en orden y sin saltarse etapas. Las que tengan un problema se detienen y se informan.</p></div><button type="button" disabled={busy} onClick={() => setLote(null)} className="ml-auto rounded-full border border-slate-300 px-3 py-1 text-sm">✕</button></div>
         <div className="p-5">
           {error ? <p className="mb-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
+          {!lote.result ? <div className="mb-3"><FoliosPanel variant="alert" /></div> : null}
           {lote.result ? (
             <>
               <p className="mb-3 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">✓ {lote.result.issued} factura(s) emitida(s). {lote.result.stopped ? `${lote.result.stopped} detenida(s) por un problema.` : ""}</p>
