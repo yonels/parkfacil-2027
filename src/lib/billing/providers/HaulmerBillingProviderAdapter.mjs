@@ -91,6 +91,15 @@ export class HaulmerBillingProviderAdapter extends BillingProviderAdapter {
     return { page: Number(response?.current_page || page), lastPage: Number(response?.last_page || 1), total: Number(response?.total || 0), data: Array.isArray(response?.data) ? response.data : [] };
   }
 
+  // Folios disponibles por tipo de documento (SOL-2026-11-05-005, 2026-11-09). Respuesta real de dev-api:
+  // { documentos: [{ dte: 33, disponibles: 294810, vencimiento: "2027-03-01" }, ...] }.
+  async getAvailableFolios() {
+    const { status, body } = await this.#call("GET", "/v2/dte/organization/document");
+    if (status === 401) throw new BillingProviderError("DTE_API_KEY_REJECTED", "Haulmer rechazó la API Key.");
+    if (status < 200 || status >= 300) throw new BillingProviderError(body?.error?.code || `HTTP_${status}`, body?.error?.message || "Haulmer no entregó los folios disponibles.", { retryable: status >= 500 || status === 429 });
+    return Array.isArray(body?.documentos) ? body.documentos : [];
+  }
+
   async getDocumentStatus(token) {
     const body = await this.getDocument(token, "status");
     // Respuesta real de dev-api (2026-11-06): { estado: "Aceptado", token }.
