@@ -30,7 +30,9 @@ const LEDGER_COLUMNS = [
   { key: "factura", label: "Factura", width: 100 },
   { key: "origen", label: "Origen", width: 160 },
   { key: "estado", label: "Estado", width: 230 },
-  { key: "monto", label: "Monto", width: 130, render: (v) => money(v), exportValue: (r) => r.monto },
+  { key: "neto", label: "Monto neto", width: 130, render: (v) => (v === "" ? "—" : money(v)), exportValue: (r) => (r.neto == null ? "" : r.neto) },
+  { key: "iva", label: "IVA", width: 110, render: (v) => (v === "" ? "—" : money(v)), exportValue: (r) => (r.iva == null ? "" : r.iva) },
+  { key: "monto", label: "Total", width: 130, render: (v) => money(v), exportValue: (r) => r.monto },
   { key: "saldo", label: "Saldo factura", width: 130, render: (v, r) => (r.kind === "fac" && !r.importada ? money(v) : "—"), exportValue: (r) => (r.kind === "fac" && !r.importada ? r.saldo : "") },
   { key: "detalle", label: "Detalle", width: 320 },
 ];
@@ -40,10 +42,10 @@ function ledgerRows(invoices) {
   const rows = [];
   for (const inv of invoices) {
     if (inv.rejected) continue;
-    rows.push({ id: `f-${inv.key}`, kind: "fac", fecha: inv.date, tipo: KIND_LABEL.fac, folio: inv.folio || "—", factura: inv.folio || "—", origen: inv.origin, estado: inv.status.label, monto: inv.total, saldo: inv.balance, importada: Boolean(inv.imported), detalle: [inv.sii ? `SII: ${inv.sii}` : "", inv.response || ""].filter(Boolean).join(" · ") });
+    rows.push({ id: `f-${inv.key}`, kind: "fac", fecha: inv.date, tipo: KIND_LABEL.fac, folio: inv.folio || "—", factura: inv.folio || "—", origen: inv.origin, estado: inv.status.label, neto: inv.net ?? null, iva: inv.tax ?? null, monto: inv.total, saldo: inv.balance, importada: Boolean(inv.imported), detalle: [inv.sii ? `SII: ${inv.sii}` : "", inv.response || ""].filter(Boolean).join(" · ") });
     inv.events.forEach((e, i) => {
       if (!["nc", "nd", "pago"].includes(e.type) || e.amount == null) return;
-      rows.push({ id: `e-${inv.key}-${i}`, kind: e.type, fecha: String(e.at).slice(0, 10), tipo: KIND_LABEL[e.type], folio: (e.title.match(/folio (\S+)/) || [])[1] || "—", factura: inv.folio || "—", origen: inv.origin, estado: e.type === "pago" ? "Aplicado" : "Emitida", monto: Math.abs(e.amount), saldo: 0, importada: Boolean(inv.imported), detalle: [e.title, e.sub].filter(Boolean).join(" · ") });
+      rows.push({ id: `e-${inv.key}-${i}`, kind: e.type, fecha: String(e.at).slice(0, 10), tipo: KIND_LABEL[e.type], folio: (e.title.match(/folio (\S+)/) || [])[1] || "—", factura: inv.folio || "—", origen: inv.origin, estado: e.type === "pago" ? "Aplicado" : "Emitida", neto: e.type === "pago" ? null : e.net ?? null, iva: e.type === "pago" ? null : e.tax ?? null, monto: Math.abs(e.amount), saldo: 0, importada: Boolean(inv.imported), detalle: [e.title, e.sub].filter(Boolean).join(" · ") });
     });
   }
   return rows.sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
@@ -101,6 +103,8 @@ export default function ClientHistoryWorkspace() {
   const ledger = useMemo(() => ledgerRows(invoices), [invoices]);
   const ledgerShown = category ? ledger.filter(CATEGORIES[category].test) : ledger;
   const ledgerTotal = ledgerShown.reduce((sum, r) => sum + (category === "saldo" ? r.saldo : r.monto), 0);
+  const ledgerNet = ledgerShown.reduce((sum, r) => sum + (Number(r.neto) || 0), 0);
+  const ledgerTax = ledgerShown.reduce((sum, r) => sum + (Number(r.iva) || 0), 0);
   const openCategory = (key) => { setCategory(key); setView("planilla"); };
   const toggleType = (t) => setTypes((cur) => { const n = new Set(cur); n.has(t) ? n.delete(t) : n.add(t); return n; });
 
@@ -140,7 +144,7 @@ export default function ClientHistoryWorkspace() {
             <section className="space-y-2">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-semibold text-[#041E42]">{category ? `Detalle de «${CATEGORIES[category].label}»` : "Cartola completa"}</span>
-                <span className="text-slate-500">· {ledgerShown.length} fila(s){category === "vencidas" ? "" : ` · total ${money(ledgerTotal)}`}</span>
+                <span className="text-slate-500">· {ledgerShown.length} fila(s){category === "vencidas" ? "" : category === "saldo" || category === "pagado" ? ` · total ${money(ledgerTotal)}` : ` · neto ${money(ledgerNet)} · IVA ${money(ledgerTax)} · total ${money(ledgerTotal)}`}</span>
                 {category ? <button type="button" onClick={() => setCategory(null)} className="rounded-full border border-slate-300 px-3 py-1 text-xs font-semibold">Ver todo</button> : null}
                 <span className="text-xs text-slate-500">Filtre por columna, ordene y descargue con los botones CSV / XLSX de la planilla.</span>
               </div>

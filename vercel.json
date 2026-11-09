@@ -15,6 +15,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/historial-neto-iva": false,
       "feature/historial-planilla": false,
       "feature/historial-cliente": false,
       "perf/facturacion-pdf-en-emision": false,
