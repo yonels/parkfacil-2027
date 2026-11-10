@@ -18,16 +18,11 @@ import BillingCycleWorkspace from "@/components/billing/BillingCycleWorkspace";
 import NotesWorkspace from "@/components/billing/NotesWorkspace";
 import ClientHistoryWorkspace from "@/components/billing/ClientHistoryWorkspace";
 import FoliosPanel from "@/components/billing/FoliosPanel";
-import { forgetCycleReturn, readCycleReturn } from "@/components/billing/cycleReturnStore";
+import { readCycleReturn } from "@/components/billing/cycleReturnStore";
+import BillingSummaryCards from "@/components/billing/BillingSummaryCards";
+import CycleReturnBar from "@/components/billing/CycleReturnBar";
 
 const column = (key, label, width = 150, pinned = false) => ({ key, label, width, pinned, required: pinned });
-
-const summaryCards = [
-  { title: "Facturación del mes", icon: ReceiptText },
-  { title: "Por emitir", icon: FilePlus2 },
-  { title: "Pendiente de pago", icon: HandCoins },
-  { title: "Vencido", icon: CircleDollarSign },
-];
 
 const moduleCards = [
   {
@@ -108,7 +103,11 @@ const groups = [
 ];
 
 export default function FacturacionPage() {
-  const [activeModuleId, setActiveModuleId] = useState(null);
+  const [activeModuleId, setActiveModuleIdState] = useState(null);
+  // SOL-2026-11-10-001 (H9): abrir de nuevo la sección en que ya se está (menú lateral o enlace) vuelve a cargar sus
+  // datos; antes la tabla quedaba con los datos anteriores hasta recargar la página.
+  const [moduleVisit, setModuleVisit] = useState(0);
+  const setActiveModuleId = (id) => { setActiveModuleIdState(id); setModuleVisit((n) => n + 1); };
   const activeModule = useMemo(() => moduleCards.find((module) => module.id === activeModuleId) || null, [activeModuleId]);
 
   useEffect(() => {
@@ -179,17 +178,10 @@ export default function FacturacionPage() {
 
         {!activeModule ? (
           <>
-            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Resumen de facturación">
-              {summaryCards.map(({ title, icon: Icon }) => (
-                <article key={title} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                  <div className="flex items-start justify-between gap-3"><div><p className="text-sm font-semibold text-slate-500">{title}</p><p className="mt-3 text-xl font-bold text-[#041E42]">Sin datos</p></div><span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#EEF4FF] text-[#3150D8]"><Icon className="h-5 w-5" /></span></div>
-                  <p className="mt-3 text-xs text-slate-500">Pendiente de implementación</p>
-                </article>
-              ))}
-            </section>
+            <BillingSummaryCards />
 
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-xl font-semibold text-[#041E42]">Áreas de Facturación</h2><p className="mt-2 text-sm text-slate-600">Calcular → revisar → facturar → cobrar → conciliar → analizar.</p></div><span className="w-fit rounded-full border border-[#BFD2FF] bg-[#EEF4FF] px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#3150D8]">Etapa 0</span></div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="text-xl font-semibold text-[#041E42]">Áreas de Facturación</h2><p className="mt-2 text-sm text-slate-600">Calcular → revisar → facturar → cobrar → conciliar → analizar.</p></div></div>
               <div className="mt-7 space-y-8">
                 {groups.map((group) => (
                   <section key={group.id} aria-labelledby={`facturacion-${group.id}`}>
@@ -207,15 +199,9 @@ export default function FacturacionPage() {
             </section>
           </>
         ) : (
-          <section className="space-y-4">
+          <section key={`${activeModule.id}-${moduleVisit}`} className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#3150D8]">Planilla de Facturación</p><h2 className="mt-1 text-2xl font-bold text-[#041E42]">{activeModule.title}</h2><p className="mt-1 text-sm text-slate-600">{activeModule.description}</p></div><button type="button" onClick={closeModule} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#041E42] shadow-sm hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /> Volver a Facturación</button></div>
-            {cycleReturn ? (
-              <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
-                <button type="button" onClick={() => openModule("ciclo")} className="rounded-full bg-[#3150D8] px-4 py-1.5 font-bold text-white shadow-sm">← Volver al ciclo</button>
-                <span><b>{cycleReturn.companyName}</b> · Etapa {cycleReturn.stepN}: {cycleReturn.stepShort}. Cuando termine aquí, vuelva para continuar con la etapa siguiente.</span>
-                <button type="button" onClick={() => { forgetCycleReturn(); setReturnDismissed((n) => n + 1); }} className="ml-auto text-indigo-500 hover:text-indigo-800" aria-label="Cerrar">✕</button>
-              </div>
-            ) : null}
+            {cycleReturn ? <CycleReturnBar key={`${cycleReturn.companyId}-${cycleReturn.at}`} value={cycleReturn} onBack={() => openModule("ciclo")} onDismiss={() => setReturnDismissed((n) => n + 1)} /> : null}
             {activeModule.id === "prefacturacion" ? <PreinvoiceWorkspace columns={activeModule.columns} /> : activeModule.id === "cuenta-corriente" ? <AccountWorkspace columns={activeModule.columns} /> : activeModule.id === "conciliacion" ? <ReconciliationWorkspace /> : activeModule.id === "facturas" ? <><DocumentJobPanel /><DocumentWorkspace type="INVOICE" /></> : activeModule.id === "notas-credito" ? <DocumentWorkspace type="CREDIT_NOTE" /> : activeModule.id === "notas-debito" ? <DocumentWorkspace type="DEBIT_NOTE" /> : activeModule.id === "configuracion" ? <BillingSettingsWorkspace /> : activeModule.id === "folios" ? <FoliosPanel /> : activeModule.id === "catalogo" ? <CatalogWorkspace /> : activeModule.id === "servicios" ? <CompanyServicesWorkspace /> : activeModule.id === "documentos-emitidos" ? <IssuedDocumentsWorkspace /> : activeModule.id === "ciclo" ? <BillingCycleWorkspace /> : activeModule.id === "notas" ? <NotesWorkspace /> : activeModule.id === "historial" ? <ClientHistoryWorkspace /> : <ParkFacilDataGrid storageKey={`facturacion:${activeModule.id}`} columns={activeModule.columns} rows={[]} globalSearchPlaceholder={`Buscar en ${activeModule.title.toLowerCase()}...`} emptyMessage="Sin registros" exportFilename={`facturacion_${activeModule.id}`} exportSheetName={activeModule.title} />}
           </section>
         )}

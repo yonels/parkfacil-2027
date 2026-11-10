@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { batchPlan, computeCycle, customerIssues, normalizeCycleConfig, servicesInPeriod, validatePeriod } from "./billingCycleCore.mjs";
+import { batchPlan, computeCycle, customerIssues, normalizeCycleConfig, serviceSummary, servicesInPeriod, validatePeriod } from "./billingCycleCore.mjs";
 
 const company = { rut_number: 77991619, rut_dv: "7", business_name: "ParkFacil Operaciones Spa", business_activity: "Estacionamientos", address: "Av. Raúl Labbé 12613", district: "Lo Barnechea", email: "info@parkfacil.cl" };
 const item = { status: "ACTIVE", valid_from: "2026-11-01", valid_to: null, tax_category: "TAXABLE" };
@@ -27,6 +27,14 @@ test("servicios del período: vigencia y sin IVA", () => {
   const r = servicesInPeriod([item, { ...item, valid_to: "2026-10-31" }, { ...item, tax_category: "UNDEFINED" }, { ...item, status: "INACTIVE" }], period);
   assert.equal(r.active.length, 2);
   assert.equal(r.untaxed.length, 1);
+});
+
+test("detalle de servicios: descripción, cantidad y precio para la etapa Servicios", () => {
+  const s = serviceSummary({ id: "i1", concept_code: "SERV-01", description: "Cuota mensual ParkFacil", quantity: "2", unit: "mes", unit_price: "1.5", currency: "UF", tax_category: "TAXABLE" });
+  assert.deepEqual(s, { id: "i1", code: "SERV-01", description: "Cuota mensual ParkFacil", quantity: 2, unit: "mes", unitPrice: 1.5, currency: "UF", taxCategory: "TAXABLE" });
+  const c = computeCycle({ company, items: [{ ...item, description: "Cuota", quantity: 1, unit_price: 1.5, currency: "UF" }], period });
+  assert.equal(c.services.list.length, 1);
+  assert.equal(c.services.list[0].unitPrice, 1.5);
 });
 
 test("empresa nueva en el mes: etapa 1 a mano; con datos confirmados avanza a servicios", () => {

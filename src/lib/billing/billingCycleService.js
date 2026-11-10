@@ -52,7 +52,7 @@ async function loadPeriodData(db, period, companyIds = null) {
   const ids = (companies.data || []).map((company) => company.id);
   if (!ids.length) return { companies: [], items: [], preinvoices: [], invoices: [], confirmations: [] };
   const [items, preinvoices, confirmations] = await Promise.all([
-    db.from("contract_billable_items").select("company_id,status,valid_from,valid_to,billable_concepts(tax_category)").in("company_id", ids),
+    db.from("contract_billable_items").select("id,company_id,status,valid_from,valid_to,description,quantity,unit,unit_price,currency,billable_concepts(code,tax_category)").in("company_id", ids),
     db.from("billing_preinvoices").select("id,company_id,internal_number,status,version,currency,net_amount,tax_amount,total_amount,created_at").eq("period", period).in("company_id", ids).in("status", ACTIVE_PREINVOICE).order("created_at", { ascending: false }),
     db.from("billing_cycle_confirmations").select("company_id,step").eq("period", period).in("company_id", ids),
   ]);
@@ -64,7 +64,7 @@ async function loadPeriodData(db, period, companyIds = null) {
     ? await db.from("billing_documents").select("id,preinvoice_id,status,folio,provider,provider_status,total_amount,email_status,email_error,email_to,created_at").eq("document_type", "INVOICE").neq("status", "DISCARDED").in("preinvoice_id", preinvoiceIds).order("created_at", { ascending: false })
     : { data: [] };
   fail(invoices.error, "No fue posible leer las facturas");
-  return { companies: companies.data || [], items: (items.data || []).map((x) => ({ ...x, tax_category: one(x.billable_concepts)?.tax_category || "UNDEFINED" })), preinvoices: preinvoices.data || [], invoices: invoices.data || [], confirmations: confirmations.data || [] };
+  return { companies: companies.data || [], items: (items.data || []).map((x) => ({ ...x, tax_category: one(x.billable_concepts)?.tax_category || "UNDEFINED", concept_code: one(x.billable_concepts)?.code || "" })), preinvoices: preinvoices.data || [], invoices: invoices.data || [], confirmations: confirmations.data || [] };
 }
 
 function cycleRow(company, data, config, period) {
