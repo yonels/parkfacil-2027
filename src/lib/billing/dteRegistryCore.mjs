@@ -274,6 +274,13 @@ export function listRowFromRegistry(row, companyName = null) {
   };
 }
 
+// SOL-2026-11-10-001: las notas de crédito y débito propias muestran la factura que referencian (antes quedaba vacío).
+function referenceOf(doc) {
+  const origin = Array.isArray(doc.origin) ? doc.origin[0] : doc.origin;
+  const type = origin ? PARKFACIL_DOCUMENT_TYPES[origin.document_type] : null;
+  return origin?.folio && type ? `${type} N° ${origin.folio}` : "";
+}
+
 export function listRowFromBillingDocument(doc) {
   const snapshot = doc.customer_snapshot || {};
   return {
@@ -282,7 +289,7 @@ export function listRowFromBillingDocument(doc) {
     folio: doc.folio ? Number(doc.folio) : null, issueDate: doc.invoice_date, receiverRut: normalizeRut(snapshot.rut) || String(snapshot.rut || ""),
     receiverName: snapshot.businessName || "", companyId: doc.company_id, companyName: snapshot.businessName || null,
     net: Number(doc.net_amount), exempt: 0, tax: Number(doc.tax_amount), total: Number(doc.total_amount), voided: false,
-    siiStatus: doc.provider_status || doc.status, customerResponse: "", reference: "", billingDocumentId: doc.id,
+    siiStatus: doc.provider_status || doc.status, customerResponse: "", reference: referenceOf(doc), billingDocumentId: doc.id,
     providerToken: doc.provider_document_id || null, updatedAt: doc.updated_at,
   };
 }

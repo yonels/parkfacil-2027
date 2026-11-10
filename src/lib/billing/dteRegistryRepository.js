@@ -130,7 +130,7 @@ export async function listIssuedDocuments(db, filters = {}) {
 
   if (!filters.source || filters.source === "PARKFACIL") {
     const linked = new Set(rows.map((row) => row.billingDocumentId).filter(Boolean));
-    let own = db.from("billing_documents").select("id,company_id,document_type,folio,invoice_date,net_amount,tax_amount,total_amount,status,provider_status,provider_document_id,customer_snapshot,updated_at").not("folio", "is", null).neq("provider", "mock").order("invoice_date", { ascending: false }).limit(1000);
+    let own = db.from("billing_documents").select("id,company_id,document_type,folio,invoice_date,net_amount,tax_amount,total_amount,status,provider_status,provider_document_id,customer_snapshot,updated_at,document_reference_id,origin:document_reference_id(folio,document_type)").not("folio", "is", null).neq("provider", "mock").order("invoice_date", { ascending: false }).limit(1000);
     if (filters.from) own = own.gte("invoice_date", filters.from);
     if (filters.to) own = own.lte("invoice_date", filters.to);
     if (filters.folio) own = own.eq("folio", String(filters.folio));

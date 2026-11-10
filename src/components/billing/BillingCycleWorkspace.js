@@ -19,6 +19,30 @@ const MNEMO = {
 };
 const LOGOS = ["#3150D8", "#0891B2", "#7C3AED", "#EA580C", "#DB2777", "#0F766E"];
 const money = (value, currency = "CLP") => (currency === "UF" ? `UF ${Number(value || 0).toLocaleString("es-CL", { maximumFractionDigits: 4 })}` : new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(Number(value) || 0));
+const TAX_LABEL = { TAXABLE: "Afecto", EXEMPT: "Exento", UNDEFINED: "Sin definir" };
+
+// Detalle de los servicios del período en la etapa «Servicios»: descripción, cantidad, precio e IVA.
+function ServicesTable({ list }) {
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-200">
+      <table className="w-full min-w-[520px] text-left text-xs">
+        <thead className="bg-slate-50 text-slate-600"><tr><th className="p-2">Código</th><th className="p-2">Descripción</th><th className="p-2 text-right">Cantidad</th><th className="p-2 text-right">Precio unitario</th><th className="p-2 text-right">Subtotal neto</th><th className="p-2">IVA</th></tr></thead>
+        <tbody>
+          {list.map((item, index) => (
+            <tr key={item.id || index} className="border-t border-slate-100">
+              <td className="p-2 font-mono">{item.code || "—"}</td>
+              <td className="p-2">{item.description || "—"}</td>
+              <td className="p-2 text-right">{Number(item.quantity).toLocaleString("es-CL", { maximumFractionDigits: 4 })} {item.unit}</td>
+              <td className="p-2 text-right">{money(item.unitPrice, item.currency)}</td>
+              <td className="p-2 text-right font-semibold">{money(Number(item.quantity) * Number(item.unitPrice), item.currency)}</td>
+              <td className={`p-2 ${item.taxCategory === "UNDEFINED" ? "font-semibold text-red-600" : ""}`}>{TAX_LABEL[item.taxCategory] || item.taxCategory}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 const chileToday = () => new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
 const monthLabel = (period) => { const [y, m] = period.split("-").map(Number); return new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString("es-CL", { month: "long", year: "numeric", timeZone: "UTC" }); };
 const shiftPeriod = (period, delta) => { const [y, m] = period.split("-").map(Number); const d = new Date(Date.UTC(y, m - 1 + delta, 1)); return d.toISOString().slice(0, 7); };
@@ -107,7 +131,9 @@ export default function BillingCycleWorkspace() {
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
 
-  const changePeriod = (delta) => { setLoading(true); setFilterStage(null); setViewing(null); setPeriod((p) => shiftPeriod(p, delta)); };
+  // SOL-2026-11-10-001 (H10): al cambiar de mes se borran los datos del mes anterior (antes se veían sus indicadores
+  // unos segundos mientras cargaba el nuevo).
+  const changePeriod = (delta) => { setLoading(true); setData(null); setFilterStage(null); setViewing(null); setPeriod((p) => shiftPeriod(p, delta)); };
 
   return (
     <div className="space-y-4">
@@ -229,7 +255,7 @@ function StepPanel({ row, period, step, readOnly, busy, runStep, backToCurrent, 
       action = { label: readOnly ? "Guardar cambios" : "Guardar y continuar", run: () => runStep("datos", { payload: { customer } }), hide: readOnly && issued };
       break;
     case "servicios":
-      body = <div className="space-y-2 text-sm"><p><b>{row.services.active}</b> servicio(s) activo(s) en el período{row.services.untaxed ? <> · <b className="text-red-600">{row.services.untaxed} sin IVA definido</b></> : null}.</p><a onClick={goDetail} href="/facturacion#servicios" className="font-semibold text-[#3150D8] underline">Editar servicios de la empresa</a>{row.services.untaxed ? <> · <a onClick={goDetail} href="/facturacion#catalogo" className="font-semibold text-[#3150D8] underline">Definir IVA en el catálogo</a></> : null}</div>;
+      body = <div className="space-y-2 text-sm"><p><b>{row.services.active}</b> servicio(s) activo(s) en el período{row.services.untaxed ? <> · <b className="text-red-600">{row.services.untaxed} sin IVA definido</b></> : null}.</p>{row.services.list?.length ? <ServicesTable list={row.services.list} /> : null}<a onClick={goDetail} href="/facturacion#servicios" className="font-semibold text-[#3150D8] underline">Editar servicios de la empresa</a>{row.services.untaxed ? <> · <a onClick={goDetail} href="/facturacion#catalogo" className="font-semibold text-[#3150D8] underline">Definir IVA en el catálogo</a></> : null}</div>;
       action = { label: "Confirmar servicios", run: () => runStep("servicios") };
       break;
     case "prefactura":

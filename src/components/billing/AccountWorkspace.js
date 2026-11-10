@@ -7,6 +7,9 @@ const money = (value, currency) => new Intl.NumberFormat("es-CL", {
   style: "currency", currency: currency || "CLP", maximumFractionDigits: 0,
 }).format(Number(value || 0));
 
+// SOL-2026-11-10-001: estado del saldo acumulado en español (antes se veía PAID / PENDING).
+const ACCOUNT_STATUS_ES = { PAID: "Saldo al día", PARTIAL: "Abono parcial", PENDING: "Pendiente", OVERDUE: "Vencido" };
+
 export default function AccountWorkspace({ columns }) {
   const [data, setData] = useState({ rows: [], summary: [] });
   const [companies, setCompanies] = useState([]);
@@ -63,7 +66,7 @@ export default function AccountWorkspace({ columns }) {
   const applyToDocument = async document => { setSaving(true);try{const response=await fetch(`/api/billing/accounts/payments/${application.payment.id}/applications`,{method:"POST",headers:{"content-type":"application/json","idempotency-key":crypto.randomUUID()},body:JSON.stringify({documentId:document.id,amount:Number(applicationAmount),applicationDate:new Date().toISOString().slice(0,10)})}),payload=await response.json();if(!response.ok)throw new Error(payload.error);await openPayment({id:application.payment.id,movementType:"PAYMENT"});setApplicationAmount("");await load();}catch(error){setMessage(error.message);}finally{setSaving(false);}};
   const reverseApplication = async item => {const reason=window.prompt("Motivo obligatorio del reverso");if(!reason)return;setSaving(true);try{const response=await fetch(`/api/billing/accounts/payments/${application.payment.id}/applications/${item.id}/reverse`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({reason})}),payload=await response.json();if(!response.ok)throw new Error(payload.error);await openPayment({id:application.payment.id,movementType:"PAYMENT"});await load();}catch(error){setMessage(error.message);}finally{setSaving(false);}};
 
-  const rows = useMemo(() => (data.rows || []).map(item => ({ id: item.id, movementType:item.movementType, fecha: item.movementDate, cliente: item.company?.business_name || item.companyId, documento: item.document?.folio || item.movementType, referencia: item.reference, vencimiento: item.dueDate, debe: item.debitAmount, haber: item.creditAmount, saldo: item.runningBalance, estado: item.accountStatus, moneda: item.currency })), [data]);
+  const rows = useMemo(() => (data.rows || []).map(item => ({ id: item.id, movementType:item.movementType, fecha: item.movementDate, cliente: item.company?.business_name || item.companyId, documento: item.document?.folio || item.movementType, referencia: item.reference, vencimiento: item.dueDate, debe: item.debitAmount, haber: item.creditAmount, saldo: item.runningBalance, estado: ACCOUNT_STATUS_ES[item.accountStatus] || item.accountStatus, moneda: item.currency })), [data]);
   const gridColumns = useMemo(() => columns.map(column => ["debe", "haber", "saldo"].includes(column.key) ? { ...column, render: (value, row) => money(value, row.moneda), exportValue: row => row[column.key] } : column), [columns]);
 
   return <div className="space-y-4">

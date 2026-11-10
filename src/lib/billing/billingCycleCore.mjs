@@ -82,6 +82,15 @@ export function servicesInPeriod(items = [], period) {
   return { active, untaxed };
 }
 
+// Detalle de un servicio para mostrarlo antes de confirmar la etapa «Servicios» (descripción, cantidad, precio).
+export function serviceSummary(item = {}) {
+  return {
+    id: item.id || null, code: item.concept_code || "", description: item.description || "",
+    quantity: Number(item.quantity ?? 1), unit: item.unit || "", unitPrice: Number(item.unit_price ?? 0), currency: item.currency || "UF",
+    taxCategory: item.tax_category || "UNDEFINED",
+  };
+}
+
 const APPROVED_OR_LATER = ["APPROVED", "READY_TO_ISSUE", "ISSUING", "ISSUED", "PROVIDER_PENDING", "PROVIDER_REJECTED", "ISSUE_ERROR"];
 
 // Estado del ciclo de una empresa. Devuelve cada etapa con state: ok | cur | err | wait | lock | off, la etapa actual
@@ -134,7 +143,7 @@ export function computeCycle({ company, items = [], preinvoice = null, invoice =
     finished: current === null,
     problem: currentStep?.problem || null,
     progress: enabled.length ? Math.round((enabled.filter((step) => step.state === "ok").length / enabled.length) * 100) : 100,
-    services: { active: active.length, untaxed: untaxed.length },
+    services: { active: active.length, untaxed: untaxed.length, list: active.map(serviceSummary) },
     customerIssues: issues,
   };
 }

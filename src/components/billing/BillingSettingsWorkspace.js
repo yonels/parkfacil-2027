@@ -8,7 +8,7 @@ const FIELDS = [
   ["issuerBusinessName", "Razón social", "ParkFacil SpA"],
   ["issuerRut", "RUT", "77.991.619-7"],
   ["issuerActivity", "Giro", "Otras actividades de tecnología…"],
-  ["issuerActivityCode", "Código de actividad (opcional)", "620900"],
+  ["issuerActivityCode", "Código de actividad (Acteco)", "620900"],
   ["issuerAddress", "Dirección", "Calle y número"],
   ["issuerDistrict", "Comuna", "Las Condes"],
   ["issuerCity", "Ciudad", "Santiago"],
@@ -73,6 +73,7 @@ export default function BillingSettingsWorkspace() {
         <h3 className="text-lg font-semibold text-[#041E42]">Datos del emisor</h3>
         <p className="mt-1 text-sm text-slate-600">Aparecen en cada factura, nota de crédito y nota de débito que emite ParkFacil. Valores iniciales tomados de la factura N° 278 de EasyDoc.</p>
         {missing.length ? <p className="mt-2 text-sm font-semibold text-amber-700">Falta completar: {missing.join(", ")}. Sin dirección y comuna no se puede emitir.</p> : null}
+        {!/^\d{4,6}$/.test(String(form.issuerActivityCode || "").trim()) ? <p className="mt-2 text-sm font-semibold text-amber-700">Falta el código de actividad económica (Acteco): el SII lo exige en facturas y notas de crédito y débito. Sin él no se puede emitir en ambiente de producción.</p> : null}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         {FIELDS.map(([key, label, placeholder]) => (

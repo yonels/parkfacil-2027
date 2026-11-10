@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { customerResponseLabel, detectFormat, fromHaulmerIssued, normalizeRut, parseDocumentDate, parseEasyDocRows, planImport, toRegistryUpdate } from "./dteRegistryCore.mjs";
+import { customerResponseLabel, detectFormat, fromHaulmerIssued, listRowFromBillingDocument, normalizeRut, parseDocumentDate, parseEasyDocRows, planImport, toRegistryUpdate } from "./dteRegistryCore.mjs";
 
 // Encabezado real de «Descarga Excel» de EasyDoc (2026-11-08); datos ficticios.
 const HEADER = ["FOLIO_INTERNO", "TIPODOC", "FOLIO_SII", "FECHAEMIS", "RUTEMISOR", "RZNSOCRECEP", "MNTONETO", "MNTOEXENTO", "IVA", "MNTOTOTAL", "ANULADO", "MotivoNotaAplicada", "RUTRECEP", "ESTADODTE", "ESTADODTECLIENTE", "ESTADO_ACUSE", "GLOSA_ACUSE", "ESTADO_APROBCOM", "GLOSA_APROBCOM", "CODIGOENVIO", "DYT_GLOSAERR", "TRACKID", "EMISOR_ELECTRONICO", "ESTADO_ACCIONSII", "CAB_IND_TRASLADO", "TIPO_REFERENCIA", "FOLIO_REFERENCIA", "TIPOCAMBIO", "DETALLE_RESPUESTA_SII"];
@@ -106,4 +106,10 @@ test("lee el CSV de ventas del SII: tipo desde el nombre del archivo y respuesta
   assert.match(result.errors[0].message, /RUT del cliente inválido/);
   assert.throws(() => parseIssuedDocumentsFile(rows, { fileName: "ventas.csv" }), (e) => e.code === "DTE_TYPE_UNKNOWN");
   assert.throws(() => parseIssuedDocumentsFile([["Nro", "Otra"], ["1", "2"]]), (e) => e.code === "DTE_FORMAT_UNKNOWN");
+});
+
+test("SOL-2026-11-10-001: la nota de crédito propia muestra la factura que referencia", () => {
+  const row = listRowFromBillingDocument({ id: "n1", company_id: "emp-001", document_type: "CREDIT_NOTE", folio: "119060", invoice_date: "2026-11-10", net_amount: 61953, tax_amount: 11771, total_amount: 73724, status: "ISSUED", customer_snapshot: { rut: "77991619-7" }, origin: { folio: "205391", document_type: "INVOICE" } });
+  assert.equal(row.reference, "33 N° 205391");
+  assert.equal(listRowFromBillingDocument({ id: "f1", document_type: "INVOICE", folio: "1", customer_snapshot: {} }).reference, "");
 });
