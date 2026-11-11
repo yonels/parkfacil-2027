@@ -15,6 +15,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/lpr-fase1-datos-api": false,
       "feature/configuracion-ramas": false,
       "feature/folios-disponibles": false,
       "feature/historial-neto-iva": false,
