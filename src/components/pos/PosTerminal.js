@@ -3,6 +3,7 @@
 import { classifiedPaymentMethod, paymentMethodDisplay } from "@/lib/paymentCardType.mjs";
 import PosPlateInput from "@/components/pos/PosPlateInput";
 import PosHomeVehicles from "@/components/pos/PosHomeVehicles";
+import PosEnvironmentBanner from "@/components/pos/PosEnvironmentBanner";
 import { stampStaysReceivedAt } from "@/lib/pos/homeVehicles.mjs";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -6027,6 +6028,7 @@ export default function PosTerminal() {
         </aside>
 
         <section className="pos-terminal-content min-w-0 flex-1 p-3 sm:p-4 md:p-6">
+          <PosEnvironmentBanner className="mb-3 rounded-xl" />
           <div className={`pos-terminal-card ${currentView === POS_VIEWS.HOME ? "pos-terminal-home" : ""} rounded-3xl border border-slate-300 bg-white p-4 shadow-xl sm:p-5`}>
             <header className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
               <div>
