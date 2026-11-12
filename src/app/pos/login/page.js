@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { ParkingSquare, ScanLine } from "lucide-react";
 
 import PosViewport from "@/components/pos/PosViewport";
+import PosEnvironmentBanner from "@/components/pos/PosEnvironmentBanner";
 import LoginForm from "@/components/auth/LoginForm";
 
 export const metadata = {
@@ -25,6 +26,7 @@ export default async function PosLoginPage({ searchParams }) {
   return (
     <main className="pos-login grid min-h-screen bg-slate-50 lg:grid-cols-[1.1fr_0.9fr]">
       <PosViewport />
+      <PosEnvironmentBanner className="lg:col-span-2" />
       <section
         className="relative hidden overflow-hidden p-12 text-white lg:flex lg:flex-col lg:justify-between"
         style={{
