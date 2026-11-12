@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { ParkingSquare, ScanLine } from "lucide-react";
 
 import LoginForm from "@/components/auth/LoginForm";
+import PosEnvironmentBanner from "@/components/pos/PosEnvironmentBanner";
 
 export const metadata = {
   title: "ParkFacil POS - Acceso Operador",
@@ -18,6 +19,7 @@ export const metadata = {
 export default function AccesoOperadorPage() {
   return (
     <main className="grid min-h-screen bg-slate-50 lg:grid-cols-[1.1fr_0.9fr]">
+      <PosEnvironmentBanner className="lg:col-span-2" />
       <section
         className="relative hidden overflow-hidden p-12 text-white lg:flex lg:flex-col lg:justify-between"
         style={{
