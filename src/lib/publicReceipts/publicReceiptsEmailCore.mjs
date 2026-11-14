@@ -4,10 +4,9 @@
 // (send/route.js), que solo llama a sendMicrosoftGraphMail con lo que esta
 // función arma.
 //
-// Límite de esta primera versión: el correo lleva el documento como HTML
-// (igual contenido que la vista web), SIN PDF adjunto. El PDF (Haulmer por
-// token para la boleta, o uno propio para el comprobante C) es la etapa 4,
-// todavía no implementada -- no se inventa aquí.
+// Qué documento mostrar (boleta real o comprobante C) se decide por
+// `row.document`, no por el medio de pago (`row.kind`): desde la etapa 3
+// un pago con tarjeta en línea (Webpay) también puede tener boleta real.
 
 function formatCurrency(amount) {
   return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(Number(amount || 0));
@@ -23,18 +22,19 @@ function escapeHtml(value) {
 }
 
 export function publicReceiptEmailSubject(row) {
-  if (row?.kind === "CASH") return `Boleta electrónica${row.folio ? ` N° ${row.folio}` : ""} — ParkFacil`;
+  if (row?.document === "BOLETA") return `Boleta electrónica${row.folio ? ` N° ${row.folio}` : ""} — ParkFacil`;
   return "Comprobante de pago con tarjeta — ParkFacil";
 }
 
 export function buildPublicReceiptEmailHtml(row) {
   const emisor = row?.emisor;
-  const titulo = row?.kind === "CASH" ? `Boleta electrónica${row.folio ? ` N° ${row.folio}` : ""}` : "Comprobante de pago con tarjeta";
+  const esBoleta = row?.document === "BOLETA";
+  const titulo = esBoleta ? `Boleta electrónica${row.folio ? ` N° ${row.folio}` : ""}` : "Comprobante de pago con tarjeta";
   const medio = row?.kind === "CASH"
     ? "Efectivo"
     : `${row.medio === "CREDITO" ? "Crédito" : row.medio === "DEBITO" ? "Débito" : "Tarjeta"}${row.cardLast4 ? ` ****${row.cardLast4}` : ""}`;
 
-  const legend = row?.kind === "CASH"
+  const legend = esBoleta
     ? "Timbre Electrónico SII (representación impresa)."
     : "El documento tributario de esta venta es el voucher del terminal, válido como boleta. Este comprobante es un respaldo informativo de ParkFacil.";
 
@@ -68,7 +68,7 @@ export function buildPublicReceiptEmail(row) {
 // El HTML es solo un resumen -- el detalle de cada documento va en el PDF.
 export function buildPublicReceiptsBatchEmail(rows) {
   const items = (rows || []).map((row) => {
-    const medio = row.kind === "CASH"
+    const medio = row.document === "BOLETA"
       ? (row.folio ? `Boleta N° ${row.folio}` : "Boleta electrónica")
       : `Comprobante de pago con tarjeta (${row.medio === "CREDITO" ? "crédito" : "débito"}${row.cardLast4 ? ` ****${row.cardLast4}` : ""})`;
     return `<li>${escapeHtml(medio)} — ${escapeHtml(formatDate(row.exitAt))} — ${escapeHtml(formatCurrency(row.totalAmount))}</li>`;

@@ -9,9 +9,16 @@
 //   muestran marcadas «DOCUMENTO DE PRUEBA».
 // - P6: las boletas FAILED (o inexistentes) no se muestran.
 // - §9.5 (P15) y §8.4 (etapa 2 omitida, 2026-11-13): en débito y crédito
-//   SIEMPRE se muestra el comprobante C (nunca una boleta SII real), con
-//   los datos ya guardados en la estadía (sin marca ni código de
-//   autorización -- TUU no los entrega hoy).
+//   del POS (TUU) SIEMPRE se muestra el comprobante C (nunca una boleta
+//   SII real), con los datos ya guardados en la estadía (sin marca ni
+//   código de autorización -- TUU no los entrega hoy).
+// - Etapa 3 (2026-11-14): un pago con tarjeta en línea (Webpay, «Pague
+//   Aquí») SÍ puede tener una boleta SII real -- a diferencia de TUU, el
+//   comprobante de Webpay no reemplaza a la boleta. Por eso `document`
+//   (BOLETA/COMPROBANTE_C) es independiente de `kind`/`medio` (el medio
+//   de pago): si existe una boleta ISSUED se muestra esa, sea cual sea el
+//   medio; si no, tarjeta cae al comprobante C y efectivo sin boleta no
+//   se muestra (P6).
 
 const PLATE_PATTERN = /^[A-Z0-9]{4}-[A-Z0-9]{2}$/;
 
@@ -57,6 +64,10 @@ function emisorFrom(company) {
 // efectivo sin boleta ISSUED, o boleta de prueba en producción).
 export function buildPublicReceiptRow({ stay, boleta = null, parking = null, company = null, isProduction = true }) {
   if (!stay || stay.status !== "PAID" || !stay.exit_at) return null;
+  if (!["CASH", "CARD"].includes(stay.payment_method)) return null;
+
+  const isCard = stay.payment_method === "CARD";
+  const cardType = stay.payment_card_type === "CREDIT" ? "CREDITO" : stay.payment_card_type === "DEBIT" ? "DEBITO" : "TARJETA";
 
   const base = {
     stayId: stay.id,
@@ -66,32 +77,23 @@ export function buildPublicReceiptRow({ stay, boleta = null, parking = null, com
     parkingName: parking?.name || "",
     city: parking?.city || "",
     emisor: emisorFrom(company),
+    kind: stay.payment_method,
+    medio: isCard ? cardType : "EFECTIVO",
     netAmount: Number(stay.net_amount ?? 0),
     taxAmount: Number(stay.tax_amount ?? 0),
     totalAmount: Number(stay.total_amount ?? 0),
-  };
-
-  if (stay.payment_method === "CARD") {
-    const cardType = stay.payment_card_type === "CREDIT" ? "CREDITO" : stay.payment_card_type === "DEBIT" ? "DEBITO" : "TARJETA";
-    return {
-      ...base,
-      kind: "CARD",
-      medio: cardType,
-      document: "COMPROBANTE_C",
+    ...(isCard ? {
       cardLast4: /^\d{4}$/.test(String(stay.card_last4 || "")) ? stay.card_last4 : null,
       cardOperationNumber: stay.card_payment_reference || null,
       cardApprovedAt: stay.card_payment_approved_at || stay.exit_at,
-    };
-  }
+    } : {}),
+  };
 
-  if (stay.payment_method === "CASH") {
-    if (!boleta || boleta.status !== "ISSUED") return null; // P6: sin boleta emitida, no se muestra.
+  if (boleta?.status === "ISSUED") {
     const isTest = boleta.environment === "TEST";
     if (isTest && isProduction) return null; // P5: en producción se ocultan las de prueba.
     return {
       ...base,
-      kind: "CASH",
-      medio: "EFECTIVO",
       document: "BOLETA",
       folio: boleta.folio != null ? String(boleta.folio) : null,
       isTestDocument: isTest,
@@ -101,7 +103,9 @@ export function buildPublicReceiptRow({ stay, boleta = null, parking = null, com
     };
   }
 
-  return null; // payment_method desconocido o estadía liberada sin cobro: nada que mostrar.
+  if (isCard) return { ...base, document: "COMPROBANTE_C" };
+
+  return null; // efectivo sin boleta ISSUED: P6, no se muestra.
 }
 
 export function buildPublicReceiptRows({ stays = [], boletasByStayId = new Map(), parkingsById = new Map(), companiesById = new Map(), isProduction = true } = {}) {

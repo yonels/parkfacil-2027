@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { isInternalServiceKeyValid } from "@/lib/internalServiceAuth.mjs";
 import { getSupabaseAdminClient, isSupabaseConfigurationError } from "@/lib/supabaseServer";
 import { accreditAuthorizedWebpayStay, StayAccreditationError } from "@/lib/webpayStayAccreditation";
+import { issueWebpayPaymentBoleta } from "@/lib/boletaElectronica/webpayBoletaService";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const BUY_ORDER_PATTERN = /^[A-Za-z0-9_-]{1,26}$/;
@@ -32,8 +33,21 @@ export async function POST(request) {
       return NextResponse.json({ ok: false, code: "INVALID_PAYMENT_SOURCE", mensaje: "Origen de pago inválido." }, { status: 400 });
     }
 
-    const result = await accreditAuthorizedWebpayStay(getSupabaseAdminClient(), { stayId, quoteId, buyOrder, amount });
-    return NextResponse.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
+    const db = getSupabaseAdminClient();
+    const result = await accreditAuthorizedWebpayStay(db, { stayId, quoteId, buyOrder, amount });
+
+    // Boleta electrónica del pago Webpay (SOL-2026-11-12-004, etapa 3): se
+    // emite con el pago ya acreditado; si Haulmer falla, el pago no se
+    // revierte -- mismo criterio que la boleta de efectivo del POS.
+    let boleta = null;
+    try {
+      const { data: stay } = await db.from("parking_stays").select("*").eq("id", stayId).maybeSingle();
+      if (stay) boleta = await issueWebpayPaymentBoleta(db, stay);
+    } catch (boletaError) {
+      console.error("[WEBPAY_ACCREDITATION] boleta_failed", { stayId, message: boletaError?.message });
+    }
+
+    return NextResponse.json({ ok: true, ...result, ...(boleta ? { boleta } : {}) }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof StayAccreditationError) {
       return NextResponse.json({ ok: false, code: error.code, mensaje: error.message }, { status: error.status });

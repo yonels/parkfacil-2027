@@ -71,7 +71,7 @@ test("efectivo con boleta ISSUED de producción se muestra siempre", () => {
   assert.equal(row.emisor.businessName, "ParkFacil Operaciones Spa");
 });
 
-test("débito/crédito siempre muestra el comprobante C, sin boleta ni marca/código de autorización", () => {
+test("débito/crédito del POS (TUU, sin boleta) muestra el comprobante C, sin marca ni código de autorización", () => {
   const row = buildPublicReceiptRow({ stay: STAY_CARD, parking: PARKING, company: COMPANY, isProduction: true });
   assert.equal(row.kind, "CARD");
   assert.equal(row.medio, "DEBITO");
@@ -80,6 +80,24 @@ test("débito/crédito siempre muestra el comprobante C, sin boleta ni marca/có
   assert.equal(row.cardOperationNumber, "120001984417");
   assert.equal("cardBrand" in row, false);
   assert.equal("authorizationCode" in row, false);
+});
+
+// Etapa 3 (2026-11-14): un pago con tarjeta en línea (Webpay) sí puede
+// tener una boleta SII real -- `document` se decide por si hay boleta
+// ISSUED, no por el medio de pago.
+test("tarjeta con boleta real (Webpay, etapa 3) se muestra como BOLETA, no comprobante C", () => {
+  const boleta = { status: "ISSUED", environment: "PRODUCTION", folio: 900050, net_amount: 840, tax_amount: 160, total_amount: 1000 };
+  const row = buildPublicReceiptRow({ stay: STAY_CARD, boleta, parking: PARKING, company: COMPANY, isProduction: true });
+  assert.equal(row.kind, "CARD");
+  assert.equal(row.medio, "DEBITO"); // el medio de pago se sigue informando
+  assert.equal(row.document, "BOLETA");
+  assert.equal(row.folio, "900050");
+  assert.equal(row.totalAmount, 1000);
+  assert.equal(row.cardLast4, "7710"); // y los datos de la tarjeta también, para quien la pagó
+});
+
+test("efectivo nunca muestra comprobante C (solo boleta o nada)", () => {
+  assert.equal(buildPublicReceiptRow({ stay: STAY_CASH, boleta: null })?.document, undefined);
 });
 
 test("estadías OPEN o sin salida nunca se muestran", () => {

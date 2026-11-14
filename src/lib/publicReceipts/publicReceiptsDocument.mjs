@@ -7,19 +7,20 @@ import { buildPublicReceiptCardPdf } from "./publicReceiptsPdfCore.mjs";
 export const PUBLIC_RECEIPTS_BATCH_LIMIT = 20;
 
 // «Consulte su boleta» (SOL-2026-11-12-004), etapa 4 -- el PDF real de
-// cada fila. Efectivo: el PDF oficial del SII, pedido a Haulmer por
-// provider_token con la API Key de la EMPRESA emisora (nunca la de
-// ParkFacil) -- mismo patrón que documentEmailService.js (facturación
-// Root), reutilizando el mismo adaptador (su getDocument ya reintenta los
-// 500 de "PDF recién emitido"). Tarjeta: no hay documento del SII -- se
-// arma un PDF propio con los mismos datos del comprobante C.
+// cada fila. Boleta (efectivo, o tarjeta Webpay desde la etapa 3): el PDF
+// oficial del SII, pedido a Haulmer por provider_token con la API Key de
+// la EMPRESA emisora (nunca la de ParkFacil) -- mismo patrón que
+// documentEmailService.js (facturación Root), reutilizando el mismo
+// adaptador (su getDocument ya reintenta los 500 de "PDF recién
+// emitido"). Comprobante C (tarjeta TUU, sin boleta): no hay documento
+// del SII -- se arma un PDF propio.
 export async function fetchPublicReceiptPdf(db, { row }) {
-  if (row.kind === "CARD") {
+  if (row.document !== "BOLETA") {
     const pdfBytes = await buildPublicReceiptCardPdf(row);
     return { ok: true, pdf: Buffer.from(pdfBytes).toString("base64"), fileName: `comprobante-${row.paymentCode || row.stayId}.pdf` };
   }
 
-  // CASH: pide el provider_token y la configuración DTE de la empresa.
+  // Boleta: pide el provider_token y la configuración DTE de la empresa.
   const boleta = await db
     .from("parking_stay_dte_documents")
     .select("provider_token,company_id")
