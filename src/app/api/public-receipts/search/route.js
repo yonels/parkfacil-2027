@@ -2,12 +2,8 @@ import { NextResponse } from "next/server";
 
 import { isInternalServiceKeyValid } from "@/lib/internalServiceAuth.mjs";
 import { getSupabaseAdminClient, isSupabaseConfigurationError } from "@/lib/supabaseServer";
-import {
-  buildPublicReceiptRows,
-  isProductionEnvironment,
-  isValidPublicReceiptsPlate,
-  normalizePublicReceiptsPlate,
-} from "@/lib/publicReceipts/publicReceiptsCore.mjs";
+import { isProductionEnvironment, isValidPublicReceiptsPlate, normalizePublicReceiptsPlate } from "@/lib/publicReceipts/publicReceiptsCore.mjs";
+import { fetchPublicReceiptRows } from "@/lib/publicReceipts/publicReceiptsRepository.mjs";
 import { issuePublicReceiptsToken } from "@/lib/publicReceipts/publicReceiptsToken.mjs";
 import { buildPublicReceiptsAuditEntry } from "@/lib/publicReceipts/publicReceiptsAudit.mjs";
 
@@ -43,50 +39,7 @@ export async function POST(request) {
     }
 
     const db = getSupabaseAdminClient();
-    const isProduction = isProductionEnvironment();
-
-    const staysResult = await db
-      .from("parking_stays")
-      .select("id,parking_id,entry_at,exit_at,payment_method,payment_card_type,card_last4,card_payment_reference,card_payment_approved_at,payment_code,net_amount,tax_amount,total_amount,status")
-      .eq("license_plate", plate)
-      .eq("status", "PAID")
-      .order("exit_at", { ascending: false })
-      .limit(500);
-    if (staysResult.error) throw staysResult.error;
-    const stays = staysResult.data || [];
-
-    let parkingsById = new Map();
-    let companiesById = new Map();
-    let boletasByStayId = new Map();
-
-    if (stays.length) {
-      const parkingIds = [...new Set(stays.map((s) => s.parking_id).filter(Boolean))];
-      const stayIds = stays.map((s) => s.id);
-
-      const [parkingsResult, boletasResult] = await Promise.all([
-        parkingIds.length
-          ? db.from("parkings").select("id,name,city,company_id").in("id", parkingIds)
-          : Promise.resolve({ data: [], error: null }),
-        stayIds.length
-          ? db.from("parking_stay_dte_documents").select("stay_id,status,environment,folio,net_amount,tax_amount,total_amount").in("stay_id", stayIds)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-      if (parkingsResult.error) throw parkingsResult.error;
-      if (boletasResult.error) throw boletasResult.error;
-
-      parkingsById = new Map((parkingsResult.data || []).map((p) => [p.id, p]));
-      boletasByStayId = new Map((boletasResult.data || []).map((b) => [b.stay_id, b]));
-
-      const companyIds = [...new Set((parkingsResult.data || []).map((p) => p.company_id).filter(Boolean))];
-      if (companyIds.length) {
-        const companiesResult = await db.from("companies").select("id,business_name,rut_number,rut_dv,address,district,city").in("id", companyIds);
-        if (companiesResult.error) throw companiesResult.error;
-        companiesById = new Map((companiesResult.data || []).map((c) => [c.id, c]));
-      }
-    }
-
-    const rows = buildPublicReceiptRows({ stays, boletasByStayId, parkingsById, companiesById, isProduction });
-
+    const rows = await fetchPublicReceiptRows(db, { plate, isProduction: isProductionEnvironment() });
     const token = issuePublicReceiptsToken({ plate, stayIds: rows.map((r) => r.stayId), secret });
 
     // Auditoría (C8): best-effort, nunca bloquea la respuesta al cliente.

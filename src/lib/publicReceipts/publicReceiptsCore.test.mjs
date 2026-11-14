@@ -6,7 +6,17 @@ import {
   isProductionEnvironment,
   buildPublicReceiptRow,
   buildPublicReceiptRows,
+  normalizePublicReceiptsEmail,
+  isValidPublicReceiptsEmail,
 } from "./publicReceiptsCore.mjs";
+
+test("normaliza y valida el correo del envío (etapa 6)", () => {
+  assert.equal(normalizePublicReceiptsEmail(" Persona@Correo.CL "), "persona@correo.cl");
+  assert.equal(isValidPublicReceiptsEmail("persona@correo.cl"), true);
+  assert.equal(isValidPublicReceiptsEmail("no-es-correo"), false);
+  assert.equal(isValidPublicReceiptsEmail(""), false);
+  assert.equal(isValidPublicReceiptsEmail(`${"a".repeat(250)}@b.cl`), false);
+});
 
 test("normaliza y valida la patente (formato ABCD-12)", () => {
   assert.equal(normalizePublicReceiptsPlate("cxpy93"), "CXPY-93");

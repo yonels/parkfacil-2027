@@ -1,0 +1,65 @@
+// «Consulte su boleta» (SOL-2026-11-12-004), etapa 6 -- contenido del
+// correo. Reglas puras, sin Microsoft Graph ni DOM, mismo criterio que el
+// resto de módulos "*Core.mjs". El envío real vive en el endpoint
+// (send/route.js), que solo llama a sendMicrosoftGraphMail con lo que esta
+// función arma.
+//
+// Límite de esta primera versión: el correo lleva el documento como HTML
+// (igual contenido que la vista web), SIN PDF adjunto. El PDF (Haulmer por
+// token para la boleta, o uno propio para el comprobante C) es la etapa 4,
+// todavía no implementada -- no se inventa aquí.
+
+function formatCurrency(amount) {
+  return new Intl.NumberFormat("es-CL", { style: "currency", currency: "CLP", maximumFractionDigits: 0 }).format(Number(amount || 0));
+}
+
+function formatDate(value) {
+  if (!value) return "-";
+  return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Santiago" }).format(new Date(value));
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+}
+
+export function publicReceiptEmailSubject(row) {
+  if (row?.kind === "CASH") return `Boleta electrónica${row.folio ? ` N° ${row.folio}` : ""} — ParkFacil`;
+  return "Comprobante de pago con tarjeta — ParkFacil";
+}
+
+export function buildPublicReceiptEmailHtml(row) {
+  const emisor = row?.emisor;
+  const titulo = row?.kind === "CASH" ? `Boleta electrónica${row.folio ? ` N° ${row.folio}` : ""}` : "Comprobante de pago con tarjeta";
+  const medio = row?.kind === "CASH"
+    ? "Efectivo"
+    : `${row.medio === "CREDITO" ? "Crédito" : row.medio === "DEBITO" ? "Débito" : "Tarjeta"}${row.cardLast4 ? ` ****${row.cardLast4}` : ""}`;
+
+  const legend = row?.kind === "CASH"
+    ? "Timbre Electrónico SII (representación impresa)."
+    : "El documento tributario de esta venta es el voucher del terminal, válido como boleta. Este comprobante es un respaldo informativo de ParkFacil.";
+
+  return `<div style="font-family:Arial,Helvetica,sans-serif;max-width:420px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;padding:20px;color:#172033">
+    ${emisor ? `<p style="text-align:center;margin:0 0 4px;font-weight:bold">${escapeHtml(emisor.businessName)}</p>
+    <p style="text-align:center;margin:0 0 4px">RUT ${escapeHtml(emisor.rut)}</p>
+    <p style="text-align:center;margin:0 0 12px">${escapeHtml(emisor.address)}</p>
+    <hr style="border:none;border-top:1px dashed #94a3b8;margin:12px 0">` : ""}
+    <p style="text-align:center;font-weight:bold;margin:0 0 12px">${escapeHtml(titulo)}</p>
+    <table style="width:100%;font-size:14px;border-collapse:collapse">
+      <tr><td>Estacionamiento</td><td style="text-align:right">${escapeHtml(row?.parkingName)}${row?.city ? `, ${escapeHtml(row.city)}` : ""}</td></tr>
+      <tr><td>Fecha</td><td style="text-align:right">${formatDate(row?.exitAt)}</td></tr>
+      <tr><td colspan="2"><hr style="border:none;border-top:1px dashed #94a3b8;margin:8px 0"></td></tr>
+      <tr><td>Neto</td><td style="text-align:right">${formatCurrency(row?.netAmount)}</td></tr>
+      <tr><td>IVA</td><td style="text-align:right">${formatCurrency(row?.taxAmount)}</td></tr>
+      <tr><td style="font-weight:bold">Total</td><td style="text-align:right;font-weight:bold">${formatCurrency(row?.totalAmount)}</td></tr>
+      <tr><td colspan="2"><hr style="border:none;border-top:1px dashed #94a3b8;margin:8px 0"></td></tr>
+      <tr><td>Medio de pago</td><td style="text-align:right">${escapeHtml(medio)}</td></tr>
+      ${row?.kind === "CARD" && row?.cardOperationNumber ? `<tr><td>N° operación</td><td style="text-align:right">${escapeHtml(row.cardOperationNumber)}</td></tr>` : ""}
+      <tr><td>Código</td><td style="text-align:right">${escapeHtml(row?.paymentCode)}</td></tr>
+    </table>
+    <p style="margin-top:16px;font-size:12px;color:#5e6b84">${escapeHtml(legend)}</p>
+  </div>`;
+}
+
+export function buildPublicReceiptEmail(row) {
+  return { subject: publicReceiptEmailSubject(row), html: buildPublicReceiptEmailHtml(row) };
+}

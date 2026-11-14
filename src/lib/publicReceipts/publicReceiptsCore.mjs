@@ -25,6 +25,17 @@ export function isValidPublicReceiptsPlate(value) {
   return PLATE_PATTERN.test(String(value ?? ""));
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function normalizePublicReceiptsEmail(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+export function isValidPublicReceiptsEmail(value) {
+  const email = normalizePublicReceiptsEmail(value);
+  return email.length > 0 && email.length <= 254 && EMAIL_PATTERN.test(email);
+}
+
 // VERCEL_ENV=production -> boletas de prueba ocultas; cualquier otro valor
 // (preview/local/indefinido) se trata como QA -- mismo criterio que
 // posCardPaymentsEnabled (cardPaymentsAvailability.mjs).
