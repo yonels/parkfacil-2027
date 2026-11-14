@@ -6,6 +6,7 @@ import {
   isProductionEnvironment,
   buildPublicReceiptRow,
   buildPublicReceiptRows,
+  buildPublicReceiptOnStreetRow,
   normalizePublicReceiptsEmail,
   isValidPublicReceiptsEmail,
 } from "./publicReceiptsCore.mjs";
@@ -114,5 +115,43 @@ test("buildPublicReceiptRows arma y ordena por fecha de salida descendente, filt
   });
   assert.equal(rows.length, 2);
   assert.equal(rows[0].stayId, "s2"); // más reciente primero
+  assert.equal(rows[1].stayId, "s1");
+});
+
+// On Street (Webpay, etapa 3, 2026-11-14): esquema aparte
+// (on_street_payment_intents), sin stay_id -- nunca tuvo voucher TUU, así
+// que sin boleta ISSUED no hay nada que mostrar (no existe comprobante C
+// para este canal).
+const INTENT_ON_STREET = { id: "i1", status: "PAID", paid_at: "2026-11-14T10:00:00Z", parking_id: "p1", amount: 1200 };
+
+test("On Street sin boleta ISSUED no se muestra (nunca hay comprobante C para este canal)", () => {
+  assert.equal(buildPublicReceiptOnStreetRow({ intent: INTENT_ON_STREET, boleta: null }), null);
+  assert.equal(buildPublicReceiptOnStreetRow({ intent: INTENT_ON_STREET, boleta: { status: "FAILED" } }), null);
+});
+
+test("On Street con boleta ISSUED se muestra como BOLETA, con el emisor y el estacionamiento de la calle", () => {
+  const boleta = { status: "ISSUED", environment: "PRODUCTION", folio: 900070, payment_code: "PFabc123", net_amount: 1008, tax_amount: 192, total_amount: 1200 };
+  const row = buildPublicReceiptOnStreetRow({ intent: INTENT_ON_STREET, boleta, parking: PARKING, company: COMPANY, isProduction: true });
+  assert.equal(row.stayId, "i1");
+  assert.equal(row.kind, "CARD");
+  assert.equal(row.document, "BOLETA");
+  assert.equal(row.folio, "900070");
+  assert.equal(row.paymentCode, "PFabc123");
+  assert.equal(row.totalAmount, 1200);
+  assert.equal(row.parkingName, "Parking Centro");
+});
+
+test("buildPublicReceiptRows mezcla Off Street y On Street en una sola lista ordenada", () => {
+  const boletasByStayId = new Map([["s1", { status: "ISSUED", environment: "PRODUCTION", folio: 711258 }]]);
+  const onStreetBoletasByIntentId = new Map([["i1", { status: "ISSUED", environment: "PRODUCTION", folio: 900070, payment_code: "PFabc123" }]]);
+  const parkingsById = new Map([["p1", PARKING]]);
+  const companiesById = new Map([["emp-001", COMPANY]]);
+  const rows = buildPublicReceiptRows({
+    stays: [STAY_CASH], boletasByStayId,
+    onStreetIntents: [{ ...INTENT_ON_STREET, paid_at: "2026-11-14T10:00:00Z" }], onStreetBoletasByIntentId,
+    parkingsById, companiesById, isProduction: true,
+  });
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].stayId, "i1"); // On Street es más reciente, va primero
   assert.equal(rows[1].stayId, "s1");
 });

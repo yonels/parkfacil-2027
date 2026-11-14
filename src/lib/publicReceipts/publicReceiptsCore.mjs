@@ -108,15 +108,61 @@ export function buildPublicReceiptRow({ stay, boleta = null, parking = null, com
   return null; // efectivo sin boleta ISSUED: P6, no se muestra.
 }
 
-export function buildPublicReceiptRows({ stays = [], boletasByStayId = new Map(), parkingsById = new Map(), companiesById = new Map(), isProduction = true } = {}) {
-  return stays
-    .map((stay) => buildPublicReceiptRow({
-      stay,
-      boleta: boletasByStayId.get(stay.id) || null,
-      parking: parkingsById.get(stay.parking_id) || null,
-      company: companiesById.get(stay.parking_id ? parkingsById.get(stay.parking_id)?.company_id : null) || null,
-      isProduction,
-    }))
+// On Street (Webpay, SOL-2026-11-12-004 etapa 3 -- 2026-11-14): esquema
+// totalmente aparte de parking_stays (on_street_payment_intents, sin
+// stay_id). A diferencia de Off Street, On Street nunca tuvo un "voucher
+// TUU" -- solo paga en línea -- así que no existe un comprobante C para
+// este canal: si no hay boleta ISSUED, no hay nada que mostrar (mismo
+// criterio que P6 para efectivo).
+export function buildPublicReceiptOnStreetRow({ intent, boleta = null, parking = null, company = null, isProduction = true }) {
+  if (!intent || intent.status !== "PAID" || !intent.paid_at) return null;
+  if (boleta?.status !== "ISSUED") return null;
+  const isTest = boleta.environment === "TEST";
+  if (isTest && isProduction) return null; // P5
+
+  return {
+    stayId: intent.id,
+    paymentCode: boleta.payment_code || "",
+    entryAt: null,
+    exitAt: intent.paid_at,
+    parkingName: parking?.name || "",
+    city: parking?.city || "",
+    emisor: emisorFrom(company),
+    kind: "CARD",
+    medio: "TARJETA",
+    document: "BOLETA",
+    folio: boleta.folio != null ? String(boleta.folio) : null,
+    isTestDocument: isTest,
+    netAmount: Number.isFinite(Number(boleta.net_amount)) ? Number(boleta.net_amount) : 0,
+    taxAmount: Number.isFinite(Number(boleta.tax_amount)) ? Number(boleta.tax_amount) : 0,
+    totalAmount: Number.isFinite(Number(boleta.total_amount)) ? Number(boleta.total_amount) : Number(intent.amount ?? 0),
+  };
+}
+
+export function buildPublicReceiptRows({
+  stays = [], boletasByStayId = new Map(), parkingsById = new Map(), companiesById = new Map(),
+  onStreetIntents = [], onStreetBoletasByIntentId = new Map(),
+  isProduction = true,
+} = {}) {
+  const parkingCompany = (parkingId) => (parkingId ? parkingsById.get(parkingId)?.company_id : null);
+
+  const offStreetRows = stays.map((stay) => buildPublicReceiptRow({
+    stay,
+    boleta: boletasByStayId.get(stay.id) || null,
+    parking: parkingsById.get(stay.parking_id) || null,
+    company: companiesById.get(parkingCompany(stay.parking_id)) || null,
+    isProduction,
+  }));
+
+  const onStreetRows = onStreetIntents.map((intent) => buildPublicReceiptOnStreetRow({
+    intent,
+    boleta: onStreetBoletasByIntentId.get(intent.id) || null,
+    parking: parkingsById.get(intent.parking_id) || null,
+    company: companiesById.get(parkingCompany(intent.parking_id)) || null,
+    isProduction,
+  }));
+
+  return [...offStreetRows, ...onStreetRows]
     .filter(Boolean)
     .sort((a, b) => new Date(b.exitAt) - new Date(a.exitAt));
 }

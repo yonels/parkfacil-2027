@@ -6,6 +6,20 @@ import { isParkingCompanyActive } from "./companyServiceStatus.mjs";
 import { normalizePlate } from "./dataEntry.mjs";
 import { abortPaymentTransactionByBuyOrder, claimTransactionCommit, createPaymentTransaction, finalizeAuthorizedPayment, getPaymentTransaction, getPaymentTransactionByToken, markTransactionFailed, markTransactionRedirected, storedProviderToken } from "./payments/paymentTransactionRepository";
 import { createTransbankWebpayProvider, isAuthorizedWebpayResponse, sanitizeWebpayResponse } from "./payments/transbankWebpayProvider";
+import { issueOnStreetPaymentBoleta } from "./boletaElectronica/onStreetBoletaService";
+
+// Boleta electrónica del pago On Street (SOL-2026-11-12-004, etapa 3):
+// se intenta DESPUÉS de confirmar el pago, nunca antes -- un fallo acá
+// nunca revierte ni bloquea el pago ya acreditado (mismo criterio que la
+// boleta de efectivo del POS y la de Webpay Off Street).
+async function issueOnStreetBoletaBestEffort(db, intentId, paymentCode) {
+  try {
+    const { data: intent } = await db.from("on_street_payment_intents").select("*").eq("id", intentId).maybeSingle();
+    if (intent) await issueOnStreetPaymentBoleta(db, intent, paymentCode);
+  } catch (boletaError) {
+    console.error("[on-street-boleta] failed", { intentId, message: boletaError?.message });
+  }
+}
 
 function error(code,status=400){const e=new Error(code);e.code=code;e.status=status;return e;}
 const intentSelect="id,public_token,qr_location_id,parking_id,license_plate_normalized,phone_normalized,operation_type,target_session_id,purchased_minutes,rate_id,rate_per_minute,amount,currency,location_snapshot,status,expires_at,paid_at,resulting_session_id,created_at";
@@ -56,12 +70,14 @@ export async function processWebpayReturn(db,{token,provider=createTransbankWebp
   let response;
   try{response=claim.recover?await provider.getTransactionStatus(token):await provider.commitTransaction(token);}catch(commitError){try{response=await provider.getTransactionStatus(token);}catch{throw commitError;}}
   const safe=sanitizeWebpayResponse(response);if(!isAuthorizedWebpayResponse(response,{buyOrder:transaction.buy_order,amount:transaction.amount})){await markTransactionFailed(db,transaction.id,{status:String(response?.status).toUpperCase()==="ABORTED"?"ABORTED":"REJECTED",providerStatus:safe.status,responseCode:safe.responseCode,response:safe});const intent=await getPublicPaymentIntentById(db,transaction.source_id);return{status:"REJECTED",intentToken:intent.public_token};}
-  const finalized=await finalizeAuthorizedPayment(db,transaction.id,safe);const intent=await getPublicPaymentIntentById(db,transaction.source_id);return{status:"COMMITTED",intentToken:intent.public_token,sessionToken:finalized.sessionToken};
+  const finalized=await finalizeAuthorizedPayment(db,transaction.id,safe);
+  await issueOnStreetBoletaBestEffort(db,transaction.source_id,transaction.buy_order);
+  const intent=await getPublicPaymentIntentById(db,transaction.source_id);return{status:"COMMITTED",intentToken:intent.public_token,sessionToken:finalized.sessionToken};
 }
 
 export async function abortWebpayReturn(db,buyOrder){const transaction=await abortPaymentTransactionByBuyOrder(db,buyOrder);if(!transaction)return null;const intent=await getPublicPaymentIntentById(db,transaction.source_id);return{intentToken:intent.public_token};}
 
-export async function recoverWebpayTransaction(db,{transactionId,provider=createTransbankWebpayProvider()}){const transaction=await getPaymentTransaction(db,transactionId);if(!transaction)throw error("PAYMENT_TRANSACTION_NOT_FOUND",404);if(transaction.status==="COMMITTED")return{status:"COMMITTED"};const token=storedProviderToken(transaction),response=await provider.getTransactionStatus(token),safe=sanitizeWebpayResponse(response);if(!isAuthorizedWebpayResponse(response,{buyOrder:transaction.buy_order,amount:transaction.amount}))return{status:"PENDING",providerStatus:safe.status};await claimTransactionCommit(db,token);const finalized=await finalizeAuthorizedPayment(db,transaction.id,safe);return{status:"COMMITTED",...finalized};}
+export async function recoverWebpayTransaction(db,{transactionId,provider=createTransbankWebpayProvider()}){const transaction=await getPaymentTransaction(db,transactionId);if(!transaction)throw error("PAYMENT_TRANSACTION_NOT_FOUND",404);if(transaction.status==="COMMITTED")return{status:"COMMITTED"};const token=storedProviderToken(transaction),response=await provider.getTransactionStatus(token),safe=sanitizeWebpayResponse(response);if(!isAuthorizedWebpayResponse(response,{buyOrder:transaction.buy_order,amount:transaction.amount}))return{status:"PENDING",providerStatus:safe.status};await claimTransactionCommit(db,token);const finalized=await finalizeAuthorizedPayment(db,transaction.id,safe);await issueOnStreetBoletaBestEffort(db,transaction.source_id,transaction.buy_order);return{status:"COMMITTED",...finalized};}
 
 async function getPublicPaymentIntentById(db,id){const result=await db.from("on_street_payment_intents").select(intentSelect).eq("id",id).single();if(result.error)throw result.error;return result.data;}
 async function sessionTokenFor(db,id){const result=await db.from("on_street_pilot_sessions").select("public_token").eq("id",id).single();if(result.error)throw result.error;return result.data.public_token;}
