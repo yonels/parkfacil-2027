@@ -5,6 +5,17 @@
 // propio PDF -- mismo contenido que ya se ve en pantalla y en el correo
 // (publicReceiptsEmailCore.mjs), con pdf-lib (sin Chromium, liviano,
 // corre bien en una función serverless).
+//
+// Corrección 2026-11-14: la primera versión usaba un ancho de 80 mm (como
+// un ticket térmico real) con Courier -- una fuente monoespaciada mucho
+// más ancha por carácter que una tipografía normal. Con nombres de
+// estacionamiento o direcciones largas, el texto se salía de la página
+// (se veía cortado a los costados) o la etiqueta y el valor de una fila
+// quedaban pegados. Esto es un PDF para ver en pantalla o imprimir en
+// hoja normal, no un ticket térmico real, así que se ensancha la página y
+// además cada línea se ajusta (word-wrap) o, si una fila no entra en una
+// sola línea, el valor pasa a la línea de abajo -- nunca se recorta ni se
+// superpone texto.
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 function formatCurrency(amount) {
@@ -16,17 +27,40 @@ function formatDate(value) {
   return new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short", timeZone: "America/Santiago" }).format(new Date(value));
 }
 
-const PAGE_WIDTH = 227; // ~80 mm, igual proporción que el ticket impreso
-const MARGIN = 16;
+const PAGE_WIDTH = 340;
+const MARGIN = 24;
+const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
+
+// Parte `text` en líneas que entran en `maxWidth` con esa fuente/tamaño.
+// Si una sola palabra ya es más ancha que maxWidth (código largo sin
+// espacios), se deja igual en su propia línea -- nunca se corta una
+// palabra a la mitad.
+function wrapText(text, font, size, maxWidth) {
+  const words = String(text ?? "").split(/\s+/).filter(Boolean);
+  if (!words.length) return [""];
+  const lines = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (font.widthOfTextAtSize(candidate, size) <= maxWidth || !current) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
 
 export async function buildPublicReceiptCardPdf(row) {
   const doc = await PDFDocument.create();
-  const font = await doc.embedFont(StandardFonts.Courier);
-  const fontBold = await doc.embedFont(StandardFonts.CourierBold);
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
 
   const medio = row?.medio === "CREDITO" ? "Crédito" : row?.medio === "DEBITO" ? "Débito" : "Tarjeta";
   const emisor = row?.emisor;
-  const lines = [
+  const blocks = [
     ...(emisor ? [
       { text: emisor.businessName, bold: true, center: true },
       { text: `RUT ${emisor.rut}`, center: true },
@@ -47,39 +81,68 @@ export async function buildPublicReceiptCardPdf(row) {
     ...(row?.cardOperationNumber ? [{ row: ["N° operación", row.cardOperationNumber] }] : []),
     { row: ["Código", row?.paymentCode || ""] },
     { divider: true },
-    { text: "El documento tributario de esta venta es el voucher", small: true, center: true },
-    { text: "del terminal, válido como boleta. Este comprobante", small: true, center: true },
-    { text: "es un respaldo informativo de ParkFacil.", small: true, center: true },
+    { text: "El documento tributario de esta venta es el voucher del terminal, válido como boleta. Este comprobante es un respaldo informativo de ParkFacil.", small: true, center: true },
   ];
 
-  const lineHeight = 13;
-  const smallLineHeight = 10;
-  const height = MARGIN * 2 + lines.reduce((sum, l) => sum + (l.small ? smallLineHeight : lineHeight), 0) + 10;
+  // Primera pasada: cada bloque se convierte en una o más "líneas de
+  // dibujo" ya ajustadas al ancho de la página -- nunca se calcula el
+  // ancho total de una fila sin medir antes si entra.
+  const GAP = 10; // espacio mínimo entre etiqueta y valor en una misma línea.
+  const drawLines = [];
+  for (const block of blocks) {
+    if (block.divider) {
+      drawLines.push({ divider: true });
+      continue;
+    }
+    const size = block.small ? 8 : 10;
+    const usedFont = block.bold ? fontBold : font;
+
+    if (block.row) {
+      const [label, value] = block.row;
+      const labelWidth = font.widthOfTextAtSize(label, size);
+      const valueWidth = usedFont.widthOfTextAtSize(value, size);
+      if (labelWidth + GAP + valueWidth <= CONTENT_WIDTH) {
+        drawLines.push({ label, value, size, font: usedFont, sameLine: true });
+      } else {
+        // No entran en una sola línea: la etiqueta va arriba y el valor
+        // (ajustado si hace falta) va alineado a la derecha debajo.
+        drawLines.push({ text: label, size, font, align: "left" });
+        wrapText(value, usedFont, size, CONTENT_WIDTH).forEach((line) => {
+          drawLines.push({ text: line, size, font: usedFont, align: "right" });
+        });
+      }
+      continue;
+    }
+
+    wrapText(block.text, usedFont, size, CONTENT_WIDTH).forEach((line) => {
+      drawLines.push({ text: line, size, font: usedFont, align: block.center ? "center" : "left" });
+    });
+  }
+
+  const lineHeight = (size) => size + 5;
+  const height = MARGIN * 2 + drawLines.reduce((sum, l) => sum + (l.divider ? 10 : lineHeight(l.size)), 0);
   const page = doc.addPage([PAGE_WIDTH, height]);
   let y = height - MARGIN;
 
-  for (const line of lines) {
+  for (const line of drawLines) {
     if (line.divider) {
       page.drawLine({
         start: { x: MARGIN, y }, end: { x: PAGE_WIDTH - MARGIN, y },
         thickness: 0.5, color: rgb(0, 0, 0), dashArray: [2, 2],
       });
-      y -= 8;
+      y -= 10;
       continue;
     }
-    const size = line.small ? 7 : 9;
-    const usedFont = line.bold ? fontBold : font;
-    if (line.row) {
-      const [label, value] = line.row;
-      page.drawText(label, { x: MARGIN, y, size, font: usedFont });
-      const valueWidth = usedFont.widthOfTextAtSize(value, size);
-      page.drawText(value, { x: PAGE_WIDTH - MARGIN - valueWidth, y, size, font: usedFont });
+    if (line.sameLine) {
+      page.drawText(line.label, { x: MARGIN, y, size: line.size, font });
+      const valueWidth = line.font.widthOfTextAtSize(line.value, line.size);
+      page.drawText(line.value, { x: PAGE_WIDTH - MARGIN - valueWidth, y, size: line.size, font: line.font });
     } else {
-      const textWidth = usedFont.widthOfTextAtSize(line.text, size);
-      const x = line.center ? (PAGE_WIDTH - textWidth) / 2 : MARGIN;
-      page.drawText(line.text, { x, y, size, font: usedFont });
+      const textWidth = line.font.widthOfTextAtSize(line.text, line.size);
+      const x = line.align === "center" ? (PAGE_WIDTH - textWidth) / 2 : line.align === "right" ? PAGE_WIDTH - MARGIN - textWidth : MARGIN;
+      page.drawText(line.text, { x, y, size: line.size, font: line.font });
     }
-    y -= line.small ? smallLineHeight : lineHeight;
+    y -= lineHeight(line.size);
   }
 
   return doc.save();
