@@ -7,15 +7,24 @@ import { normalizePlate } from "./dataEntry.mjs";
 import { abortPaymentTransactionByBuyOrder, claimTransactionCommit, createPaymentTransaction, finalizeAuthorizedPayment, getPaymentTransaction, getPaymentTransactionByToken, markTransactionFailed, markTransactionRedirected, storedProviderToken } from "./payments/paymentTransactionRepository";
 import { createTransbankWebpayProvider, isAuthorizedWebpayResponse, sanitizeWebpayResponse } from "./payments/transbankWebpayProvider";
 import { issueOnStreetPaymentBoleta } from "./boletaElectronica/onStreetBoletaService";
+import { sendOnStreetReceiptSms } from "./boletaElectronica/onStreetReceiptSmsService";
 
 // Boleta electrónica del pago On Street (SOL-2026-11-12-004, etapa 3):
 // se intenta DESPUÉS de confirmar el pago, nunca antes -- un fallo acá
 // nunca revierte ni bloquea el pago ya acreditado (mismo criterio que la
-// boleta de efectivo del POS y la de Webpay Off Street).
+// boleta de efectivo del POS y la de Webpay Off Street). Si la boleta
+// queda ISSUED, de paso se avisa por SMS con el link a «Consulte su
+// boleta» (petición del usuario, 2026-11-14) -- On Street siempre tiene
+// el teléfono del cliente, nunca su correo.
 async function issueOnStreetBoletaBestEffort(db, intentId, paymentCode) {
   try {
     const { data: intent } = await db.from("on_street_payment_intents").select("*").eq("id", intentId).maybeSingle();
-    if (intent) await issueOnStreetPaymentBoleta(db, intent, paymentCode);
+    if (!intent) return;
+    const boleta = await issueOnStreetPaymentBoleta(db, intent, paymentCode);
+    if (boleta?.status === "ISSUED") {
+      const { data: parking } = await db.from("parkings").select("company_id").eq("id", intent.parking_id).maybeSingle();
+      await sendOnStreetReceiptSms({ intent, companyId: parking?.company_id || null });
+    }
   } catch (boletaError) {
     console.error("[on-street-boleta] failed", { intentId, message: boletaError?.message });
   }
