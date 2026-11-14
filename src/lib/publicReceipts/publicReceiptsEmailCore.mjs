@@ -63,3 +63,23 @@ export function buildPublicReceiptEmailHtml(row) {
 export function buildPublicReceiptEmail(row) {
   return { subject: publicReceiptEmailSubject(row), html: buildPublicReceiptEmailHtml(row) };
 }
+
+// Lote (sección 3 de DISENO.md): un correo con el PDF combinado adjunto.
+// El HTML es solo un resumen -- el detalle de cada documento va en el PDF.
+export function buildPublicReceiptsBatchEmail(rows) {
+  const items = (rows || []).map((row) => {
+    const medio = row.kind === "CASH"
+      ? (row.folio ? `Boleta N° ${row.folio}` : "Boleta electrónica")
+      : `Comprobante de pago con tarjeta (${row.medio === "CREDITO" ? "crédito" : "débito"}${row.cardLast4 ? ` ****${row.cardLast4}` : ""})`;
+    return `<li>${escapeHtml(medio)} — ${escapeHtml(formatDate(row.exitAt))} — ${escapeHtml(formatCurrency(row.totalAmount))}</li>`;
+  }).join("");
+
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;max-width:480px;margin:0 auto;border:1px solid #e2e8f0;border-radius:12px;padding:20px;color:#172033">
+    <p style="font-weight:bold;margin:0 0 12px">Sus ${rows.length} documentos de ParkFacil</p>
+    <p style="margin:0 0 12px;font-size:14px">Adjuntamos un solo PDF con el detalle de cada uno:</p>
+    <ul style="margin:0;padding-left:18px;font-size:14px">${items}</ul>
+    <p style="margin-top:16px;font-size:12px;color:#5e6b84">Boletas: Timbre Electrónico SII (representación impresa). Comprobantes de pago con tarjeta: el documento tributario de esa venta es el voucher del terminal, válido como boleta.</p>
+  </div>`;
+
+  return { subject: `${rows.length} documentos — ParkFacil`, html };
+}

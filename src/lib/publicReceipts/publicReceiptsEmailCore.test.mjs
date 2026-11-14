@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { publicReceiptEmailSubject, buildPublicReceiptEmailHtml, buildPublicReceiptEmail } from "./publicReceiptsEmailCore.mjs";
+import { publicReceiptEmailSubject, buildPublicReceiptEmailHtml, buildPublicReceiptEmail, buildPublicReceiptsBatchEmail } from "./publicReceiptsEmailCore.mjs";
 
 const ROW_CASH = {
   kind: "CASH", folio: "900001", parkingName: "Clínica Ramís Central", city: "Santiago",
@@ -47,4 +47,12 @@ test("buildPublicReceiptEmail combina asunto y html", () => {
   const email = buildPublicReceiptEmail(ROW_CASH);
   assert.equal(email.subject, "Boleta electrónica N° 900001 — ParkFacil");
   assert.match(email.html, /Clínica Ramís Central/);
+});
+
+test("el correo de lote resume los N documentos y menciona el PDF adjunto", () => {
+  const email = buildPublicReceiptsBatchEmail([ROW_CASH, ROW_CARD]);
+  assert.equal(email.subject, "2 documentos — ParkFacil");
+  assert.match(email.html, /Sus 2 documentos/);
+  assert.match(email.html, /Boleta N° 900001/);
+  assert.match(email.html, /Comprobante de pago con tarjeta \(crédito \*\*\*\*3345\)/);
 });

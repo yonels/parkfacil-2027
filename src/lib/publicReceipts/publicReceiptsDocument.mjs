@@ -1,7 +1,10 @@
 import "server-only";
+import { PDFDocument } from "pdf-lib";
 import { decryptDteApiKey } from "../boletaElectronica/dteSettingsCore.mjs";
 import { HaulmerBillingProviderAdapter } from "../billing/providers/HaulmerBillingProviderAdapter.mjs";
 import { buildPublicReceiptCardPdf } from "./publicReceiptsPdfCore.mjs";
+
+export const PUBLIC_RECEIPTS_BATCH_LIMIT = 20;
 
 // «Consulte su boleta» (SOL-2026-11-12-004), etapa 4 -- el PDF real de
 // cada fila. Efectivo: el PDF oficial del SII, pedido a Haulmer por
@@ -55,4 +58,38 @@ export async function fetchPublicReceiptPdf(db, { row }) {
     console.error("[public-receipts:pdf] haulmer_failed", { code: error?.code, message: error?.message });
     return { ok: false, code: "RECEIPT_PDF_UNAVAILABLE", mensaje: "No fue posible obtener el PDF en este momento." };
   }
+}
+
+// Lote combinado (sección 3 de DISENO.md): un solo PDF con hasta 20
+// documentos, uno por página (cada boleta/comprobante ya es de una sola
+// página). Los documentos que fallen (p. ej. una boleta sin PDF
+// disponible) se omiten del combinado en vez de hacer fallar todo el
+// lote -- se informan aparte para que la interfaz avise cuáles faltaron.
+export async function fetchPublicReceiptsBatchPdf(db, { rows }) {
+  const limited = rows.slice(0, PUBLIC_RECEIPTS_BATCH_LIMIT);
+  const combined = await PDFDocument.create();
+  const omitted = [];
+
+  for (const row of limited) {
+    const result = await fetchPublicReceiptPdf(db, { row });
+    if (!result.ok) {
+      omitted.push({ stayId: row.stayId, code: result.code });
+      continue;
+    }
+    try {
+      const individual = await PDFDocument.load(Buffer.from(result.pdf, "base64"));
+      const pages = await combined.copyPages(individual, individual.getPageIndices());
+      pages.forEach((page) => combined.addPage(page));
+    } catch (error) {
+      console.error("[public-receipts:pdf] merge_failed", { stayId: row.stayId, message: error?.message });
+      omitted.push({ stayId: row.stayId, code: "RECEIPT_PDF_MERGE_FAILED" });
+    }
+  }
+
+  if (combined.getPageCount() === 0) {
+    return { ok: false, code: "RECEIPT_PDF_UNAVAILABLE", mensaje: "No fue posible obtener ningún documento." };
+  }
+
+  const bytes = await combined.save();
+  return { ok: true, pdf: Buffer.from(bytes).toString("base64"), fileName: "comprobantes-parkfacil.pdf", omitted, includedCount: limited.length - omitted.length };
 }

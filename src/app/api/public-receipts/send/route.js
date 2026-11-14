@@ -6,12 +6,14 @@ import { isProductionEnvironment, isValidPublicReceiptsEmail, normalizePublicRec
 import { fetchPublicReceiptRows } from "@/lib/publicReceipts/publicReceiptsRepository.mjs";
 import { tokenAuthorizesStay, verifyPublicReceiptsToken } from "@/lib/publicReceipts/publicReceiptsToken.mjs";
 import { buildPublicReceiptsSendAuditEntry } from "@/lib/publicReceipts/publicReceiptsAudit.mjs";
-import { buildPublicReceiptEmail } from "@/lib/publicReceipts/publicReceiptsEmailCore.mjs";
+import { buildPublicReceiptEmail, buildPublicReceiptsBatchEmail } from "@/lib/publicReceipts/publicReceiptsEmailCore.mjs";
+import { fetchPublicReceiptPdf, fetchPublicReceiptsBatchPdf, PUBLIC_RECEIPTS_BATCH_LIMIT } from "@/lib/publicReceipts/publicReceiptsDocument.mjs";
 import { isMicrosoftGraphConfigurationError, sendMicrosoftGraphMail } from "@/lib/microsoftGraphMailCore.js";
 
-// «Consulte su boleta» (SOL-2026-11-12-004), etapa 6 -- envío de UN
-// documento por correo. Exige el token de la búsqueda (C5: 15 min) y que
-// el stayId pedido esté entre los autorizados por esa misma consulta --
+// «Consulte su boleta» (SOL-2026-11-12-004), etapa 6 -- envío de uno o
+// varios documentos por correo (lote combinado, sección 3 de DISENO.md,
+// hasta 20 por envío). Exige el token de la búsqueda (C5: 15 min) y que
+// cada stayId pedido esté entre los autorizados por esa misma consulta --
 // nunca se envía una estadía que el token no listó.
 //
 // Remitente: info@parkfacil.cl (decisión del usuario, P8 de DISENO.md),
@@ -19,9 +21,9 @@ import { isMicrosoftGraphConfigurationError, sendMicrosoftGraphMail } from "@/li
 // variable propia, PUBLIC_RECEIPTS_SENDER_EMAIL, porque el permiso
 // Mail.Send sobre info@parkfacil.cl está "no verificado" en el diseño.
 //
-// Límite de esta primera versión: el correo lleva el documento como HTML,
-// SIN PDF adjunto (el PDF es la etapa 4, pendiente) -- ver
-// publicReceiptsEmailCore.mjs.
+// El correo lleva el/los PDF adjunto(s) (etapa 4) además del HTML. Si el
+// PDF no se puede obtener, el correo igual se envía solo con el HTML --
+// nunca se bloquea el envío por eso.
 const MAX_SENDS_PER_PLATE_PER_DAY = 10;
 
 function isAuthorized(request) {
@@ -46,9 +48,20 @@ export async function POST(request) {
 
     const body = await request.json().catch(() => ({}));
     const token = String(body?.token || "");
-    const stayId = String(body?.stayId || "");
+    const stayIds = Array.isArray(body?.stayIds)
+      ? body.stayIds.map((id) => String(id || "")).filter(Boolean)
+      : [String(body?.stayId || "")].filter(Boolean);
     const email = normalizePublicReceiptsEmail(body?.email);
 
+    if (!stayIds.length) {
+      return NextResponse.json({ ok: false, code: "INVALID_REQUEST", mensaje: "Falta indicar el documento." }, { status: 400 });
+    }
+    if (stayIds.length > PUBLIC_RECEIPTS_BATCH_LIMIT) {
+      return NextResponse.json(
+        { ok: false, code: "BATCH_LIMIT_EXCEEDED", mensaje: `Puede enviar hasta ${PUBLIC_RECEIPTS_BATCH_LIMIT} documentos a la vez.` },
+        { status: 400 }
+      );
+    }
     if (!isValidPublicReceiptsEmail(email)) {
       return NextResponse.json({ ok: false, code: "INVALID_EMAIL", mensaje: "Ingrese un correo válido." }, { status: 400 });
     }
@@ -60,7 +73,7 @@ export async function POST(request) {
     }
 
     const verified = verifyPublicReceiptsToken(token, secret);
-    if (!tokenAuthorizesStay(verified, stayId)) {
+    if (!verified.ok || !stayIds.every((id) => tokenAuthorizesStay(verified, id))) {
       return NextResponse.json({ ok: false, code: "TOKEN_INVALID", mensaje: "La consulta expiró. Vuelva a buscar la patente." }, { status: 401 });
     }
     const plate = verified.plate;
@@ -70,33 +83,46 @@ export async function POST(request) {
     }
 
     // Límite C3/sección 3 de DISENO.md: 10 envíos por patente por día,
-    // contados sobre la misma tabla de auditoría (sin tabla aparte).
+    // contados sobre la misma tabla de auditoría -- cada documento cuenta
+    // por separado, también en un lote.
     const sinceResult = await db
       .from("public_receipt_sends")
       .select("id", { count: "exact", head: true })
       .eq("plate_hash", buildPublicReceiptsSendAuditEntry({ plate, email, stayId: "x" }).plate_hash)
       .gte("sent_at", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
     if (sinceResult.error) throw sinceResult.error;
-    if ((sinceResult.count || 0) >= MAX_SENDS_PER_PLATE_PER_DAY) {
+    if ((sinceResult.count || 0) + stayIds.length > MAX_SENDS_PER_PLATE_PER_DAY) {
       return NextResponse.json(
         { ok: false, code: "SEND_LIMIT_REACHED", mensaje: "Alcanzó el máximo de envíos para esta patente hoy. Intente mañana." },
         { status: 429 }
       );
     }
 
-    const rows = await fetchPublicReceiptRows(db, { plate, isProduction: isProductionEnvironment(), stayIds: [stayId] });
-    const row = rows.find((item) => item.stayId === stayId);
-    if (!row) {
-      return NextResponse.json({ ok: false, code: "RECEIPT_NOT_FOUND", mensaje: "No encontramos ese documento." }, { status: 404 });
+    const rows = await fetchPublicReceiptRows(db, { plate, isProduction: isProductionEnvironment(), stayIds });
+    if (!rows.length) {
+      return NextResponse.json({ ok: false, code: "RECEIPT_NOT_FOUND", mensaje: "No encontramos esos documentos." }, { status: 404 });
     }
 
-    const { subject, html } = buildPublicReceiptEmail(row);
+    const isBatch = rows.length > 1;
+    const { subject, html } = isBatch ? buildPublicReceiptsBatchEmail(rows) : buildPublicReceiptEmail(rows[0]);
+
     let result = "FAILED";
     let status = 503;
     let mensaje = "No fue posible enviar el correo en este momento.";
 
+    const attachments = [];
     try {
-      await sendMicrosoftGraphMail({ para: email, asunto: subject, html, env: { ...process.env, MICROSOFT_SENDER_EMAIL: senderEmail } });
+      const pdfResult = isBatch
+        ? await fetchPublicReceiptsBatchPdf(db, { rows })
+        : await fetchPublicReceiptPdf(db, { row: rows[0] });
+      if (pdfResult.ok) attachments.push({ name: pdfResult.fileName, contentType: "application/pdf", contentBytes: pdfResult.pdf });
+      else console.warn("[PUBLIC_RECEIPTS] send_without_pdf", { stayIds, code: pdfResult.code });
+    } catch (pdfError) {
+      console.error("[PUBLIC_RECEIPTS] pdf_for_email_failed", { stayIds, message: pdfError?.message });
+    }
+
+    try {
+      await sendMicrosoftGraphMail({ para: email, asunto: subject, html, attachments, env: { ...process.env, MICROSOFT_SENDER_EMAIL: senderEmail } });
       result = "SENT";
       status = 200;
       mensaje = "";
@@ -107,8 +133,12 @@ export async function POST(request) {
       }
     }
 
+    // Auditoría (C8): una fila por documento, para que el límite diario
+    // cuente lo mismo que ya se envió, sea uno o un lote.
     try {
-      await db.from("public_receipt_sends").insert(buildPublicReceiptsSendAuditEntry({ plate, email, stayId, result }));
+      await db.from("public_receipt_sends").insert(
+        rows.map((row) => buildPublicReceiptsSendAuditEntry({ plate, email, stayId: row.stayId, result }))
+      );
     } catch (auditError) {
       console.error("No fue posible registrar la auditoría de envío de «Consulte su boleta»:", auditError?.message || auditError);
     }
