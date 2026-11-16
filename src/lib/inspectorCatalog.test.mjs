@@ -62,7 +62,7 @@ test("clave y recuperación admiten inspectores", async () => {
 });
 
 test("la migración amplía el CHECK de role y asigna los inspectores sin empresa a emp-001 sin tocar filas existentes", async () => {
-  const sql = await src("../../supabase/migrations/20261116190000_company_members_inspector_role.sql");
+  const sql = await src("../../supabase/migrations/20261116163300_company_members_inspector_role.sql");
   assert.match(sql, /check \(role in \('company_admin', 'operator', 'inspector'\)\)/);
   assert.match(sql, /and not exists \(select 1 from public\.company_members m where m\.user_id = u\.id\)/, "no duplica ni pisa membresías");
   assert.match(sql, /and exists \(select 1 from public\.companies c where c\.id = 'emp-001'\)/, "si emp-001 no existe no inserta nada");

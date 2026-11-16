@@ -1,7 +1,7 @@
 // Prueba local de «Inspectores por cliente» (SOL-2026-11-16-003): base local + `next dev`
 // local. Empresa A = test-company-inspector-e2e (On Street con sesiones QASM00x), empresa
 // B = emp-5q (On Street «QA FINAL ON STREET»). Datos ficticios @parkfacil.test.
-// Requiere la migración 20261116190000 aplicada en la base local.
+// Requiere la migración 20261116163300 aplicada en la base local.
 //
 // Uso: node --env-file=.env.local scripts/local-inspectores-por-cliente-e2e.mjs
 //      (LOCAL_APP_URL=http://127.0.0.1:3161 y LOCAL_DB_PORT=6543 por defecto)
