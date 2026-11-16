@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 
-import { getRevenueOverview, RevenueRangeTooWideError, searchRevenueClosures, searchRevenueTransactions } from "./offStreetRevenueService.js";
+import { getMonthlyRevenueTotal, getRevenueOverview, RevenueRangeTooWideError, searchRevenueClosures, searchRevenueTransactions } from "./offStreetRevenueService.js";
 
 // Mock genérico de query builder de Supabase -- mismo patrón que
 // offStreetOperationsService.test.mjs (Fase 1), extendido con .range() real
@@ -539,4 +539,49 @@ test('Crédito/Débito y tarjetas históricas filtran sin cruzar empresa ni esta
  const overview=await getRevenueOverview(db,CO1_PARKINGS,{...filters,paymentMethod:method});assert.equal(overview.summary.totalAmount,expected);
  const results=await searchRevenueTransactions(db,CO1_PARKINGS,{...filters,paymentMethod:method});assert.equal(results.rows.reduce((sum,r)=>sum+r.amount,0),expected);
  }
+});
+
+// Total recaudado del mes (SOL-2026-10-27-002): encabezado de Reportes Off Street › Recaudación.
+test("TOTAL DEL MES: suma los pagos PAID Off Street del mes y coincide con la suma del detalle del mes completo", async () => {
+  const db = createMockDb({ stays: STAYS, shifts: SHIFTS });
+  const totalMes = await getMonthlyRevenueTotal(db, CO1_PARKINGS, { month: "2026-07" });
+  assert.deepEqual(totalMes, { month: "2026-07", dateFrom: "2026-07-01", dateTo: "2026-07-31", totalAmount: 6050, count: 3 });
+  const detalle = await searchRevenueTransactions(db, CO1_PARKINGS, { dateFrom: totalMes.dateFrom, dateTo: totalMes.dateTo, all: true });
+  assert.equal(detalle.rows.reduce((sum, row) => sum + row.amount, 0), totalMes.totalAmount);
+  assert.equal(detalle.total, totalMes.count);
+});
+
+test("TOTAL DEL MES: respeta estacionamiento y empresa, nunca incluye otra empresa ni On Street", async () => {
+  const db = createMockDb({ stays: STAYS });
+  assert.equal((await getMonthlyRevenueTotal(db, CO1_PARKINGS, { month: "2026-07", parkingId: "p-norte" })).totalAmount, 2550);
+  assert.equal((await getMonthlyRevenueTotal(db, CO1_PARKINGS, { month: "2026-07", parkingId: "CTR" })).totalAmount, 3500);
+  assert.equal((await getMonthlyRevenueTotal(db, CO1_PARKINGS, { month: "2026-07", companyId: "co-2" })).totalAmount, 0);
+  assert.equal((await getMonthlyRevenueTotal(db, ALL_PARKINGS, { month: "2026-07", companyId: "co-2" })).totalAmount, 999);
+  await assert.rejects(getMonthlyRevenueTotal(db, CO1_PARKINGS, { month: "2026-07", parkingId: "p-via-publica" }), (error) => error.status === 404);
+  await assert.rejects(getMonthlyRevenueTotal(db, CO1_PARKINGS, { month: "2026-07", parkingId: "p-otra-empresa" }), (error) => error.status === 404);
+});
+
+test("TOTAL DEL MES: borde de mes en hora de Chile y mes en curso por defecto", async () => {
+  const stays = [
+    // 2026-07-31 22:30 Chile (UTC ya es 1 de agosto): cuenta en julio.
+    { id: "b1", parking_id: "p-centro", status: "PAID", payment_method: "CASH", total_amount: 700, exit_at: "2026-08-01T02:30:00.000Z" },
+    // 2026-08-01 00:30 Chile: cuenta en agosto.
+    { id: "b2", parking_id: "p-centro", status: "PAID", payment_method: "CARD", total_amount: 300, exit_at: "2026-08-01T04:30:00.000Z" },
+    { id: "b3", parking_id: "p-centro", status: "OPEN", payment_method: null, total_amount: 5000, exit_at: "2026-08-02T15:00:00.000Z" },
+  ];
+  const db = createMockDb({ stays });
+  assert.equal((await getMonthlyRevenueTotal(db, CO1_PARKINGS, { month: "2026-07" })).totalAmount, 700);
+  const agosto = await getMonthlyRevenueTotal(db, CO1_PARKINGS, { now: new Date("2026-08-15T12:00:00.000Z") });
+  assert.equal(agosto.month, "2026-08");
+  assert.equal(agosto.dateTo, "2026-08-31");
+  assert.equal(agosto.totalAmount, 300);
+  assert.equal(agosto.count, 1);
+});
+
+test("la ruta /api/recaudacion/total-mes usa REPORTS_READ y el scope del actor", async () => {
+  const route = await readFile(new URL("../app/api/recaudacion/total-mes/route.js", import.meta.url), "utf8");
+  assert.match(route, /authorizeOperationRequest\(request, PERMISSIONS\.REPORTS_READ\)/);
+  assert.match(route, /listParkings\(authorization\.db, authorization\.scope\)/);
+  assert.match(route, /getMonthlyRevenueTotal\(authorization\.db, scopedParkings,/);
+  assert.doesNotMatch(route, /getSupabaseAdminClient|service_role/i);
 });

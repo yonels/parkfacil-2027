@@ -56,6 +56,12 @@ function todayIsoSantiago() {
 function monthStartIsoSantiago() {
   return `${todayIsoSantiago().slice(0, 7)}-01`;
 }
+// "2026-10" -> "octubre de 2026" (encabezado de Recaudación, SOL-2026-10-27-002).
+function monthLabel(month) {
+  const [year, monthNumber] = String(month || "").split("-").map(Number);
+  if (!year || !monthNumber) return "";
+  return new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(Date.UTC(year, monthNumber - 1, 15)));
+}
 
 export default function ReportesOffStreetPage() {
   return (
@@ -90,6 +96,9 @@ function ReportesOffStreetContent() {
   const [error, setError] = useState("");
   const [actorId, setActorId] = useState("");
   const [selected, setSelected] = useState(null);
+  // Total recaudado del mes de «Fecha hasta» (calculado en el servidor).
+  const [monthTotal, setMonthTotal] = useState(null);
+  const totalMonth = /^\d{4}-\d{2}-\d{2}$/.test(to) ? to.slice(0, 7) : "";
   const [movement, setMovement] = useState(searchParams.get("movement") || "entries");
   const [streetView, setStreetView] = useState(searchParams.get("view") || "occupancy");
   const [streetGroup, setStreetGroup] = useState(searchParams.get("groupBy") || "segment");
@@ -186,6 +195,28 @@ function ReportesOffStreetContent() {
     return () => { cancelled = true; };
   }, [tab, company, parking, from, to, operatorId, status, method, query, movement, currentShifts, searchParams, streetView, streetGroup, streetNoDates]);
 
+  useEffect(() => {
+    if (tab !== "recaudacion") return undefined;
+    let cancelled = false;
+    async function loadMonthTotal() {
+      setMonthTotal(null);
+      try {
+        const params = new URLSearchParams();
+        if (company) params.set("companyId", company);
+        if (parking) params.set("parkingId", parking);
+        if (totalMonth) params.set("month", totalMonth);
+        const response = await fetch(`/api/recaudacion/total-mes?${params.toString()}`);
+        const payload = await response.json().catch(() => null);
+        if (cancelled) return;
+        setMonthTotal(response.ok && payload?.data ? payload.data : { error: payload?.error || "No disponible" });
+      } catch {
+        if (!cancelled) setMonthTotal({ error: "No disponible" });
+      }
+    }
+    void loadMonthTotal();
+    return () => { cancelled = true; };
+  }, [tab, company, parking, totalMonth]);
+
   const parkingOptions = useMemo(() => (company ? parkings.filter((p) => p.companyId === company) : parkings), [company, parkings]);
   const operatorOptions = useMemo(() => operators.filter((user) => {
     if (company && user.empresaId !== company) return false;
@@ -240,7 +271,16 @@ function ReportesOffStreetContent() {
             <h1 className="mt-2 text-3xl font-semibold">Reportes</h1>
             <p className="mt-2 text-sm text-slate-300">Datos reales, exclusivamente estacionamientos Off Street.</p>
           </div>
-          <Link href={`/dashboard-off-street?${new URLSearchParams({ companyId: company, parkingId: parking, period: "custom", dateFrom: from, dateTo: to })}`} className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"><ArrowLeft className="h-4 w-4" />Volver al resumen</Link>
+          <div className="flex flex-col gap-3 sm:items-end">
+            {tab === "recaudacion" ? (
+              <div className="rounded-2xl border border-white/20 bg-white/10 px-5 py-3 sm:text-right" aria-live="polite">
+                <p className="text-xs font-semibold uppercase tracking-wide text-cyan-200">Total recaudado en {monthLabel(monthTotal?.month || totalMonth) || "el mes"}</p>
+                <p className="mt-1 text-3xl font-semibold" data-testid="recaudacion-total-mes">{monthTotal == null ? "Calculando…" : monthTotal.error ? "No disponible" : money(monthTotal.totalAmount)}</p>
+                <p className="mt-1 text-xs text-slate-300">{monthTotal && !monthTotal.error ? `${number(monthTotal.count)} pagos · ${parkingLabel}` : parkingLabel}</p>
+              </div>
+            ) : null}
+            <Link href={`/dashboard-off-street?${new URLSearchParams({ companyId: company, parkingId: parking, period: "custom", dateFrom: from, dateTo: to })}`} className="inline-flex w-fit items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold hover:bg-white/20"><ArrowLeft className="h-4 w-4" />Volver al resumen</Link>
+          </div>
         </header>
 
         <div className="flex flex-wrap gap-2 rounded-3xl border border-slate-200 bg-white p-2 shadow-sm">

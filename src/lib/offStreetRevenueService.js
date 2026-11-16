@@ -12,6 +12,7 @@ import {
 } from "./pos/activityReportCore.mjs";
 import {
   buildDailyRevenueSeries,
+  monthDateRange,
   operationalTodayIso,
   summarizeCashDifferences,
   summarizeRevenueRows,
@@ -241,6 +242,22 @@ export async function getRevenueOverview(db, scopedParkings, options = {}) {
     dateFrom,
     dateTo,
   };
+}
+
+// Total recaudado del mes (SOL-2026-10-27-002) para el encabezado de
+// Reportes Off Street › Recaudación: misma consulta que el detalle
+// (fetchExactPaidStays: PAID, solo Off Street del scope, día operacional
+// Chile), acotada a empresa/estacionamiento y al mes completo. Medio de pago,
+// operador y búsqueda no se aplican: es el total del mes, no del filtro.
+export async function getMonthlyRevenueTotal(db, scopedParkings, options = {}) {
+  const { month, dateFrom, dateTo } = monthDateRange(options.month, options.now instanceof Date ? options.now : new Date());
+  const parkings = offStreetParkings(scopedParkings);
+  const { queryParkingIds } = resolveQueryParkingIds(parkings, { parkingId: options.parkingId, companyId: options.companyId });
+  const rows = queryParkingIds.length
+    ? await fetchExactPaidStays(db, queryParkingIds, { paymentMethod: null, operatorId: null, query: null, dateFrom, dateTo })
+    : [];
+  const summary = summarizeRevenueRows(rows);
+  return { month, dateFrom, dateTo, totalAmount: summary.totalAmount, count: summary.count };
 }
 
 // Cierres de caja reales (§5/§8): shift_closures, acotado a estacionamientos

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildDailyRevenueSeries,
+  isValidIsoMonth,
+  monthDateRange,
   operationalTodayIso,
   paymentMethodLabel,
   REVENUE_PAYMENT_METHODS,
@@ -117,4 +119,14 @@ test("toRevenueClosureRow reproyecta la fila real de shift_closures sin recalcul
 test("toRevenueClosureRow no inventa un operador cuando falta operator_name (cae al operator_id real)", () => {
   const row = toRevenueClosureRow({ id: "c1", operator_id: "op-123", operator_name: null });
   assert.equal(row.operator, "op-123");
+});
+
+test("monthDateRange: mes completo, febrero bisiesto y mes en curso Chile por defecto", () => {
+  assert.deepEqual(monthDateRange("2026-10"), { month: "2026-10", dateFrom: "2026-10-01", dateTo: "2026-10-31" });
+  assert.equal(monthDateRange("2028-02").dateTo, "2028-02-29");
+  assert.equal(monthDateRange("2026-02").dateTo, "2026-02-28");
+  // 2026-11-01 01:00 UTC = 2026-10-31 22:00 en Chile -> octubre.
+  assert.equal(monthDateRange(null, new Date("2026-11-01T01:00:00.000Z")).month, "2026-10");
+  assert.equal(isValidIsoMonth("2026-13"), false);
+  assert.equal(isValidIsoMonth("2026-1"), false);
 });

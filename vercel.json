@@ -1,6 +1,7 @@
 {
   "git": {
     "deploymentEnabled": {
+      "feature/recaudacion-total-mes": false,
       "feature/pago-liberado-catalogo-prod": false,
       "feature/pago-liberado-etapa1": false,
       "feature/pago-liberado-etapa2": false,

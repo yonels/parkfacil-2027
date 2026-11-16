@@ -36,6 +36,19 @@ export function operationalTodayIso(now = new Date(), timeZone = OPERATIONAL_TIM
   return operationalDateToIso(toOperationalDateTimeParts(now, timeZone)?.entryDate);
 }
 
+// Total del mes (SOL-2026-10-27-002): mes AAAA-MM -> rango completo de días
+// operacionales (1 al último día). Sin mes, el mes en curso en hora de Chile.
+export function isValidIsoMonth(value) {
+  return typeof value === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+export function monthDateRange(month, now = new Date()) {
+  const key = isValidIsoMonth(month) ? month : operationalTodayIso(now).slice(0, 7);
+  const [year, monthNumber] = key.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return { month: key, dateFrom: `${key}-01`, dateTo: `${key}-${String(lastDay).padStart(2, "0")}` };
+}
+
 // Fila real de transacción (parking_stays PAID) -> forma de UI. `shiftLabel`
 // llega ya resuelto por el llamador (batch por página, ver
 // offStreetRevenueService.js) para no hacer una consulta por fila.
