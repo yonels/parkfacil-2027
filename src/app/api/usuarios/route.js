@@ -12,7 +12,9 @@ import { extractDisplayUsername } from "@/lib/auth/accessUsernameDomain.mjs";
 
 export const dynamic = "force-dynamic";
 
-const CREATE_ALLOWED_ROLES = new Set([ROLES.COMPANY_ADMIN, ROLES.OPERATOR]);
+// Inspector On Street propio de cada empresa (SOL-2026-11-16-003): sin
+// estacionamientos asignados (su alcance es todo el On Street de la empresa).
+const CREATE_ALLOWED_ROLES = new Set([ROLES.COMPANY_ADMIN, ROLES.OPERATOR, ROLES.INSPECTOR]);
 
 function createTemporaryPassword() {
   return `Pf!${randomBytes(9).toString("base64url")}9a`;
@@ -103,7 +105,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "No se encontro la empresa solicitada.", code: "COMPANY_NOT_FOUND" }, { status: 404 });
     }
 
-    const parkingIds = payload.parkingIds.length ? payload.parkingIds : [];
+    const parkingIds = payload.role === ROLES.INSPECTOR ? [] : payload.parkingIds.length ? payload.parkingIds : [];
     if (parkingIds.length) {
       const parkings = await db.from("parkings").select("id").eq("company_id", targetCompanyId).in("id", parkingIds);
       if (parkings.error) throw parkings.error;
@@ -130,7 +132,7 @@ export async function POST(request) {
       app_metadata: {
         role: payload.role,
         company_id: targetCompanyId,
-        access_scope: payload.role === ROLES.OPERATOR ? "pos_only" : "company",
+        access_scope: payload.role === ROLES.OPERATOR ? "pos_only" : payload.role === ROLES.INSPECTOR ? "inspector" : "company",
       },
       user_metadata: {
         full_name: payload.fullName,

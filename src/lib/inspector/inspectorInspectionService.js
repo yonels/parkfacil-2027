@@ -4,6 +4,7 @@ import { resolveSmsProvider } from "@/lib/onStreetSmsProvider";
 import { getOnStreetSessionForInspection } from "./inspectorRepository";
 import { INSPECTION_OVERDUE_SMS_TEXT } from "./inspectorSms.mjs";
 import { buildInspectorCopySmsText } from "./inspectorCopySms.mjs";
+import { parkingInScope } from "./inspectorCompanyScopeCore.mjs";
 
 function error(code, status = 400) {
   const e = new Error(code);
@@ -44,10 +45,13 @@ export async function registerOnStreetInspection(db = getSupabaseAdminClient(), 
   longitude,
   contextParkingId = null,
   contextQrLocationId = null,
+  scope,
 }) {
   if (String(idempotencyKey || "").length < 8) throw error("IDEMPOTENCY_KEY_REQUIRED");
   if (!["OVERSTAY", "NO_SESSION", "OTHER"].includes(inspectionType)) throw error("INSPECTION_TYPE_INVALID");
   if (!inspectorUserId) throw error("INSPECTOR_REQUIRED", 401);
+  // SOL-2026-11-16-003 (P1): sin alcance de empresa no se registra nada.
+  if (!scope?.companyId) throw error("INSPECTOR_SCOPE_REQUIRED", 403);
 
   let session = null;
   if (inspectionType === "OVERSTAY") {
@@ -59,11 +63,16 @@ export async function registerOnStreetInspection(db = getSupabaseAdminClient(), 
     if (!session || session.status !== "EXPIRED" || session.license_plate_normalized !== plate) {
       throw error("INSPECTION_SESSION_NOT_OVERDUE", 409);
     }
+    // Una sesión de otra empresa se trata igual que "no existe" (no filtra
+    // existencia entre empresas).
+    if (!parkingInScope(scope, session.parking_id)) throw error("INSPECTION_SESSION_NOT_OVERDUE", 409);
   }
 
   let resolvedParkingId = session?.parking_id || null;
   let resolvedQrLocationId = session?.qr_location_id || null;
-  if (!session && contextParkingId) {
+  // Contexto declarado de otra empresa: se ignora (queda sin
+  // estacionamiento), nunca se atribuye la fiscalización a otra empresa.
+  if (!session && contextParkingId && parkingInScope(scope, contextParkingId)) {
     const parkingCheck = await db.from("parkings").select("id").eq("id", contextParkingId).eq("type", "ON_STREET").eq("status", "ACTIVE").maybeSingle();
     if (parkingCheck.error) throw parkingCheck.error;
     if (parkingCheck.data) {

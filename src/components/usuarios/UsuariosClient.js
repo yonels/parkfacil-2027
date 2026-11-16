@@ -18,7 +18,7 @@ const usuariosIniciales = getUsuariosDemo();
 const empresasIniciales = getEmpresasDemo();
 const estacionamientosIniciales = getEstacionamientosDemo();
 const estados = ["Todos", "active", "inactive", "pending"];
-const perfiles = ["Todos", "platform_admin", "organization_admin", "company_admin", "parking_manager", "operator", "cashier", "auditor", "support", "viewer"];
+const perfiles = ["Todos", "platform_admin", "organization_admin", "company_admin", "parking_manager", "operator", "inspector", "cashier", "auditor", "support", "viewer"];
 const multiples = ["Todos", "con", "sin"];
 
 function labelEstado(estado) {
@@ -502,9 +502,10 @@ export default function UsuariosClient({ initialCreateRole = null }) {
                   </label>
                   <label className="space-y-1.5 text-sm text-slate-700">
                     <span>Perfil principal</span>
-                    <select value={createDraft.role} onChange={(event) => setCreateDraft((current) => ({ ...current, role: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
+                    <select value={createDraft.role} onChange={(event) => setCreateDraft((current) => ({ ...current, role: event.target.value, parkingIds: event.target.value === "inspector" ? [] : current.parkingIds }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
                       <option value="operator">Operador</option>
                       <option value="company_admin">Administrador de empresa</option>
+                      <option value="inspector">Inspector</option>
                     </select>
                   </label>
                   <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
@@ -514,6 +515,9 @@ export default function UsuariosClient({ initialCreateRole = null }) {
                       {empresas.map((item) => <option key={item.id} value={item.id}>{item.nombreFantasia}</option>)}
                     </select>
                   </label>
+                  {createDraft.role === "inspector" ? (
+                    <p className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-600 md:col-span-2">El inspector fiscaliza todo el On Street de su empresa desde el portal Inspectores; no se le asignan estacionamientos.</p>
+                  ) : (
                   <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
                     <span>Estacionamientos asignados</span>
                     <select multiple value={createDraft.parkingIds} onChange={(event) => setCreateDraft((current) => ({ ...current, parkingIds: Array.from(event.target.selectedOptions, (option) => option.value) }))} className="min-h-28 w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
@@ -521,6 +525,7 @@ export default function UsuariosClient({ initialCreateRole = null }) {
                     </select>
                     <p className="text-xs text-slate-500">Puedes seleccionar uno o varios estacionamientos para acceso inicial.</p>
                   </label>
+                  )}
                 </div>
                 <div className="flex justify-end gap-3">
                   <button type="button" onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancelar</button>

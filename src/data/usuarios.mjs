@@ -198,6 +198,7 @@ export function getPerfilLabel(perfil) {
     company_admin: "Administrador de empresa",
     parking_manager: "Administrador de estacionamiento",
     operator: "Operador",
+    inspector: "Inspector",
     cashier: "Cajero",
     auditor: "Auditor",
     support: "Soporte",

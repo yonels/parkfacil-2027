@@ -59,16 +59,21 @@ test("GET /api/on-street-qr/fiscalizaciones está cableado tras authorizeOnStree
   assert.match(source, /if\s*\(\s*auth\.response\s*\)\s*return\s+auth\.response/, "debe cortar la ejecución si el candado devuelve una respuesta (403/401)");
 });
 
-test("GET/POST /api/on-street-qr/inspectores está cableado tras authorizeOnStreetAdminRequest, y POST exige además requirePlatformAdmin", async () => {
+// SOL-2026-11-16-003: los inspectores son de cada empresa; se crean en el
+// Catálogo de usuarios y esta ruta ya no crea cuentas sin empresa.
+test("GET /api/on-street-qr/inspectores está cableado tras authorizeOnStreetAdminRequest y se acota por empresa; POST ya no crea inspectores", async () => {
   const source = await routeSource("api/on-street-qr/inspectores/route.js");
   assert.match(source, /authorizeOnStreetAdminRequest/, "debe usar el candado READ del módulo On Street");
-  assert.match(source, /requirePlatformAdmin/, "la creación de Inspectores debe exigir platform_admin explícitamente (§21)");
+  assert.match(source, /companyId: companyScope\(auth\.context\)/, "company_admin solo ve los inspectores de su empresa");
+  assert.match(source, /status: 410/, "la creación se movió al Catálogo de usuarios");
+  assert.doesNotMatch(source, /createUser/, "esta ruta ya no crea cuentas");
 });
 
-test("GET/PATCH /api/on-street-qr/inspectores/[id] está cableado tras authorizeOnStreetAdminRequest, y PATCH exige además requirePlatformAdmin", async () => {
+test("GET/PATCH /api/on-street-qr/inspectores/[id] está cableado tras authorizeOnStreetAdminRequest, y PATCH exige la empresa del inspector (Root o su administrador)", async () => {
   const source = await routeSource("api/on-street-qr/inspectores/[id]/route.js");
   assert.match(source, /authorizeOnStreetAdminRequest/, "debe usar el candado READ del módulo On Street");
-  assert.match(source, /requirePlatformAdmin/, "activar/desactivar un Inspector debe exigir platform_admin explícitamente (§21)");
+  assert.match(source, /requireCompanyResource\(auth\.context, member\.data\.company_id\)/, "activar/desactivar exige que el inspector sea de la empresa del administrador (Root exento)");
+  assert.match(source, /companyId: companyScope\(auth\.context\)/, "la ficha solo muestra inspectores de la empresa");
 });
 
 test("ninguna de las 3 rutas nuevas confía en un rol/companyId enviado por el cliente -- el contexto siempre sale de authorizeOnStreetAdminRequest/auth.context", async () => {

@@ -359,6 +359,11 @@ export const navigationItems = [
             { href: "/usuarios/operadores", label: "Ver y administrar operadores" },
             { href: "/usuarios/operadores/crear", label: "Crear operador" },
           ] },
+          // Inspectores On Street propios de cada empresa (SOL-2026-11-16-003).
+          { href: "/usuarios/inspectores", label: "Inspectores", activePrefix: "/usuarios/inspectores", children: [
+            { href: "/usuarios/inspectores", label: "Ver y administrar inspectores" },
+            { href: "/usuarios/inspectores/crear", label: "Crear inspector" },
+          ] },
           // Reporte de claves de operadores (SOL-2026-11-04-004).
           { href: "/usuarios/claves-operadores", label: "Claves de operadores", activePrefix: "/usuarios/claves-operadores" },
         ],

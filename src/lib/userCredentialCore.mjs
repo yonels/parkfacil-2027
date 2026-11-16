@@ -16,10 +16,11 @@ export function validateDirectPassword(value) {
 // Clave fijada directamente (sin clave temporal). Root puede con cualquier
 // usuario desde el Portal Root; el administrador de empresa, responsable de
 // sus operadores, puede fijar la clave de los operadores de su empresa
-// (SOL-2026-10-29-011). La pertenencia a la empresa la valida cada ruta.
+// (SOL-2026-10-29-011), y también la de sus inspectores (SOL-2026-11-16-003).
+// La pertenencia a la empresa la valida cada ruta.
 export function canSetDirectPassword(context, targetRole) {
   if (context?.role === "platform_admin") return context.portal === "root";
-  return context?.role === "company_admin" && context?.portal === "client" && targetRole === "operator";
+  return context?.role === "company_admin" && context?.portal === "client" && (targetRole === "operator" || targetRole === "inspector");
 }
 
 const ACCESS_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

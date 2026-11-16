@@ -161,12 +161,12 @@ test("isTreeActive: Off Street y On Street son ramas independientes -- ninguna a
   assert.equal(isTreeActive("/recaudacion", onStreet), false);
 });
 
-test("Administración: Usuarios (Administradores/Operadores) vive en el árbol Administración, no duplicado en On Street", () => {
+test("Administración: Usuarios (Administradores/Operadores/Inspectores) vive en el árbol Administración, no duplicado en On Street", () => {
   const administracion = navigationItems.find((item) => item.label === "Administración");
   assert.ok(administracion);
   const usuarios = administracion.children.find((c) => c.label === "Usuarios");
   assert.ok(usuarios);
-  assert.deepEqual(usuarios.children.map((c) => c.label), ["Administradores", "Operadores", "Claves de operadores"]);
+  assert.deepEqual(usuarios.children.map((c) => c.label), ["Administradores", "Operadores", "Inspectores", "Claves de operadores"]);
 });
 
 test("Dashboard General (Plataforma) es una ruta distinta del Dashboard de On Street", () => {
@@ -385,7 +385,7 @@ test("projectClientAdministrationNode: contra navigationItems filtrado para un a
   const visible = (item) => Boolean(item.href) && /^\/(usuarios|mi-cuenta)/.test(item.href);
   const filtered = filterVisibleTree(navigationItems.filter((item) => item.label === "Administración"), visible);
   const labels = projectClientAdministrationNode(filtered).map((item) => item.label);
-  assert.deepEqual(labels, ["Administradores", "Operadores", "Claves de operadores", "Mi Cuenta"]);
+  assert.deepEqual(labels, ["Administradores", "Operadores", "Inspectores", "Claves de operadores", "Mi Cuenta"]);
 });
 
 test("Portal Cliente con reglas reales: Off Street, On Street o ambos ven Administradores y Operadores bajo Administración", async () => {
