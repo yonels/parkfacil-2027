@@ -18,7 +18,7 @@ const TYPE_LABELS = { OVERSTAY: "Exceso de tiempo", NO_SESSION: "Sin sesión", O
 export default function OnStreetInspectorDetail({ id }) {
   const router = useRouter();
   const [data, setData] = useState(null);
-  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
+  const [canManage, setCanManage] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -43,11 +43,12 @@ export default function OnStreetInspectorDetail({ id }) {
     const timer = window.setTimeout(() => {
       void load();
       // Solo para mostrar/ocultar el botón activar/desactivar -- la
-      // autorización real (server-side) vive en requirePlatformAdmin
-      // dentro del PATCH, no aquí (mismo criterio que OnStreetInspectores.js).
+      // autorización real (server-side) vive en requireCompanyResource dentro
+      // del PATCH: Root o el administrador de la empresa del inspector
+      // (SOL-2026-11-16-003).
       authenticatedFetch("/api/auth/session", { cache: "no-store" })
         .then((r) => r.json())
-        .then((body) => setIsPlatformAdmin(body?.data?.role === "platform_admin"))
+        .then((body) => setCanManage(["platform_admin", "company_admin"].includes(body?.data?.role)))
         .catch(() => {});
     }, 0);
     return () => window.clearTimeout(timer);
@@ -97,7 +98,8 @@ export default function OnStreetInspectorDetail({ id }) {
           <div className="flex items-center gap-2">
             {/* "Volver" real de historial (2026-08-30) -- ver nota en OnStreetAdminPage.js. */}
             <button type="button" onClick={() => router.back()} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"><ArrowLeft className="h-4 w-4" />Volver</button>
-            {isPlatformAdmin ? (
+            {canManage ? <Link href={`/usuarios/${id}`} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Editar en Usuarios</Link> : null}
+            {canManage ? (
               <button type="button" disabled={busy} onClick={toggleActive} className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold disabled:opacity-50 ${inspector.active ? "bg-rose-100 text-rose-700" : "bg-emerald-100 text-emerald-700"}`}>
                 <Power className="h-4 w-4" />{busy ? "Actualizando…" : inspector.active ? "Desactivar" : "Activar"}
               </button>
@@ -110,6 +112,7 @@ export default function OnStreetInspectorDetail({ id }) {
           <dl className="mt-3 grid gap-4 sm:grid-cols-2">
             <Campo label="Nombre" valor={inspector.fullName || "—"} />
             <Campo label="Email" valor={inspector.email} />
+            <Campo label="Empresa" valor={inspector.companyName || "Sin empresa"} />
             <Campo label="Rol" valor="Inspector" />
             <Campo label="Estado" valor={inspector.active ? "Activo" : "Inactivo"} />
             <Campo label="Fecha de creación" valor={dt(inspector.createdAt)} />
