@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
+import { normalizeChileanMobile } from "../onStreetPilot.mjs";
 
 // inspectorInspectionService.js tiene "server-only" (no puede importarse
 // directamente con node --test, mismo criterio que el resto del módulo
@@ -35,7 +36,7 @@ function extractFn(name) {
 }
 const buildInspectorCopySmsText = ({ plate, sentAtIso }) => `COPIA INSPECTOR - Fiscalizacion patente ${String(plate || "").toUpperCase()}. Aviso SMS enviado al conductor el ${sentAtIso}.`;
 const copySmsFnsSrc = `${extractFn("getInspectorPhone")}\n${extractFn("persistInspectorCopySmsStatus")}\n${extractFn("sendInspectorCopySmsIfNeeded").replace("export async function sendInspectorCopySmsIfNeeded", "async function sendInspectorCopySmsIfNeeded")}\nreturn { getInspectorPhone, persistInspectorCopySmsStatus, sendInspectorCopySmsIfNeeded };`;
-const { sendInspectorCopySmsIfNeeded } = new Function("buildInspectorCopySmsText", "console", copySmsFnsSrc)(buildInspectorCopySmsText, { error() {} });
+const { sendInspectorCopySmsIfNeeded } = new Function("buildInspectorCopySmsText", "console", "normalizeChileanMobile", copySmsFnsSrc)(buildInspectorCopySmsText, { error() {} }, normalizeChileanMobile);
 
 // Mock de auth.admin.getUserById + from("on_street_inspections").update(...)
 // -- expone user_metadata.phone (o su ausencia) igual que el cliente admin
@@ -315,4 +316,28 @@ test("nunca importa ni llama a createTransaction/Webpay/reconciliador -- Etapa 2
   for (const forbidden of ["Webpay", "createTransaction", "reconcile", "payment_transactions"]) {
     assert.doesNotMatch(source, new RegExp(forbidden, "i"), forbidden);
   }
+});
+
+// SOL-2026-11-16-003: un teléfono guardado con espacios desde el Catálogo se
+// envía normalizado (antes el proveedor rechazaba la copia: FAILED).
+test("teléfono del Catálogo con espacios: la copia sale al número normalizado +569XXXXXXXX", async () => {
+  const inspections = { "qa-1": {} };
+  const db = authDb({ "insp-1": { user_metadata: { phone: "+56 9 0000 0099" } } }, inspections);
+  const sent = [];
+  const provider = { name: "SIMULATED", async send(p) { sent.push(p); return { ok: true, providerMessageId: "m-1" }; } };
+  const result = await sendInspectorCopySmsIfNeeded(db, { inspectionId: "qa-1", inspectorUserId: "insp-1", plate: "ABC123", sentAtIso: "2026-11-16T00:00:00Z", provider });
+  assert.equal(result.sent, true);
+  assert.equal(sent[0].to, "+56900000099");
+  assert.equal(inspections["qa-1"].inspector_copy_sms_status, "SENT");
+});
+
+test("teléfono que no es un celular chileno válido: la copia queda NOT_CONFIGURED, sin intentar enviar", async () => {
+  const inspections = { "qa-1": {} };
+  const db = authDb({ "insp-1": { user_metadata: { phone: "Sin teléfono informado" } } }, inspections);
+  const sent = [];
+  const provider = { name: "SIMULATED", async send(p) { sent.push(p); return { ok: true }; } };
+  const result = await sendInspectorCopySmsIfNeeded(db, { inspectionId: "qa-1", inspectorUserId: "insp-1", plate: "ABC123", sentAtIso: "2026-11-16T00:00:00Z", provider });
+  assert.deepEqual(result, { attempted: false, phoneConfigured: false });
+  assert.equal(sent.length, 0);
+  assert.equal(inspections["qa-1"].inspector_copy_sms_status, "NOT_CONFIGURED");
 });
