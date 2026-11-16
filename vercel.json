@@ -15,6 +15,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "fix/inspector-copia-sms-impresion": false,
       "feature/inspectores-por-cliente": false,
       "feature/configuracion-ramas": false,
       "feature/folios-disponibles": false,

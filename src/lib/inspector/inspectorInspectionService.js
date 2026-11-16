@@ -5,6 +5,7 @@ import { getOnStreetSessionForInspection } from "./inspectorRepository";
 import { INSPECTION_OVERDUE_SMS_TEXT } from "./inspectorSms.mjs";
 import { buildInspectorCopySmsText } from "./inspectorCopySms.mjs";
 import { parkingInScope } from "./inspectorCompanyScopeCore.mjs";
+import { normalizeChileanMobile } from "@/lib/onStreetPilot.mjs";
 
 function error(code, status = 400) {
   const e = new Error(code);
@@ -162,11 +163,16 @@ export async function registerOnStreetInspection(db = getSupabaseAdminClient(), 
 // informe): user_metadata es el lugar correcto ya existente, sin
 // necesidad de migración. Ausencia de teléfono configurado NUNCA es un
 // error -- es un estado válido y esperado (ver CASO B del informe).
-async function getInspectorPhone(db, inspectorUserId) {
+//
+// SOL-2026-11-16-003: el teléfono llega tal como se escribió en el Catálogo
+// de usuarios (p. ej. «+56 9 1234 5678» o «912345678»). Se normaliza a
+// +569XXXXXXXX, el mismo formato que el SMS al conductor; con un espacio el
+// proveedor rechazaba la copia (FAILED). Un número que no es un celular
+// chileno válido se trata como no configurado.
+export async function getInspectorPhone(db, inspectorUserId) {
   const { data, error } = await db.auth.admin.getUserById(inspectorUserId);
   if (error || !data?.user) return null;
-  const phone = data.user.user_metadata?.phone;
-  return typeof phone === "string" && phone.trim() ? phone.trim() : null;
+  return normalizeChileanMobile(data.user.user_metadata?.phone);
 }
 
 // Persistencia de trazabilidad de la copia (2026-09-03, "persist inspector
