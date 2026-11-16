@@ -17,7 +17,7 @@ async function authUsersForMembers(db, members, global) {
 export async function listAuthorizedUsers(db, context) {
   const scope = companyScope(context);
   let membersQuery = db.from("company_members").select("*").order("full_name");
-  let companiesQuery = db.from("companies").select("id,business_name,trade_name,rut_number,rut_dv");
+  let companiesQuery = db.from("companies").select("id,business_name,trade_name,rut_number,rut_dv,enabled_products");
   let parkingsQuery = db.from("parkings").select("id,code,name,company_id");
   if (scope) {
     membersQuery = membersQuery.eq("company_id", scope);
@@ -45,6 +45,7 @@ export async function listAuthorizedUsers(db, context) {
       nombreFantasia: company.trade_name,
       razonSocial: company.business_name,
       rut: company.rut_number ? `${company.rut_number}-${company.rut_dv}` : null,
+      enabledProducts: Array.isArray(company.enabled_products) ? company.enabled_products : [],
     })),
     parkings: parkings.map((parking) => ({ id: parking.id, codigo: parking.code, nombre: parking.name, empresaId: parking.company_id })),
   };

@@ -94,16 +94,29 @@ export async function startPosOperatorShift(db, { shiftId, actor }) {
   return mapOperatorShift(Array.isArray(data) ? data[0] : data);
 }
 
+async function allPreviewRows(queryFactory) {
+  const rows = [];
+  for (let offset = 0; ; offset += 500) {
+    const result = await queryFactory().order("id").range(offset, offset + 499);
+    if (result.error) throw result.error;
+    rows.push(...(result.data || []));
+    if ((result.data || []).length < 500) return { data: rows };
+  }
+}
+
 export async function loadOperatorShiftPreview(db, shift) {
   const [payments, pending] = await Promise.all([
-    db.from("parking_stays").select("id,code,license_plate,exit_at,payment_method,total_amount,exit_operator_id,parking_id,status,payment_shift_id")
-      .eq("payment_shift_id", shift.id).eq("parking_id", shift.parkingId).eq("status", "PAID").order("exit_at"),
-    db.from("parking_stays").select("id,code,license_plate,entry_at,parking_id,status")
-      .eq("parking_id", shift.parkingId).eq("status", "OPEN").order("entry_at"),
+    allPreviewRows(() => db.from("parking_stays").select("id,code,license_plate,exit_at,payment_method,total_amount,exit_operator_id,parking_id,status,payment_shift_id")
+      .eq("payment_shift_id", shift.id).eq("parking_id", shift.parkingId).eq("status", "PAID")),
+    allPreviewRows(() => db.from("parking_stays").select("id,code,license_plate,entry_at,parking_id,status")
+      .eq("parking_id", shift.parkingId).eq("status", "OPEN")),
   ]);
   if (payments.error) throw payments.error;
   if (pending.error) throw pending.error;
   const rows = payments.data || [];
+  if (rows.some(row => row.exit_operator_id !== shift.operatorId)) {
+    throw new Error("SHIFT_PAYMENT_TRACE_MISMATCH");
+  }
   const cashAmount = rows.filter((row) => row.payment_method === "CASH").reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
   const cardAmount = rows.filter((row) => row.payment_method === "CARD").reduce((sum, row) => sum + Number(row.total_amount || 0), 0);
   return {
@@ -112,9 +125,9 @@ export async function loadOperatorShiftPreview(db, shift) {
     cashAmount,
     debitAmount: 0,
     creditAmount: cardAmount,
-    grossAmount: cashAmount + cardAmount,
+    grossAmount: rows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0),
     cancelledAmount: 0,
-    netAmount: cashAmount + cardAmount,
+    netAmount: rows.reduce((sum, row) => sum + Number(row.total_amount || 0), 0),
     paymentsSnapshot: rows.map((row) => ({ stayId: row.id, plate: row.license_plate, ticket: row.code, exitAt: row.exit_at, paymentMethod: row.payment_method, amount: Number(row.total_amount || 0), operatorId: row.exit_operator_id })),
     pendingVehiclesCount: (pending.data || []).length,
     pendingVehicles: (pending.data || []).map((row) => ({ stayId: row.id, plate: row.license_plate, ticket: row.code, entryAt: row.entry_at })),

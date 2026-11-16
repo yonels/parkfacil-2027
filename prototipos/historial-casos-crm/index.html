@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Historial del caso — prototipo</title>
+<style>
+  :root { --navy:#041E42; --primary:#0B5FFF; --border:#dbe2ea; --text:#1e293b; --muted:#64748b; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#f1f5f9; font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--text); }
+  .wrap { max-width:1180px; margin:0 auto; padding:24px 16px 48px; }
+  .aviso { background:#fff7ed; border:1px solid #fed7aa; color:#9a3412; border-radius:10px; padding:10px 14px; margin-bottom:16px; font-size:13px; }
+  .ficha { background:#fff; border:1px solid var(--border); border-radius:14px; padding:16px 20px; margin-bottom:16px; display:flex; flex-wrap:wrap; gap:6px 28px; }
+  .ficha b { color:var(--navy); }
+  section { background:#fff; border:1px solid var(--border); border-radius:14px; padding:20px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  .cab { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+  h2 { margin:0; font-size:18px; color:var(--navy); }
+  .n { color:var(--muted); }
+  .btn { margin-left:auto; display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:8px 16px; border:1px solid var(--border); border-radius:10px; background:#fff; color:var(--navy); font-weight:600; cursor:pointer; }
+  .btn:hover { background:#f8fafc; }
+  .filtros { margin-top:16px; display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { border:1px solid var(--border); background:#fff; border-radius:999px; padding:4px 12px; font-weight:600; cursor:pointer; color:var(--text); }
+  .chip[aria-pressed="true"] { background:var(--primary); border-color:var(--primary); color:#fff; }
+  .tabla { margin-top:16px; overflow-x:auto; border:1px solid #e2e8f0; border-radius:10px; }
+  table { width:100%; min-width:860px; border-collapse:collapse; }
+  thead { background:var(--navy); color:#fff; text-align:left; }
+  th { padding:12px; font-size:11px; font-weight:900; text-transform:uppercase; letter-spacing:1px; white-space:nowrap; }
+  th button { all:unset; cursor:pointer; }
+  th button:hover { text-decoration:underline; }
+  td { padding:8px 12px; border-top:1px solid #e2e8f0; vertical-align:top; }
+  tr.fila { cursor:pointer; }
+  tr.fila:hover { background:#eff6ff; }
+  tr.det td { background:#f8fafc; padding-top:4px; padding-bottom:16px; }
+  .nowrap { white-space:nowrap; }
+  .tipo { font-weight:600; color:var(--navy); }
+  .correo { color:#475569; word-break:break-all; }
+  .badge { border-radius:999px; padding:2px 10px; font-size:12px; font-weight:600; }
+  .Entrante { background:#d1fae5; color:#065f46; } .Saliente { background:#dbeafe; color:#1e40af; } .Interno { background:#e2e8f0; color:#334155; }
+  .meta { font-size:12px; color:var(--muted); margin:0; }
+  .texto { white-space:pre-wrap; margin:4px 0 0; }
+  .pie { font-size:12px; color:var(--muted); margin-top:8px; }
+  .nuevo { outline:2px dashed #f59e0b; outline-offset:2px; }
+  .leyenda { margin-top:20px; background:#fff; border:1px solid var(--border); border-radius:14px; padding:16px 20px; }
+  .leyenda h3 { margin:0 0 8px; color:var(--navy); font-size:15px; }
+  .leyenda li { margin:4px 0; }
+  .excel { margin-top:20px; background:#fff; border:1px solid var(--border); border-radius:14px; padding:16px 20px; display:none; }
+  .excel.on { display:block; }
+  .excel table { min-width:900px; font-size:12px; }
+  .excel thead { background:#1f6f43; }
+  .tabs { display:flex; gap:4px; margin-top:8px; font-size:12px; }
+  .tabs span { border:1px solid var(--border); border-top:0; padding:3px 12px; border-radius:0 0 6px 6px; background:#f8fafc; }
+  .tabs span.act { background:#fff; font-weight:700; color:#1f6f43; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="aviso">Prototipo para revisión (SOL-2026-11-11-001). Todos los datos son ficticios. Las líneas con borde naranjo punteado muestran lo que cambió con la corrección.</div>
+
+  <div class="ficha">
+    <span><b>Caso:</b> PF-MA-2026-0000DEMO</span>
+    <span><b>Cuenta:</b> Estacionamientos Demo SpA</span>
+    <span><b>Contacto:</b> María Pérez · contacto@demo-cliente.cl</span>
+    <span><b>Estado:</b> En proceso</span>
+  </div>
+
+  <section>
+    <div class="cab">
+      <span aria-hidden="true">🕘</span>
+      <h2>Historial de actividades</h2>
+      <span class="n" id="total"></span>
+      <button class="btn" id="descargar" type="button">⬇ Descargar Excel</button>
+    </div>
+    <div class="filtros" id="filtros" role="group" aria-label="Filtrar por dirección"></div>
+    <div class="tabla">
+      <table>
+        <thead><tr id="cabecera"><th style="width:32px"></th></tr></thead>
+        <tbody id="cuerpo"></tbody>
+      </table>
+    </div>
+    <p class="pie">Haga clic en una fila para ver el detalle completo, o en un encabezado para ordenar.</p>
+  </section>
+
+  <div class="excel" id="excel">
+    <h3 style="margin:0;color:#1f6f43">Vista previa del Excel «historial-PF-MA-2026-0000DEMO.xlsx»</h3>
+    <p class="meta">Encabezado fijo y autofiltro en cada columna. Una fila por actividad, de la más reciente a la más antigua.</p>
+    <div class="tabla"><table><thead><tr id="xcab"></tr></thead><tbody id="xcuerpo"></tbody></table></div>
+    <div class="tabs"><span class="act">Historial</span><span>Caso</span></div>
+  </div>
+
+  <div class="leyenda">
+    <h3>Qué cambió con la corrección</h3>
+    <ul>
+      <li><b>Dirección exacta.</b> «Correo inválido» y «Actualizar correo de contacto» antes salían como <i>Saliente</i> porque contienen la palabra «correo». Ahora son <i>Interno</i>. Sólo son Entrante o Saliente los correos y avisos que realmente entraron o salieron.</li>
+      <li><b>Aviso NO enviado.</b> Un aviso que falló ya no se cuenta como Saliente: queda como Interno.</li>
+      <li><b>Correo de la contraparte.</b> La columna Correo muestra al cliente (contacto@demo-cliente.cl), no al agente que aparece en el texto. En las notas internas sólo se muestra si aparece el correo del contacto.</li>
+      <li><b>Dependencias.</b> La librería del Excel (exceljs) actualiza 3 paquetes internos de versión menor. npm lo regenera igual cada vez, así que se mantiene.</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+const datos = [
+  { id:1, f:"11-11-2026", h:"09:42", dir:"Entrante", tipo:"Respuesta del cliente", canal:"CORREO", quien:"contacto@demo-cliente.cl", correo:"contacto@demo-cliente.cl", det:"Respuesta recibida por correo:\nGracias, quedo atenta a la visita técnica del jueves." },
+  { id:2, f:"10-11-2026", h:"18:05", dir:"Saliente", tipo:"Correo enviado", canal:"CORREO", quien:"Agente Demo", correo:"contacto@demo-cliente.cl", det:"Enviado por agente.demo@parkfacil.cl a contacto@demo-cliente.cl: Confirmamos visita técnica para el jueves 13 a las 10:00.", cambio:true },
+  { id:3, f:"10-11-2026", h:"17:50", dir:"Interno", tipo:"Correo inválido", canal:"", quien:"Sistema", correo:"", det:"El correo secundario rebotó: buzón inexistente.", cambio:true },
+  { id:4, f:"10-11-2026", h:"16:12", dir:"Interno", tipo:"Correo enviado", canal:"CORREO", quien:"Agente Demo", correo:"", det:"Aviso NO enviado a contacto2@demo-cliente.cl: Su caso está en proceso.\nError: buzón lleno.", cambio:true, tipoReal:"Aviso NO enviado" },
+  { id:5, f:"10-11-2026", h:"15:33", dir:"Saliente", tipo:"Correo enviado", canal:"CORREO", quien:"Agente Demo", correo:"contacto@demo-cliente.cl", det:"Aviso enviado a contacto@demo-cliente.cl: Su caso está pendiente y le informaremos dentro de las próximas 24 horas su avance." },
+  { id:6, f:"10-11-2026", h:"15:10", dir:"Interno", tipo:"Comentario", canal:"", quien:"Agente Demo", correo:"", det:"Coordinado con soporte terreno (soporte.terreno@parkfacil.cl).", cambio:true },
+  { id:7, f:"10-11-2026", h:"14:58", dir:"Interno", tipo:"Actualización", canal:"", quien:"Agente Demo", correo:"", det:"Estado: Nuevo → En proceso; Prioridad: Media → Alta" },
+  { id:8, f:"09-11-2026", h:"11:20", dir:"Interno", tipo:"Actualizar correo de contacto", canal:"", quien:"Agente Demo", correo:"contacto@demo-cliente.cl", det:"Correo de contacto actualizado a contacto@demo-cliente.cl.", cambio:true },
+  { id:9, f:"09-11-2026", h:"10:02", dir:"Saliente", tipo:"Cotización enviada", canal:"", quien:"Agente Demo", correo:"contacto@demo-cliente.cl", det:"Cotización COT-DEMO-001 enviada por correo." },
+  { id:10, f:"08-11-2026", h:"20:41", dir:"Entrante", tipo:"Respuesta del cliente", canal:"CORREO", quien:"otra.persona@demo-cliente.cl", correo:"otra.persona@demo-cliente.cl", det:"Respuesta recibida de otra.persona@demo-cliente.cl (remitente distinto del contacto del caso):\nAdjunto fotos de la barrera." },
+  { id:11, f:"08-11-2026", h:"19:30", dir:"Interno", tipo:"Ticket de soporte creado", canal:"", quien:"Mesa de ayuda", correo:"", det:"Solicitud pública recibida.\nPosición inicial: 2" },
+];
+const marca = (r) => { const [d,m,a] = r.f.split("-"); return `${a}${m}${d}${r.h}`; };
+const COLS = [
+  { k:"f", t:"Fecha", o:true }, { k:"h", t:"Hora", o:false }, { k:"dir", t:"Dirección", o:true },
+  { k:"tipo", t:"Tipo", o:true }, { k:"quien", t:"Quién", o:true }, { k:"correo", t:"Correo", o:true }, { k:"res", t:"Resumen", o:false },
+];
+let filtro = "Todas", orden = { c:"f", asc:false }, abierta = null;
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+const resumen = (t) => { const l = t.replace(/\s+/g," ").trim(); return l.length > 140 ? l.slice(0,139).trimEnd()+"…" : l; };
+
+function visibles() {
+  const cmp = orden.c === "f" ? (a,b) => marca(a).localeCompare(marca(b)) : (a,b) => String(a[orden.c]).localeCompare(String(b[orden.c]),"es") || marca(a).localeCompare(marca(b));
+  return datos.filter((r) => filtro === "Todas" || r.dir === filtro).slice().sort((a,b) => orden.asc ? cmp(a,b) : -cmp(a,b));
+}
+function pintar() {
+  document.getElementById("total").textContent = `(${datos.length})`;
+  const cuenta = { Todas: datos.length, Entrante:0, Saliente:0, Interno:0 };
+  datos.forEach((r) => cuenta[r.dir]++);
+  document.getElementById("filtros").innerHTML = ["Todas","Entrante","Saliente","Interno"].map((o) =>
+    `<button type="button" class="chip" aria-pressed="${filtro===o}" data-f="${o}">${o} (${cuenta[o]})</button>`).join("");
+  document.getElementById("cabecera").innerHTML = `<th style="width:32px"></th>` + COLS.map((c) =>
+    `<th>${c.o ? `<button data-o="${c.k}">${c.t}${orden.c===c.k ? (orden.asc?" ▲":" ▼") : ""}</button>` : c.t}</th>`).join("");
+  const filas = visibles();
+  document.getElementById("cuerpo").innerHTML = filas.length ? filas.map((r) => {
+    const ab = abierta === r.id;
+    return `<tr class="fila${r.cambio?" nuevo":""}" data-id="${r.id}" aria-expanded="${ab}">
+      <td style="color:#64748b">${ab?"▾":"▸"}</td>
+      <td class="nowrap">${r.f}</td><td class="nowrap">${r.h}</td>
+      <td><span class="badge ${r.dir}">${r.dir}</span></td>
+      <td class="tipo">${esc(r.tipoReal || r.tipo)}</td><td>${esc(r.quien)}</td>
+      <td class="correo">${esc(r.correo)}</td><td>${esc(resumen(r.det))}</td></tr>` +
+      (ab ? `<tr class="det"><td></td><td colspan="7"><p class="meta">${r.f} ${r.h} · ${esc(r.quien)}${r.canal?" · "+r.canal:""}</p><p class="texto">${esc(r.det)}</p></td></tr>` : "");
+  }).join("") : `<tr><td colspan="8" style="color:#64748b">No hay actividades de este tipo.</td></tr>`;
+}
+document.addEventListener("click", (e) => {
+  const f = e.target.closest("[data-f]"); if (f) { filtro = f.dataset.f; abierta = null; return pintar(); }
+  const o = e.target.closest("[data-o]"); if (o) { const c = o.dataset.o; orden = { c, asc: orden.c === c ? !orden.asc : c !== "f" }; return pintar(); }
+  const t = e.target.closest("tr.fila"); if (t) { const id = Number(t.dataset.id); abierta = abierta === id ? null : id; return pintar(); }
+});
+document.getElementById("descargar").addEventListener("click", () => {
+  const x = document.getElementById("excel"); x.classList.add("on");
+  document.getElementById("xcab").innerHTML = ["Fecha","Hora","Dirección","Tipo","Canal","Quién","Correo","Detalle"].map((h) => `<th>${h} ⏷</th>`).join("");
+  document.getElementById("xcuerpo").innerHTML = datos.slice().sort((a,b) => marca(b).localeCompare(marca(a))).map((r) =>
+    `<tr><td class="nowrap">${r.f}</td><td>${r.h}</td><td>${r.dir}</td><td>${esc(r.tipoReal || r.tipo)}</td><td>${r.canal}</td><td>${esc(r.quien)}</td><td>${esc(r.correo)}</td><td style="white-space:pre-wrap">${esc(r.det)}</td></tr>`).join("");
+  x.scrollIntoView({ behavior:"smooth" });
+});
+pintar();
+</script>
+</body>
+</html>

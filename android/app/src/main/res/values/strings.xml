@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ParkFacil Inspector</string>
+    <string name="title_activity_main">ParkFacil Inspector</string>
+    <string name="package_name">cl.parkfacil.inspector</string>
+    <string name="custom_url_scheme">cl.parkfacil.inspector</string>
+</resources>

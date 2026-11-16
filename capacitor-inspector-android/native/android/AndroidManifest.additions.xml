@@ -1,0 +1,22 @@
+<!--
+  Permisos a agregar dentro de <manifest> en android/app/src/main/
+  AndroidManifest.xml (el que genera `npx cap add android`), FUERA de
+  <application>. Inspector, Etapa 3 final -- Capacitor/Android,
+  2026-08-31.
+
+  BLUETOOTH_CONNECT (Android 12 / API 31+): permiso runtime nuevo que
+  reemplaza a BLUETOOTH/BLUETOOTH_ADMIN para listar/conectar dispositivos
+  YA EMPAREJADOS. Se declara con maxSdkVersion en los permisos legado para
+  que Android use automáticamente el correcto según la versión del
+  teléfono (mismo patrón recomendado por la documentación oficial de
+  Android para apps que deben funcionar en versiones antiguas y nuevas a
+  la vez).
+
+  NO se declara ACCESS_FINE_LOCATION: este plugin NUNCA hace descubrimiento
+  Bluetooth en vivo (solo lista bondedDevices, dispositivos ya
+  emparejados desde Ajustes de Android) -- ese permiso solo es necesario
+  para escaneo activo, que aquí no existe.
+-->
+<uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />

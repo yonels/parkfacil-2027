@@ -1,0 +1,30 @@
+Inspector, Etapa 3 final -- Capacitor/Android, 2026-08-31.
+
+En android/app/src/main/java/.../MainActivity.java (el que genera
+`npx cap add android`), registrar el plugin ANTES de super.onCreate()
+llame a loadWebView, agregando el import y la línea registerPlugin():
+
+    package cl.parkfacil.inspector;
+
+    import android.os.Bundle;
+    import com.getcapacitor.BridgeActivity;
+    import cl.parkfacil.inspector.ParkFacilPrinterPlugin; // <-- agregar
+
+    public class MainActivity extends BridgeActivity {
+      @Override
+      public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(ParkFacilPrinterPlugin.class); // <-- agregar, ANTES de super.onCreate()
+        super.onCreate(savedInstanceState);
+      }
+    }
+
+Si el MainActivity generado usa Kotlin en vez de Java, el equivalente es:
+
+    import cl.parkfacil.inspector.ParkFacilPrinterPlugin
+
+    class MainActivity : BridgeActivity() {
+      override fun onCreate(savedInstanceState: Bundle?) {
+        registerPlugin(ParkFacilPrinterPlugin::class.java)
+        super.onCreate(savedInstanceState)
+      }
+    }

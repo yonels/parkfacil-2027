@@ -8,5 +8,10 @@
       "path": "/api/internal/on-street-payments/reconcile",
       "schedule": "*/2 * * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "respaldo/2027-checkout-principal-20261116": false
+    }
+  }
 }

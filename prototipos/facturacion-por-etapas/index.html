@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Facturación por etapas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#041E42; --blue:#3150D8; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --bg:#F4F7FC; --card:#FFFFFF;
+  --ok:#16A34A; --ok-bg:#DCFCE7; --warn:#D97706; --warn-bg:#FEF3C7; --lock:#94A3B8; --lock-bg:#F1F5F9; --err:#DC2626; --err-bg:#FEE2E2;
+  --radius:18px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+.hidden{display:none!important}
+.topbar{height:58px;background:var(--navy);color:#fff;display:flex;align-items:center;gap:14px;padding:0 18px;position:sticky;top:0;z-index:30}
+.brand{font-weight:800;font-size:18px}.brand span{color:#7FA2FF}
+.spacer{flex:1}
+.proto-tag{background:#FDE68A;color:#78350F;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px}
+.layout{display:grid;grid-template-columns:230px 1fr;min-height:calc(100vh - 58px)}
+.sidebar{background:#fff;border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:58px;height:calc(100vh - 58px);overflow:auto}
+.side-title{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:14px 10px 6px}
+.side-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;color:#334155;font-weight:500}
+.side-item.active{background:linear-gradient(90deg,#EEF2FF,#F5F3FF);color:var(--blue);font-weight:700;box-shadow:inset 3px 0 0 var(--blue)}
+.side-item .new{margin-left:auto;font-size:10px;font-weight:800;color:#fff;background:linear-gradient(90deg,#3150D8,#7C3AED);padding:2px 7px;border-radius:999px}
+.side-sub{margin-left:18px;border-left:2px solid var(--line);padding-left:8px}
+.side-sub .side-item{font-size:13px;padding:6px 10px;color:#64748B}
+.main{padding:22px 26px 60px;min-width:0}
+.page-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;margin-bottom:16px}
+.page-head h1{margin:0;font-size:26px;color:var(--navy)}
+.page-head p{margin:4px 0 0;color:var(--muted)}
+.tabs{display:flex;gap:6px;background:#fff;border:1px solid var(--line);padding:5px;border-radius:999px;margin-left:auto}
+.tab{border:0;background:none;padding:8px 16px;border-radius:999px;font-weight:600;color:#475569}
+.tab.active{background:var(--navy);color:#fff}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.btn{border:0;border-radius:999px;padding:10px 18px;font-weight:700;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{color:#fff;background:var(--c,var(--blue));box-shadow:0 6px 16px -6px var(--c,var(--blue))}
+.btn-ghost{background:#fff;border:1px solid var(--line);color:#334155}
+.btn-danger{background:#fff;border:1px solid #FCA5A5;color:var(--err)}
+.btn-sm{padding:6px 12px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
+.chip.ok{background:var(--ok-bg);color:#166534}.chip.warn{background:var(--warn-bg);color:#92400E}.chip.lock{background:var(--lock-bg);color:#64748B}.chip.err{background:var(--err-bg);color:#991B1B}.chip.off{background:#F1F5F9;color:#94A3B8;text-decoration:line-through}
+.banner{border-radius:14px;padding:12px 16px;margin-bottom:14px;font-size:13px}
+.banner.info{background:#EEF2FF;color:#1E3A8A;border:1px solid #C7D2FE}
+.banner.test{background:#FFFBEB;color:#78350F;border:1px solid #FDE68A}
+
+/* Resumen del mes */
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+.kpi{padding:12px 14px}.kpi small{color:var(--muted);font-weight:600}.kpi b{display:block;font-size:20px;color:var(--navy)}
+.pipeline{display:flex;gap:6px;overflow-x:auto;padding:12px;margin-bottom:14px}
+.pipe{flex:1;min-width:110px;border-radius:14px;padding:10px;background:#F8FAFC;border:1px solid var(--line);text-align:center;cursor:pointer}
+.pipe .n{font-size:22px;font-weight:800;color:var(--c)}
+.pipe .l{font-size:12px;font-weight:600;color:#334155}
+.pipe.sel{outline:3px solid var(--c);background:#fff}
+.pipe.off{opacity:.45}
+
+/* Árbol + detalle */
+.split{display:grid;grid-template-columns:330px 1fr;gap:16px;align-items:start}
+.tree{padding:12px}
+.tree-head{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.tree-head input{flex:1;border:1px solid var(--line);border-radius:999px;padding:8px 14px}
+.period{font-size:12px;font-weight:800;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:8px 6px}
+.node{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:14px;cursor:pointer;border:1px solid transparent}
+.node:hover{background:#F8FAFC}
+.node.sel{background:linear-gradient(90deg,#EEF2FF,#fff);border-color:#C7D2FE}
+.logo{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:#fff;font-weight:800;flex:none}
+.node b{display:block;font-size:13.5px}.node small{color:var(--muted)}
+.dots{display:flex;gap:3px;margin-top:6px}
+.dots i{width:15px;height:15px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:800;font-style:normal;color:#fff;background:#E2E8F0}
+.dots i.ok{background:var(--ok)}.dots i.cur{background:var(--c);box-shadow:0 0 0 2px #fff,0 0 0 4px var(--c)}.dots i.err{background:var(--err)}.dots i.off{background:repeating-linear-gradient(45deg,#E2E8F0 0 3px,#F8FAFC 3px 6px)}
+.selbox{margin-right:2px;margin-top:9px}
+
+.detail{padding:0;overflow:hidden}
+.detail-head{padding:16px 20px;display:flex;gap:14px;align-items:center;border-bottom:1px solid var(--line);background:linear-gradient(90deg,#F8FAFF,#fff)}
+.detail-head h2{margin:0;font-size:19px;color:var(--navy)}
+.progress{height:8px;border-radius:999px;background:#E2E8F0;overflow:hidden;margin-top:6px;width:220px}
+.progress div{height:100%;background:linear-gradient(90deg,#3150D8,#7C3AED)}
+.stepper{display:flex;gap:0;padding:14px 16px;overflow-x:auto;border-bottom:1px solid var(--line)}
+.st{display:flex;flex-direction:column;align-items:center;min-width:92px;position:relative;cursor:pointer;flex:1}
+.st:not(:last-child)::after{content:"";position:absolute;top:17px;left:calc(50% + 20px);right:calc(-50% + 20px);height:3px;background:#E2E8F0}
+.st.ok:not(:last-child)::after{background:var(--ok)}
+.st .ball{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:800;background:#F1F5F9;color:#94A3B8;border:3px solid #fff;box-shadow:0 0 0 1px var(--line);z-index:1}
+.st.ok .ball{background:var(--ok);color:#fff}
+.st.cur .ball{background:var(--c);color:#fff;box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 25%,transparent)}
+.st.err .ball{background:var(--err);color:#fff}
+.st.off .ball{background:repeating-linear-gradient(45deg,#E2E8F0 0 4px,#F8FAFC 4px 8px)}
+.st.lock{cursor:not-allowed}
+.st span{font-size:11.5px;font-weight:700;color:#334155;margin-top:6px;text-align:center}
+.st.view span{color:var(--blue);text-decoration:underline}
+.panel{padding:20px}
+.panel h3{margin:0 0 4px;font-size:18px;color:var(--navy);display:flex;gap:10px;align-items:center}
+.q{color:var(--muted);margin:0 0 14px}
+.mnemo{display:flex;gap:12px;background:color-mix(in srgb,var(--c) 8%,#fff);border:1px dashed color-mix(in srgb,var(--c) 45%,#fff);border-radius:14px;padding:12px 14px;margin-bottom:16px;font-size:13px}
+.mnemo b{color:var(--c)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.field label{display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:4px}
+.field input,.field select,.field textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:9px 12px;background:#fff}
+.field input.bad{border-color:var(--err);background:#FFF5F5}
+.field .hint{font-size:12px;color:var(--muted);margin-top:3px}.field .hint.bad{color:var(--err);font-weight:600}
+.check{display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px dashed var(--line);font-size:13.5px}
+.check:last-child{border-bottom:0}
+table.mini{width:100%;border-collapse:collapse;font-size:13px}
+table.mini th{text-align:left;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;padding:6px 8px;border-bottom:1px solid var(--line)}
+table.mini td{padding:8px;border-bottom:1px solid #F1F5F9}
+table.mini td.r,table.mini th.r{text-align:right}
+.totals{margin-left:auto;width:280px;margin-top:10px;font-size:13.5px}
+.totals div{display:flex;justify-content:space-between;padding:3px 0}.totals .t{font-weight:800;font-size:16px;border-top:2px solid var(--navy);margin-top:4px;padding-top:6px}
+.actions{display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.locked-note{background:var(--lock-bg);border-radius:12px;padding:10px 12px;color:#475569;font-size:13px;margin-bottom:12px}
+.err-note{background:var(--err-bg);border-radius:12px;padding:10px 12px;color:#991B1B;font-size:13px;margin-bottom:12px}
+.ok-note{background:var(--ok-bg);border-radius:12px;padding:10px 12px;color:#166534;font-size:13px;margin-bottom:12px}
+
+/* Lote */
+.batchbar{position:sticky;bottom:12px;margin-top:14px;padding:12px 16px;display:flex;gap:12px;align-items:center;background:var(--navy);color:#fff;border-radius:16px;box-shadow:0 10px 30px -10px rgba(4,30,66,.6)}
+.batchbar .btn-ghost{background:transparent;color:#fff;border-color:rgba(255,255,255,.35)}
+
+/* Configurar etapas */
+.cfg-row{display:grid;grid-template-columns:44px 1.3fr 1fr 1fr 1fr;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+.cfg-row:last-child{border-bottom:0}
+.cfg-row .num{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:800}
+.cfg-row b{display:block}.cfg-row small{color:var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:3px;background:#F8FAFC}
+.seg button{border:0;background:none;padding:5px 11px;border-radius:999px;font-size:12px;font-weight:700;color:#64748B}
+.seg button.on{background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.seg button:disabled{cursor:not-allowed;opacity:.5}
+.cfg-head{display:grid;grid-template-columns:44px 1.3fr 1fr 1fr 1fr;gap:12px;padding:10px 16px;font-size:11.5px;font-weight:800;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;border-bottom:1px solid var(--line)}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--navy);color:#fff;padding:12px 16px;border-radius:14px;font-weight:600;box-shadow:0 10px 30px -10px rgba(0,0,0,.5);z-index:60}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:8px 6px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:4px;margin-right:4px;vertical-align:-2px}
+@media (max-width:1100px){.split{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}.cfg-row,.cfg-head{grid-template-columns:40px 1fr}.cfg-row>div:nth-child(n+3),.cfg-head>div:nth-child(n+3){grid-column:2}}
+@media (max-width:760px){.layout{grid-template-columns:1fr}.sidebar{display:none}.main{padding:16px}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">Park<span>Facil</span> · Root</div>
+  <div class="spacer"></div>
+  <span class="proto-tag">PROTOTIPO · datos ficticios · no guarda nada</span>
+</div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="side-title">Administración</div>
+    <div class="side-item">Centro de Control SMS</div>
+    <div class="side-item active">Facturación <span class="new">NUEVO</span></div>
+    <div class="side-sub">
+      <div class="side-item" style="color:var(--blue);font-weight:700">Ciclo de facturación</div>
+      <div class="side-item">Documentos SII</div>
+      <div class="side-item">Cuenta Corriente</div>
+      <div class="side-item">Reportes</div>
+      <div class="side-item">Configuración</div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin:14px 10px">Propuesta: el menú baja de 12 a 5 opciones. Servicios, Prefacturación, Facturas, NC y ND pasan a ser <b>etapas</b> dentro de «Ciclo de facturación». Pagos, Cobranza y Conciliación quedan como etapa «Cobro» (F3).</p>
+  </aside>
+
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>Ciclo de facturación</h1>
+        <p>Cada empresa avanza paso a paso. Al guardar una etapa, el sistema abre la siguiente. No se puede saltar ninguna.</p>
+      </div>
+      <button class="btn btn-primary" id="open-lote" style="--c:#0F766E;margin-left:auto">⚡ Facturar en lote</button>
+      <div class="tabs" style="margin-left:0">
+        <button class="tab active" data-tab="ciclo">Ciclo del mes</button>
+        <button class="tab" data-tab="config">Configurar etapas</button>
+      </div>
+    </div>
+
+    <div class="banner test"><b>Haulmer, ambiente de pruebas.</b> Los documentos salen a nombre de HAULMER SPA y no tienen validez tributaria.</div>
+
+    <!-- ===================== CICLO DEL MES ===================== -->
+    <section id="view-ciclo">
+      <div class="kpis">
+        <div class="card kpi"><small>Período</small><b>Noviembre 2026</b></div>
+        <div class="card kpi"><small>Empresas en el ciclo</small><b id="k-total">0</b></div>
+        <div class="card kpi"><small>Listas para emitir</small><b id="k-ready">0</b></div>
+        <div class="card kpi"><small>Emitidas</small><b id="k-issued">0</b></div>
+        <div class="card kpi"><small>Con problema</small><b id="k-err" style="color:var(--err)">0</b></div>
+      </div>
+      <div class="card pipeline" id="pipeline"></div>
+
+      <div class="split">
+        <div class="card tree">
+          <div class="tree-head">
+            <input id="search" placeholder="Buscar empresa o RUT…">
+          </div>
+          <div class="period">Noviembre 2026 · <span id="filter-label">todas las etapas</span></div>
+          <div id="tree"></div>
+          <div class="legend"><span><i style="background:var(--ok)"></i>Completa</span><span><i style="background:var(--blue)"></i>Actual</span><span><i style="background:var(--err)"></i>Problema</span><span><i style="background:#E2E8F0"></i>Pendiente</span><span><i style="background:repeating-linear-gradient(45deg,#E2E8F0 0 3px,#F8FAFC 3px 6px)"></i>Omitida</span></div>
+        </div>
+        <div class="card detail" id="detail"></div>
+      </div>
+      <div class="batchbar hidden" id="batchbar"></div>
+    </section>
+
+    <!-- ===================== CONFIGURAR ETAPAS ===================== -->
+    <section id="view-config" class="hidden">
+      <div class="banner info">El <b>orden</b> de las etapas es fijo (cada una necesita la anterior). Lo que se configura es si cada etapa es <b>obligatoria</b>, <b>opcional</b> u <b>omitida</b>, y si se ejecuta <b>a mano</b> o <b>automática</b>. Los cambios aplican al próximo ciclo.</div>
+      <div class="card">
+        <div class="cfg-head"><div></div><div>Etapa</div><div>Uso</div><div>Ejecución</div><div>Quién la hace</div></div>
+        <div id="cfg"></div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:14px">
+        <button class="btn btn-ghost" id="cfg-reset">Restablecer</button>
+        <button class="btn btn-primary" id="cfg-save">Guardar configuración</button>
+      </div>
+    </section>
+    <!-- ===================== FACTURAR EN LOTE ===================== -->
+    <div id="lote" class="hidden" style="position:fixed;inset:0;background:rgba(4,30,66,.45);z-index:50;display:grid;place-items:center;padding:20px">
+      <div class="card" style="width:min(860px,100%);max-height:90vh;overflow:auto">
+        <div class="detail-head"><div><h2>⚡ Facturar en lote · Noviembre 2026</h2><small style="color:var(--muted)">Lleva a cada empresa marcada desde su etapa actual hasta la emisión, en orden y sin saltarse etapas. Las que tengan un problema se detienen y se informan.</small></div><span class="spacer"></span><button class="btn btn-ghost btn-sm" id="lote-close">✕</button></div>
+        <div class="panel" id="lote-body"></div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const STEPS = [
+  { key:"datos", n:1, name:"Datos del cliente", short:"Datos", color:"#3150D8", q:"¿El cliente está bien identificado ante el SII?",
+    mnemo:"<b>R</b>UT · <b>R</b>azón social · <b>G</b>iro · <b>D</b>irección · <b>C</b>orreo — «R-R-G-D-C». Un RUT con dígito verificador malo hace que el SII rechace la factura.", lockable:false },
+  { key:"servicios", n:2, name:"Servicios a facturar", short:"Servicios", color:"#0891B2", q:"¿Qué se le cobra este mes y a qué precio?",
+    mnemo:"Cada servicio necesita <b>precio en UF</b> y <b>IVA definido</b> (afecto o exento). Sin IVA definido, no avanza.", lockable:true },
+  { key:"prefactura", n:3, name:"Prefactura", short:"Prefactura", color:"#7C3AED", q:"¿Cuánto suma el mes?",
+    mnemo:"Se calcula con la <b>UF del Banco Central</b> del día. Neto + IVA 19 % = total en pesos.", lockable:true },
+  { key:"revision", n:4, name:"Revisión y ajustes", short:"Revisión", color:"#EA580C", q:"¿Hay algo extra o algo que corregir?",
+    mnemo:"Aquí se agregan <b>servicios extra</b>, descuentos y observaciones. Si no hay cambios: «Sin cambios, continuar».", lockable:true },
+  { key:"aprobacion", n:5, name:"Aprobación", short:"Aprobación", color:"#DB2777", q:"¿Está todo correcto para facturar?",
+    mnemo:"Aprobar <b>congela</b> la prefactura: después ya no se edita. Revise total y cliente antes de aprobar.", lockable:true },
+  { key:"emision", n:6, name:"Emisión DTE", short:"Emisión", color:"#0F766E", q:"¿Se emitió la factura en el SII?",
+    mnemo:"Haulmer asigna el <b>folio</b> y entrega el PDF. Si el proveedor <b>rechaza</b>: se descarta, se corrige el dato y se vuelve a emitir.", lockable:true },
+  { key:"envio", n:7, name:"Envío y estado SII", short:"Envío", color:"#0284C7", q:"¿El cliente la recibió y el SII la aceptó?",
+    mnemo:"Correo con PDF al cliente · Estado SII · Respuesta del cliente (<b>Otorga recibo</b> o <b>Aceptado x omisión</b> a los 8 días).", lockable:true },
+  { key:"cobro", n:8, name:"Cobro", short:"Cobro", color:"#16A34A", q:"¿Se pagó?",
+    mnemo:"Cuenta corriente, pago y conciliación con el banco. <b>Etapa F3: aún no desarrollada.</b>", lockable:true, future:true },
+];
+const DEFAULT_CFG = {
+  datos:{use:"req",run:"manual",who:"Root"}, servicios:{use:"req",run:"manual",who:"Root"}, prefactura:{use:"req",run:"auto",who:"Sistema"},
+  revision:{use:"opt",run:"manual",who:"Root"}, aprobacion:{use:"req",run:"manual",who:"Root"}, emision:{use:"req",run:"manual",who:"Root"},
+  envio:{use:"req",run:"auto",who:"Sistema"}, cobro:{use:"off",run:"manual",who:"Root"},
+};
+let cfg = JSON.parse(JSON.stringify(DEFAULT_CFG));
+const LOGO = ["#3150D8","#0891B2","#7C3AED","#EA580C","#DB2777","#0F766E"];
+// Datos ficticios (salvo la empresa de pruebas ParkFacil Operaciones, D5).
+let companies = [
+  { id:"c1", name:"ParkFacil Operaciones Spa", rut:"77.991.619-7", stage:6, giro:"Servicios de estacionamiento", dir:"Av. Raúl Labbé 12613", comuna:"Lo Barnechea", correo:"info@parkfacil.cl",
+    services:[{n:"SERV-01 · Cuota mensual ParkFacil",q:1,uf:1.5,iva:"Afecto"}], extra:[], folio:null, issued:false },
+  { id:"c2", name:"Cliente Demo Norte SpA", rut:"76.000.000-0", stage:3, giro:"Arriendo de estacionamientos", dir:"Calle Ficticia 100", comuna:"Antofagasta", correo:"facturas@demo-norte.cl",
+    services:[{n:"SERV-01 · Cuota mensual ParkFacil",q:1,uf:2.5,iva:"Afecto"},{n:"PROD-05 · POS adicional",q:2,uf:0.4,iva:"Afecto"}], extra:[], folio:null },
+  { id:"c3", name:"ETAPA5 Empresa de prueba", rut:"13.744.807-9", stage:1, giro:"Servicios de certificación", dir:"Av. Prueba 100", comuna:"Santiago", correo:"prueba@ejemplo.cl",
+    services:[{n:"SERV-10 · Certificación Etapa 1",q:1,uf:0.03,iva:"Afecto"}], extra:[], folio:null, problem:"RUT con dígito verificador inválido (el correcto termina en 6). Haulmer rechazó la factura de prueba (OF-02)." },
+  { id:"c4", name:"Cliente Demo Sur Ltda.", rut:"76.001.371-1", stage:5, giro:"Administración de inmuebles", dir:"Pasaje Ejemplo 22", comuna:"Concepción", correo:"pagos@demo-sur.cl",
+    services:[{n:"SERV-01 · Cuota mensual ParkFacil",q:1,uf:1.5,iva:"Afecto"}], extra:[{n:"SERV-04 · Implementación",q:1,uf:3,iva:"Afecto"}], folio:null },
+  { id:"c5", name:"Cliente Demo Centro SpA", rut:"76.002.742-2", stage:5, giro:"Estacionamientos", dir:"Av. Demo 900", comuna:"Santiago", correo:"admin@demo-centro.cl",
+    services:[{n:"SERV-01 · Cuota mensual ParkFacil",q:1,uf:1.5,iva:"Afecto"}], extra:[], folio:null },
+  { id:"c6", name:"Cliente Demo Costa SpA", rut:"76.004.113-3", stage:7, giro:"Turismo y estacionamientos", dir:"Costanera 5", comuna:"Viña del Mar", correo:"contabilidad@demo-costa.cl",
+    services:[{n:"SERV-01 · Cuota mensual ParkFacil",q:1,uf:2,iva:"Afecto"}], extra:[], folio:204700, issued:true },
+];
+const UF = 41274.20;
+let selected = "c1", viewing = null, filterStage = null, batch = new Set();
+
+const $ = (s) => document.querySelector(s);
+const clp = (n) => new Intl.NumberFormat("es-CL",{style:"currency",currency:"CLP",maximumFractionDigits:0}).format(Math.round(n));
+const activeSteps = () => STEPS.filter(s => cfg[s.key].use !== "off");
+function rutValid(rut){ const c=rut.replace(/[.\s-]/g,"").toUpperCase(); const body=c.slice(0,-1), dv=c.slice(-1); if(!/^\d+$/.test(body)) return false; let s=0,m=2; for(const d of body.split("").reverse()){ s+=d*m; m=m===7?2:m+1;} const r=11-s%11; return (r===11?"0":r===10?"K":String(r))===dv; }
+function totals(c){ const lines=[...c.services,...c.extra]; const net=lines.reduce((a,l)=>a+Math.round(l.q*l.uf*UF),0); return {net, iva:Math.round(net*0.19), total:net+Math.round(net*0.19)}; }
+function stateOf(c, step){
+  if (cfg[step.key].use === "off") return "off";
+  if (step.n < c.stage) return "ok";
+  if (step.n === c.stage) return c.problem ? "err" : "cur";
+  return "lock";
+}
+function stageName(n){ return (STEPS.find(s=>s.n===n)||{}).short || "—"; }
+function toast(msg){ const t=document.createElement("div"); t.className="toast"; t.textContent=msg; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
+
+function renderKpis(){
+  $("#k-total").textContent = companies.length;
+  $("#k-ready").textContent = companies.filter(c=>c.stage===6 && !c.problem).length;
+  $("#k-issued").textContent = companies.filter(c=>c.stage>6).length;
+  $("#k-err").textContent = companies.filter(c=>c.problem).length;
+}
+function renderPipeline(){
+  $("#pipeline").innerHTML = STEPS.map(s => {
+    const n = companies.filter(c=>c.stage===s.n).length;
+    const off = cfg[s.key].use==="off";
+    return `<div class="pipe ${filterStage===s.n?"sel":""} ${off?"off":""}" style="--c:${s.color}" data-stage="${s.n}"><div class="n">${off?"–":n}</div><div class="l">${s.n}. ${s.short}${off?" (omitida)":""}</div></div>`;
+  }).join("") + `<div class="pipe ${filterStage===9?"sel":""}" style="--c:#16A34A" data-stage="9"><div class="n">${companies.filter(c=>c.stage>8 || (c.stage===8 && cfg.cobro.use==="off")).length}</div><div class="l">✓ Terminadas</div></div>`;
+  document.querySelectorAll(".pipe").forEach(p => p.onclick = () => { const st=+p.dataset.stage; filterStage = filterStage===st?null:st; batch.clear(); render(); });
+  $("#filter-label").textContent = filterStage ? (filterStage===9?"terminadas":`en ${STEPS[filterStage-1].short.toLowerCase()}`) : "todas las etapas";
+}
+function renderTree(){
+  const q = $("#search").value.toLowerCase();
+  const list = companies.filter(c => (!filterStage || (filterStage===9 ? c.stage>8 : c.stage===filterStage)) && (c.name.toLowerCase().includes(q) || c.rut.includes(q)));
+  $("#tree").innerHTML = list.map((c,i) => {
+    const dots = STEPS.map(s => { const st=stateOf(c,s); return `<i class="${st==="ok"?"ok":st==="cur"?"cur":st==="err"?"err":st==="off"?"off":""}" style="--c:${s.color}" title="${s.n}. ${s.name}">${st==="ok"?"✓":st==="err"?"!":""}</i>`; }).join("");
+    const canBatch = filterStage && filterStage<=7 && !c.problem;
+    return `<div class="node ${selected===c.id?"sel":""}" data-id="${c.id}">
+      ${canBatch?`<input type="checkbox" class="selbox" data-b="${c.id}" ${batch.has(c.id)?"checked":""}>`:""}
+      <div class="logo" style="background:${LOGO[i%LOGO.length]}">${c.name[0]}</div>
+      <div style="min-width:0"><b>${c.name}</b><small>${c.rut} · ${c.problem?'<span style="color:var(--err);font-weight:700">Problema en '+stageName(c.stage)+'</span>':c.stage>8?"Terminada":"Etapa "+c.stage+": "+stageName(c.stage)}</small><div class="dots">${dots}</div></div>
+    </div>`;
+  }).join("") || `<p style="color:var(--muted);padding:10px">Sin empresas en esta etapa.</p>`;
+  document.querySelectorAll(".node").forEach(n => n.onclick = (e) => { if (e.target.dataset.b) return; selected=n.dataset.id; viewing=null; render(); });
+  document.querySelectorAll("[data-b]").forEach(b => b.onchange = () => { b.checked?batch.add(b.dataset.b):batch.delete(b.dataset.b); renderBatch(); });
+}
+const VERBS = {1:"Validar datos de",2:"Confirmar servicios de",3:"Calcular prefactura de",4:"Continuar sin cambios",5:"Aprobar",6:"Emitir",7:"Marcar como enviadas"};
+function renderBatch(){
+  const bar=$("#batchbar");
+  if (!filterStage || filterStage>7) { bar.classList.add("hidden"); return; }
+  const verb = VERBS[filterStage];
+  bar.classList.remove("hidden");
+  bar.innerHTML = `<b>${batch.size} seleccionada(s)</b><span style="opacity:.8">Avance en lote de la etapa «${STEPS[filterStage-1].short}»: pasan juntas a la etapa siguiente.</span><span class="spacer"></span>
+    <button class="btn btn-ghost btn-sm" id="b-all">Marcar todas</button>
+    <button class="btn btn-primary btn-sm" style="--c:${STEPS[filterStage-1].color}" id="b-go" ${batch.size?"":"disabled"}>${verb} ${batch.size||""}</button>`;
+  $("#b-all").onclick = () => { companies.filter(c=>c.stage===filterStage && !c.problem).forEach(c=>batch.add(c.id)); render(); };
+  $("#b-go").onclick = () => { const n=batch.size; batch.forEach(id => advance(companies.find(c=>c.id===id), true)); toast(`${n} empresa(s) pasaron a la etapa siguiente.`); batch.clear(); render(); };
+}
+
+// «Facturar en lote» completo (como el lote de hoy): de la etapa actual hasta la emisión.
+let loteSel = new Set();
+function openLote(){
+  const elegibles = companies.filter(c => c.stage<=6);
+  loteSel = new Set(elegibles.filter(c=>!c.problem).map(c=>c.id));
+  renderLote();
+  $("#lote").classList.remove("hidden");
+}
+function renderLote(result){
+  const elegibles = companies.filter(c => c.stage<=6);
+  const fecha = `<div class="field" style="max-width:220px"><label>Fecha de emisión</label><input type="date" value="2026-11-08"></div>`;
+  if (result) {
+    $("#lote-body").innerHTML = `<div class="ok-note">✓ ${result.ok.length} factura(s) emitida(s). ${result.err.length?`${result.err.length} detenida(s) por un problema.`:""} Los correos con PDF se envían al terminar.</div>
+      <table class="mini"><thead><tr><th>Empresa</th><th>Resultado</th><th class="r">Folio</th><th class="r">Total</th></tr></thead><tbody>
+      ${result.ok.map(c=>`<tr><td>${c.name}</td><td><span class="chip ok">Emitida</span></td><td class="r">${c.folio}</td><td class="r">${clp(totals(c).total)}</td></tr>`).join("")}
+      ${result.err.map(c=>`<tr><td>${c.name}</td><td><span class="chip err">Detenida en ${stageName(c.stage)}</span><div style="font-size:12px;color:var(--err)">${c.problem}</div></td><td class="r">—</td><td class="r">—</td></tr>`).join("")}
+      </tbody></table><div class="actions"><span></span><button class="btn btn-primary" id="lote-done">Listo</button></div>`;
+    $("#lote-done").onclick = () => { $("#lote").classList.add("hidden"); render(); };
+    return;
+  }
+  const total = elegibles.filter(c=>loteSel.has(c.id)).reduce((a,c)=>a+totals(c).total,0);
+  $("#lote-body").innerHTML = `${fecha}
+    <table class="mini" style="margin-top:12px"><thead><tr><th></th><th>Empresa</th><th>Etapa actual</th><th>Etapas que se ejecutarán</th><th class="r">Total</th></tr></thead><tbody>
+    ${elegibles.map(c => { const pend = STEPS.filter(s=>s.n>=c.stage && s.n<=6 && cfg[s.key].use!=="off").map(s=>s.short).join(" → ");
+      return `<tr style="${c.problem?"opacity:.75":""}"><td><input type="checkbox" data-l="${c.id}" ${loteSel.has(c.id)?"checked":""}></td><td><b>${c.name}</b><div style="font-size:12px;color:var(--muted)">${c.rut}</div></td>
+      <td>${c.problem?`<span class="chip err">! ${stageName(c.stage)}</span>`:`<span class="chip warn">${stageName(c.stage)}</span>`}</td><td style="font-size:12.5px">${pend}</td><td class="r">${clp(totals(c).total)}</td></tr>`; }).join("")}
+    </tbody></table>
+    <p style="font-size:12.5px;color:var(--muted)">Las empresas con problema se pueden marcar: el lote las lleva hasta la etapa con problema y ahí se detienen, sin afectar a las demás.</p>
+    <div class="actions"><span><b>${loteSel.size}</b> empresa(s) · total ${clp(total)}</span><button class="btn btn-primary" style="--c:#0F766E" id="lote-go" ${loteSel.size?"":"disabled"}>⚡ Facturar ${loteSel.size} en lote</button></div>`;
+  document.querySelectorAll("[data-l]").forEach(b => b.onchange = () => { b.checked?loteSel.add(b.dataset.l):loteSel.delete(b.dataset.l); renderLote(); });
+  $("#lote-go").onclick = () => {
+    const ok=[], err=[];
+    loteSel.forEach(id => { const c=companies.find(x=>x.id===id); if (c.problem) { err.push(c); return; } while (c.stage<=6) advance(c, true); ok.push(c); });
+    renderLote({ok, err});
+  };
+}
+
+function stepPanel(c, step, readOnly){
+  const t = totals(c);
+  const issued = c.stage > 6;
+  const lockNote = readOnly && issued && step.n < 6 ? `<div class="locked-note">🔒 La factura ya se emitió (folio ${c.folio}): esta etapa queda solo de consulta. Para corregir montos se usa una <b>nota de crédito</b>.</div>` :
+                   readOnly ? `<div class="locked-note">Etapa completada. Puede <b>editarla</b>; al guardar, las etapas siguientes que dependen de ella se recalculan.</div>` : "";
+  const edit = readOnly && !(issued && step.n < 6) && step.n < 6;
+  let body = "";
+  switch(step.key){
+    case "datos": {
+      const ok = rutValid(c.rut);
+      body = `${c.problem && step.n===c.stage?`<div class="err-note">⚠ ${c.problem}</div>`:""}
+      <div class="grid2">
+        <div class="field"><label>RUT</label><input id="f-rut" value="${c.rut}" class="${ok?"":"bad"}"><div class="hint ${ok?"":"bad"}" id="rut-hint">${ok?"✓ Dígito verificador correcto":"✗ Dígito verificador incorrecto"}</div></div>
+        <div class="field"><label>Razón social</label><input value="${c.name}"></div>
+        <div class="field"><label>Giro</label><input value="${c.giro}"></div>
+        <div class="field"><label>Correo de facturación</label><input value="${c.correo}"></div>
+        <div class="field"><label>Dirección</label><input value="${c.dir}"></div>
+        <div class="field"><label>Comuna</label><input value="${c.comuna}"></div>
+      </div>`;
+      break; }
+    case "servicios":
+      body = `<table class="mini"><thead><tr><th>Servicio</th><th class="r">Cant.</th><th class="r">Precio UF</th><th>IVA</th></tr></thead><tbody>
+        ${c.services.map(s=>`<tr><td>${s.n}</td><td class="r">${s.q}</td><td class="r">${s.uf.toLocaleString("es-CL")}</td><td><span class="chip ok">${s.iva}</span></td></tr>`).join("")}</tbody></table>
+        <button class="btn btn-ghost btn-sm" style="margin-top:10px" onclick="toast('Prototipo: abriría el catálogo para agregar un servicio.')">+ Agregar servicio del catálogo</button>`;
+      break;
+    case "prefactura":
+      body = `<div class="ok-note">UF del Banco Central del 08-11-2026: <b>${UF.toLocaleString("es-CL")}</b></div>
+        <table class="mini"><thead><tr><th>Línea</th><th class="r">UF</th><th class="r">Neto CLP</th></tr></thead><tbody>
+        ${c.services.map(s=>`<tr><td>${s.n}</td><td class="r">${(s.q*s.uf).toLocaleString("es-CL")}</td><td class="r">${clp(s.q*s.uf*UF)}</td></tr>`).join("")}</tbody></table>
+        <div class="totals"><div><span>Neto</span><span>${clp(t.net - c.extra.reduce((a,l)=>a+Math.round(l.q*l.uf*UF),0))}</span></div></div>`;
+      break;
+    case "revision":
+      body = `<p style="margin:0 0 8px;font-weight:700">Servicios extra de este mes</p>
+        ${c.extra.length?`<table class="mini"><tbody>${c.extra.map(s=>`<tr><td>${s.n}</td><td class="r">${clp(s.q*s.uf*UF)}</td></tr>`).join("")}</tbody></table>`:`<p style="color:var(--muted);margin:0">Sin servicios extra.</p>`}
+        <div style="display:flex;gap:8px;margin-top:10px"><button class="btn btn-ghost btn-sm" onclick="toast('Prototipo: agregaría un servicio extra o descuento.')">+ Servicio extra</button><button class="btn btn-ghost btn-sm" onclick="toast('Prototipo: agregaría una observación.')">+ Observación</button></div>`;
+      break;
+    case "aprobacion":
+      body = `<div class="totals" style="margin:0 0 10px;width:100%;max-width:340px"><div><span>Neto</span><span>${clp(t.net)}</span></div><div><span>IVA 19 %</span><span>${clp(t.iva)}</span></div><div class="t"><span>Total</span><span>${clp(t.total)}</span></div></div>
+        <div class="check">☑ Cliente con RUT válido y correo</div><div class="check">☑ Todos los servicios con IVA definido</div><div class="check">☑ Empresa activa</div>`;
+      break;
+    case "emision":
+      body = issued ? `<div class="ok-note">✓ Factura electrónica emitida · <b>Folio ${c.folio}</b> · ${clp(t.total)}</div><button class="btn btn-ghost btn-sm" onclick="toast('Prototipo: abriría el PDF de Haulmer.')">Ver PDF</button>` :
+        `<div class="field" style="max-width:240px"><label>Fecha de emisión</label><input type="date" value="2026-11-08"></div>
+         <p style="color:var(--muted);font-size:13px">Proveedor: Haulmer OpenFactura (pruebas). Total a emitir: <b>${clp(t.total)}</b>.</p>`;
+      break;
+    case "envio":
+      body = `<div class="check">✓ Correo con PDF enviado a ${c.correo} (copia info@parkfacil.cl)</div>
+        <div class="check">${c.stage>7?"✓":"…"} Estado SII: <b>${c.stage>7?"Aceptado":"consultando"}</b></div>
+        <div class="check">… Respuesta del cliente: <b>pendiente</b> (a los 8 días sin reclamo: Aceptado x Omisión)</div>`;
+      break;
+    case "cobro":
+      body = `<div class="locked-note">Etapa F3 (Pagos y Cobranza): aún no desarrollada. En la configuración está <b>omitida</b>; al activarla, aquí se registrará el pago y la conciliación.</div>`;
+      break;
+  }
+  const isCur = !readOnly;
+  const nextLabel = {datos:"Guardar y continuar", servicios:"Confirmar servicios", prefactura:"Calcular y continuar", revision:c.extra.length?"Guardar ajustes y continuar":"Sin cambios, continuar", aprobacion:"Aprobar", emision:"Emitir factura", envio:"Marcar como enviada", cobro:"Registrar pago"}[step.key];
+  const blockDatos = step.key==="datos" && !rutValid(c.rut);
+  const actions = isCur ? `<div class="actions">
+      <div>${c.problem && step.key==="emision"?'<button class="btn btn-danger btn-sm">Descartar documento rechazado</button>':""}${step.n>1?`<button class="btn btn-ghost btn-sm" id="go-prev">← Ver etapa anterior</button>`:""}</div>
+      <button class="btn btn-primary" id="go-next" style="--c:${step.color}" ${blockDatos||step.future?"disabled":""}>${nextLabel} →</button></div>`
+    : `<div class="actions"><button class="btn btn-ghost btn-sm" id="go-cur">Volver a la etapa actual (${stageName(c.stage)})</button>${edit?`<button class="btn btn-primary btn-sm" style="--c:${step.color}" onclick="toast('Prototipo: guardaría los cambios y recalcularía las etapas siguientes.')">Guardar cambios</button>`:""}</div>`;
+  return `<div class="panel" style="--c:${step.color}">
+    <h3><span class="chip" style="background:${step.color};color:#fff">${step.n}</span>${step.name} ${cfg[step.key].use==="opt"?'<span class="chip lock">Opcional</span>':""} ${cfg[step.key].run==="auto"?'<span class="chip ok">Automática</span>':""}</h3>
+    <p class="q">${step.q}</p>
+    <div class="mnemo"><span style="font-size:20px">💡</span><div>${step.mnemo}</div></div>
+    ${lockNote}${body}${actions}</div>`;
+}
+
+function renderDetail(){
+  const c = companies.find(x=>x.id===selected);
+  if (!c) { $("#detail").innerHTML = ""; return; }
+  const done = Math.min(c.stage-1, 8);
+  const current = STEPS.find(s=>s.n===Math.min(c.stage,8));
+  const showStep = viewing ? STEPS.find(s=>s.n===viewing) : current;
+  const finished = c.stage > 8 || (c.stage===8 && cfg.cobro.use==="off");
+  $("#detail").innerHTML = `
+    <div class="detail-head">
+      <div class="logo" style="background:${LOGO[companies.indexOf(c)%LOGO.length]};width:44px;height:44px;font-size:18px">${c.name[0]}</div>
+      <div><h2>${c.name}</h2><small style="color:var(--muted)">${c.rut} · Noviembre 2026 · ${finished?"Ciclo terminado":"Etapa "+c.stage+" de "+activeSteps().length}</small>
+      <div class="progress"><div style="width:${Math.round(done/activeSteps().length*100)}%"></div></div></div>
+      <span class="spacer"></span>${c.problem?'<span class="chip err">! Requiere corrección</span>':finished?'<span class="chip ok">✓ Terminado</span>':`<span class="chip warn">En ${current.short.toLowerCase()}</span>`}
+    </div>
+    <div class="stepper">${STEPS.map(s => { const st=stateOf(c,s); return `<div class="st ${st} ${viewing===s.n?"view":""}" style="--c:${s.color}" data-n="${s.n}" title="${st==="lock"?"Bloqueada: complete primero la etapa "+c.stage:s.name}"><div class="ball">${st==="ok"?"✓":st==="err"?"!":st==="lock"?"🔒":s.n}</div><span>${s.short}</span></div>`; }).join("")}</div>
+    ${finished && !viewing ? `<div class="panel"><div class="ok-note">✓ Ciclo de noviembre terminado para esta empresa. Folio ${c.folio||"—"}.</div></div>` : stepPanel(c, showStep, Boolean(viewing) && viewing !== c.stage)}`;
+  document.querySelectorAll(".st").forEach(s => s.onclick = () => {
+    const n=+s.dataset.n, st=stateOf(c,STEPS[n-1]);
+    if (st==="lock") { toast(`Bloqueada: primero complete «${stageName(c.stage)}».`); return; }
+    if (st==="off") { toast("Etapa omitida en la configuración."); return; }
+    viewing = n===c.stage ? null : n; renderDetail();
+  });
+  const next=$("#go-next"); if (next) next.onclick = () => { advance(c); render(); };
+  const prev=$("#go-prev"); if (prev) prev.onclick = () => { viewing=c.stage-1; while(viewing>1 && cfg[STEPS[viewing-1].key].use==="off") viewing--; renderDetail(); };
+  const cur=$("#go-cur"); if (cur) cur.onclick = () => { viewing=null; renderDetail(); };
+  const rut=$("#f-rut"); if (rut) rut.oninput = () => { const ok=rutValid(rut.value); rut.className=ok?"":"bad"; $("#rut-hint").className="hint "+(ok?"":"bad"); $("#rut-hint").textContent=ok?"✓ Dígito verificador correcto":"✗ Dígito verificador incorrecto"; c.rut=rut.value; if(ok) c.problem=null; const b=$("#go-next"); if(b) b.disabled=!ok; };
+}
+function advance(c, quiet){
+  if (c.stage===6) { c.folio = 204700 + Math.floor(Math.random()*90); c.issued=true; }
+  let n = c.stage + 1;
+  while (n<=8 && cfg[STEPS[n-1].key].use==="off") n++;
+  c.stage = n; viewing = null;
+  if (!quiet) toast(n>8||(n===8&&cfg.cobro.use==="off") ? "Ciclo terminado." : `Guardado. Siguiente etapa: ${stageName(n)}.`);
+}
+
+function renderCfg(){
+  const seg = (key, field, opts, disabled) => `<div class="seg">${opts.map(([v,l])=>`<button data-k="${key}" data-f="${field}" data-v="${v}" class="${cfg[key][field]===v?"on":""}" ${disabled?"disabled":""}>${l}</button>`).join("")}</div>`;
+  $("#cfg").innerHTML = STEPS.map(s => {
+    const fixed = ["datos","aprobacion","emision"].includes(s.key);
+    return `<div class="cfg-row"><div class="num" style="background:${s.color}">${s.n}</div>
+      <div><b>${s.name}</b><small>${s.q}${fixed?" · <i>siempre obligatoria</i>":""}${s.future?" · <i>F3, aún no desarrollada</i>":""}</small></div>
+      <div>${seg(s.key,"use",[["req","Obligatoria"],["opt","Opcional"],["off","Omitida"]], fixed)}</div>
+      <div>${seg(s.key,"run",[["manual","A mano"],["auto","Automática"]], cfg[s.key].use==="off")}</div>
+      <div><select data-who="${s.key}" class="field" style="border:1px solid var(--line);border-radius:10px;padding:6px 10px" ${cfg[s.key].use==="off"?"disabled":""}>${["Root","Finanzas","Sistema"].map(w=>`<option ${cfg[s.key].who===w?"selected":""}>${w}</option>`).join("")}</select></div></div>`;
+  }).join("");
+  document.querySelectorAll(".seg button").forEach(b => b.onclick = () => { cfg[b.dataset.k][b.dataset.f]=b.dataset.v; renderCfg(); });
+  document.querySelectorAll("[data-who]").forEach(s => s.onchange = () => { cfg[s.dataset.who].who=s.value; });
+}
+function render(){ renderKpis(); renderPipeline(); renderTree(); renderDetail(); renderBatch(); }
+
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
+  $("#view-ciclo").classList.toggle("hidden", t.dataset.tab!=="ciclo");
+  $("#view-config").classList.toggle("hidden", t.dataset.tab!=="config");
+  if (t.dataset.tab==="config") renderCfg(); else render();
+});
+$("#search").oninput = renderTree;
+$("#open-lote").onclick = openLote;
+$("#lote-close").onclick = () => { $("#lote").classList.add("hidden"); render(); };
+$("#cfg-save").onclick = () => { toast("Prototipo: configuración guardada (aplica al próximo ciclo)."); };
+$("#cfg-reset").onclick = () => { cfg = JSON.parse(JSON.stringify(DEFAULT_CFG)); renderCfg(); };
+render();
+</script>
+</body>
+</html>

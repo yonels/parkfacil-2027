@@ -1,0 +1,12 @@
+{
+  "appId": "cl.parkfacil.inspector",
+  "appName": "ParkFacil Inspector",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "//": "IMPORTANTE (2026-08-31): 'url' hace que Capacitor cargue la app Inspector REAL desde este origen (no una copia empaquetada) -- así se preserva 100% el frontend/APIs/auth/RBAC ya existentes, sin duplicar Inspector. Para pruebas en un teléfono físico contra el `next dev` de esta máquina, cambia 'url' por la IP LAN real de tu PC (nunca 'localhost', el teléfono no puede resolverlo) -- por ejemplo 'http://192.168.1.50:3000/inspector', con el teléfono en la MISMA red Wi-Fi. Para producción, apunta al dominio real de ParkFacil.",
+    "url": "http://REEMPLAZAR-CON-IP-LAN-O-DOMINIO:3000/inspector",
+    "cleartext": true,
+    "allowNavigation": ["REEMPLAZAR-CON-IP-LAN-O-DOMINIO:3000"]
+  }
+}

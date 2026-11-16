@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Cámara nativa para evidencia fotográfica (corrección 2026-08-31,
+         @capacitor/camera): declarada explícitamente para que el plugin la
+         pida en runtime (diálogo del sistema) en vez de omitir el chequeo
+         (ver CameraPlugin.kt, isPermissionDeclared). CameraSource.Camera
+         nunca guarda en la galería pública (saveToGallery:false en
+         InspectorFiscalizacion.js), así que no se declara ningún permiso
+         de almacenamiento adicional. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- No obligatoria: Inspector debe seguir instalable/usable en un
+         dispositivo sin cámara física (el botón de evidencia simplemente
+         no sería utilizable, el resto de la app no depende de ella). -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- GPS para fiscalización (corrección 2026-08-31): la última prueba
+         física registró la fiscalización con latitude/longitude nulos. La
+         app YA usaba navigator.geolocation.getCurrentPosition() (código
+         de InspectorFiscalizacion.js sin cambios, ver auditoría de esta
+         corrección), pero sin este permiso declarado en el manifest, la
+         propia infraestructura de Capacitor (BridgeWebChromeClient.
+         onGeolocationPermissionsShowPrompt, ver node_modules/@capacitor/
+         android) rechaza silenciosamente el intento: PermissionHelper.
+         hasPermissions() da false y el pedido de permiso en runtime no
+         tiene ningún permiso declarado que conceder, así que la promesa
+         de geolocalización termina en el callback de error (o en el
+         timeout de 8s) sin mostrar ningún diálogo al inspector. No se
+         necesita ningún plugin nuevo ni cambio de código JS: Capacitor ya
+         intercepta y pide el permiso en runtime por su cuenta en cuanto
+         el manifest lo declara. Se declaran ambos (COARSE y FINE) porque
+         es exactamente el par que BridgeWebChromeClient solicita junto;
+         el código JS sigue pidiendo enableHighAccuracy:false, así que
+         COARSE ya es suficiente para el caso de uso real. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+</manifest>
+

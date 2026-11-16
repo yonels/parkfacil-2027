@@ -5,7 +5,7 @@ import { canAccessPath, hasPermission, PERMISSIONS, ROLES } from "../auth/permis
 import { requirePermission, requirePlatformAdmin } from "../auth/apiAuthorizationCore.mjs";
 import { getRequestPortal } from "../auth/portal.mjs";
 
-const inspectorUser = { id: "inspector-1", email: "inspector@parkfacil.cl", app_metadata: { role: "inspector" } };
+const inspectorUser = { id: "inspector-1", email: "inspector@parkfacil.cl", email_confirmed_at: "2026-01-01T00:00:00Z", app_metadata: { role: "inspector" } };
 
 async function rejects403(action, code) {
   await assert.rejects(action, (error) => error instanceof AuthorizationError && error.code === code && error.status === 403);
@@ -21,13 +21,13 @@ test("usuario no autenticado -> AUTH_REQUIRED 401 (mismo AuthorizationError que 
 });
 
 test("usuario sin rol Inspector (p. ej. company_admin) intentando el portal Inspectores -> 403 PORTAL_FORBIDDEN", async () => {
-  const clientAdmin = { id: "admin-1", email: "admin@cliente.cl", app_metadata: {} };
+  const clientAdmin = { id: "admin-1", email: "admin@cliente.cl", email_confirmed_at: "2026-01-01T00:00:00Z", app_metadata: {} };
   const membership = { user_id: "admin-1", company_id: "c1", full_name: "Admin", role: "company_admin", status: "active", pos_only: false, company: { id: "c1", status: "active", relationship_type: "client", enabled_products: [] } };
   await rejects403(() => resolveAuthenticatedContext({ user: clientAdmin, portal: "inspector", loadMembership: async () => membership }), "PORTAL_FORBIDDEN");
 });
 
 test("operador POS (sin inspector:use) intentando el portal Inspectores -> 403 PORTAL_FORBIDDEN (2026-08-31: login Inspector con identidad propia no debe abrir una puerta trasera para operadores)", async () => {
-  const posOperator = { id: "operator-1", email: "operador@cliente.cl", app_metadata: {} };
+  const posOperator = { id: "operator-1", email: "operador@cliente.cl", email_confirmed_at: "2026-01-01T00:00:00Z", app_metadata: {} };
   const membership = { user_id: "operator-1", company_id: "c1", full_name: "Operador", role: "operator", status: "active", pos_only: true, company: { id: "c1", status: "active", relationship_type: "client", enabled_products: ["ON_STREET"] } };
   await rejects403(() => resolveAuthenticatedContext({ user: posOperator, portal: "inspector", loadMembership: async () => membership }), "PORTAL_FORBIDDEN");
 });

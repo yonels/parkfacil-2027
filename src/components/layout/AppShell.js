@@ -9,12 +9,14 @@ import {
   Building2,
   Mail,
   Phone,
+  ShieldAlert,
 } from "lucide-react";
 
 import MobileNavigation from "@/components/layout/MobileNavigation";
 import Sidebar from "@/components/layout/Sidebar";
 import Topbar from "@/components/layout/Topbar";
 import { getSupabaseBrowserClient } from "@/lib/supabaseBrowser";
+import { buildRootReturnUrl } from "@/lib/auth/impersonationCore.mjs";
 import { shapeContactDisplay } from "@/lib/companyContactDisplayCore.mjs";
 
 const RUTAS_PUBLICAS = [
@@ -45,6 +47,7 @@ function getUserContext(context) {
     portal: context.portal,
     companyId: context.companyId,
     enabledProducts: context.enabledProducts || [],
+    impersonating: Boolean(context.impersonating),
   };
 }
 
@@ -82,6 +85,21 @@ export default function AppShell({
 
   const showClientContextBanner =
     pathname === "/modelo-gestion-modulos";
+
+  const [exitingImpersonation, setExitingImpersonation] = useState(false);
+
+  const exitImpersonation = async () => {
+    setExitingImpersonation(true);
+    try {
+      await fetch("/api/auth/impersonacion", { method: "DELETE" });
+    } finally {
+      // Navegación completa (no router.replace): el origen sigue siendo
+      // cliente.parkfacilapp.cl, y "Volver a Root" significa volver al
+      // otro origen -- mismo patrón de navegación cruzada ya usado por el
+      // resto del proyecto entre subdominios.
+      window.location.href = buildRootReturnUrl(window.location.host);
+    }
+  };
 
   // "cabecera móvil compacta" (2026-09-01, EXCLUSIVO de
   // /on-street-qr/proyectos): en esta pantalla concreta la lista de
@@ -185,6 +203,28 @@ export default function AppShell({
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
+      {/* Barra "Modo Root" (§4 del encargo): permanente mientras dure la
+          impersonación, con estilo deliberadamente distinto (franjas
+          ámbar, ícono de alerta) de cualquier otro banner del shell --
+          nunca debe confundirse con showClientContextBanner de arriba,
+          que es solo informativo y no indica una sesión privilegiada. */}
+      {userContext?.impersonating ? (
+        <div className="sticky top-0 z-[60] flex flex-wrap items-center justify-between gap-3 border-b-2 border-amber-700 bg-amber-500 px-4 py-2.5 text-sm font-bold text-[#041E42] print:hidden">
+          <span className="inline-flex items-center gap-2">
+            <ShieldAlert className="h-4 w-4 shrink-0" />
+            MODO ROOT — Administrando {clientContext?.name || "empresa"}
+          </span>
+          <button
+            type="button"
+            onClick={exitImpersonation}
+            disabled={exitingImpersonation}
+            className="rounded-full border border-[#041E42] bg-white px-3 py-1 text-xs font-bold text-[#041E42] transition hover:bg-[#041E42] hover:text-white disabled:opacity-60"
+          >
+            {exitingImpersonation ? "Saliendo…" : "Volver a Root / Salir de empresa"}
+          </button>
+        </div>
+      ) : null}
+
       <div className="flex min-h-screen flex-col lg:flex-row">
         <div className="print:hidden">
           <Sidebar

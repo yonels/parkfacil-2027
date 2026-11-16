@@ -4,6 +4,7 @@ import { authorizeOperationRequest, operationAuthorizationError, requireOperatio
 import { requireOperatorForParking, requireParkingChild, requireSupervisorForParking } from "@/lib/auth/parkingAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { AuthorizationError } from "@/lib/auth/contextCore.mjs";
+import { loadShiftPresentations } from "@/lib/shiftPresentationRepository";
 
 const EDITABLE_SHIFT_STATES = ["PROGRAMMED", "OPEN", "CANCELLED"];
 
@@ -59,7 +60,8 @@ export async function PATCH(request, { params }) {
 
     const result = await db.from("operator_shifts").update(row).eq("id", currentShift.id).eq("parking_id", parking.id).select("*").single();
     if (result.error) throw result.error;
-    return NextResponse.json({ data: result.data });
+    const [updated] = await loadShiftPresentations(db, parking, [result.data]);
+    return NextResponse.json({ data: updated });
   } catch (error) {
     const denied = operationAuthorizationError(request, authorization?.context, error);
     return denied || operationalError(error, "No fue posible actualizar el turno.", request, authorization?.context);
@@ -70,14 +72,14 @@ export async function DELETE(request, { params }) {
   let authorization;
   try {
     const { id, turnoId } = await params;
-    authorization = await authorizeOperationRequest(request, PERMISSIONS.OPERATIONS_USE);
+    authorization = await authorizeOperationRequest(request, PERMISSIONS.PARKINGS_MANAGE);
     if (authorization.response) return authorization.response;
 
     const { db, context } = authorization;
     const parking = await requireOperationalParking(db, context, authorization.scope, id);
     const currentShift = await requireOperationalShift(db, context, authorization.scope, turnoId, parking.id);
 
-    if (["OPEN", "CLOSING", "CLOSED"].includes(currentShift.status)) {
+    if (!["PROGRAMMED", "CANCELLED"].includes(currentShift.status) || currentShift.opened_at || currentShift.closed_at) {
       return NextResponse.json({ error: "Este turno no puede eliminarse en su estado actual.", code: "SHIFT_NOT_DELETABLE" }, { status: 409 });
     }
 
@@ -85,8 +87,14 @@ export async function DELETE(request, { params }) {
       throw new AuthorizationError("PERMISSION_FORBIDDEN", 403, "No tienes permiso para eliminar turnos de otro operador.", context);
     }
 
-    const result = await db.from("operator_shifts").delete().eq("id", currentShift.id).eq("parking_id", parking.id);
+    // Conditional DELETE is rechecked by PostgreSQL after a concurrent UPDATE.
+    // RESTRICT foreign keys preserve stays, payments, incidents and handoffs.
+    const result = await db.from("operator_shifts").delete().eq("id", currentShift.id).eq("parking_id", parking.id)
+      .eq("status", currentShift.status).is("opened_at", null).is("closed_at", null).select("id");
     if (result.error) throw result.error;
+    if (result.data?.length !== 1) {
+      return NextResponse.json({ error: "El turno cambió o ya fue eliminado. Actualiza el listado.", code: "SHIFT_DELETE_CONFLICT" }, { status: 409 });
+    }
     return NextResponse.json({ data: { id: currentShift.id, deleted: true } });
   } catch (error) {
     const denied = operationAuthorizationError(request, authorization?.context, error);

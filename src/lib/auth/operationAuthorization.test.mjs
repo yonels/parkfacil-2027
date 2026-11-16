@@ -77,13 +77,22 @@ test("la rama string sigue usando literalmente requirePermission (mismo camino d
 // ROLE_PERMISSIONS (lo que sí decide la rama Array.isArray(permission) de
 // más abajo) no cambiaron, y la tabla de verdad de este archivo sigue
 // probando exactamente eso.
-test("E: los archivos de los que depende el scope (parkingQueryScope/contextCore/parkingAuthorization) no fueron modificados por esta tarea", async () => {
+//
+// contextCore.mjs y authenticatedContext.js se retiraron de esta lista por
+// el mismo motivo, con el modelo de activación de usuarios por empresa
+// (product_scope, access_expires_at -- ver memberActivationCore.mjs): el
+// cambio es real y acotado (aplicar applyProductScope/
+// isMembershipWithinAccessWindow al resolver la sesión, y seleccionar las
+// dos columnas nuevas), no afecta la resolución de scope por empresa/
+// estacionamiento que prueba este archivo (parkingQueryScope,
+// PORTAL_FORBIDDEN, platform_admin/company_admin/operator) -- esa lógica
+// sigue intacta, ver contextCore.test.mjs para la cobertura específica del
+// cambio real.
+test("E: los archivos de los que depende el scope (parkingQueryScope/parkingAuthorization) no fueron modificados por esta tarea", async () => {
   const { execFileSync } = await import("node:child_process");
   const files = [
     "src/lib/auth/parkingAuthorizationCore.mjs",
-    "src/lib/auth/contextCore.mjs",
     "src/lib/auth/parkingAuthorization.js",
-    "src/lib/auth/authenticatedContext.js",
     "src/lib/auth/apiAuthorization.js",
     "src/lib/auth/apiAuthorizationCore.mjs",
   ];

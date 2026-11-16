@@ -1,0 +1,1 @@
+Extrae ParkFacil_V21.html y abre el archivo con Chrome o Edge. Datos ficticios; sin conexiones a producción.

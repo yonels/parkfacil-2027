@@ -20,6 +20,13 @@ function publicContext(context) {
     companyId: context.companyId,
     enabledProducts: context.enabledProducts,
     membership: context.membership,
+    // Impersonación Root -> Cliente (§4 del encargo: la barra "Modo Root"
+    // necesita saber que la sesión actual es una impersonación, sin que
+    // el frontend tenga que adivinarlo). impersonating es undefined en
+    // cualquier sesión normal (no solo false), así que un booleano
+    // explícito nunca queda ambiguo con "no informado".
+    impersonating: Boolean(context.impersonating),
+    realRole: context.realRole || null,
   };
 }
 

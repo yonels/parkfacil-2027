@@ -1,0 +1,961 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configurar empresa</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#041E42; --blue:#3150D8; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --bg:#F4F7FC; --card:#FFFFFF;
+  --ok:#16A34A; --ok-bg:#DCFCE7; --warn:#D97706; --warn-bg:#FEF3C7; --lock:#94A3B8; --lock-bg:#F1F5F9; --err:#DC2626;
+  --radius:18px;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.hidden{display:none!important}
+
+/* ---------- Estructura general ---------- */
+.topbar{height:58px;background:var(--navy);color:#fff;display:flex;align-items:center;gap:14px;padding:0 18px;position:sticky;top:0;z-index:30}
+.brand{font-weight:800;font-size:18px;letter-spacing:.2px}
+.brand span{color:#7FA2FF}
+.topbar .spacer{flex:1}
+.proto-tag{background:#FDE68A;color:#78350F;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px}
+.user-chip{display:flex;align-items:center;gap:8px;font-size:13px;opacity:.9}
+.avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#3150D8,#7C3AED);display:grid;place-items:center;font-weight:700}
+.menu-btn{display:none;background:none;border:0;color:#fff;font-size:22px}
+.layout{display:grid;grid-template-columns:250px 1fr;min-height:calc(100vh - 58px)}
+.sidebar{background:#fff;border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:58px;height:calc(100vh - 58px);overflow:auto}
+.side-title{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:14px 10px 6px;display:flex;align-items:center;gap:8px}
+.side-title i{width:8px;height:8px;border-radius:50%;display:inline-block}
+.side-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:12px;color:#334155;text-decoration:none;font-weight:500;cursor:default}
+.side-item:hover{background:#F1F5F9}
+.side-item.active{background:linear-gradient(90deg,#EEF2FF,#F5F3FF);color:var(--blue);font-weight:700;box-shadow:inset 3px 0 0 var(--blue)}
+.side-item .new{margin-left:auto;font-size:10px;font-weight:800;color:#fff;background:linear-gradient(90deg,#3150D8,#7C3AED);padding:2px 7px;border-radius:999px}
+.side-item .count{font-size:11px;font-weight:800;color:#92400E;background:var(--warn-bg);border-radius:999px;padding:1px 7px}
+.main{padding:22px 26px 60px;min-width:0}
+
+/* ---------- Encabezado de la página ---------- */
+.page-head{display:flex;flex-wrap:wrap;align-items:flex-end;gap:14px;margin-bottom:16px}
+.page-head h1{margin:0;font-size:26px;color:var(--navy)}
+.page-head p{margin:4px 0 0;color:var(--muted)}
+.tabs{display:flex;gap:6px;background:#fff;border:1px solid var(--line);padding:5px;border-radius:999px;margin-left:auto}
+.tab{border:0;background:none;padding:8px 16px;border-radius:999px;font-weight:600;color:#475569}
+.tab.active{background:var(--navy);color:#fff}
+
+/* ---------- Tarjetas y botones ---------- */
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.btn{border:0;border-radius:999px;padding:10px 18px;font-weight:700;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{color:#fff;background:var(--c,var(--blue));box-shadow:0 6px 16px -6px var(--c,var(--blue))}
+.btn-primary:hover{filter:brightness(1.07)}
+.btn-ghost{background:#fff;border:1px solid var(--line);color:#334155}
+.btn-ghost:hover{background:#F8FAFC}
+.btn-link{background:none;border:0;color:var(--blue);font-weight:600;padding:4px 0}
+.btn:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+
+/* ---------- Chips de estado (color + símbolo + texto) ---------- */
+.state{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.state.ok{background:var(--ok-bg);color:#166534}
+.state.warn{background:var(--warn-bg);color:#92400E}
+.state.lock{background:var(--lock-bg);color:#64748B}
+.state.cur{background:#E0E7FF;color:#3730A3}
+.state.active{background:#DBEAFE;color:#1E40AF}
+.state.draft{background:#F1F5F9;color:#475569}
+
+/* ---------- Asistente ---------- */
+.resume{display:flex;flex-wrap:wrap;align-items:center;gap:10px;background:linear-gradient(90deg,#EEF2FF,#FDF2F8);border:1px solid #E0E7FF;border-radius:14px;padding:10px 14px;margin-bottom:14px}
+.resume b{color:var(--navy)}
+.progress-card{padding:16px 18px;margin-bottom:16px;display:grid;gap:10px}
+.progress-top{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.progress-top .where{font-weight:800;color:var(--navy);font-size:16px}
+.progress-top .where small{font-weight:600;color:var(--muted);font-size:13px;margin-left:6px}
+.progress-top .right{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.saved{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px}
+.saved i{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block}
+.bar{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.bar span{height:9px;border-radius:999px;background:#E2E8F0;position:relative;overflow:hidden}
+.bar span.on{background:var(--c)}
+.bar span.rev{background:repeating-linear-gradient(45deg,#F59E0B 0 6px,#FCD34D 6px 12px)}
+.bar span.cur{background:linear-gradient(90deg,var(--c) 0 35%,#E2E8F0 35%)}
+.wizard{display:grid;grid-template-columns:290px 1fr;gap:18px;align-items:start}
+.stepper{padding:10px;position:sticky;top:76px}
+.step{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:none;border:0;padding:10px;border-radius:14px;position:relative}
+.step:not(:last-child)::after{content:"";position:absolute;left:31px;top:52px;height:18px;width:2px;background:#E2E8F0}
+.step.done:not(:last-child)::after{background:var(--c)}
+.step:hover:not(:disabled){background:#F8FAFC}
+.step.viewing{background:color-mix(in srgb,var(--c) 10%,#fff);box-shadow:inset 0 0 0 1.5px color-mix(in srgb,var(--c) 45%,#fff)}
+.step:disabled{cursor:not-allowed}
+.step .ico{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;font-size:21px;flex:none;background:color-mix(in srgb,var(--c) 14%,#fff);border:2px solid color-mix(in srgb,var(--c) 35%,#fff)}
+.step.locked .ico{filter:grayscale(1);opacity:.45;background:#F1F5F9;border-color:#E2E8F0}
+.step .txt{min-width:0;flex:1}
+.step .q{font-weight:800;color:var(--navy);font-size:14px;display:block}
+.step.locked .q{color:#94A3B8}
+.step .nm{font-size:12px;color:var(--muted)}
+.step .num{font-size:10px;font-weight:800;color:var(--c);letter-spacing:.08em}
+.step.locked .num{color:#94A3B8}
+.legend{display:flex;flex-wrap:wrap;gap:6px;padding:10px 10px 4px;border-top:1px dashed var(--line);margin-top:6px}
+
+.panel{overflow:hidden}
+.panel-head{padding:20px 22px;background:linear-gradient(120deg,color-mix(in srgb,var(--c) 16%,#fff),color-mix(in srgb,var(--c) 4%,#fff) 70%);border-bottom:1px solid color-mix(in srgb,var(--c) 20%,#fff);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.big-ico{width:62px;height:62px;border-radius:20px;background:var(--c);display:grid;place-items:center;font-size:30px;box-shadow:0 10px 22px -10px var(--c)}
+.panel-head .kicker{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:var(--c)}
+.panel-head h2{margin:2px 0 2px;font-size:24px;color:var(--navy)}
+.panel-head .sub{color:#475569;font-size:13px}
+.panel-head .guide-btn{margin-left:auto;background:#fff;border:1.5px solid color-mix(in srgb,var(--c) 40%,#fff);color:var(--c)}
+.notice{margin:16px 22px 0;padding:10px 14px;border-radius:12px;font-size:13px;display:flex;gap:10px;align-items:flex-start}
+.notice.edit{background:#EFF6FF;border:1px solid #BFDBFE;color:#1E3A8A}
+.notice.rev{background:var(--warn-bg);border:1px solid #FCD34D;color:#78350F}
+.notice.live{background:#FDF2F8;border:1px solid #FBCFE8;color:#831843}
+.panel-body{padding:18px 22px 6px;display:grid;gap:18px}
+.block{border:1px solid var(--line);border-radius:16px;padding:16px}
+.block-title{display:flex;align-items:center;gap:8px;font-weight:800;color:var(--navy);margin-bottom:12px}
+.block-title .dot{width:26px;height:26px;border-radius:9px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 14%,#fff);font-size:14px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+.field label{display:block;font-size:12.5px;font-weight:700;color:#334155;margin-bottom:5px}
+.field label .opt{font-weight:500;color:var(--muted)}
+.field input,.field select{width:100%;border:1.5px solid #CBD5E1;border-radius:12px;padding:10px 12px;background:#fff;color:var(--ink);outline:none;transition:border-color .15s, box-shadow .15s}
+.field input:focus,.field select:focus{border-color:var(--c);box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 15%,transparent)}
+.field input[readonly]{background:#F8FAFC;color:#475569;border-style:dashed}
+.field .help{font-size:12px;color:var(--muted);margin-top:4px}
+.field .error{font-size:12px;color:var(--err);margin-top:4px;font-weight:600;display:flex;gap:5px}
+.field.bad input,.field.bad select{border-color:var(--err);background:#FEF2F2}
+.field.good input{border-color:#86EFAC}
+.choice-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.choice{border:2px solid var(--line);border-radius:16px;padding:14px;background:#fff;text-align:left;display:flex;gap:12px;align-items:flex-start}
+.choice .ci{font-size:22px}
+.choice b{display:block;color:var(--navy)}
+.choice span{font-size:12.5px;color:var(--muted)}
+.choice.sel{border-color:var(--c);background:color-mix(in srgb,var(--c) 7%,#fff);box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 15%,transparent)}
+.choice:disabled{opacity:.55;cursor:not-allowed}
+.toggle{display:flex;align-items:center;gap:10px;font-weight:600}
+.toggle input{display:none}
+.toggle .sw{width:46px;height:26px;border-radius:999px;background:#CBD5E1;position:relative;transition:.2s;flex:none}
+.toggle .sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.toggle input:checked+.sw{background:var(--ok)}
+.toggle input:checked+.sw::after{left:23px}
+.list{display:grid;gap:8px;margin-bottom:12px}
+.row-item{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:#FCFDFF}
+.row-item .badge{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 14%,#fff);font-weight:800;color:var(--c)}
+.row-item .meta{font-size:12px;color:var(--muted)}
+.row-item .del{margin-left:auto;background:none;border:0;color:#94A3B8;font-size:18px}
+.row-item .del:hover{color:var(--err)}
+.empty{border:1.5px dashed #CBD5E1;border-radius:14px;padding:14px;text-align:center;color:var(--muted);font-size:13px;margin-bottom:12px}
+.adder{display:grid;gap:10px;grid-template-columns:repeat(4,1fr) auto;align-items:end;background:#F8FAFC;border-radius:14px;padding:12px}
+.adder.three{grid-template-columns:repeat(3,1fr) auto}
+.adder.ops{grid-template-columns:1fr 1fr 1.5fr auto;align-items:start}
+.adder.ops > .btn{margin-top:23px}
+.total{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--navy);background:color-mix(in srgb,var(--c) 8%,#fff);border-radius:12px;padding:10px 14px}
+details.adv{border:1px dashed var(--line);border-radius:14px;padding:10px 14px}
+details.adv summary{cursor:pointer;font-weight:700;color:#475569}
+.pw{display:flex;gap:6px}
+.pw input{flex:1}
+.mini{font-size:12px;padding:6px 10px}
+.checks{display:grid;gap:4px;margin-top:6px;font-size:12px}
+.checks .y{color:var(--ok)} .checks .n{color:#94A3B8}
+.panel-foot{display:flex;align-items:center;gap:10px;padding:16px 22px 20px;flex-wrap:wrap;border-top:1px solid var(--line);margin-top:12px}
+.panel-foot .grow{flex:1}
+.review-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.req{border-radius:16px;padding:14px;border:1.5px solid var(--line);background:#fff;display:grid;gap:6px}
+.req.ok{border-color:#BBF7D0;background:linear-gradient(180deg,#F0FDF4,#fff)}
+.req.no{border-color:#FCD34D;background:linear-gradient(180deg,#FFFBEB,#fff)}
+.req .h{display:flex;align-items:center;gap:8px;font-weight:800;color:var(--navy)}
+.req .d{font-size:12.5px;color:#475569}
+.activate{border-radius:18px;padding:18px;background:linear-gradient(120deg,#0F766E,#0EA5E9);color:#fff;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.activate h3{margin:0 0 4px}
+.activate p{margin:0;opacity:.9;font-size:13px}
+.activate .btn{background:#fff;color:#0F766E;margin-left:auto}
+.activated{border-radius:18px;padding:16px;background:#ECFDF5;border:1.5px solid #6EE7B7;color:#065F46;font-weight:700;display:flex;gap:10px;align-items:center}
+
+/* ---------- Final ---------- */
+.finish{padding:34px 26px;text-align:center;background:radial-gradient(circle at 20% 10%,#E0E7FF,transparent 40%),radial-gradient(circle at 85% 30%,#FCE7F3,transparent 40%),radial-gradient(circle at 50% 100%,#CCFBF1,transparent 50%),#fff}
+.finish .party{font-size:54px}
+.finish h2{font-size:28px;color:var(--navy);margin:8px 0}
+.finish .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:18px 0}
+.finish .chip{border-radius:999px;padding:7px 12px;font-weight:700;font-size:12.5px;color:#fff;background:var(--c)}
+
+/* ---------- Guía (nota lateral) ---------- */
+.scrim{position:fixed;inset:0;background:rgba(4,30,66,.35);z-index:50;backdrop-filter:blur(2px)}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:min(440px,100vw);background:#fff;z-index:51;box-shadow:-20px 0 40px -20px rgba(4,30,66,.4);display:flex;flex-direction:column;animation:slide .22s ease-out}
+@keyframes slide{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
+.drawer-head{padding:20px;background:linear-gradient(135deg,var(--c),color-mix(in srgb,var(--c) 60%,#041E42));color:#fff;display:flex;gap:14px;align-items:center}
+.drawer-head .gi{width:52px;height:52px;border-radius:16px;background:rgba(255,255,255,.2);display:grid;place-items:center;font-size:26px}
+.drawer-head small{opacity:.85;font-weight:700;letter-spacing:.1em;font-size:11px}
+.drawer-head h3{margin:2px 0 0;font-size:20px}
+.drawer-head .x{margin-left:auto;background:rgba(255,255,255,.18);border:0;color:#fff;width:34px;height:34px;border-radius:50%;font-size:18px}
+.drawer-body{padding:18px 20px;overflow:auto;display:grid;gap:12px}
+.gblock{border-radius:16px;padding:14px 16px;border:1px solid var(--line)}
+.gblock h4{margin:0 0 6px;display:flex;align-items:center;gap:8px;font-size:14px;color:var(--navy)}
+.gblock ul{margin:0;padding-left:18px;color:#334155}
+.gblock li{margin:3px 0}
+.gblock p{margin:0;color:#334155}
+.g1{background:#EEF2FF;border-color:#C7D2FE}
+.g2{background:#ECFEFF;border-color:#A5F3FC}
+.g3{background:#FFF7ED;border-color:#FED7AA}
+.g4{background:#F0FDF4;border-color:#BBF7D0}
+.drawer-foot{padding:14px 20px;border-top:1px solid var(--line);display:flex;gap:8px}
+
+/* ---------- Guía completa ---------- */
+.fullguide{position:fixed;inset:0;z-index:60;background:#fff;overflow:auto}
+.fg-head{position:sticky;top:0;background:var(--navy);color:#fff;padding:14px 22px;display:flex;align-items:center;gap:12px}
+.fg-head h2{margin:0;font-size:18px}
+.fg-head .spacer{flex:1}
+.fg-body{padding:22px;max-width:1100px;margin:0 auto}
+.fg-intro{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.fg-intro .chip{border-radius:999px;padding:6px 12px;font-weight:700;font-size:12.5px;color:#fff;background:var(--c)}
+.fg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:14px}
+.fg-card{border-radius:18px;border:1.5px solid color-mix(in srgb,var(--c) 30%,#fff);overflow:hidden;break-inside:avoid}
+.fg-card .t{background:color-mix(in srgb,var(--c) 12%,#fff);padding:12px 14px;display:flex;gap:10px;align-items:center}
+.fg-card .t .n{width:34px;height:34px;border-radius:11px;background:var(--c);color:#fff;display:grid;place-items:center;font-weight:800}
+.fg-card .t b{display:block;color:var(--navy);font-size:15px}
+.fg-card .t span{font-size:12px;color:#475569}
+.fg-card .b{padding:12px 14px;font-size:12.5px;display:grid;gap:8px}
+.fg-card .b h5{margin:0 0 2px;font-size:12px;color:var(--c);text-transform:uppercase;letter-spacing:.08em}
+.fg-card .b ul{margin:0;padding-left:16px}
+
+/* ---------- Diagnóstico de cuentas ---------- */
+.diag{display:grid;grid-template-columns:330px 1fr;gap:18px;align-items:start}
+.tree{padding:12px}
+.tree .new-co{width:100%;justify-content:center;margin-bottom:10px;background:linear-gradient(90deg,#3150D8,#7C3AED)}
+.search{width:100%;border:1.5px solid #CBD5E1;border-radius:12px;padding:9px 12px;margin-bottom:10px}
+.co{border-radius:14px;margin-bottom:4px}
+.co-head{display:flex;align-items:center;gap:10px;width:100%;background:none;border:0;padding:9px 8px;border-radius:12px;text-align:left}
+.co-head:hover{background:#F8FAFC}
+.co-head .caret{width:16px;color:var(--muted);transition:.15s}
+.co.open .caret{transform:rotate(90deg)}
+.co-head .logo{width:34px;height:34px;border-radius:11px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:13px;flex:none}
+.co-head b{display:block;color:var(--navy);font-size:13.5px}
+.co-head small{color:var(--muted);font-size:11.5px}
+.co-head .state{margin-left:auto}
+.pk{display:block;width:calc(100% - 26px);margin-left:26px;text-align:left;background:none;border:0;border-left:2px solid var(--line);padding:8px 10px;border-radius:0 12px 12px 0}
+.pk:hover{background:#F8FAFC}
+.pk.sel{background:#EEF2FF;border-left-color:var(--blue)}
+.pk .nm{font-weight:700;color:#1E293B;font-size:13px;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.dots{display:flex;gap:4px;margin-top:5px}
+.dots i{width:16px;height:16px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-style:normal;font-weight:800;color:#fff}
+.dots i.ok{background:var(--ok)} .dots i.warn{background:#F59E0B} .dots i.lock{background:#CBD5E1}
+.detail-head{padding:20px 22px;background:linear-gradient(120deg,#EEF2FF,#FDF2F8 60%,#ECFEFF);border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.detail-head h2{margin:0;font-size:21px;color:var(--navy)}
+.detail-head .sub{color:#475569;font-size:13px}
+.ring{width:66px;height:66px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--ok) calc(var(--p)*1%),#E2E8F0 0);flex:none}
+.ring b{width:52px;height:52px;border-radius:50%;background:#fff;display:grid;place-items:center;color:var(--navy);font-size:14px}
+.dsteps{padding:16px 22px 22px;display:grid;gap:10px}
+.dstep{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;border:1.5px solid var(--line);border-radius:16px;padding:12px 14px;background:#fff}
+.dstep.warn{border-color:#FCD34D;background:linear-gradient(90deg,#FFFBEB,#fff 60%)}
+.dstep.lock{background:#F8FAFC}
+.dstep .ico{width:42px;height:42px;border-radius:13px;display:grid;place-items:center;font-size:20px;background:color-mix(in srgb,var(--c) 14%,#fff);border:2px solid color-mix(in srgb,var(--c) 35%,#fff)}
+.dstep.lock .ico{filter:grayscale(1);opacity:.5}
+.dstep .q{font-weight:800;color:var(--navy)}
+.dstep .q small{font-weight:600;color:var(--muted);margin-left:6px}
+.dstep .info{font-size:12.5px;color:#475569}
+.dstep .acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:12px 18px;border-radius:14px;font-weight:600;z-index:80;box-shadow:0 12px 30px -10px rgba(4,30,66,.5);max-width:calc(100vw - 32px)}
+
+/* ---------- Teléfono ---------- */
+@media (max-width:1180px){
+  .wizard,.diag{grid-template-columns:1fr}
+  .stepper{position:static;display:flex;overflow-x:auto;gap:4px;padding:8px}
+  .step{flex:none;width:auto;padding:8px}
+  .step .txt{display:none}
+  .step::after{display:none}
+  .step.viewing .txt{display:block}
+  .legend{display:none}
+}
+@media (max-width:760px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{position:fixed;left:0;top:58px;z-index:40;width:260px;transform:translateX(-100%);transition:.2s;box-shadow:10px 0 30px -10px rgba(0,0,0,.25)}
+  .sidebar.open{transform:none}
+  .menu-btn{display:block}
+  .user-chip span,.proto-tag{display:none}
+  .main{padding:16px}
+  .tabs{margin-left:0;width:100%}
+  .tab{flex:1;padding:8px 6px;font-size:13px}
+  .grid2,.choice-row,.adder,.adder.three,.adder.ops{grid-template-columns:1fr}
+  .adder.ops > .btn{margin-top:0}
+  .panel-head{padding:16px}
+  .panel-head .guide-btn{margin-left:0}
+  .panel-body{padding:14px 16px 4px}
+  .panel-foot{padding:14px 16px}
+  .panel-foot .grow{display:none}
+  .panel-foot .btn{flex:1;justify-content:center}
+  .dstep{grid-template-columns:auto 1fr}
+  .dstep .acts{grid-column:1/-1;justify-content:flex-start}
+  .notice{margin:12px 16px 0}
+}
+@media print{
+  body *{visibility:hidden}
+  .fullguide,.fullguide *{visibility:visible}
+  .fullguide{position:absolute;inset:0;overflow:visible}
+  .fg-head{display:none}
+  .fg-card{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <button class="menu-btn" id="menuBtn" aria-label="Abrir menú">☰</button>
+  <div class="brand">Park<span>Facil</span></div>
+  <span class="proto-tag">PROTOTIPO · datos ficticios, no guarda en el sistema</span>
+  <div class="spacer"></div>
+  <div class="user-chip"><div class="avatar">R</div><span>Root · ParkFacil</span></div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar">
+    <div class="side-title"><i style="background:#3150D8"></i>Plataforma</div>
+    <div class="side-item">🏠 Inicio</div>
+    <div class="side-item">🅿️ Estacionamientos</div>
+    <div class="side-item">💲 Tarifas</div>
+    <div class="side-title"><i style="background:#F5B249"></i>Administración</div>
+    <div class="side-item">🏢 Empresas</div>
+    <div class="side-item active">🧭 Configurar empresa <span class="new">Nuevo</span> <span class="count" id="sideCount" title="Cuentas con pasos pendientes">3</span></div>
+    <div class="side-item">👥 Usuarios</div>
+    <div class="side-item">🕒 Turnos</div>
+    <div class="side-item">🔒 Seguridad</div>
+    <div class="side-item">👤 Mi cuenta</div>
+  </aside>
+
+  <main class="main">
+    <div class="page-head">
+      <div>
+        <h1>Configurar empresa</h1>
+        <p>Siete pasos, siete preguntas. Revisa qué le falta a cada cuenta o crea una empresa nueva.</p>
+      </div>
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-tab="diag">Cuentas existentes</button>
+        <button class="tab" data-tab="wiz">Nueva empresa</button>
+      </div>
+    </div>
+    <section id="view-diag"></section>
+    <section id="view-wiz" class="hidden"></section>
+  </main>
+</div>
+
+<div id="overlay"></div>
+
+<script>
+// =====================================================================
+// Definición de los 7 pasos: pregunta + ícono + color (mnemotecnia)
+// =====================================================================
+const STEPS = [
+  { n:1, key:"empresa", q:"¿Quién soy?", name:"Empresa", icon:"🏢", color:"#3150D8", time:"2 min",
+    guide:{ para:"Registra a la empresa dueña del estacionamiento. Con estos datos se emiten documentos y se identifica al cliente.",
+      tener:["RUT de la empresa con dígito verificador","Razón social y giro tal como están en el SII","Nombre, correo y teléfono de un contacto"],
+      cuidado:["El RUT debe ser el de la empresa, no el de una persona.","La razón social debe coincidir con el SII (se usa en la boleta electrónica).","Revisa el correo: ahí llegan los avisos importantes."],
+      fin:"Ves «¿Quién soy? ✓» y se habilita «¿Dónde estoy?»." } },
+  { n:2, key:"estacionamiento", q:"¿Dónde estoy?", name:"Estacionamiento", icon:"📍", color:"#0891B2", time:"2 min",
+    guide:{ para:"Crea el estacionamiento: su nombre, su dirección y cómo opera.",
+      tener:["Nombre con que lo conocen los clientes","Dirección, comuna y ciudad"],
+      cuidado:["El código se genera solo: no lo cambies.","Este asistente es para Off Street (recinto con entrada y salida).","Queda en Borrador: todavía no aparece en el POS."],
+      fin:"El estacionamiento aparece en Borrador y se habilita «¿Quién trabaja?»." } },
+  { n:3, key:"usuarios", q:"¿Quién trabaja?", name:"Usuarios", icon:"👥", color:"#7C3AED", time:"3 min",
+    guide:{ para:"Define quién administra y quién opera el POS en este estacionamiento.",
+      tener:["Nombre y correo del administrador","Nombre de cada operador","Un usuario simple para cada operador (ej.: juan.perez)"],
+      cuidado:["Cada operador necesita su propio usuario: no se comparten.","Anota la clave al crearla: después no se vuelve a mostrar.","El operador queda asignado a este estacionamiento."],
+      fin:"Los operadores aparecen en la lista y ya pueden entrar al POS cuando el estacionamiento esté activo." } },
+  { n:4, key:"tarifas", q:"¿Cuánto cobro?", name:"Tarifas", icon:"💲", color:"#EA580C", time:"2 min",
+    guide:{ para:"Define cuánto se cobra por estacionar.",
+      tener:["Valor por minuto, o el valor de cada franja horaria","Minutos de gracia (si los hay)","Desde qué fecha rige"],
+      cuidado:["La tarifa debe quedar Activa: sin tarifa activa no se puede activar el estacionamiento.","Usa «franja horaria» si el valor cambia entre día y noche.","Revisa los ceros: $35 no es lo mismo que $350."],
+      fin:"La tarifa aparece como Activa y vigente." } },
+  { n:5, key:"zonas", q:"¿Cuántos caben?", name:"Zonas", icon:"🅿️", color:"#DB2777", time:"2 min",
+    guide:{ para:"Indica dónde se estaciona y cuántos vehículos caben.",
+      tener:["Niveles o pisos","Nombre de cada zona","Plazas de cada zona"],
+      cuidado:["Cada zona debe tener al menos 1 plaza.","La suma de plazas es la capacidad del estacionamiento.","Si es un solo espacio, crea una zona «General»."],
+      fin:"Ves la capacidad total mayor que 0." } },
+  { n:6, key:"activacion", q:"¿Está todo listo?", name:"Revisión y activación", icon:"✅", color:"#0F766E", time:"1 min",
+    guide:{ para:"Revisa que no falte nada y activa el estacionamiento para que el POS lo ofrezca.",
+      tener:["Los pasos 1 a 5 completos"],
+      cuidado:["Si algo está «Por revisar», corrígelo antes de activar.","Sin activar, el POS responde que el usuario no tiene un estacionamiento autorizado."],
+      fin:"El estacionamiento queda Activo." } },
+  { n:7, key:"turnos", q:"¿Cuándo se trabaja?", name:"Turnos", icon:"🕒", color:"#0284C7", time:"2 min",
+    guide:{ para:"Programa los turnos de los operadores.",
+      tener:["Qué operador trabaja","Fecha, hora de inicio y de término"],
+      cuidado:["El término debe ser posterior al inicio.","Solo aparecen los operadores del paso 3."],
+      fin:"El proyecto queda listo para operar." } },
+];
+const S = Object.fromEntries(STEPS.map(s => [s.n, s]));
+// Si cambia un paso, los pasos que dependen de él quedan «Por revisar».
+const DEPENDENTS = { 1:[2], 2:[5,6], 3:[7], 4:[6], 5:[6], 6:[7], 7:[] };
+
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const $ = (sel, root = document) => root.querySelector(sel);
+
+function toast(msg){
+  const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
+}
+
+// =====================================================================
+// Validaciones
+// =====================================================================
+function validRut(v){
+  const c = String(v || "").replace(/[.\s]/g, "").toUpperCase();
+  const m = c.match(/^(\d{7,8})-([\dK])$/);
+  if (!m) return false;
+  let sum = 0, mul = 2;
+  for (let i = m[1].length - 1; i >= 0; i--) { sum += Number(m[1][i]) * mul; mul = mul === 7 ? 2 : mul + 1; }
+  const r = 11 - (sum % 11);
+  return (r === 11 ? "0" : r === 10 ? "K" : String(r)) === m[2];
+}
+const validEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(v || "").trim());
+const validPhone = (v) => String(v || "").replace(/\D/g, "").length >= 9;
+const filled = (v) => String(v ?? "").trim().length > 0;
+
+// Campos simples por paso: [id, etiqueta, ejemplo, ayuda, requerido, validador, mensaje]
+const FIELDS = {
+  1: [
+    ["rut","RUT de la empresa","Ej.: 76.543.210-3","Con puntos y guion. Lo verificamos al salir del campo.",true,validRut,"Ese RUT no es válido. Revisa el dígito verificador."],
+    ["razon","Razón social","Ej.: Comercial Los Andes SpA","Tal como aparece en el SII.",true,filled,"Escribe la razón social."],
+    ["giro","Giro","Ej.: Estacionamiento de vehículos","",true,filled,"Escribe el giro."],
+    ["contacto","Nombre del contacto","Ej.: María González","Persona a quien llamar si algo falla.",true,filled,"Escribe el nombre del contacto."],
+    ["correo","Correo del contacto","Ej.: maria@empresa.cl","",true,validEmail,"Ese correo no parece válido."],
+    ["telefono","Teléfono del contacto","Ej.: +56 9 1234 5678","",true,validPhone,"El teléfono debe tener al menos 9 dígitos."],
+  ],
+  2: [
+    ["nombre","Nombre del estacionamiento","Ej.: Estacionamiento Centro","Como lo conocen tus clientes.",true,filled,"Escribe el nombre del estacionamiento."],
+    ["direccion","Dirección","Ej.: Av. Libertad 1850","",true,filled,"Escribe la dirección."],
+    ["comuna","Comuna","Ej.: Viña del Mar","",true,filled,"Escribe la comuna."],
+    ["ciudad","Ciudad","Ej.: Viña del Mar","Opcional.",false,null,""],
+  ],
+  3: [
+    ["admin","Nombre del administrador","Ej.: Carlos Rojas","Puede ver reportes y crear operadores.",true,filled,"Escribe el nombre del administrador."],
+    ["admin_correo","Correo del administrador","Ej.: carlos@empresa.cl","Con este correo entra al Portal Cliente.",true,validEmail,"Ese correo no parece válido."],
+  ],
+  4: [
+    ["tarifa","Nombre de la tarifa","Ej.: Tarifa General","Un nombre corto que reconozcas.",true,filled,"Ponle un nombre a la tarifa."],
+    ["desde","Rige desde","","",true,filled,"Elige desde qué fecha rige."],
+    ["gracia","Minutos de gracia","Ej.: 5","Minutos sin cobro al entrar. Pon 0 si no hay.",true,(v)=>/^\d+$/.test(String(v))&&Number(v)<=60,"Escribe un número entre 0 y 60."],
+  ],
+};
+
+// =====================================================================
+// Estado del asistente (se guarda en este navegador)
+// =====================================================================
+const KEY = "pf-proto-asistente-v1";
+function blankState(){
+  const steps = {}; STEPS.forEach(s => steps[s.n] = { status:"todo", data:{} });
+  steps[2].data.modelo = "OFF_STREET";
+  steps[4].data = { modo:"MINUTO", activa:true, gracia:"5", desde:new Date().toISOString().slice(0,10) };
+  steps[3].data.operadores = []; steps[5].data.zonas = []; steps[7].data.turnos = [];
+  return { steps, view:1, savedAt:null, prefill:null };
+}
+let W;
+try { W = JSON.parse(localStorage.getItem(KEY)) || blankState(); } catch { W = blankState(); }
+let snapshot = null;   // datos del paso al abrirlo (para «Cancelar cambios»)
+let errors = {};       // errores visibles del paso abierto
+let showResume = W.savedAt != null && doneCount() > 0;
+
+function persist(){ W.savedAt = Date.now(); try { localStorage.setItem(KEY, JSON.stringify(W)); } catch {} }
+function doneCount(){ return STEPS.filter(s => W.steps[s.n].status === "done").length; }
+function current(){ for (const s of STEPS) if (W.steps[s.n].status === "todo") return s.n; return 8; }
+function isLocked(n){ return n > current(); }
+function reviewSteps(){ return STEPS.filter(s => W.steps[s.n].status === "review").map(s => s.n); }
+function savedText(){
+  if (!W.savedAt) return "Aún sin guardar";
+  const sec = Math.max(1, Math.round((Date.now() - W.savedAt) / 1000));
+  return sec < 60 ? `Guardado hace ${sec} s` : `Guardado hace ${Math.round(sec/60)} min`;
+}
+setInterval(() => { const el = $("#savedTxt"); if (el) el.textContent = savedText(); }, 5000);
+
+function openStep(n){
+  if (n <= 7 && isLocked(n)) { toast(`Primero completa el paso ${current()}: ${S[current()].q}`); return; }
+  W.view = n; errors = {};
+  snapshot = n <= 7 ? JSON.stringify(W.steps[n].data) : null;
+  persist(); renderWizard(); window.scrollTo({ top:0, behavior:"smooth" });
+}
+
+// =====================================================================
+// Render del asistente
+// =====================================================================
+function renderWizard(){
+  const root = $("#view-wiz");
+  const cur = current();
+  const v = W.view;
+  const rev = reviewSteps();
+  const viewStep = v <= 7 ? S[v] : null;
+  root.innerHTML = `
+    ${showResume && cur <= 7 ? `<div class="resume">👋 <span>Continúa donde quedaste: <b>${cur} · ${S[cur].q}</b> (${S[cur].name})</span>
+      <button class="btn btn-primary mini" style="--c:${S[cur].color}" data-go="${cur}">Ir al paso ${cur}</button>
+      <button class="btn-link" data-act="hideResume">Cerrar</button></div>` : ""}
+    ${rev.length ? `<div class="resume" style="background:var(--warn-bg);border-color:#FCD34D">⚠️ <span><b>Hay ${rev.length === 1 ? "un paso" : rev.length + " pasos"} por revisar</b> porque cambiaste un paso anterior: ${rev.map(n => `${n} · ${S[n].q}`).join(", ")}.</span>
+      <button class="btn btn-ghost mini" data-go="${rev[0]}">Revisar paso ${rev[0]}</button></div>` : ""}
+    <div class="card progress-card">
+      <div class="progress-top">
+        <div class="where">${viewStep ? `Paso ${v} de 7 · ${viewStep.q}<small>${viewStep.name}</small>` : "¡Listo para operar! 🎉"}</div>
+        <div class="right">
+          <span class="saved"><i></i><span id="savedTxt">${savedText()}</span></span>
+          <button class="btn btn-ghost mini" data-act="fullGuide">📘 Guía completa</button>
+          <button class="btn-link mini" data-act="reset">Reiniciar prototipo</button>
+        </div>
+      </div>
+      <div class="bar">${STEPS.map(s => {
+        const st = W.steps[s.n].status;
+        const cls = st === "done" ? "on" : st === "review" ? "rev" : s.n === cur ? "cur" : "";
+        return `<span class="${cls}" style="--c:${s.color}" title="${s.n} · ${s.q}"></span>`; }).join("")}</div>
+    </div>
+    <div class="wizard">
+      <nav class="card stepper" aria-label="Pasos">
+        ${STEPS.map(s => stepButton(s, cur)).join("")}
+        <div class="legend">
+          <span class="state ok">✓ Completo</span><span class="state cur">● Actual</span>
+          <span class="state warn">! Por revisar</span><span class="state lock">🔒 Bloqueado</span>
+        </div>
+      </nav>
+      <div>${v <= 7 ? stepPanel(viewStep) : finishPanel()}</div>
+    </div>`;
+}
+
+function stepButton(s, cur){
+  const st = W.steps[s.n].status;
+  const locked = isLocked(s.n);
+  const chip = st === "done" ? `<span class="state ok">✓</span>`
+    : st === "review" ? `<span class="state warn">!</span>`
+    : locked ? `<span class="state lock">🔒</span>` : `<span class="state cur">●</span>`;
+  const cls = ["step", st === "done" ? "done" : "", locked ? "locked" : "", W.view === s.n ? "viewing" : ""].join(" ");
+  return `<button class="${cls}" style="--c:${s.color}" data-go="${s.n}" ${locked ? "disabled" : ""} title="${locked ? `Se habilita al completar el paso ${cur}` : s.name}">
+    <span class="ico">${s.icon}</span>
+    <span class="txt"><span class="num">PASO ${s.n}</span><span class="q">${s.q}</span><span class="nm">${s.name}</span></span>
+    ${chip}</button>`;
+}
+
+function fieldHtml(n, f, opts = {}){
+  const [id, label, ph, help, req] = f;
+  const val = W.steps[n].data[id] ?? "";
+  const err = errors[id];
+  const good = !err && filled(val) && f[5] && f[5](val);
+  return `<div class="field ${err ? "bad" : good ? "good" : ""}">
+    <label for="f-${id}">${esc(label)} ${req ? "" : '<span class="opt">(opcional)</span>'}</label>
+    <input id="f-${id}" data-field="${id}" type="${opts.type || "text"}" value="${esc(val)}" placeholder="${esc(ph)}" ${opts.readonly ? "readonly" : ""} ${opts.inputmode ? `inputmode="${opts.inputmode}"` : ""}>
+    ${err ? `<div class="error">⚠ ${esc(err)}</div>` : help ? `<div class="help">${esc(help)}</div>` : ""}
+  </div>`;
+}
+const block = (icon, title, inner) => `<div class="block"><div class="block-title"><span class="dot">${icon}</span>${title}</div>${inner}</div>`;
+
+function stepBody(s){
+  const n = s.n, d = W.steps[n].data, F = FIELDS[n] || [];
+  const fx = (id, o) => fieldHtml(n, F.find(f => f[0] === id), o);
+  if (n === 1) return `
+    ${block("🪪","Identificación", `<div class="grid2">${fx("rut",{inputmode:"text"})}${fx("razon")}</div><div style="margin-top:12px">${fx("giro")}</div>`)}
+    ${block("📞","Contacto", `<div class="grid2">${fx("contacto")}${fx("correo",{type:"email"})}${fx("telefono",{type:"tel"})}</div>`)}
+    ${block("🧩","Productos", `<div class="choice-row">
+      <button class="choice sel" type="button" disabled style="opacity:1;cursor:default"><span class="ci">🅿️</span><span><b>Off Street ✓</b><span>Recinto con entrada y salida. Incluido en este asistente.</span></span></button>
+      <button class="choice" type="button" disabled><span class="ci">🛣️</span><span><b>On Street</b><span>Estacionamiento en la calle. Se configura con la activación On Street actual.</span></span></button></div>`)}`;
+  if (n === 2) {
+    const rut = W.steps[1].data.rut || "";
+    const code = rut ? `EMP-${rut.replace(/[.\s]/g, "").split("-")[0]}-01` : "Se genera con el RUT";
+    return `
+    <div class="field"><label>Empresa</label><input value="${esc(W.steps[1].data.razon || "—")}" readonly><div class="help">🔒 Viene del paso 1. Para cambiarla, vuelve a «¿Quién soy?».</div></div>
+    ${block("🏷️","Nombre y código", `<div class="grid2">${fx("nombre")}<div class="field"><label>Código</label><input value="${esc(code)}" readonly><div class="help">Se genera solo. No hay que escribirlo.</div></div></div>`)}
+    ${block("🧭","¿Cómo opera?", `<div class="choice-row">
+      <button class="choice sel" type="button"><span class="ci">🅿️</span><span><b>Off Street</b><span>Recinto cerrado: el vehículo entra, se estaciona y paga al salir.</span></span></button>
+      <button class="choice" type="button" disabled><span class="ci">🛣️</span><span><b>On Street</b><span>En la calle, por tramos. No disponible en este asistente.</span></span></button></div>`)}
+    ${block("📍","Ubicación", `<div style="margin-bottom:12px">${fx("direccion")}</div><div class="grid2">${fx("comuna")}${fx("ciudad")}</div>`)}
+    <details class="adv"><summary>Opciones avanzadas</summary><div class="grid2" style="margin-top:12px">
+      <div class="field"><label>Referencia para llegar <span class="opt">(opcional)</span></label><input data-field="referencia" value="${esc(d.referencia || "")}" placeholder="Ej.: Frente al mall"></div>
+      <div class="field"><label>Horario de atención <span class="opt">(opcional)</span></label><input data-field="horario" value="${esc(d.horario || "")}" placeholder="Ej.: Lunes a domingo 08:00–23:00"></div>
+    </div></details>`;
+  }
+  if (n === 3) {
+    const ops = d.operadores || [];
+    const pw = d.op_clave || "";
+    const checks = [[pw.length >= 8,"Al menos 8 caracteres"],[/[A-Z]/.test(pw),"Una mayúscula"],[/\d/.test(pw),"Un número"]];
+    return `
+    ${block("🧑‍💼","Administrador", `<div class="grid2">${fx("admin")}${fx("admin_correo",{type:"email"})}</div>`)}
+    ${block("🧑‍🔧",`Operadores del POS <span class="state ${ops.length ? "ok" : "warn"}" style="margin-left:6px">${ops.length} agregado${ops.length === 1 ? "" : "s"}</span>`, `
+      ${ops.length ? `<div class="list">${ops.map((o,i) => `<div class="row-item"><span class="badge">${esc(o.nombre.slice(0,1).toUpperCase())}</span>
+        <div><b>${esc(o.nombre)}</b><div class="meta">Usuario: ${esc(o.usuario)} · Estacionamiento: ${esc(W.steps[2].data.nombre || "—")} ✓</div></div>
+        <button class="del" title="Quitar" data-del="operadores:${i}">✕</button></div>`).join("")}</div>`
+        : `<div class="empty">Todavía no hay operadores. Agrega al menos uno 👇</div>`}
+      <div class="adder ops">
+        <div class="field"><label>Nombre</label><input data-field="op_nombre" value="${esc(d.op_nombre || "")}" placeholder="Ej.: Juan Pérez"></div>
+        <div class="field"><label>Usuario</label><input data-field="op_usuario" value="${esc(d.op_usuario || "")}" placeholder="Ej.: juan.perez"></div>
+        <div class="field"><label>Clave</label><div class="pw"><input data-field="op_clave" value="${esc(pw)}" placeholder="Mín. 8 caracteres"><button class="btn btn-ghost mini" type="button" data-act="genpw">🎲 Generar</button></div>
+          <div class="checks">${checks.map(([ok,t]) => `<span class="${ok ? "y" : "n"}">${ok ? "✓" : "○"} ${t}</span>`).join("")}</div></div>
+        <button class="btn btn-primary" style="--c:${s.color}" type="button" data-act="addOp">+ Agregar</button>
+      </div>
+      ${errors.operadores ? `<div class="field bad"><div class="error">⚠ ${esc(errors.operadores)}</div></div>` : ""}`)}`;
+  }
+  if (n === 4) {
+    const minuto = d.modo !== "FRANJA";
+    return `
+    ${block("🏷️","Nombre y vigencia", `<div class="grid2">${fx("tarifa")}${fx("desde",{type:"date"})}</div>`)}
+    ${block("🧮","¿Cómo se cobra?", `<div class="choice-row">
+      <button class="choice ${minuto ? "sel" : ""}" type="button" data-choose="modo:MINUTO"><span class="ci">⏱️</span><span><b>Por minuto</b><span>Un solo valor por cada minuto, a cualquier hora.</span></span></button>
+      <button class="choice ${minuto ? "" : "sel"}" type="button" data-choose="modo:FRANJA"><span class="ci">🌗</span><span><b>Por franja horaria</b><span>Un valor de día y otro de noche.</span></span></button></div>
+      <div class="grid2" style="margin-top:14px">
+        ${minuto ? priceField("precio","Valor por minuto","Ej.: 35")
+          : priceField("precio_dia","Valor por minuto · Día (08:00–20:00)","Ej.: 35") + priceField("precio_noche","Valor por minuto · Noche (20:00–08:00)","Ej.: 25")}
+        ${fx("gracia",{inputmode:"numeric"})}
+      </div>`)}
+    ${block("🚦","Estado", `<label class="toggle"><input type="checkbox" data-check="activa" ${d.activa ? "checked" : ""}><span class="sw"></span>
+      <span>${d.activa ? "Activa ✓ — se usará para cobrar" : "Inactiva — no se podrá activar el estacionamiento"}</span></label>
+      ${errors.activa ? `<div class="field bad"><div class="error">⚠ ${esc(errors.activa)}</div></div>` : ""}`)}`;
+  }
+  if (n === 5) {
+    const zs = d.zonas || [];
+    const total = zs.reduce((a,z) => a + Number(z.plazas || 0), 0);
+    return block("🏗️",`Niveles y zonas`, `
+      ${zs.length ? `<div class="list">${zs.map((z,i) => `<div class="row-item"><span class="badge">${esc(z.nivel)}</span>
+        <div><b>${esc(z.zona)}</b><div class="meta">Nivel ${esc(z.nivel)} · ${esc(z.plazas)} plazas</div></div>
+        <button class="del" title="Quitar" data-del="zonas:${i}">✕</button></div>`).join("")}</div>`
+        : `<div class="empty">Todavía no hay zonas. Si es un solo espacio, crea una zona «General» 👇</div>`}
+      <div class="adder three">
+        <div class="field"><label>Nivel</label><input data-field="z_nivel" value="${esc(d.z_nivel ?? "1")}" placeholder="Ej.: 1"></div>
+        <div class="field"><label>Zona</label><input data-field="z_zona" value="${esc(d.z_zona || "")}" placeholder="Ej.: General"></div>
+        <div class="field"><label>Plazas</label><input data-field="z_plazas" inputmode="numeric" value="${esc(d.z_plazas || "")}" placeholder="Ej.: 40"></div>
+        <button class="btn btn-primary" style="--c:${s.color}" type="button" data-act="addZona">+ Agregar</button>
+      </div>
+      ${errors.zonas ? `<div class="field bad"><div class="error">⚠ ${esc(errors.zonas)}</div></div>` : ""}
+      <div class="total" style="margin-top:12px">🚗 Capacidad total: ${total} plaza${total === 1 ? "" : "s"}</div>`);
+  }
+  if (n === 6) {
+    const reqs = [1,2,3,4,5].map(k => {
+      const st = W.steps[k].status, ok = st === "done";
+      const det = { 1:W.steps[1].data.razon, 2:W.steps[2].data.nombre, 3:`${(W.steps[3].data.operadores||[]).length} operador(es)`,
+        4:`${W.steps[4].data.tarifa || ""} · ${W.steps[4].data.activa ? "Activa" : "Inactiva"}`,
+        5:`${(W.steps[5].data.zonas||[]).reduce((a,z)=>a+Number(z.plazas||0),0)} plazas` }[k];
+      return `<div class="req ${ok ? "ok" : "no"}" style="--c:${S[k].color}"><div class="h">${S[k].icon} ${S[k].q}</div>
+        <div class="d">${ok ? "✓ " + esc(det || "") : "! Por revisar"}</div>
+        ${ok ? "" : `<button class="btn-link" data-go="${k}">Revisar paso ${k} →</button>`}</div>`;
+    }).join("");
+    const allOk = [1,2,3,4,5].every(k => W.steps[k].status === "done");
+    const was = W.steps[6].data.activado;
+    return `<div class="review-grid">${reqs}</div>
+      ${was ? `<div class="activated">✅ Estacionamiento <b>Activo</b> desde ${esc(W.steps[6].data.activadoEn || "")}. El POS ya lo ofrece a los operadores.</div>`
+        : `<div class="activate"><div style="font-size:34px">🚀</div><div><h3>Activar estacionamiento</h3><p>${allOk ? "Todo listo. Al activarlo, el POS lo mostrará a los operadores." : "Completa los pasos marcados con ! para poder activar."}</p></div>
+          <button class="btn" type="button" data-act="activar" ${allOk ? "" : "disabled"}>Activar ahora</button></div>`}`;
+  }
+  if (n === 7) {
+    const ts = d.turnos || [];
+    const ops = W.steps[3].data.operadores || [];
+    return block("📅","Turnos programados", `
+      ${ts.length ? `<div class="list">${ts.map((t,i) => `<div class="row-item"><span class="badge">🕒</span>
+        <div><b>${esc(t.op)}</b><div class="meta">${esc(t.fecha)} · ${esc(t.ini)} a ${esc(t.fin)}</div></div>
+        <button class="del" title="Quitar" data-del="turnos:${i}">✕</button></div>`).join("")}</div>`
+        : `<div class="empty">Todavía no hay turnos. Programa al menos uno 👇</div>`}
+      <div class="adder">
+        <div class="field"><label>Operador</label><select data-field="t_op">${ops.map(o => `<option ${d.t_op === o.nombre ? "selected" : ""}>${esc(o.nombre)}</option>`).join("")}</select></div>
+        <div class="field"><label>Fecha</label><input type="date" data-field="t_fecha" value="${esc(d.t_fecha || new Date().toISOString().slice(0,10))}"></div>
+        <div class="field"><label>Inicio</label><input type="time" data-field="t_ini" value="${esc(d.t_ini || "08:00")}"></div>
+        <div class="field"><label>Término</label><input type="time" data-field="t_fin" value="${esc(d.t_fin || "16:00")}"></div>
+        <button class="btn btn-primary" style="--c:${s.color}" type="button" data-act="addTurno">+ Agregar</button>
+      </div>
+      ${errors.turnos ? `<div class="field bad"><div class="error">⚠ ${esc(errors.turnos)}</div></div>` : ""}`);
+  }
+  return "";
+}
+
+function priceField(id, label, ph){
+  const val = W.steps[4].data[id] ?? "";
+  const err = errors[id];
+  return `<div class="field ${err ? "bad" : ""}"><label for="f-${id}">${label}</label>
+    <input id="f-${id}" data-field="${id}" inputmode="numeric" value="${esc(val)}" placeholder="${ph}">
+    ${err ? `<div class="error">⚠ ${esc(err)}</div>` : `<div class="help">En pesos, sin puntos.</div>`}</div>`;
+}
+
+function stepPanel(s){
+  const st = W.steps[s.n].status;
+  const cur = current();
+  const editing = st === "done";
+  const back = cur <= 7 ? cur : null;
+  let primary;
+  if (s.n === 6 && !W.steps[6].data.activado) primary = "";
+  else if (st === "review") primary = s.n === 6 ? "Confirmar revisión ✓" : "Guardar revisión";
+  else if (editing) primary = back && back !== s.n ? `Guardar cambios y volver al paso ${back}` : "Guardar cambios";
+  else primary = s.n === 7 ? "Guardar y terminar 🎉" : `Guardar y continuar → ${S[s.n + 1].q}`;
+  return `<div class="card panel" style="--c:${s.color}">
+    <div class="panel-head">
+      <div class="big-ico">${s.icon}</div>
+      <div><div class="kicker">Paso ${s.n} de 7 · ${s.name}</div><h2>${s.q}</h2><div class="sub">⏱ Te toma unos ${s.time}</div></div>
+      <button class="btn guide-btn" data-act="guide" data-n="${s.n}">📖 Guía de este paso</button>
+    </div>
+    ${editing ? `<div class="notice edit">✏️ <span>Estás <b>editando un paso completado</b>. Si cambias algo, los pasos que dependen de este quedarán «Por revisar». Nada se borra.</span></div>` : ""}
+    ${st === "review" ? `<div class="notice rev">⚠️ <span>Este paso quedó <b>por revisar</b> porque cambiaste un paso anterior. Confirma que sigue correcto.</span></div>` : ""}
+    ${s.n !== 6 && (editing || st === "review") && W.steps[6].data.activado && [2,4,5].includes(s.n) ? `<div class="notice live">📡 <span>Este estacionamiento <b>está operando</b>. El cambio afecta al POS desde que lo guardes; las estadías ya abiertas no cambian.</span></div>` : ""}
+    <div class="panel-body">${stepBody(s)}</div>
+    <div class="panel-foot">
+      <button class="btn btn-ghost" data-act="prev" ${s.n === 1 ? "disabled" : ""}>← Anterior</button>
+      ${editing ? `<button class="btn btn-ghost" data-act="cancel">Cancelar cambios</button>` : ""}
+      <span class="grow"></span>
+      ${primary ? `<button class="btn btn-primary" data-act="save">${primary}</button>` : ""}
+    </div>
+  </div>`;
+}
+
+function finishPanel(){
+  const zs = W.steps[5].data.zonas || [];
+  return `<div class="card finish">
+    <div class="party">🎉</div>
+    <h2>¡${esc(W.steps[2].data.nombre || "El estacionamiento")} está listo para operar!</h2>
+    <p style="color:#475569;max-width:520px;margin:0 auto">Completaste las 7 preguntas. Puedes volver a cualquier paso para cambiar algo: el asistente te avisará qué revisar.</p>
+    <div class="chips">${STEPS.map(s => `<span class="chip" style="--c:${s.color}">${s.icon} ${s.q} ✓</span>`).join("")}</div>
+    <p style="font-weight:700;color:var(--navy)">${(W.steps[3].data.operadores||[]).length} operador(es) · ${zs.reduce((a,z)=>a+Number(z.plazas||0),0)} plazas · ${(W.steps[7].data.turnos||[]).length} turno(s)</p>
+    <button class="btn btn-primary" data-tabgo="diag" style="margin-top:6px">Ver en «Cuentas existentes»</button>
+  </div>`;
+}
+
+// =====================================================================
+// Validación y guardado de cada paso
+// =====================================================================
+function validateStep(n){
+  const d = W.steps[n].data, e = {};
+  (FIELDS[n] || []).forEach(([id,, , , req, fn, msg]) => {
+    const v = d[id];
+    if (req && !filled(v)) e[id] = msg || "Completa este campo.";
+    else if (filled(v) && fn && !fn(v)) e[id] = msg;
+  });
+  if (n === 3 && !(d.operadores || []).length) e.operadores = "Agrega al menos un operador para continuar.";
+  if (n === 4) {
+    const keys = d.modo === "FRANJA" ? ["precio_dia","precio_noche"] : ["precio"];
+    keys.forEach(k => { if (!/^\d+$/.test(String(d[k] ?? "")) || Number(d[k]) <= 0) e[k] = "Escribe un valor mayor que $0, sin puntos."; });
+    if (!d.activa) e.activa = "La tarifa debe quedar Activa para poder activar el estacionamiento.";
+  }
+  if (n === 5 && !(d.zonas || []).length) e.zonas = "Agrega al menos una zona con plazas.";
+  if (n === 7 && !(d.turnos || []).length) e.turnos = "Programa al menos un turno.";
+  return e;
+}
+
+function saveStep(){
+  const n = W.view, st = W.steps[n].status;
+  errors = validateStep(n);
+  if (Object.keys(errors).length) {
+    renderWizard();
+    const first = document.querySelector(".field.bad input, .field.bad select, .field.bad");
+    first?.scrollIntoView({ behavior:"smooth", block:"center" }); first?.focus?.();
+    toast("Revisa los campos marcados en rojo");
+    return;
+  }
+  const changed = snapshot !== JSON.stringify(W.steps[n].data);
+  if (st === "done") {
+    if (changed) {
+      const marked = (DEPENDENTS[n] || []).filter(k => W.steps[k].status === "done");
+      marked.forEach(k => W.steps[k].status = "review");
+      toast(marked.length ? `Cambios guardados. Quedó por revisar: ${marked.map(k => S[k].q).join(", ")}` : "Cambios guardados ✓");
+    } else toast("Sin cambios");
+    persist(); openStep(current() <= 7 ? current() : (reviewSteps()[0] || 8));
+    return;
+  }
+  W.steps[n].status = "done";
+  persist();
+  if (st === "review") { toast(`Paso ${n} revisado ✓`); const r = reviewSteps(); openStep(r[0] || (current() <= 7 ? current() : 8)); return; }
+  toast(`¡Paso ${n} listo! ✓`);
+  openStep(n === 7 ? 8 : n + 1);
+}
+
+// =====================================================================
+// Guía del paso (nota lateral) y guía completa imprimible
+// =====================================================================
+function openGuide(n){
+  const s = S[n], g = s.guide;
+  $("#overlay").innerHTML = `<div class="scrim" data-act="close"></div>
+    <aside class="drawer" style="--c:${s.color}" role="dialog" aria-label="Guía del paso ${n}">
+      <div class="drawer-head"><div class="gi">${s.icon}</div><div><small>PASO ${n} DE 7 · ${esc(s.name.toUpperCase())}</small><h3>${s.q}</h3></div>
+        <button class="x" data-act="close" aria-label="Cerrar">✕</button></div>
+      <div class="drawer-body">
+        <div class="gblock g1"><h4>🎯 Para qué sirve</h4><p>${esc(g.para)}</p></div>
+        <div class="gblock g2"><h4>🧰 Ten a mano</h4><ul>${g.tener.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>
+        <div class="gblock g3"><h4>⚠️ Cuidado con</h4><ul>${g.cuidado.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>
+        <div class="gblock g4"><h4>🏁 Sabrás que terminaste cuando</h4><p>${esc(g.fin)}</p></div>
+      </div>
+      <div class="drawer-foot"><button class="btn btn-ghost" data-act="fullGuide">📘 Ver las 7 preguntas</button><span style="flex:1"></span><button class="btn btn-primary" style="--c:${s.color}" data-act="close">Entendido</button></div>
+    </aside>`;
+}
+function openFullGuide(){
+  $("#overlay").innerHTML = `<div class="fullguide" role="dialog" aria-label="Guía completa">
+    <div class="fg-head"><h2>📘 Guía rápida · Configurar una empresa en 7 preguntas</h2><span class="spacer"></span>
+      <button class="btn btn-ghost mini" data-act="print">🖨️ Imprimir</button><button class="btn btn-ghost mini" data-act="close">Cerrar</button></div>
+    <div class="fg-body">
+      <p style="font-size:15px;color:#334155;margin-top:0"><b>Regla de oro: un paso = una pregunta.</b> Responde en orden; cada respuesta habilita la siguiente. Puedes volver atrás y corregir: el sistema te avisa qué revisar.</p>
+      <div class="fg-intro">${STEPS.map(s => `<span class="chip" style="--c:${s.color}">${s.n}. ${s.icon} ${s.q}</span>`).join("")}</div>
+      <div class="fg-grid">${STEPS.map(s => `<div class="fg-card" style="--c:${s.color}">
+        <div class="t"><span class="n">${s.n}</span><div><b>${s.icon} ${s.q}</b><span>${s.name} · unos ${s.time}</span></div></div>
+        <div class="b"><div><h5>Para qué sirve</h5>${esc(s.guide.para)}</div>
+          <div><h5>Ten a mano</h5><ul>${s.guide.tener.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>
+          <div><h5>Cuidado con</h5><ul>${s.guide.cuidado.map(t => `<li>${esc(t)}</li>`).join("")}</ul></div>
+          <div><h5>Terminaste cuando</h5>${esc(s.guide.fin)}</div></div></div>`).join("")}</div>
+      <p style="margin-top:18px;color:#64748B;font-size:12px">Estados: ✓ Completo (verde) · ● Actual · ! Por revisar (ámbar) · 🔒 Bloqueado (gris).</p>
+    </div></div>`;
+}
+
+// =====================================================================
+// Diagnóstico de cuentas existentes (datos ficticios)
+// =====================================================================
+const O = "ok", A = "warn", L = "lock";
+const COMPANIES = [
+  { id:"c1", name:"Comercial Los Andes SpA", rut:"76.543.210-3", color:"#3150D8", parkings:[
+    { id:"p1", name:"Estacionamiento Centro", status:"Activo", st:[O,O,O,A,O,O,O], det:{1:"RUT y contacto completos",2:"Av. Libertad 1850, Viña del Mar",3:"1 administrador · 4 operadores",4:"No hay tarifa Activa vigente desde el 01-11-2026",5:"2 niveles · 3 zonas · 180 plazas",6:"Activo desde 12-09-2026",7:"12 turnos esta semana"} },
+    { id:"p2", name:"Estacionamiento Plaza", status:"Activo", st:[O,O,O,O,O,O,O], det:{1:"RUT y contacto completos",2:"Calle Valparaíso 220",3:"1 administrador · 2 operadores",4:"Tarifa General · $35/min · Activa",5:"1 nivel · 1 zona · 60 plazas",6:"Activo desde 03-10-2026",7:"6 turnos esta semana"} } ] },
+  { id:"c2", name:"Inmobiliaria Puerto Ltda.", rut:"77.120.450-K", color:"#0891B2", parkings:[
+    { id:"p3", name:"Mall Puerto", status:"Activo", st:[O,O,O,O,O,O,O], det:{1:"RUT y contacto completos",2:"Av. Brasil 1200, Valparaíso",3:"1 administrador · 6 operadores",4:"Franja horaria · Día $30 / Noche $20 · Activa",5:"3 niveles · 5 zonas · 420 plazas",6:"Activo desde 20-08-2026",7:"18 turnos esta semana"} } ] },
+  { id:"c3", name:"Servicios Viña SpA", rut:"76.990.100-5", color:"#7C3AED", parkings:[
+    { id:"p4", name:"Torre Norte", status:"Borrador", st:[O,O,A,A,A,L,L], det:{1:"RUT y contacto completos",2:"5 Norte 455, Viña del Mar",3:"Falta crear operadores",4:"Sin tarifa",5:"Sin zonas",6:"Se habilita al completar los pasos 3 a 5",7:"Se habilita al activar el estacionamiento"} } ] },
+  { id:"c4", name:"Grupo Sur S.A.", rut:"96.555.300-2", color:"#EA580C", parkings:[] },
+];
+const NO_PARKING = { id:"p0", name:"(sin estacionamiento)", status:"Sin crear", st:[O,A,L,L,L,L,L], det:{1:"RUT y contacto completos",2:"Todavía no tiene estacionamiento",3:"Se habilita al crear el estacionamiento",4:"Se habilita al crear el estacionamiento",5:"Se habilita al crear el estacionamiento",6:"Se habilita al completar los pasos anteriores",7:"Se habilita al activar el estacionamiento"} };
+let diagSel = { co:"c1", pk:"p1" };
+let openCos = new Set(["c1","c3"]);
+let diagFilter = "";
+
+function pkOf(co){ return co.parkings.length ? co.parkings : [NO_PARKING]; }
+function coPending(co){ return pkOf(co).reduce((a,p) => a + p.st.filter(x => x !== O).length, 0); }
+function coWarn(co){ return pkOf(co).some(p => p.st.includes(A)); }
+
+function renderDiag(){
+  const list = COMPANIES.filter(c => !diagFilter || c.name.toLowerCase().includes(diagFilter) || c.rut.includes(diagFilter))
+    .sort((a,b) => Number(coWarn(b)) - Number(coWarn(a)));
+  const co = COMPANIES.find(c => c.id === diagSel.co);
+  const pk = pkOf(co).find(p => p.id === diagSel.pk) || pkOf(co)[0];
+  const done = pk.st.filter(x => x === O).length;
+  const active = pk.status === "Activo";
+  $("#view-diag").innerHTML = `<div class="diag">
+    <div class="card tree">
+      <button class="btn btn-primary new-co" data-tabgo="wiz">＋ Nueva empresa</button>
+      <input class="search" id="diagSearch" placeholder="Buscar empresa o RUT…" value="${esc(diagFilter)}">
+      ${list.map(c => {
+        const warn = coWarn(c);
+        return `<div class="co ${openCos.has(c.id) ? "open" : ""}">
+          <button class="co-head" data-co="${c.id}"><span class="caret">▸</span><span class="logo" style="background:${c.color}">${esc(c.name.slice(0,2).toUpperCase())}</span>
+            <span><b>${esc(c.name)}</b><small>${esc(c.rut)} · ${c.parkings.length} estacionamiento${c.parkings.length === 1 ? "" : "s"}</small></span>
+            ${warn ? `<span class="state warn">! ${coPending(c)}</span>` : `<span class="state ok">✓</span>`}</button>
+          ${openCos.has(c.id) ? pkOf(c).map(p => `<button class="pk ${diagSel.pk === p.id && diagSel.co === c.id ? "sel" : ""}" data-pk="${c.id}:${p.id}">
+            <span class="nm">${esc(p.name)} <span class="state ${p.status === "Activo" ? "active" : "draft"}">${esc(p.status)}</span></span>
+            <span class="dots">${p.st.map((x,i) => `<i class="${x}" title="${i+1} · ${STEPS[i].q}">${x === O ? "✓" : x === A ? "!" : ""}</i>`).join("")}</span></button>`).join("") : ""}
+        </div>`; }).join("")}
+    </div>
+    <div class="card" style="overflow:hidden">
+      <div class="detail-head">
+        <div class="ring" style="--p:${Math.round(done/7*100)}"><b>${done}/7</b></div>
+        <div><h2>${esc(co.name)}</h2><div class="sub">${esc(pk.name)} · <span class="state ${active ? "active" : "draft"}">${esc(pk.status)}</span></div></div>
+      </div>
+      ${active && pk.st.includes(A) ? `<div class="notice live" style="margin:16px 22px 0">📡 <span>Este estacionamiento <b>está operando</b>. Lo pendiente se muestra como aviso: <b>no se bloquea nada</b> y el POS sigue funcionando.</span></div>` : ""}
+      ${!active ? `<div class="notice edit" style="margin:16px 22px 0">🧭 <span>Configuración en curso. Los pasos se completan <b>en orden</b>; continúa en el asistente donde quedó.</span></div>` : ""}
+      <div class="dsteps">${STEPS.map((s,i) => {
+        const x = active && pk.st[i] === L ? A : pk.st[i];
+        const chip = x === O ? `<span class="state ok">✓ Completo</span>` : x === A ? `<span class="state warn">! ${active ? "Falta" : "Pendiente"}</span>` : `<span class="state lock">🔒 Bloqueado</span>`;
+        const firstWarn = pk.st.indexOf(A);
+        let act = "";
+        if (x === A) act = active ? `<button class="btn btn-primary mini" style="--c:${s.color}" data-open-old="${s.n}">Completar →</button>`
+          : i === firstWarn ? `<button class="btn btn-primary mini" style="--c:${s.color}" data-continue="${s.n}">Continuar aquí →</button>` : "";
+        if (x === O) act = `<button class="btn-link mini" data-open-old="${s.n}">Ver o editar</button>`;
+        return `<div class="dstep ${x === A ? "warn" : x === L ? "lock" : ""}" style="--c:${s.color}">
+          <span class="ico">${s.icon}</span>
+          <div><div class="q">${s.n} · ${s.q}<small>${s.name}</small></div><div class="info">${esc(pk.det[s.n] || "")}</div></div>
+          <div class="acts">${chip}${act}<button class="btn-link mini" data-act="guide" data-n="${s.n}" title="Guía del paso">📖</button></div></div>`; }).join("")}</div>
+    </div></div>`;
+  const pend = COMPANIES.filter(coWarn).length;
+  $("#sideCount").textContent = pend;
+}
+
+// =====================================================================
+// Eventos
+// =====================================================================
+function setTab(tab){
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  $("#view-diag").classList.toggle("hidden", tab !== "diag");
+  $("#view-wiz").classList.toggle("hidden", tab !== "wiz");
+  if (tab === "wiz") { if (snapshot === null && W.view <= 7) snapshot = JSON.stringify(W.steps[W.view].data); renderWizard(); } else renderDiag();
+  window.scrollTo({ top:0 });
+}
+
+document.addEventListener("click", (ev) => {
+  const t = ev.target.closest("[data-act],[data-go],[data-tab],[data-tabgo],[data-del],[data-choose],[data-co],[data-pk],[data-open-old],[data-continue]");
+  if (!t) return;
+  if (t.dataset.tab) return setTab(t.dataset.tab);
+  if (t.dataset.tabgo) { $("#overlay").innerHTML = ""; return setTab(t.dataset.tabgo); }
+  if (t.dataset.go) { showResume = false; return openStep(Number(t.dataset.go)); }
+  if (t.dataset.co) { const id = t.dataset.co; openCos.has(id) ? openCos.delete(id) : openCos.add(id);
+    const c = COMPANIES.find(c => c.id === id); diagSel = { co:id, pk:pkOf(c)[0].id }; return renderDiag(); }
+  if (t.dataset.pk) { const [co, pk] = t.dataset.pk.split(":"); diagSel = { co, pk }; return renderDiag(); }
+  if (t.dataset.openOld) return toast(`Abriría la pantalla actual de «${S[t.dataset.openOld].name}» de este estacionamiento`);
+  if (t.dataset.continue) return toast(`Abriría el asistente de esta cuenta en el paso ${t.dataset.continue} · ${S[t.dataset.continue].q}`);
+  if (t.dataset.del) { const [list, i] = t.dataset.del.split(":"); W.steps[W.view].data[list].splice(Number(i), 1); persist(); return renderWizard(); }
+  if (t.dataset.choose) { const [k, v] = t.dataset.choose.split(":"); W.steps[W.view].data[k] = v; errors = {}; persist(); return renderWizard(); }
+  const act = t.dataset.act, d = W.view <= 7 ? W.steps[W.view].data : null;
+  if (act === "save") return saveStep();
+  if (act === "prev") return openStep(W.view - 1);
+  if (act === "cancel") { W.steps[W.view].data = JSON.parse(snapshot); errors = {}; persist(); toast("Cambios descartados"); return renderWizard(); }
+  if (act === "guide") return openGuide(Number(t.dataset.n));
+  if (act === "fullGuide") return openFullGuide();
+  if (act === "close") { $("#overlay").innerHTML = ""; return; }
+  if (act === "print") return window.print();
+  if (act === "hideResume") { showResume = false; return renderWizard(); }
+  if (act === "reset") { if (confirm("¿Reiniciar el prototipo? Se borra lo escrito en este navegador.")) { W = blankState(); snapshot = JSON.stringify(W.steps[1].data); errors = {}; showResume = false; persist(); renderWizard(); } return; }
+  if (act === "genpw") { const ch = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"; let p = ""; for (let i = 0; i < 10; i++) p += ch[Math.floor(Math.random()*ch.length)]; d.op_clave = p.replace(/^./, "K") + "7"; persist(); return renderWizard(); }
+  if (act === "addOp") {
+    const nombre = (d.op_nombre || "").trim(), usuario = (d.op_usuario || "").trim().toLowerCase(), clave = d.op_clave || "";
+    let msg = "";
+    if (!nombre) msg = "Escribe el nombre del operador.";
+    else if (!/^[a-z0-9._]{3,30}$/.test(usuario)) msg = "El usuario debe tener 3 a 30 letras minúsculas, números, punto o guion bajo (ej.: juan.perez).";
+    else if ((d.operadores || []).some(o => o.usuario === usuario)) msg = `El usuario «${usuario}» ya existe. Elige otro.`;
+    else if (!(clave.length >= 8 && /[A-Z]/.test(clave) && /\d/.test(clave))) msg = "La clave no cumple los requisitos (8 caracteres, una mayúscula y un número).";
+    if (msg) { errors = { operadores: msg }; return renderWizard(); }
+    d.operadores = [...(d.operadores || []), { nombre, usuario }]; d.op_nombre = d.op_usuario = d.op_clave = ""; errors = {};
+    persist(); toast(`Operador ${nombre} agregado. Anota su clave antes de seguir.`); return renderWizard();
+  }
+  if (act === "addZona") {
+    const nivel = String(d.z_nivel ?? "1").trim(), zona = (d.z_zona || "").trim(), plazas = String(d.z_plazas || "").trim();
+    let msg = "";
+    if (!nivel) msg = "Indica el nivel.";
+    else if (!zona) msg = "Escribe el nombre de la zona (ej.: General).";
+    else if (!/^\d+$/.test(plazas) || Number(plazas) < 1) msg = "Las plazas deben ser un número mayor que 0.";
+    if (msg) { errors = { zonas: msg }; return renderWizard(); }
+    d.zonas = [...(d.zonas || []), { nivel, zona, plazas:Number(plazas) }]; d.z_zona = d.z_plazas = ""; errors = {};
+    persist(); return renderWizard();
+  }
+  if (act === "addTurno") {
+    const op = d.t_op || (W.steps[3].data.operadores || [])[0]?.nombre, fecha = d.t_fecha || new Date().toISOString().slice(0,10), ini = d.t_ini || "08:00", fin = d.t_fin || "16:00";
+    let msg = "";
+    if (!op) msg = "No hay operadores. Agrégalos en el paso 3 · ¿Quién trabaja?";
+    else if (fin <= ini) msg = "La hora de término debe ser posterior a la de inicio.";
+    if (msg) { errors = { turnos: msg }; return renderWizard(); }
+    d.turnos = [...(d.turnos || []), { op, fecha, ini, fin }]; errors = {};
+    persist(); return renderWizard();
+  }
+  if (act === "activar") {
+    W.steps[6].data.activado = true; W.steps[6].data.activadoEn = new Date().toLocaleString("es-CL", { dateStyle:"short", timeStyle:"short" });
+    W.steps[6].status = "done"; persist(); toast("🚀 Estacionamiento activado"); return openStep(7);
+  }
+});
+
+document.addEventListener("input", (ev) => {
+  const el = ev.target;
+  if (el.id === "diagSearch") { diagFilter = el.value.toLowerCase().trim(); const pos = el.selectionStart; renderDiag(); const s = $("#diagSearch"); s.focus(); s.setSelectionRange(pos, pos); return; }
+  if (W.view > 7) return;
+  if (el.dataset.field) { W.steps[W.view].data[el.dataset.field] = el.value; persist(); const s = $("#savedTxt"); if (s) s.textContent = "Borrador guardado ✓";
+    if (W.view === 3 && el.dataset.field === "op_clave") { const pos = el.selectionStart; renderWizard(); const i = document.querySelector('[data-field="op_clave"]'); i.focus(); i.setSelectionRange(pos, pos); } }
+  if (el.dataset.check) { W.steps[W.view].data[el.dataset.check] = el.checked; errors = {}; persist(); renderWizard(); }
+});
+document.addEventListener("change", (ev) => {
+  const el = ev.target;
+  if (el.tagName === "SELECT" && el.dataset.field && W.view <= 7) { W.steps[W.view].data[el.dataset.field] = el.value; persist(); }
+});
+// Validación inmediata al salir de un campo
+document.addEventListener("focusout", (ev) => {
+  const el = ev.target;
+  if (!el.dataset?.field || W.view > 7) return;
+  const f = (FIELDS[W.view] || []).find(x => x[0] === el.dataset.field);
+  if (!f) return;
+  const v = el.value;
+  if (f[4] && !filled(v)) return; // no regañar campos vacíos hasta guardar
+  if (filled(v) && f[5] && !f[5](v)) errors[f[0]] = f[6]; else delete errors[f[0]];
+  // Se actualiza solo este campo (sin redibujar) para no perder el clic en un botón.
+  const box = el.closest(".field"), err = errors[f[0]];
+  box.classList.toggle("bad", Boolean(err));
+  box.classList.toggle("good", !err && filled(v) && Boolean(f[5]));
+  box.querySelector(".error, .help")?.remove();
+  if (err || f[3]) box.insertAdjacentHTML("beforeend", err ? `<div class="error">⚠ ${esc(err)}</div>` : `<div class="help">${esc(f[3])}</div>`);
+});
+document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") $("#overlay").innerHTML = ""; });
+$("#menuBtn").addEventListener("click", () => $("#sidebar").classList.toggle("open"));
+
+snapshot = JSON.stringify(W.steps[W.view <= 7 ? W.view : 1].data);
+renderDiag();
+</script>
+</body>
+</html>

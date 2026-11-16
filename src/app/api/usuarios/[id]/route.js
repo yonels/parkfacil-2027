@@ -5,6 +5,7 @@ import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { listAuthorizedUsers } from "@/lib/usersRepository";
 import { buildUserProfileUpdate } from "@/lib/userProfileUpdateCore.mjs";
+import { validateProductScopeForCreation, guardLastCompanyAdmin } from "@/lib/auth/memberActivationCore.mjs";
 
 function respuestaDetalle(result, id, context) {
   const user = result.data.find((item) => item.id === id) || null;
@@ -18,6 +19,7 @@ function respuestaDetalle(result, id, context) {
       availableParkings: user ? result.parkings.filter((item) => item.empresaId === user.empresaId) : [],
       canManageCredentials: [ROLES.PLATFORM_ADMIN, ROLES.COMPANY_ADMIN].includes(context.role),
       canSetDirectPassword: context.role === ROLES.PLATFORM_ADMIN && context.portal === "root",
+      canActivateUsers: context.role === ROLES.PLATFORM_ADMIN && context.portal === "root",
     },
   }, { headers: { "Cache-Control": "no-store" } });
 }
@@ -61,7 +63,7 @@ export async function PATCH(request, { params }) {
 
   const { data: member, error: memberError } = await db
     .from("company_members")
-    .select("user_id,company_id,role,status")
+    .select("user_id,company_id,role,status,product_scope")
     .eq("user_id", id)
     .maybeSingle();
 
@@ -83,6 +85,71 @@ export async function PATCH(request, { params }) {
   }
 
   const { errors, memberUpdate, phone, email } = buildUserProfileUpdate(payload);
+
+  // §3 del encargo "modelo de usuarios por empresa": status (y por lo
+  // tanto activated_at/by, suspended_at/by, access_expires_at) NUNCA se
+  // modifica desde esta edición genérica -- ni siquiera para Root. Toda
+  // transición de estado pasa exclusivamente por el endpoint auditado
+  // POST /api/usuarios/[id]/activacion, para que activated_by/suspended_by
+  // jamás puedan quedar vacíos ni ser falseados por este otro camino.
+  if (Object.prototype.hasOwnProperty.call(memberUpdate, "status")) {
+    return NextResponse.json({
+      error: "El estado del usuario se administra desde la acción de activación/suspensión, no desde esta edición.",
+      code: "STATUS_MANAGED_ELSEWHERE",
+    }, { status: 400 });
+  }
+
+  // Cambio de rol (§ el encargo, "cambiar role de company_admin a
+  // operator" es una de las operaciones a proteger): exclusivo de Root,
+  // mismo criterio que status -- un company_admin nunca debe poder
+  // reasignarse (ni reasignar a otro) el rol por sí mismo.
+  if (Object.prototype.hasOwnProperty.call(payload, "role")) {
+    if (authorization.context.role !== ROLES.PLATFORM_ADMIN) {
+      return NextResponse.json({ error: "Solo Root puede cambiar el rol de un usuario.", code: "ROLE_MANAGED_BY_ROOT" }, { status: 403 });
+    }
+    const nuevoRol = String(payload.role || "").trim();
+    if (![ROLES.COMPANY_ADMIN, ROLES.OPERATOR].includes(nuevoRol)) {
+      return NextResponse.json({ error: "Rol inválido.", code: "ROLE_INVALID" }, { status: 400 });
+    }
+    if (nuevoRol !== member.role) {
+      const { data: otherMembers, error: othersError } = await db
+        .from("company_members")
+        .select("user_id,role,status")
+        .eq("company_id", member.company_id)
+        .neq("user_id", id);
+      if (othersError) {
+        return NextResponse.json({ error: "No fue posible validar la protección de administración.", code: "LAST_ADMIN_CHECK_FAILED" }, { status: 500 });
+      }
+      const guard = guardLastCompanyAdmin({ targetMember: member, changes: { role: nuevoRol }, otherMembers: otherMembers || [] });
+      if (!guard.ok) {
+        return NextResponse.json({ error: guard.error, code: guard.code }, { status: 409 });
+      }
+      memberUpdate.role = nuevoRol;
+    }
+  }
+
+  let productScopeValue;
+  if (Object.prototype.hasOwnProperty.call(payload, "productScope")) {
+    const company = await db.from("companies").select("enabled_products").eq("id", member.company_id).maybeSingle();
+    if (company.error || !company.data) {
+      return NextResponse.json({ error: "No fue posible validar los productos de la empresa.", code: "COMPANY_READ_FAILED" }, { status: 500 });
+    }
+    const scopeResult = validateProductScopeForCreation({
+      role: member.role,
+      productScope: payload.productScope ? String(payload.productScope).trim().toUpperCase() : null,
+      companyEnabledProducts: company.data.enabled_products,
+      // Editar (a diferencia de crear) sí permite BOTH para un operador ya
+      // existente si Root lo decide explícitamente -- caso justificado
+      // puntual (§9: "no conviertas automáticamente", no "nunca permitas").
+      allowOperatorBoth: authorization.context.role === ROLES.PLATFORM_ADMIN,
+    });
+    if (!scopeResult.ok) {
+      return NextResponse.json({ error: scopeResult.error, code: "PRODUCT_SCOPE_INVALID" }, { status: 400 });
+    }
+    productScopeValue = scopeResult.value;
+    memberUpdate.product_scope = productScopeValue;
+  }
+
   const parkingIds = Object.prototype.hasOwnProperty.call(payload, "parkingIds")
     ? [...new Set(Array.isArray(payload.parkingIds) ? payload.parkingIds.filter(Boolean).map(String) : [])]
     : undefined;

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowUpDown, Check, Copy, Eye, GripVertical, KeyRound, Pencil, Plus, Save, Search, Trash2, X } from "lucide-react";
+import { ArrowUpDown, Check, Copy, Eye, GripVertical, KeyRound, Pencil, Plus, Power, PowerOff, Save, Search, Trash2, X } from "lucide-react";
 import AppShell from "@/components/layout/AppShell";
 import PageHeader from "@/components/ui/PageHeader";
 import StatusBadge from "@/components/ui/StatusBadge";
@@ -20,6 +20,11 @@ const estacionamientosIniciales = getEstacionamientosDemo();
 const estados = ["Todos", "active", "inactive", "pending"];
 const perfiles = ["Todos", "platform_admin", "organization_admin", "company_admin", "parking_manager", "operator", "cashier", "auditor", "support", "viewer"];
 const multiples = ["Todos", "con", "sin"];
+const productos = ["Todos", "OFF_STREET", "ON_STREET"];
+// Presets de activación temporal (FASE 4-B del modelo de usuarios por
+// empresa) -- mismos valores que ACCESS_DURATION_PRESET_HOURS en
+// memberActivationCore.mjs.
+const DURACIONES_PRESET = [1, 2, 4, 8, 12, 24];
 
 function labelEstado(estado) {
   const labels = {
@@ -29,6 +34,35 @@ function labelEstado(estado) {
   };
 
   return labels[estado] ?? estado;
+}
+
+function labelProducto(producto) {
+  if (producto === "OFF_STREET") return "Off Street";
+  if (producto === "ON_STREET") return "On Street";
+  return producto;
+}
+
+// Estado detallado con "Vencido" calculado (FASE 5) -- si el usuario viene
+// de datos demostrativos (sin estadoDetalladoLabel todavía), cae al
+// badge simple de siempre.
+function badgeEstadoDetallado(usuario) {
+  const label = usuario.estadoDetalladoLabel || labelEstado(usuario.estado);
+  const tono = {
+    active_indefinite: "bg-emerald-50 text-emerald-700",
+    active_until: "bg-cyan-50 text-cyan-700",
+    suspended: "bg-rose-50 text-rose-700",
+    pending: "bg-amber-50 text-amber-700",
+    expired: "bg-slate-200 text-slate-700",
+    inactive: "bg-rose-50 text-rose-700",
+  }[usuario.estadoDetallado] || (usuario.estado === "active" ? "bg-emerald-50 text-emerald-700" : usuario.estado === "inactive" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700");
+  return { label, tono };
+}
+
+function formatearFechaHora(iso) {
+  if (!iso) return null;
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) return null;
+  return fecha.toLocaleString("es-CL", { dateStyle: "short", timeStyle: "short" });
 }
 
 export default function UsuariosPage() {
@@ -42,8 +76,15 @@ export default function UsuariosPage() {
   const [empresaId, setEmpresaId] = useState("Todos");
   const [estacionamientoId, setEstacionamientoId] = useState("Todos");
   const [multiple, setMultiple] = useState("Todos");
+  const [producto, setProducto] = useState("Todos");
   const [canManageCredentials, setCanManageCredentials] = useState(false);
   const [canSetDirectPassword, setCanSetDirectPassword] = useState(false);
+  const [canActivateUsers, setCanActivateUsers] = useState(false);
+  const [activationUser, setActivationUser] = useState(null);
+  const [activationDraft, setActivationDraft] = useState({ modo: "indefinido", horas: 4, expiraEn: "", enviarEnlaceAcceso: true });
+  const [activationLoading, setActivationLoading] = useState(false);
+  const [activationError, setActivationError] = useState("");
+  const [activationNotice, setActivationNotice] = useState("");
   const [temporaryCredentials, setTemporaryCredentials] = useState({});
   const [credentialLoadingId, setCredentialLoadingId] = useState(null);
   const [credentialError, setCredentialError] = useState("");
@@ -64,14 +105,19 @@ export default function UsuariosPage() {
     role: "operator",
     companyId: "",
     parkingIds: [],
+    productScope: "",
   });
   const tableColumns = useMemo(() => [
     { key: "nombreCompleto", label: "Nombre", sortable: true },
     { key: "correo", label: "Usuario", sortable: true },
+    { key: "recoveryEmail", label: "Recovery email", sortable: true },
     { key: "telefono", label: "Teléfono", sortable: true },
     { key: "empresaId", label: "Empresa", sortable: true },
-    { key: "perfilPrincipal", label: "Perfil", sortable: true },
+    { key: "perfilPrincipal", label: "Rol técnico", sortable: true },
+    { key: "funcion", label: "Función", sortable: true },
     { key: "estado", label: "Estado", sortable: true },
+    { key: "accessExpiresAt", label: "Acceso válido hasta", sortable: true },
+    { key: "activatedBy", label: "Activado por", sortable: false },
     { key: "estacionamientos", label: "Estacionamientos", sortable: true },
     { key: "ultimoAcceso", label: "Último acceso", sortable: true },
     ...(canManageCredentials ? [{ key: "credential", label: "Clave de acceso", sortable: false }] : []),
@@ -87,6 +133,7 @@ export default function UsuariosPage() {
     setEstacionamientos(body.parkings || []);
     setCanManageCredentials(Boolean(body.canManageCredentials));
     setCanSetDirectPassword(Boolean(body.canSetDirectPassword));
+    setCanActivateUsers(Boolean(body.canActivateUsers));
     setDataSource("Datos persistentes");
   }, []);
 
@@ -111,6 +158,7 @@ export default function UsuariosPage() {
       role: "operator",
       companyId: current.companyId || empresas[0]?.id || "",
       parkingIds: [],
+      productScope: "",
     }));
     setCreateOpen(true);
   };
@@ -163,14 +211,15 @@ export default function UsuariosPage() {
       const byEmpresa = empresaId === "Todos" || usuario.empresaId === empresaId;
       const byParking = estacionamientoId === "Todos" || usuario.estacionamientos.includes(estacionamientoId);
       const byMultiple = multiple === "Todos" || (multiple === "con" ? usuario.estacionamientos.length > 1 : usuario.estacionamientos.length <= 1);
-      return bySearch && byEstado && byPerfil && byEmpresa && byParking && byMultiple;
+      const byProducto = producto === "Todos" || usuario.productoAlcance === producto || usuario.productoAlcance === "BOTH";
+      return bySearch && byEstado && byPerfil && byEmpresa && byParking && byMultiple && byProducto;
     }).sort((left, right) => {
       const leftValue = sort.key === "estacionamientos" ? left.estacionamientos.length : left[sort.key] ?? "";
       const rightValue = sort.key === "estacionamientos" ? right.estacionamientos.length : right[sort.key] ?? "";
       const comparison = String(leftValue).localeCompare(String(rightValue), "es", { numeric: true });
       return sort.direction === "asc" ? comparison : -comparison;
     });
-  }, [busqueda, empresaId, estado, estacionamientoId, multiple, perfil, sort, usuarios]);
+  }, [busqueda, empresaId, estado, estacionamientoId, multiple, perfil, producto, sort, usuarios]);
 
   const resumen = useMemo(() => ({
     total: usuarios.length,
@@ -283,6 +332,89 @@ export default function UsuariosPage() {
     }
   };
 
+  // "Dar de baja" (§2 del pedido de cierre: NO es un DELETE físico, es
+  // baja lógica -- status="inactive", vía el mismo endpoint auditado de
+  // activación, acción "eliminar"). Antes este botón solo hacía
+  // setUsuarios(filter(...)) en memoria -- nunca llamaba a ninguna API,
+  // así que un refresh de página devolvía al usuario "eliminado" intacto.
+  const desactivarUsuario = async (usuario) => {
+    const confirmado = window.confirm(
+      `¿Dar de baja a ${usuario.nombreCompleto}? Queda inactivo -- no se borra su historial y Root puede reactivarlo después.`,
+    );
+    if (!confirmado) return;
+    setActivationError("");
+    try {
+      const response = await authenticatedFetch(`/api/usuarios/${usuario.id}/activacion`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accion: "eliminar" }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "No fue posible dar de baja al usuario.");
+      if (body.data) {
+        setUsuarios((current) => current.map((item) => (
+          item.id === body.data.id ? { ...body.data, estacionamientos: body.data.estacionamientos || [] } : item
+        )));
+      }
+    } catch (error) {
+      setActivationError(error.message);
+    }
+  };
+
+  const openActivationModal = (usuario) => {
+    setActivationError("");
+    setActivationNotice("");
+    setActivationDraft({ modo: "indefinido", horas: 4, expiraEn: "", enviarEnlaceAcceso: true });
+    setActivationUser(usuario);
+  };
+
+  const closeActivationModal = () => {
+    if (activationLoading) return;
+    setActivationUser(null);
+    setActivationError("");
+  };
+
+  const submitActivation = async (accion) => {
+    if (!activationUser) return;
+    setActivationError("");
+    setActivationNotice("");
+    setActivationLoading(true);
+    try {
+      const body = { accion };
+      if (accion === "activar_temporal") {
+        if (activationDraft.modo === "preset") {
+          body.horas = Number(activationDraft.horas);
+        } else {
+          body.expiraEn = activationDraft.expiraEn;
+        }
+      }
+      if (accion === "activar_indefinido" || accion === "activar_temporal") {
+        body.enviarEnlaceAcceso = Boolean(activationDraft.enviarEnlaceAcceso);
+      }
+      const response = await authenticatedFetch(`/api/usuarios/${activationUser.id}/activacion`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const responseBody = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(responseBody.error || "No fue posible actualizar el acceso.");
+      if (responseBody.data) {
+        setUsuarios((current) => current.map((item) => (
+          item.id === responseBody.data.id ? { ...responseBody.data, estacionamientos: responseBody.data.estacionamientos || [] } : item
+        )));
+      }
+      if (responseBody.advertencia) {
+        setActivationNotice(responseBody.advertencia);
+      } else {
+        setActivationUser(null);
+      }
+    } catch (error) {
+      setActivationError(error.message);
+    } finally {
+      setActivationLoading(false);
+    }
+  };
+
   return (
     <AppShell title="Usuarios" description="Administración visual de personas con acceso a ParkFacil">
       <div className="space-y-6">
@@ -320,7 +452,13 @@ export default function UsuariosPage() {
               <input value={busqueda} onChange={(event) => updateSearch(event.target.value)} placeholder="Buscar por persona, cargo, empresa, razón social, RUT, correo, perfil o estacionamiento" className="w-full bg-transparent outline-none" />
             </label>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+              <label className="space-y-2 text-sm text-slate-600">
+                <span>Producto</span>
+                <select value={producto} onChange={(event) => setProducto(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
+                  {productos.map((item) => <option key={item} value={item}>{item === "Todos" ? item : labelProducto(item)}</option>)}
+                </select>
+              </label>
               <label className="space-y-2 text-sm text-slate-600">
                 <span>Estado</span>
                 <select value={estado} onChange={(event) => setEstado(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 outline-none">
@@ -362,9 +500,15 @@ export default function UsuariosPage() {
             </p>
           ) : null}
 
+          {activationError && !activationUser ? (
+            <p role="alert" className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">
+              {activationError}
+            </p>
+          ) : null}
+
           <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-300 bg-white shadow-sm">
             {resultados.length > 0 ? (
-              <table className={`w-full border-collapse text-left text-sm ${canManageCredentials ? "min-w-[1580px]" : "min-w-[1320px]"}`}>
+              <table className={`w-full border-collapse text-left text-sm ${canManageCredentials ? "min-w-[2240px]" : "min-w-[1980px]"}`}>
                 <thead className="bg-[#041E42] text-[11px] uppercase tracking-[0.08em] text-white">
                   <tr>
                     {orderedTableColumns.map((column) => {
@@ -401,10 +545,25 @@ export default function UsuariosPage() {
                     const dataCells = {
                       nombreCompleto: <td key="nombreCompleto" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <input value={row.nombreCompleto} onChange={(event) => setDraft((current) => ({ ...current, nombreCompleto: event.target.value }))} className={inputClass} /> : <span className="font-bold text-[#041E42]">{row.nombreCompleto}</span>}</td>,
                       correo: <td key="correo" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <input type="email" value={row.correo} onChange={(event) => setDraft((current) => ({ ...current, correo: event.target.value }))} className={inputClass} /> : row.correo}</td>,
+                      recoveryEmail: <td key="recoveryEmail" className="border-r border-slate-200 px-3 py-2.5 text-slate-600">{row.recoveryEmail || "Sin definir"}</td>,
                       telefono: <td key="telefono" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <input value={row.telefono} onChange={(event) => setDraft((current) => ({ ...current, telefono: event.target.value }))} className={inputClass} /> : row.telefono}</td>,
                       empresaId: <td key="empresaId" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <select value={row.empresaId ?? ""} onChange={(event) => setDraft((current) => ({ ...current, empresaId: event.target.value || null }))} className={inputClass}><option value="">Sin empresa</option>{empresas.map((item) => <option key={item.id} value={item.id}>{item.nombreFantasia}</option>)}</select> : empresa?.nombreFantasia ?? "Sin empresa"}</td>,
                       perfilPrincipal: <td key="perfilPrincipal" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <select value={row.perfilPrincipal} onChange={(event) => setDraft((current) => ({ ...current, perfilPrincipal: event.target.value }))} className={inputClass}>{perfiles.filter((item) => item !== "Todos").map((item) => <option key={item} value={item}>{getPerfilLabel(item)}</option>)}</select> : getPerfilLabel(row.perfilPrincipal)}</td>,
-                      estado: <td key="estado" className="border-r border-slate-200 px-3 py-2.5">{isEditing ? <select value={row.estado} onChange={(event) => setDraft((current) => ({ ...current, estado: event.target.value }))} className={inputClass}>{estados.filter((item) => item !== "Todos").map((item) => <option key={item} value={item}>{labelEstado(item)}</option>)}</select> : <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${row.estado === "active" ? "bg-emerald-50 text-emerald-700" : row.estado === "inactive" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700"}`}>{labelEstado(row.estado)}</span>}</td>,
+                      funcion: <td key="funcion" className="border-r border-slate-200 px-3 py-2.5"><span className="font-semibold text-[#041E42]">{row.funcion || getPerfilLabel(row.perfilPrincipal)}</span></td>,
+                      estado: (() => {
+                        const { label, tono } = badgeEstadoDetallado(row);
+                        return (
+                          <td key="estado" className="border-r border-slate-200 px-3 py-2.5">
+                            {/* El status en sí (activo/suspendido/pendiente) ya no se
+                                edita aquí -- FASE 3 del modelo de usuarios por empresa:
+                                solo Root puede cambiarlo, y siempre de forma auditada,
+                                vía el botón "Activar/Suspender" de la columna Acciones. */}
+                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${tono}`}>{label}</span>
+                          </td>
+                        );
+                      })(),
+                      accessExpiresAt: <td key="accessExpiresAt" className="border-r border-slate-200 px-3 py-2.5 text-slate-600">{row.accessExpiresAt ? formatearFechaHora(row.accessExpiresAt) : row.estadoDetallado === "active_indefinite" ? "Sin vencimiento" : "—"}</td>,
+                      activatedBy: <td key="activatedBy" className="border-r border-slate-200 px-3 py-2.5 text-slate-600">{row.suspendedBy ? <span className="text-rose-700">Suspendido por {row.suspendedBy.email}</span> : row.activatedBy ? row.activatedBy.email : "—"}</td>,
                       estacionamientos: <td key="estacionamientos" className="max-w-56 border-r border-slate-200 px-3 py-2.5">{isEditing ? <select multiple value={row.estacionamientos} onChange={(event) => setDraft((current) => ({ ...current, estacionamientos: Array.from(event.target.selectedOptions, (option) => option.value) }))} className={`${inputClass} min-h-20`}>{estacionamientos.map((item) => <option key={item.id} value={item.id}>{item.nombre}</option>)}</select> : <span className="line-clamp-2" title={parkingNames}>{parkingNames || "Sin asignación"}</span>}</td>,
                       ultimoAcceso: <td key="ultimoAcceso" className="border-r border-slate-200 px-3 py-2.5">{row.ultimoAcceso}</td>,
                       credential: (
@@ -442,7 +601,18 @@ export default function UsuariosPage() {
                             </> : <>
                               <Link href={`/usuarios/${usuario.id}`} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-bold text-[#3150D8]"><Eye className="h-3.5 w-3.5" />Ver</Link>
                               <button type="button" onClick={() => beginEdit(usuario)} className="inline-flex items-center gap-1 rounded-lg bg-[#EEF4FF] px-2.5 py-2 text-xs font-bold text-[#3150D8]"><Pencil className="h-3.5 w-3.5" />Modificar usuario</button>
-                              <button type="button" onClick={() => setUsuarios((current) => current.filter((item) => item.id !== usuario.id))} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2.5 py-2 text-xs font-semibold text-rose-700" aria-label={`Eliminar ${usuario.nombreCompleto}`}><Trash2 className="h-3.5 w-3.5" /> Eliminar</button>
+                              {canActivateUsers ? (
+                                usuario.estado === "suspended" ? (
+                                  <button type="button" onClick={() => openActivationModal(usuario)} className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-2 text-xs font-bold text-emerald-700"><Power className="h-3.5 w-3.5" />Reactivar</button>
+                                ) : (
+                                  <button type="button" onClick={() => openActivationModal(usuario)} className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2.5 py-2 text-xs font-bold text-amber-800"><Power className="h-3.5 w-3.5" />Activar</button>
+                                )
+                              ) : null}
+                              {canActivateUsers && usuario.estado !== "inactive" ? (
+                                <button type="button" onClick={() => desactivarUsuario(usuario)} className="inline-flex items-center gap-1 rounded-lg bg-rose-50 px-2.5 py-2 text-xs font-semibold text-rose-700" aria-label={`Dar de baja a ${usuario.nombreCompleto}`}>
+                                  <Trash2 className="h-3.5 w-3.5" /> Dar de baja
+                                </button>
+                              ) : null}
                             </>}
                           </div>
                         </td>
@@ -483,18 +653,32 @@ export default function UsuariosPage() {
                   </label>
                   <label className="space-y-1.5 text-sm text-slate-700">
                     <span>Perfil principal</span>
-                    <select value={createDraft.role} onChange={(event) => setCreateDraft((current) => ({ ...current, role: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
-                      <option value="operator">Operador</option>
+                    <select value={createDraft.role} onChange={(event) => setCreateDraft((current) => ({ ...current, role: event.target.value, productScope: "" }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
+                      <option value="operator">Operador / Inspector</option>
                       <option value="company_admin">Administrador de empresa</option>
                     </select>
                   </label>
                   <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
                     <span>Empresa</span>
-                    <select value={createDraft.companyId} onChange={(event) => setCreateDraft((current) => ({ ...current, companyId: event.target.value, parkingIds: [] }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required>
+                    <select value={createDraft.companyId} onChange={(event) => setCreateDraft((current) => ({ ...current, companyId: event.target.value, parkingIds: [], productScope: "" }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required>
                       <option value="">Seleccionar empresa</option>
                       {empresas.map((item) => <option key={item.id} value={item.id}>{item.nombreFantasia}</option>)}
                     </select>
                   </label>
+                  {createDraft.role === "operator" ? (
+                    <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
+                      <span>Producto (define si aparece como Operador u Inspector)</span>
+                      <select value={createDraft.productScope} onChange={(event) => setCreateDraft((current) => ({ ...current, productScope: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]" required>
+                        <option value="">Seleccionar producto</option>
+                        {(empresas.find((item) => item.id === createDraft.companyId)?.enabledProducts || []).map((item) => (
+                          <option key={item} value={item}>{item === "OFF_STREET" ? "Off Street (Operador)" : "On Street (Inspector)"}</option>
+                        ))}
+                      </select>
+                      {createDraft.companyId && !(empresas.find((item) => item.id === createDraft.companyId)?.enabledProducts || []).length ? (
+                        <p className="text-xs text-rose-600">Esta empresa no tiene productos habilitados todavía -- no se puede crear un operador.</p>
+                      ) : null}
+                    </label>
+                  ) : null}
                   <label className="space-y-1.5 text-sm text-slate-700 md:col-span-2">
                     <span>Estacionamientos asignados</span>
                     <select multiple value={createDraft.parkingIds} onChange={(event) => setCreateDraft((current) => ({ ...current, parkingIds: Array.from(event.target.selectedOptions, (option) => option.value) }))} className="min-h-28 w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]">
@@ -544,6 +728,84 @@ export default function UsuariosPage() {
                   <button type="submit" disabled={credentialLoadingId === passwordUser.id} className="rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">{credentialLoadingId === passwordUser.id ? "Actualizando..." : "Actualizar clave"}</button>
                 </div>
               </form>
+            </section>
+          </div>
+        ) : null}
+
+        {activationUser ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#041E42]/55 p-4">
+            <section role="dialog" aria-modal="true" aria-labelledby="activation-title" className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-6 shadow-2xl">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 id="activation-title" className="text-xl font-semibold text-[#041E42]">Activar / suspender acceso</h3>
+                  <p className="mt-1 text-sm text-slate-600">{activationUser.nombreCompleto} · {activationUser.funcion || getPerfilLabel(activationUser.perfilPrincipal)}</p>
+                </div>
+                <button type="button" onClick={closeActivationModal} className="grid h-9 w-9 place-items-center rounded-full border border-slate-200 text-slate-600" aria-label="Cerrar"><X className="h-4 w-4" /></button>
+              </div>
+
+              {activationError ? <p role="alert" className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{activationError}</p> : null}
+              {activationNotice ? <p role="status" className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{activationNotice}</p> : null}
+
+              <div className="mt-5 space-y-5">
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-sm font-bold text-[#041E42]">Acceso indefinido</p>
+                  <p className="mt-1 text-xs text-slate-500">El usuario queda activo hasta que se suspenda manualmente.</p>
+                  <button type="button" disabled={activationLoading} onClick={() => submitActivation("activar_indefinido")} className="mt-3 inline-flex items-center gap-2 rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                    <Power className="h-4 w-4" />Activar indefinido
+                  </button>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-sm font-bold text-[#041E42]">Acceso temporal</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {DURACIONES_PRESET.map((horas) => (
+                      <button
+                        key={horas}
+                        type="button"
+                        onClick={() => setActivationDraft((current) => ({ ...current, modo: "preset", horas }))}
+                        className={`rounded-full border px-3 py-1.5 text-xs font-bold ${activationDraft.modo === "preset" && activationDraft.horas === horas ? "border-[#3150D8] bg-[#EEF4FF] text-[#3150D8]" : "border-slate-200 text-slate-600"}`}
+                      >
+                        {horas}h
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setActivationDraft((current) => ({ ...current, modo: "custom" }))}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-bold ${activationDraft.modo === "custom" ? "border-[#3150D8] bg-[#EEF4FF] text-[#3150D8]" : "border-slate-200 text-slate-600"}`}
+                    >
+                      Personalizada
+                    </button>
+                  </div>
+                  {activationDraft.modo === "custom" ? (
+                    <input
+                      type="datetime-local"
+                      value={activationDraft.expiraEn}
+                      onChange={(event) => setActivationDraft((current) => ({ ...current, expiraEn: event.target.value }))}
+                      className="mt-3 w-full rounded-2xl border border-slate-200 px-3 py-2.5 outline-none focus:border-[#3150D8]"
+                    />
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={activationLoading || (activationDraft.modo === "custom" && !activationDraft.expiraEn)}
+                    onClick={() => submitActivation("activar_temporal")}
+                    className="mt-3 inline-flex items-center gap-2 rounded-full bg-[#3150D8] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  >
+                    <Power className="h-4 w-4" />Activar temporal
+                  </button>
+                </div>
+
+                <label className="flex items-start gap-3 rounded-2xl border border-slate-200 p-3 text-sm text-slate-700">
+                  <input type="checkbox" checked={activationDraft.enviarEnlaceAcceso} onChange={(event) => setActivationDraft((current) => ({ ...current, enviarEnlaceAcceso: event.target.checked }))} className="mt-0.5" />
+                  <span><strong>Enviar enlace para definir contraseña</strong><span className="mt-1 block text-xs text-slate-500">Si el usuario aún no tiene una clave utilizable, se le envía el mismo mecanismo seguro de recuperación (nunca una clave visible para Root).</span></span>
+                </label>
+
+                <div className="flex items-center justify-between border-t border-slate-200 pt-4">
+                  <button type="button" disabled={activationLoading} onClick={() => submitActivation("suspender")} className="inline-flex items-center gap-2 rounded-full bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 disabled:opacity-60">
+                    <PowerOff className="h-4 w-4" />Suspender
+                  </button>
+                  <button type="button" onClick={closeActivationModal} className="rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cerrar</button>
+                </div>
+              </div>
             </section>
           </div>
         ) : null}

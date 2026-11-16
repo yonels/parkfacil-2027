@@ -169,6 +169,17 @@ export default function CourtesyTicketPrint({ plate, inspectedAt, inspectionId, 
         // vuelve a tocar la fiscalización -- solo se informa, con la
         // acción de reintentar disponible de inmediato.
         setPrintError(result.message || "No fue posible imprimir. La fiscalización ya fue registrada.");
+        // Incidente CXPY93 / MTP-II (2026-09-03): PRINTER_NOT_CONNECTED es el
+        // propio bridge nativo confirmando que el socket ya no es utilizable
+        // -- si no se revalida acá, printerState se queda congelado en el
+        // último valor conocido ("connected") para siempre, así que la UI
+        // sigue mostrando el falso "Conectada" sin importar cuántas veces se
+        // reintente imprimir. refreshStatus() reconsulta getStatus() nativo
+        // (la misma fuente de verdad que ya usa la conexión inicial/§8) para
+        // que la UI pase a "No conectada" y el inspector sepa que debe
+        // reconectar -- solo aplica a Android, el único transporte con un
+        // estado de conexión propio que revalidar (ver handlePrint arriba).
+        if (isAndroid && result.code === "PRINTER_NOT_CONNECTED") void refreshStatus();
         return;
       }
       setPrintStatus("done");

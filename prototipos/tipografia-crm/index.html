@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tipografía CRM — prototipo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+<style>
+  :root { --primary:#3D4EDB; --navy:#041E42; --link:#3150D8; --text:#172033; --muted:#5E6B84; --border:#DCE3F0; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:"Geist",Arial,Helvetica,sans-serif; color:var(--text); background:#EEF3FF; -webkit-font-smoothing:antialiased; }
+
+  /* Pesos como en el CRM actual (clases Tailwind) */
+  .font-black { font-weight:900; } .font-bold { font-weight:700; } .font-semibold { font-weight:600; }
+  .uppercase { text-transform:uppercase; }
+  .eyebrow { font-size:14px; letter-spacing:4px; }
+  .label { font-size:13px; letter-spacing:2px; }
+
+  /* Propuesta A — moderada: lo mismo que se agregaría a globals.css dentro de .crm-shell */
+  [data-v="A"] .font-black { font-weight:700; }
+  [data-v="A"] .font-bold { font-weight:600; }
+  [data-v="A"] .eyebrow, [data-v="A"] .label { letter-spacing:1.5px; font-weight:600; }
+
+  /* Propuesta B — liviana, igual a la grilla del historial */
+  [data-v="B"] .font-black { font-weight:600; }
+  [data-v="B"] h1.font-black, [data-v="B"] .h1 { font-weight:700; }
+  [data-v="B"] .font-bold { font-weight:500; }
+  [data-v="B"] .eyebrow, [data-v="B"] .label { text-transform:none; letter-spacing:0; font-weight:500; font-size:14px; }
+  [data-v="B"] .valor { font-weight:400; }
+  /* Encabezado de grillas: igual que la grilla del historial en todas las variantes */
+  body th.font-black { font-weight:900; }
+
+  /* Barra del selector (no es parte del CRM) */
+  .selector { position:sticky; top:0; z-index:5; background:#fff7ed; border-bottom:1px solid #fed7aa; padding:10px 16px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; font-size:14px; color:#9a3412; }
+  .selector button { font:inherit; border:1px solid #fdba74; background:#fff; color:#9a3412; border-radius:999px; padding:5px 14px; cursor:pointer; font-weight:600; }
+  .selector button[aria-pressed="true"] { background:#ea580c; border-color:#ea580c; color:#fff; }
+  .selector .desc { flex-basis:100%; font-size:13px; }
+
+  .shell { display:grid; grid-template-columns:272px minmax(0,1fr); min-height:100vh; }
+  aside { background:var(--primary); color:#fff; padding:28px 20px; }
+  aside h1 { margin:0; font-size:30px; line-height:1.15; }
+  aside p { margin:12px 0 0; font-size:18px; color:#cbd5e1; line-height:1.55; }
+  nav { margin-top:28px; display:flex; flex-direction:column; gap:4px; }
+  nav a { color:#fff; text-decoration:none; padding:11px 14px; border-radius:12px; font-size:15px; }
+  nav a.act { background:rgba(255,255,255,.16); }
+  main { padding:28px 32px 48px; min-width:0; }
+  .top { display:flex; justify-content:space-between; align-items:center; background:#fff; border:1px solid var(--border); border-radius:16px; padding:12px 18px; margin-bottom:22px; font-size:14px; color:var(--muted); }
+  .card { background:#fff; border:1px solid var(--border); border-radius:20px; padding:24px; margin-bottom:20px; }
+  .eyebrow { color:var(--link); margin:0; }
+  .h1 { margin:10px 0 0; font-size:36px; color:var(--navy); line-height:1.15; }
+  .fila { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin-top:18px; }
+  .badge { display:inline-flex; border-radius:999px; background:#dbeafe; color:#1d4ed8; padding:8px 20px; }
+  .btn { display:inline-flex; align-items:center; gap:8px; border-radius:16px; padding:12px 20px; font:inherit; font-size:15px; border:0; cursor:pointer; }
+  .btn.pri { background:var(--link); color:#fff; box-shadow:0 8px 16px rgba(49,80,216,.25); }
+  .btn.sec { background:#fffbeb; color:#92400e; border:1px solid #fcd34d; }
+  .ok { border:1px solid #bbf7d0; background:#f0fdf4; color:#166534; border-radius:16px; padding:14px 20px; margin-bottom:20px; }
+  h2 { margin:0 0 16px; font-size:24px; color:var(--navy); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; }
+  .dato { border:1px solid var(--border); border-radius:14px; padding:14px 16px; background:#F8FAFD; }
+  .label { margin:0; color:var(--muted); }
+  .valor { margin:8px 0 0; color:var(--navy); word-break:break-word; }
+  a.link { color:var(--link); text-decoration:none; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  thead { background:#041E42; color:#fff; text-align:left; }
+  th { padding:12px; font-size:11px; letter-spacing:1px; }
+  td { padding:10px 12px; border-top:1px solid #e2e8f0; vertical-align:top; }
+  .chip { border-radius:999px; padding:2px 10px; font-size:12px; background:#dbeafe; color:#1e40af; font-weight:600; }
+  .chip.int { background:#e2e8f0; color:#334155; }
+  .nota { font-size:13px; color:var(--muted); margin-top:20px; }
+  @media (max-width:800px) { .shell { grid-template-columns:1fr; } aside { display:none; } main { padding:16px; } .h1 { font-size:28px; } }
+</style>
+</head>
+<body data-v="actual">
+<div class="selector" role="group" aria-label="Variante">
+  <strong>Prototipo SOL-2026-11-11-002 · datos ficticios ·</strong>
+  <button type="button" data-set="actual" aria-pressed="true">Actual</button>
+  <button type="button" data-set="A" aria-pressed="false">Propuesta A — moderada</button>
+  <button type="button" data-set="B" aria-pressed="false">Propuesta B — como la grilla</button>
+  <span class="desc" id="desc"></span>
+</div>
+
+<div class="shell">
+  <aside>
+    <h1 class="font-black">ParkFacil<br>CRM</h1>
+    <p>Administración<br>comercial</p>
+    <nav>
+      <a href="#" class="font-semibold">Dashboard</a>
+      <a href="#" class="font-semibold">Leads</a>
+      <a href="#" class="font-semibold act">Mesa de ayuda</a>
+      <a href="#" class="font-semibold">Soporte</a>
+      <a href="#" class="font-semibold">Administración</a>
+      <a href="#" class="font-semibold">Reportes</a>
+    </nav>
+  </aside>
+
+  <main>
+    <div class="top"><span>Inicio / Mesa de ayuda / Caso</span><span class="font-semibold" style="color:var(--navy)">Agente Demo</span></div>
+
+    <div class="ok font-bold">Aviso enviado correctamente a contacto@demo-cliente.cl.</div>
+
+    <section class="card">
+      <p class="eyebrow font-black uppercase">Soporte</p>
+      <h1 class="h1 font-black">PF-MA-2026-0000DEMO</h1>
+      <div class="fila">
+        <span class="badge font-bold">Cerrado</span>
+        <button class="btn sec font-black" type="button">Restaurar caso</button>
+        <button class="btn pri font-black" type="button">Guardar cambios</button>
+        <a href="#" class="link font-bold">← Volver a la mesa de ayuda</a>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="font-black">Datos del caso</h2>
+      <div class="grid">
+        <div class="dato"><p class="label font-black uppercase">Cuenta</p><p class="valor font-bold">Estacionamientos Demo SpA</p></div>
+        <div class="dato"><p class="label font-black uppercase">Contacto</p><p class="valor font-bold">María Pérez</p></div>
+        <div class="dato"><p class="label font-black uppercase">Correo</p><p class="valor font-bold">contacto@demo-cliente.cl</p></div>
+        <div class="dato"><p class="label font-black uppercase">Prioridad</p><p class="valor font-bold">Alta</p></div>
+        <div class="dato"><p class="label font-black uppercase">Responsable</p><p class="valor font-bold">Agente Demo</p></div>
+        <div class="dato"><p class="label font-black uppercase">Asunto</p><p class="valor font-bold">No se muestra la patente en el ticket</p></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="font-black">Historial de actividades <span style="color:var(--muted);font-weight:400;font-size:15px">(3)</span></h2>
+      <div style="overflow-x:auto;border:1px solid #e2e8f0;border-radius:12px">
+        <table style="min-width:640px">
+          <thead><tr><th class="font-black uppercase">Fecha</th><th class="font-black uppercase">Hora</th><th class="font-black uppercase">Dirección</th><th class="font-black uppercase">Tipo</th><th class="font-black uppercase">Resumen</th></tr></thead>
+          <tbody>
+            <tr><td>11-11-2026</td><td>09:25</td><td><span class="chip">Saliente</span></td><td class="font-semibold" style="color:var(--navy)">Correo enviado</td><td>Aviso enviado a contacto@demo-cliente.cl: Su caso ha sido resuelto el día de hoy.</td></tr>
+            <tr><td>11-11-2026</td><td>09:25</td><td><span class="chip int">Interno</span></td><td class="font-semibold" style="color:var(--navy)">Cambio de estado</td><td>Estado: Asignado → Cerrado</td></tr>
+            <tr><td>10-11-2026</td><td>12:00</td><td><span class="chip int">Interno</span></td><td class="font-semibold" style="color:var(--navy)">Ticket de soporte creado</td><td>Solicitud pública recibida.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="nota">La grilla del historial ya tiene el estilo de tu captura y queda igual en las tres variantes. Las variantes cambian el resto de la pantalla.</p>
+    </section>
+  </main>
+</div>
+
+<script>
+const desc = {
+  actual: "Así se ve hoy: títulos, botones y datos en negrita máxima (900) y etiquetas en mayúsculas espaciadas.",
+  A: "Moderada: negrita máxima → negrita (700), negrita → semi-negrita (600), etiquetas en mayúsculas con menos espacio.",
+  B: "Como la grilla: títulos en semi-negrita, datos en peso normal y etiquetas en minúscula, sin espaciado. Es la más liviana.",
+};
+function set(v) {
+  document.body.dataset.v = v;
+  document.querySelectorAll("[data-set]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.set === v)));
+  document.getElementById("desc").textContent = desc[v];
+}
+document.querySelectorAll("[data-set]").forEach((b) => b.addEventListener("click", () => set(b.dataset.set)));
+set("actual");
+</script>
+</body>
+</html>

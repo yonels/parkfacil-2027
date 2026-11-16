@@ -5,6 +5,7 @@ import { authorizeApiRequest, authorizationErrorResponse } from "@/lib/auth/apiA
 import { companyScope, requirePermission } from "@/lib/auth/apiAuthorizationCore.mjs";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
 import { listAuthorizedUsers } from "@/lib/usersRepository";
+import { validateProductScopeForCreation } from "@/lib/auth/memberActivationCore.mjs";
 
 export const dynamic = "force-dynamic";
 
@@ -25,9 +26,18 @@ function normalizeCreatePayload(input) {
     recoveryEmail: normalizeEmail(input?.recoveryEmail),
     phone: String(input?.phone || "").trim(),
     role: String(input?.role || "").trim(),
-    status: input?.status === "pending" ? "invited" : (["active", "invited", "inactive"].includes(input?.status) ? input.status : "active"),
+    // §3 del encargo "modelo de usuarios por empresa": los campos de
+    // auditoría/activación (status=active, activated_at/by,
+    // access_expires_at, etc.) NUNCA se aceptan libremente del body, ni
+    // siquiera cuando quien llama es Root -- todo usuario nuevo nace
+    // "invited" sin excepción. Activarlo es una acción aparte, auditada,
+    // exclusiva de Root (ver POST /api/usuarios/[id]/activacion). Antes
+    // este campo aceptaba status="active" directo desde el body (hueco de
+    // seguridad real: un company_admin podía autoactivar a quien creaba).
+    status: "invited",
     companyId: String(input?.companyId || "").trim(),
     parkingIds: Array.isArray(input?.parkingIds) ? input.parkingIds.filter(Boolean).map((id) => String(id)) : [],
+    productScope: input?.productScope ? String(input.productScope).trim().toUpperCase() : null,
   };
 }
 
@@ -43,6 +53,10 @@ export async function GET(request) {
       ...result,
       canManageCredentials: [ROLES.PLATFORM_ADMIN, ROLES.COMPANY_ADMIN].includes(authorization.context.role),
       canSetDirectPassword: authorization.context.role === ROLES.PLATFORM_ADMIN && authorization.context.portal === "root",
+      // FASE 4/7 "modelo de usuarios por empresa": activar/suspender es
+      // exclusivo de Root -- el grid del Cliente nunca debe ofrecer estas
+      // acciones (§8.7: "Cliente no puede activar usuarios").
+      canActivateUsers: authorization.context.role === ROLES.PLATFORM_ADMIN && authorization.context.portal === "root",
       persistent: true,
     });
   } catch (error) {
@@ -81,10 +95,24 @@ export async function POST(request) {
   }
 
   try {
-    const company = await db.from("companies").select("id").eq("id", targetCompanyId).maybeSingle();
+    const company = await db.from("companies").select("id,enabled_products").eq("id", targetCompanyId).maybeSingle();
     if (company.error) throw company.error;
     if (!company.data) {
       return NextResponse.json({ error: "No se encontro la empresa solicitada.", code: "COMPANY_NOT_FOUND" }, { status: 404 });
+    }
+
+    // product_scope (§1/§9 del encargo): alcance operativo del usuario
+    // dentro de su empresa -- distinto de companies.enabled_products (lo
+    // contratado). Nunca se adivina para operator (debe venir explícito);
+    // para company_admin se completa con el default (BOTH si la empresa
+    // tiene ambos productos) cuando no se indica.
+    const scopeResult = validateProductScopeForCreation({
+      role: payload.role,
+      productScope: payload.productScope,
+      companyEnabledProducts: company.data.enabled_products,
+    });
+    if (!scopeResult.ok) {
+      return NextResponse.json({ error: scopeResult.error, code: "PRODUCT_SCOPE_INVALID" }, { status: 400 });
     }
 
     const parkingIds = payload.parkingIds.length ? payload.parkingIds : [];
@@ -133,6 +161,7 @@ export async function POST(request) {
       pos_only: payload.role === ROLES.OPERATOR,
       must_change_password: true,
       recovery_email: payload.recoveryEmail,
+      product_scope: scopeResult.value,
     });
     if (member.error) throw member.error;
 

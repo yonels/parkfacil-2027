@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Historial del cliente</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --navy:#041E42; --blue:#3150D8; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --bg:#F4F7FC; --card:#FFFFFF;
+  --ok:#16A34A; --ok-bg:#DCFCE7; --warn:#D97706; --warn-bg:#FEF3C7; --err:#DC2626; --err-bg:#FEE2E2; --lock-bg:#F1F5F9;
+  --violet:#7C3AED; --teal:#0F766E; --sky:#0284C7; --orange:#EA580C; --pink:#DB2777;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);font-size:14px;line-height:1.45}
+button,input,select{font:inherit}
+button{cursor:pointer}
+.hidden{display:none!important}
+.topbar{height:58px;background:var(--navy);color:#fff;display:flex;align-items:center;gap:14px;padding:0 18px;position:sticky;top:0;z-index:30}
+.brand{font-weight:800;font-size:18px}.brand span{color:#7FA2FF}
+.spacer{flex:1}
+.proto-tag{background:#FDE68A;color:#78350F;font-size:11px;font-weight:700;padding:4px 10px;border-radius:999px}
+.layout{display:grid;grid-template-columns:230px 1fr;min-height:calc(100vh - 58px)}
+.sidebar{background:#fff;border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:58px;height:calc(100vh - 58px);overflow:auto}
+.side-title{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin:14px 10px 6px}
+.side-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;color:#334155;font-weight:500}
+.side-item.active{background:linear-gradient(90deg,#EEF2FF,#F5F3FF);color:var(--blue);font-weight:700;box-shadow:inset 3px 0 0 var(--blue)}
+.side-sub{margin-left:18px;border-left:2px solid var(--line);padding-left:8px}
+.side-sub .side-item{font-size:13px;padding:6px 10px;color:#64748B}
+.side-sub .side-item.on{color:var(--blue);font-weight:700}
+.new{margin-left:auto;font-size:10px;font-weight:800;color:#fff;background:linear-gradient(90deg,#3150D8,#7C3AED);padding:2px 7px;border-radius:999px}
+.main{padding:22px 26px 60px;min-width:0}
+h1{margin:0;font-size:26px;color:var(--navy)}
+.sub{margin:4px 0 16px;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+.btn{border:0;border-radius:999px;padding:9px 16px;font-weight:700;display:inline-flex;align-items:center;gap:8px}
+.btn-primary{color:#fff;background:var(--c,var(--blue))}
+.btn-ghost{background:#fff;border:1px solid var(--line);color:#334155}
+.btn-sm{padding:5px 11px;font-size:12.5px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;white-space:nowrap}
+.chip.ok{background:var(--ok-bg);color:#166534}.chip.warn{background:var(--warn-bg);color:#92400E}.chip.err{background:var(--err-bg);color:#991B1B}.chip.lock{background:var(--lock-bg);color:#475569}.chip.info{background:#DBEAFE;color:#1E40AF}.chip.violet{background:#EDE9FE;color:#5B21B6}
+.banner{border-radius:14px;padding:10px 14px;margin-bottom:14px;font-size:13px;background:#FFFBEB;color:#78350F;border:1px solid #FDE68A}
+
+/* Selector de empresa */
+.pick{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px;margin-bottom:14px}
+.pick select,.pick input{border:1px solid var(--line);border-radius:12px;padding:9px 12px;background:#fff}
+.pick .who{display:flex;gap:12px;align-items:center}
+.logo{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:800;font-size:18px;background:var(--blue)}
+.who b{display:block;font-size:17px;color:var(--navy)}.who small{color:var(--muted)}
+
+/* Resumen */
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:14px}
+.kpi{padding:12px 14px}.kpi small{color:var(--muted);font-weight:600}.kpi b{display:block;font-size:19px;color:var(--navy)}
+.kpi.neg b{color:var(--err)}.kpi.pos b{color:var(--ok)}
+
+/* Barra de filtros */
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 14px;margin-bottom:14px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;padding:3px;background:#F8FAFC}
+.seg button{border:0;background:none;padding:6px 13px;border-radius:999px;font-size:13px;font-weight:700;color:#64748B}
+.seg button.on{background:var(--navy);color:#fff}
+.filter{border:1px solid var(--line);background:#fff;border-radius:999px;padding:5px 11px;font-size:12.5px;font-weight:600;color:#475569}
+.filter.on{border-color:var(--c);background:color-mix(in srgb,var(--c) 12%,#fff);color:var(--c)}
+.bar select{border:1px solid var(--line);border-radius:999px;padding:6px 12px;background:#fff}
+
+/* Vista por factura */
+.inv{margin-bottom:12px;overflow:hidden}
+.inv-head{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 16px;cursor:pointer}
+.inv-head .fol{font-size:16px;font-weight:800;color:var(--navy)}
+.inv-head .meta{color:var(--muted);font-size:12.5px}
+.inv-head .amt{margin-left:auto;text-align:right}
+.inv-head .amt b{display:block;font-size:16px}
+.inv.void .inv-head .fol{text-decoration:line-through;text-decoration-color:var(--err)}
+.bal{height:6px;border-radius:999px;background:#E2E8F0;overflow:hidden;width:180px;margin-top:6px}
+.bal div{height:100%}
+.inv-body{border-top:1px solid var(--line);padding:6px 16px 14px;background:#FBFCFE}
+.ev{display:grid;grid-template-columns:28px 120px 1fr auto;gap:10px;align-items:start;padding:9px 0;border-bottom:1px dashed var(--line)}
+.ev:last-child{border-bottom:0}
+.ico{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;color:#fff;background:var(--c)}
+.ev .d{color:var(--muted);font-size:12.5px}
+.ev .t b{display:block}
+.ev .t small{color:var(--muted)}
+.ev .m{text-align:right;font-weight:700;white-space:nowrap}
+.ev .m.neg{color:var(--err)}.ev .m.pos{color:var(--ok)}
+.inv-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.disabled-why{font-size:12px;color:var(--err);font-weight:600}
+
+/* Línea de tiempo */
+.tl{position:relative;padding:8px 16px 8px 44px}
+.tl::before{content:"";position:absolute;left:28px;top:0;bottom:0;width:2px;background:var(--line)}
+.tl .month{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:14px 0 6px -16px}
+.tl .row{position:relative;display:grid;grid-template-columns:110px 1fr auto;gap:12px;padding:9px 12px;background:#fff;border:1px solid var(--line);border-radius:12px;margin-bottom:8px}
+.tl .row .ico{position:absolute;left:-29px;top:9px}
+.tl .row .d{color:var(--muted);font-size:12.5px}
+.tl .row .m{font-weight:700;white-space:nowrap;text-align:right}
+.tl .row .m.neg{color:var(--err)}.tl .row .m.pos{color:var(--ok)}
+
+/* Modal nota de crédito */
+.modal{position:fixed;inset:0;background:rgba(4,30,66,.45);z-index:50;display:grid;place-items:center;padding:20px}
+.modal .box{width:min(620px,100%);background:#fff;border-radius:20px;padding:20px;box-shadow:0 20px 50px -20px rgba(0,0,0,.5)}
+.modal h3{margin:0 0 6px;color:var(--navy)}
+.field label{display:block;font-size:12.5px;font-weight:700;color:#334155;margin:10px 0 4px}
+.field input,.field select{width:100%;border:1px solid var(--line);border-radius:12px;padding:9px 12px}
+.field input.bad{border-color:var(--err);background:#FFF5F5}
+.already{background:#EEF2FF;border:1px solid #C7D2FE;border-radius:12px;padding:10px 12px;font-size:13px;margin:8px 0}
+.toast{position:fixed;right:20px;bottom:20px;background:var(--navy);color:#fff;padding:12px 16px;border-radius:14px;font-weight:600;z-index:60}
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:760px){.layout{grid-template-columns:1fr}.sidebar{display:none}.main{padding:16px}.kpis{grid-template-columns:repeat(2,1fr)}.ev{grid-template-columns:28px 1fr}.ev .d,.ev .m{grid-column:2}.tl .row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">Park<span>Facil</span> · Root</div>
+  <div class="spacer"></div>
+  <span class="proto-tag">PROTOTIPO · datos ficticios · no guarda nada</span>
+</div>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="side-title">Administración</div>
+    <div class="side-item active">Facturación</div>
+    <div class="side-sub">
+      <div class="side-item">Ciclo de facturación</div>
+      <div class="side-item">Notas de crédito y débito</div>
+      <div class="side-item on">Historial del cliente <span class="new">NUEVO</span></div>
+      <div class="side-item">Documentos SII</div>
+      <div class="side-item">Cuenta Corriente</div>
+      <div class="side-item">Reportes</div>
+      <div class="side-item">Configuración</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <h1>Historial del cliente</h1>
+    <p class="sub">Todas las transacciones de una empresa: prefacturas, facturas, notas, pagos, correos, respuestas del SII y cambios.</p>
+    <div class="banner"><b>Haulmer, ambiente de pruebas.</b> Los documentos de ParkFacil no tienen validez tributaria.</div>
+
+    <section class="card pick">
+      <div class="who"><div class="logo" id="logo">P</div><div><b id="co-name"></b><small id="co-meta"></small></div></div>
+      <span class="spacer"></span>
+      <input id="co-search" placeholder="Buscar empresa o RUT…" list="co-list" style="min-width:240px">
+      <datalist id="co-list"></datalist>
+      <select id="co-select"></select>
+    </section>
+
+    <section class="kpis" id="kpis"></section>
+
+    <section class="card bar">
+      <div class="seg" id="view-seg"><button data-v="factura" class="on">Por factura</button><button data-v="tiempo">Línea de tiempo</button></div>
+      <select id="period"><option value="all">Todo el historial</option><option value="2026-11">Noviembre 2026</option><option value="2026-10">Octubre 2026</option><option value="2026-09">Septiembre 2026</option></select>
+      <span id="type-filters"></span>
+      <span class="spacer"></span>
+      <button class="btn btn-ghost btn-sm" id="export">⬇ Exportar cartola (Excel)</button>
+    </section>
+
+    <section id="view"></section>
+  </main>
+</div>
+
+<div class="modal hidden" id="modal"><div class="box" id="modal-box"></div></div>
+
+<script>
+const TYPES = {
+  pre:   { label:"Prefactura",       ico:"🧾", c:"#7C3AED" },
+  fac:   { label:"Factura",          ico:"📄", c:"#3150D8" },
+  nc:    { label:"Nota de crédito",  ico:"➖", c:"#DC2626" },
+  nd:    { label:"Nota de débito",   ico:"➕", c:"#EA580C" },
+  pago:  { label:"Pago",             ico:"💵", c:"#16A34A" },
+  mail:  { label:"Correo",           ico:"✉",  c:"#0284C7" },
+  sii:   { label:"SII / respuesta",  ico:"🏛", c:"#0F766E" },
+  cambio:{ label:"Cambios",          ico:"✎",  c:"#64748B" },
+};
+const clp = (n) => new Intl.NumberFormat("es-CL",{style:"currency",currency:"CLP",maximumFractionDigits:0}).format(Math.round(n));
+const dmy = (iso) => iso.slice(0,10).split("-").reverse().join("-");
+
+// Datos ficticios (salvo la empresa de pruebas ParkFacil Operaciones, D5).
+const COMPANIES = [
+  { id:"emp-001", name:"ParkFacil Operaciones Spa", rut:"77.991.619-7", color:"#3150D8",
+    invoices:[
+      { folio:"204997", origin:"ParkFacil", date:"2026-11-08", due:"2026-11-15", total:73703, sii:"Aceptado", response:"", period:"2026-11",
+        events:[
+          { t:"pre", d:"2026-11-08 16:20", title:"Prefactura PRE-202611-0AFDE38A calculada", sub:"UF 1,5 + IVA · UF 41.274,20", amt:null },
+          { t:"pre", d:"2026-11-08 16:24", title:"Prefactura revisada y aprobada", sub:"Por facturacion.root", amt:null },
+          { t:"fac", d:"2026-11-08 16:24", title:"Factura electrónica emitida · folio 204997", sub:"Haulmer pruebas · 1,4 s", amt:73703 },
+          { t:"mail",d:"2026-11-08 16:24", title:"Correo con PDF enviado", sub:"info@parkfacil.cl", amt:null },
+          { t:"sii", d:"2026-11-08 16:30", title:"Estado SII: Aceptado", sub:"", amt:null },
+          { t:"nc",  d:"2026-11-08 16:57", title:"Nota de crédito TOTAL emitida · folio 118169", sub:"Motivo: Error de facturacion", amt:-73703 },
+          { t:"mail",d:"2026-11-08 16:57", title:"Correo con PDF de la NC enviado", sub:"info@parkfacil.cl", amt:null },
+        ]},
+      { folio:"205010", origin:"ParkFacil", date:"2026-11-09", due:"2026-11-16", total:73703, sii:"Aceptado", response:"", period:"2026-11",
+        events:[
+          { t:"pre", d:"2026-11-09 10:02", title:"Prefactura PRE-202611-7C21AA90 calculada", sub:"Reemplaza a la factura anulada 204997", amt:null },
+          { t:"fac", d:"2026-11-09 10:05", title:"Factura electrónica emitida · folio 205010", sub:"Haulmer pruebas", amt:73703 },
+          { t:"mail",d:"2026-11-09 10:05", title:"Correo con PDF enviado", sub:"info@parkfacil.cl", amt:null },
+          { t:"nc",  d:"2026-11-09 12:40", title:"Nota de crédito PARCIAL emitida · folio 118175", sub:"Motivo: Descuento por 3 días sin servicio", amt:-7370 },
+        ]},
+      { folio:"—", origin:"ParkFacil", date:"2026-11-08", due:"", total:1190, sii:"Rechazada", response:"", period:"2026-11", rejected:true,
+        events:[
+          { t:"fac", d:"2026-11-08 13:58", title:"Factura rechazada por Haulmer (OF-02)", sub:"RUT del cliente con dígito verificador inválido · sin folio", amt:null },
+          { t:"cambio", d:"2026-11-08 14:10", title:"Documento descartado", sub:"Motivo: RUT mal ingresado · la prefactura volvió a revisión", amt:null },
+        ]},
+    ],
+    loose:[
+      { t:"cambio", d:"2026-11-06 11:15", title:"Servicio agregado: SERV-01 Cuota mensual ParkFacil", sub:"UF 1,5 mensual desde 01-11-2026", amt:null, period:"2026-11" },
+      { t:"cambio", d:"2026-11-08 14:08", title:"Datos tributarios corregidos", sub:"RUT y correo de facturación (etapa Datos del ciclo)", amt:null, period:"2026-11" },
+    ]},
+  { id:"emp-demo-1", name:"Cliente Demo Norte SpA", rut:"76.000.000-0", color:"#0891B2",
+    invoices:[
+      { folio:"262", origin:"EasyDoc", date:"2026-10-01", due:"2026-10-08", total:190546, sii:"Aceptado", response:"Aceptado x Omisión", period:"2026-10",
+        events:[
+          { t:"fac", d:"2026-10-01 10:05", title:"Factura folio 262 (EasyDoc, importada)", sub:"Planilla «Descarga Excel» · Registro de Ventas SII", amt:190546 },
+          { t:"sii", d:"2026-10-09 10:05", title:"Respuesta del cliente: Aceptado x Omisión", sub:"8 días sin reclamo", amt:null },
+          { t:"pago",d:"2026-10-15 09:30", title:"Pago recibido · transferencia", sub:"Banco ficticio · aplicado a folio 262", amt:-190546 },
+        ]},
+      { folio:"280", origin:"EasyDoc", date:"2026-11-01", due:"2026-11-08", total:73626, sii:"Aceptado", response:"", period:"2026-11",
+        events:[
+          { t:"fac", d:"2026-11-01 09:30", title:"Factura folio 280 (EasyDoc, importada)", sub:"", amt:73626 },
+          { t:"pago",d:"2026-11-05 16:00", title:"Abono parcial · transferencia", sub:"Aplicado a folio 280", amt:-40000 },
+        ]},
+      { folio:"249", origin:"EasyDoc", date:"2026-09-01", due:"2026-09-08", total:61598, sii:"Aceptado", response:"Otorga Recibo", period:"2026-09",
+        events:[
+          { t:"fac", d:"2026-09-01 10:00", title:"Factura folio 249 (EasyDoc, importada)", sub:"", amt:61598 },
+          { t:"sii", d:"2026-09-03 12:10", title:"Respuesta del cliente: Otorga Recibo", sub:"Acuse de recibo", amt:null },
+          { t:"nd",  d:"2026-09-20 11:00", title:"Nota de débito folio 33 (EasyDoc)", sub:"Motivo: Cobro de implementación adicional", amt:11900 },
+        ]},
+    ],
+    loose:[] },
+];
+let current = COMPANIES[0], view = "factura", period = "all", activeTypes = new Set(Object.keys(TYPES));
+const $ = (s) => document.querySelector(s);
+function toast(m){ const t=document.createElement("div"); t.className="toast"; t.textContent=m; document.body.appendChild(t); setTimeout(()=>t.remove(),2600); }
+
+// Cálculos por factura: notas, pagos, disponible para acreditar y estado.
+function invoiceState(inv){
+  const sum = (t) => inv.events.filter(e=>e.t===t).reduce((a,e)=>a+Math.abs(e.amt||0),0);
+  const nc = sum("nc"), nd = sum("nd"), paid = sum("pago");
+  // Una factura rechazada nunca existió en el SII: no tiene saldo ni admite notas.
+  const creditable = inv.rejected ? 0 : Math.max(0, inv.total + nd - nc);
+  const balance = inv.rejected ? 0 : Math.max(0, inv.total + nd - nc - paid);
+  const overdue = !inv.rejected && balance > 0 && inv.due && inv.due < "2026-11-09";
+  let chip;
+  if (inv.rejected) chip = ['lock','Rechazada · descartada'];
+  else if (creditable === 0) { const n = inv.events.find(e=>e.t==="nc" && /TOTAL/.test(e.title)); chip = ['err', `Anulada con nota de crédito ${n ? n.title.match(/folio (\d+)/)[1] : ""}`]; }
+  else if (balance === 0) chip = ['ok','Pagada'];
+  else if (overdue) chip = ['warn',`Vencida · saldo ${clp(balance)}`];
+  else if (nc > 0) chip = ['violet',`Con NC parcial · disponible ${clp(creditable)}`];
+  else chip = ['info','Vigente'];
+  return { nc, nd, paid, creditable, balance, overdue, chip };
+}
+
+function renderPicker(){
+  $("#co-select").innerHTML = COMPANIES.map(c=>`<option value="${c.id}" ${c.id===current.id?"selected":""}>${c.name} · ${c.rut}</option>`).join("");
+  $("#co-list").innerHTML = COMPANIES.map(c=>`<option value="${c.name}">${c.rut}</option>`).join("");
+  $("#logo").textContent = current.name[0]; $("#logo").style.background = current.color;
+  $("#co-name").textContent = current.name;
+  $("#co-meta").textContent = `${current.rut} · ${current.invoices.filter(i=>!i.rejected).length} facturas · cliente desde ${dmy([...current.invoices].sort((a,b)=>a.date.localeCompare(b.date))[0].date)}`;
+}
+function inPeriod(dateOrPeriod){ return period==="all" || String(dateOrPeriod).startsWith(period); }
+
+function renderKpis(){
+  const inv = current.invoices.filter(i=>!i.rejected && inPeriod(i.date));
+  const st = inv.map(invoiceState);
+  const fact = inv.reduce((a,i)=>a+i.total,0), nc = st.reduce((a,s)=>a+s.nc,0), nd = st.reduce((a,s)=>a+s.nd,0), paid = st.reduce((a,s)=>a+s.paid,0), bal = st.reduce((a,s)=>a+s.balance,0), over = st.filter(s=>s.overdue).length;
+  $("#kpis").innerHTML = [["Facturado",clp(fact),""],["Notas de crédito",`-${clp(nc)}`,"neg"],["Notas de débito",`+${clp(nd)}`,""],["Pagado",clp(paid),"pos"],["Saldo pendiente",clp(bal),bal?"neg":"pos"],["Facturas vencidas",String(over),over?"neg":""]]
+    .map(([l,v,c])=>`<div class="card kpi ${c}"><small>${l}</small><b>${v}</b></div>`).join("");
+}
+function renderFilters(){
+  $("#type-filters").innerHTML = Object.entries(TYPES).map(([k,t])=>`<button class="filter ${activeTypes.has(k)?"on":""}" style="--c:${t.c}" data-t="${k}">${t.ico} ${t.label}</button>`).join(" ");
+  document.querySelectorAll("[data-t]").forEach(b=>b.onclick=()=>{ activeTypes.has(b.dataset.t)?activeTypes.delete(b.dataset.t):activeTypes.add(b.dataset.t); renderFilters(); renderView(); });
+}
+
+function evRow(e){
+  const t = TYPES[e.t];
+  const cls = e.amt==null ? "" : e.amt<0 ? (e.t==="pago"?"pos":"neg") : "";
+  return `<div class="ev"><div class="ico" style="--c:${t.c}">${t.ico}</div><div class="d">${dmy(e.d)} ${e.d.slice(11)}</div><div class="t"><b>${e.title}</b>${e.sub?`<small>${e.sub}</small>`:""}</div><div class="m ${cls}">${e.amt==null?"":(e.amt<0?"−":"+")+clp(Math.abs(e.amt))}</div></div>`;
+}
+
+function renderByInvoice(){
+  const list = current.invoices.filter(i=>inPeriod(i.date)).sort((a,b)=>b.date.localeCompare(a.date));
+  if (!list.length) return `<div class="card" style="padding:20px;color:var(--muted)">Sin facturas en el período.</div>`;
+  return list.map((inv,idx)=>{
+    const s = invoiceState(inv);
+    const pct = inv.total ? Math.round((1 - s.balance/(inv.total+s.nd))*100) : 0;
+    const evs = inv.events.filter(e=>activeTypes.has(e.t));
+    const ncDisabled = inv.rejected || s.creditable === 0;
+    const why = inv.rejected ? "No llegó al SII: no admite notas." : s.creditable===0 ? "Ya fue acreditada por completo: no queda monto para otra nota de crédito." : "";
+    return `<article class="card inv ${s.creditable===0 && !inv.rejected?"void":""}">
+      <div class="inv-head" data-toggle="${idx}">
+        <div><span class="fol">${inv.rejected?"Factura sin folio":"Factura "+inv.folio}</span> <span class="chip ${s.chip[0]}">${s.chip[1]}</span>
+          <div class="meta">${dmy(inv.date)} · ${inv.origin}${inv.due?` · vence ${dmy(inv.due)}`:""}${inv.sii?` · SII: ${inv.sii}`:""}${inv.response?` · ${inv.response}`:""}</div></div>
+        <div class="amt"><b>${clp(inv.total)}</b><small style="color:var(--muted)">saldo ${clp(s.balance)}</small>
+          <div class="bal"><div style="width:${inv.rejected?0:pct}%;background:${s.balance===0?"var(--ok)":"var(--blue)"}"></div></div></div>
+      </div>
+      <div class="inv-body ${idx>1?"hidden":""}" id="body-${idx}">
+        ${evs.length?evs.map(evRow).join(""):`<p style="color:var(--muted)">Sin movimientos de los tipos seleccionados.</p>`}
+        <div class="inv-actions">
+          ${inv.rejected?"":`<button class="btn btn-ghost btn-sm" onclick="toast('Prototipo: abriría el PDF de la factura ${inv.folio}.')">Ver PDF</button>`}
+          <button class="btn btn-primary btn-sm" ${ncDisabled?"disabled":""} data-nc="${idx}">➖ Nota de crédito</button>
+          <button class="btn btn-ghost btn-sm" ${inv.rejected?"disabled":""} data-nd="${idx}">➕ Nota de débito</button>
+          ${why?`<span class="disabled-why">${why}</span>`:""}
+        </div>
+      </div>
+    </article>`;
+  }).join("");
+}
+
+function renderTimeline(){
+  const all = [];
+  for (const inv of current.invoices) for (const e of inv.events) all.push({ ...e, inv: inv.folio });
+  for (const e of current.loose) all.push(e);
+  const list = all.filter(e=>activeTypes.has(e.t) && inPeriod(e.d)).sort((a,b)=>b.d.localeCompare(a.d));
+  if (!list.length) return `<div class="card" style="padding:20px;color:var(--muted)">Sin transacciones en el período.</div>`;
+  let lastMonth = "", html = "";
+  for (const e of list) {
+    const m = e.d.slice(0,7);
+    if (m!==lastMonth) { lastMonth = m; const [y,mm]=m.split("-"); html += `<div class="month">${new Date(Date.UTC(+y,+mm-1,15)).toLocaleDateString("es-CL",{month:"long",year:"numeric",timeZone:"UTC"})}</div>`; }
+    const t = TYPES[e.t];
+    const cls = e.amt==null ? "" : e.amt<0 ? (e.t==="pago"?"pos":"neg") : "";
+    html += `<div class="row"><div class="ico" style="--c:${t.c}">${t.ico}</div><div class="d">${dmy(e.d)}<br>${e.d.slice(11)}</div><div><b>${e.title}</b>${e.sub?`<br><small style="color:var(--muted)">${e.sub}</small>`:""}${e.inv && e.inv!=="—"?` <span class="chip lock">Factura ${e.inv}</span>`:""}</div><div class="m ${cls}">${e.amt==null?"":(e.amt<0?"−":"+")+clp(Math.abs(e.amt))}</div></div>`;
+  }
+  return `<div class="card tl">${html}</div>`;
+}
+
+function renderView(){
+  $("#view").innerHTML = view==="factura" ? renderByInvoice() : renderTimeline();
+  document.querySelectorAll("[data-toggle]").forEach(h=>h.onclick=(ev)=>{ if (ev.target.closest("button")) return; $("#body-"+h.dataset.toggle).classList.toggle("hidden"); });
+  document.querySelectorAll("[data-nc]").forEach(b=>b.onclick=()=>openNote(current.invoices.filter(i=>inPeriod(i.date)).sort((a,b)=>b.date.localeCompare(a.date))[+b.dataset.nc],"nc"));
+  document.querySelectorAll("[data-nd]").forEach(b=>b.onclick=()=>openNote(current.invoices.filter(i=>inPeriod(i.date)).sort((a,b)=>b.date.localeCompare(a.date))[+b.dataset.nd],"nd"));
+}
+
+function openNote(inv, kind){
+  const s = invoiceState(inv);
+  const prev = inv.events.filter(e=>e.t==="nc"||e.t==="nd");
+  $("#modal-box").innerHTML = `<h3>${kind==="nc"?"Nueva nota de crédito":"Nueva nota de débito"} · factura ${inv.folio}</h3>
+    <p style="color:var(--muted);margin:0">${current.name} · ${clp(inv.total)} · ${dmy(inv.date)}</p>
+    <div class="already">${prev.length?`<b>Ya tiene:</b> ${prev.map(p=>p.title.replace(/ emitida.*folio/," · folio").replace("Nota de crédito","NC").replace("Nota de débito","ND")+" · "+clp(Math.abs(p.amt))).join("; ")}<br>`:"<b>Sin notas previas.</b><br>"}${kind==="nc"?`<b>Disponible para acreditar: ${clp(s.creditable)}</b>`:"La nota de débito suma un cobro a esta factura."}</div>
+    <div class="field">${kind==="nc"?`<label>Tipo</label><select id="nm"><option value="PARTIAL">Parcial</option><option value="TOTAL">Total (anula lo disponible: ${clp(s.creditable)})</option></select>`:""}
+      <label>Monto con IVA (CLP)</label><input id="na" type="number" min="1" ${kind==="nc"?`max="${s.creditable}"`:""} placeholder="${kind==="nc"?"Máximo "+clp(s.creditable):"Ej.: 11.900"}"><div id="nwarn" style="font-size:12px;color:var(--err);font-weight:600;margin-top:4px"></div>
+      <label>Motivo (obligatorio)</label><input id="nr" placeholder="${kind==="nc"?"Ej.: Descuento por días sin servicio":"Ej.: Cobro adicional"}"></div>
+    <div style="display:flex;gap:8px;margin-top:16px"><button class="btn btn-primary" id="nok">${kind==="nc"?"Emitir nota de crédito":"Emitir nota de débito"}</button><button class="btn btn-ghost" id="nx">Cancelar</button></div>`;
+  $("#modal").classList.remove("hidden");
+  const amount = $("#na"), mode = $("#nm"), warn = $("#nwarn"), ok = $("#nok");
+  const check = () => { const v = Number(amount.value||0); const over = kind==="nc" && (mode?.value==="PARTIAL") && v > s.creditable; amount.classList.toggle("bad", over); warn.textContent = over ? `Supera lo disponible (${clp(s.creditable)}).` : ""; ok.disabled = over; };
+  amount.oninput = check; if (mode) mode.onchange = () => { amount.disabled = mode.value==="TOTAL"; check(); };
+  $("#nx").onclick = () => $("#modal").classList.add("hidden");
+  ok.onclick = () => { $("#modal").classList.add("hidden"); toast(`Prototipo: se emitiría la ${kind==="nc"?"nota de crédito":"nota de débito"} y quedaría en el historial.`); };
+}
+
+function render(){ renderPicker(); renderKpis(); renderFilters(); renderView(); }
+$("#co-select").onchange = (e) => { current = COMPANIES.find(c=>c.id===e.target.value); render(); };
+$("#co-search").onchange = (e) => { const q = e.target.value.toLowerCase(); const c = COMPANIES.find(x=>x.name.toLowerCase().includes(q) || x.rut.includes(q)); if (c) { current = c; e.target.value=""; render(); } };
+document.querySelectorAll("#view-seg button").forEach(b=>b.onclick=()=>{ view=b.dataset.v; document.querySelectorAll("#view-seg button").forEach(x=>x.classList.toggle("on",x===b)); renderView(); });
+$("#period").onchange = (e) => { period = e.target.value; renderKpis(); renderView(); };
+$("#export").onclick = () => toast("Prototipo: descargaría la cartola del cliente en Excel.");
+render();
+</script>
+</body>
+</html>

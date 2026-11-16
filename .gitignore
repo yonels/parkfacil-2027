@@ -49,3 +49,4 @@ next-env.d.ts
 /artifacts/
 /.claude/
 /scripts/_tmp-*.mjs
+/.tmp-shift-db/

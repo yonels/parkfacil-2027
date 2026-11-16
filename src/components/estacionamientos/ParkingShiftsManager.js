@@ -123,7 +123,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
       const payload = {
         assignmentId: selectedAssignment?.id || form.assignmentId || undefined,
         operatorId,
-        supervisorId: form.supervisorId || selectedAssignment.supervisorId || undefined,
+        supervisorId: form.supervisorId || selectedAssignment?.supervisorId || undefined,
         date: form.date,
         scheduledStart: form.scheduledStart || "00:00",
         scheduledEnd: form.scheduledEnd || "23:59",
@@ -149,7 +149,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
   async function removeShift(shift) {
     const accepted = window.confirm(`Se eliminará el turno del ${shift.shift_date || "sin fecha"}. Esta acción no se puede deshacer.`);
     if (!accepted) return;
-    setFormError("");
+    setError("");
     setDeletingShiftId(shift.id);
     try {
       const response = await authenticatedFetch(`/api/estacionamientos/${parking.code}/turnos/${shift.id}`, { method: "DELETE" });
@@ -158,7 +158,7 @@ export default function ParkingShiftsManager({ parking, structure }) {
       setShifts((current) => current.filter((item) => item.id !== shift.id));
       if (editingShiftId === shift.id) resetForm();
     } catch (cause) {
-      setFormError(cause.message);
+      setError(cause.message);
     } finally {
       setDeletingShiftId("");
     }
@@ -193,9 +193,9 @@ export default function ParkingShiftsManager({ parking, structure }) {
               const assignment = assignmentOptions.find((item) => item.id === shift.assignment_id);
               return <tr key={shift.id}>
                 <td className="px-4 py-3 font-medium text-[#041E42]">{shift.shift_date || "-"}</td>
-                <td className="px-4 py-3">{users.find((item) => item.id === shift.operator_id)?.nombreCompleto || shift.operator_id}</td>
+                <td className="px-4 py-3">{shift.presentation?.operatorName || users.find((item) => item.id === shift.operator_id)?.nombreCompleto || "Operador sin nombre registrado"}</td>
                 <td className="px-4 py-3"><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusTone[shift.status] || "bg-slate-100 text-slate-700"}`}>{statusLabel[shift.status] || shift.status}</span></td>
-                <td className="px-4 py-3">{assignment ? `${assignment.sectorName} / ${assignment.streetName}` : "Asignación no resuelta"}</td>
+                <td className="px-4 py-3">{shift.presentation?.areaLabel || (assignment ? `${assignment.sectorName} / ${assignment.streetName}` : "Asignación incompleta: falta una relación de área o calle")}</td>
                 <td className="px-4 py-3">{[shift.scheduled_start, shift.scheduled_end].filter(Boolean).join(" - ") || "Sin horario programado"}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-3">

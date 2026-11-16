@@ -1,0 +1,28 @@
+{
+  "fixtureVersion": 1,
+  "createdAt": "2026-10-28",
+  "source": "SYNTHETIC",
+  "visibleLabel": "Datos ficticios — preparación M2, sin integración",
+  "timeZone": "America/Santiago",
+  "remoteConnections": false,
+  "offStreet": {
+    "modality": "OFF_STREET",
+    "records": [
+      { "id": "DEMO-01", "parkingId": "DEMO-PARKING", "status": "PAID", "entryAt": "2026-10-01T12:00:00Z", "exitAt": "2026-10-01T13:00:00Z", "totalAmount": 1000, "currency": "CLP", "evidenceClass": "SYNTHETIC" },
+      { "id": "DEMO-02", "parkingId": "DEMO-PARKING", "status": "UNPAID_PENDING", "entryAt": "2026-10-01T12:30:00Z", "exitAt": null, "totalAmount": null, "currency": "CLP", "evidenceClass": "SYNTHETIC" }
+    ],
+    "capacityPeriods": [],
+    "expectedDisplayExamples": [
+      { "metricId": "off.revenue.v1", "value": 1000, "label": "Recaudación ficticia del escenario, no dato real" },
+      { "metricId": "off.occupancy_hour_avg.v1", "value": null, "display": "No calculable", "reason": "Capacidad histórica no disponible en el escenario" }
+    ]
+  },
+  "onStreet": {
+    "modality": "ON_STREET",
+    "enabled": false,
+    "functionalImplementationAuthorized": false,
+    "label": "Pendiente de autorización para desarrollo funcional",
+    "records": [],
+    "expectedDisplayExamples": []
+  }
+}
