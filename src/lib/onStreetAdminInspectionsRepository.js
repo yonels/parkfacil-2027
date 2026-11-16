@@ -94,20 +94,36 @@ export async function getOnStreetInspectionDetail(db, context, id) {
   return { ...row, location: locationMap.get(row.qr_location_id) || null, inspectorEmail: inspectorMap.get(row.inspector_user_id) || "—", unassigned: !row.parking_id };
 }
 
-// Todos los Inspectores reales (app_metadata.role === "inspector") --
-// mismo mecanismo de bootstrap que Root (ver rootBootstrapCore.mjs), no una
-// tabla paralela: el usuario Inspector vive únicamente en Supabase Auth.
-export async function listInspectorUsers(db = getSupabaseAdminClient()) {
-  const result = await db.auth.admin.listUsers({ perPage: 200 });
+// Inspectores reales (app_metadata.role === "inspector"). Desde
+// SOL-2026-11-16-003 cada inspector pertenece a una empresa
+// (company_members role='inspector'): companyId acota el listado a esa
+// empresa (company_admin); sin companyId (Root) se listan todos, incluidos
+// los que todavía no tengan empresa. Activo = membresía activa y cuenta sin
+// bloqueo de Auth.
+export async function listInspectorUsers(db = getSupabaseAdminClient(), { companyId = null } = {}) {
+  let membersQuery = db.from("company_members").select("user_id,company_id,full_name,status,company:companies(trade_name,business_name)").eq("role", "inspector");
+  if (companyId) membersQuery = membersQuery.eq("company_id", companyId);
+  const [result, members] = await Promise.all([db.auth.admin.listUsers({ perPage: 1000 }), membersQuery]);
   if (result.error) throw result.error;
-  return (result.data?.users || []).filter((u) => u.app_metadata?.role === "inspector").map((u) => ({
-    id: u.id,
-    email: u.email,
-    fullName: u.user_metadata?.full_name || null,
-    active: !u.banned_until || new Date(u.banned_until) <= new Date(),
-    createdAt: u.created_at,
-    lastSignInAt: u.last_sign_in_at || null,
-  }));
+  if (members.error) throw members.error;
+  const memberById = new Map((members.data || []).map((m) => [m.user_id, m]));
+  return (result.data?.users || [])
+    .filter((u) => u.app_metadata?.role === "inspector")
+    .filter((u) => !companyId || memberById.has(u.id))
+    .map((u) => {
+      const member = memberById.get(u.id) || null;
+      const banned = Boolean(u.banned_until) && new Date(u.banned_until) > new Date();
+      return {
+        id: u.id,
+        email: u.email,
+        fullName: member?.full_name || u.user_metadata?.full_name || null,
+        companyId: member?.company_id || null,
+        companyName: member?.company?.trade_name || member?.company?.business_name || null,
+        active: !banned && member?.status === "active",
+        createdAt: u.created_at,
+        lastSignInAt: u.last_sign_in_at || null,
+      };
+    });
 }
 
 async function inspectorEmailMap(db) {

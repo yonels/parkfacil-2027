@@ -18,14 +18,39 @@ export async function resolveAuthenticatedContext({ user, portal, loadMembership
     if (portal !== "root") throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al Portal Root.", { userId: user.id, companyId: null, portal, role: ROLES.PLATFORM_ADMIN });
     return { userId: user.id, email: user.email || "", portal, role: ROLES.PLATFORM_ADMIN, companyId: null, enabledProducts: resolveEnabledProducts(ROLES.PLATFORM_ADMIN, null), membership: null };
   }
-  // Inspector (Etapa 2): igual que platform_admin, resuelto por
-  // app_metadata.role -- deliberadamente SIN loadMembership/company_id, para
-  // que la consulta de patentes nunca quede restringida por empresa (ver
-  // §3.1 de Etapa 2). enabledProducts vacío: Inspector no usa el gating por
-  // producto Off/On Street, portal "inspector" no lo evalúa (ver canAccessPath).
+  // Inspector: app_metadata.role lo encierra en el portal /inspector, y desde
+  // SOL-2026-11-16-003 pertenece a UNA empresa vía company_members
+  // (role='inspector'), igual que administradores y operadores. Su consulta de
+  // patentes y fiscalizaciones queda acotada a esa empresa (decisión P1). Sin
+  // membresía activa no entra: así el administrador de la empresa lo desactiva
+  // desde el Catálogo de usuarios. enabledProducts vacío: el portal
+  // "inspector" no usa el gating por producto (ver canAccessPath).
   if (metadataRole === ROLES.INSPECTOR) {
     if (portal !== "inspector") throw new AuthorizationError("PORTAL_FORBIDDEN", 403, "Esta cuenta solo puede acceder al portal de Inspectores.", { userId: user.id, companyId: null, portal, role: ROLES.INSPECTOR });
-    return { userId: user.id, email: user.email || "", portal, role: ROLES.INSPECTOR, companyId: null, enabledProducts: [], membership: null };
+    const inspectorMembership = await loadMembership(user.id);
+    if (!inspectorMembership || inspectorMembership.role !== ROLES.INSPECTOR || inspectorMembership.status !== "active") {
+      throw new AuthorizationError("MEMBERSHIP_INACTIVE", 403, "Tu cuenta de inspector no está activa en ninguna empresa. Contacta al administrador de tu empresa.", { userId: user.id, companyId: inspectorMembership?.company_id || null, portal, role: ROLES.INSPECTOR });
+    }
+    if (!inspectorMembership.company || inspectorMembership.company.status !== "active" || inspectorMembership.company.relationship_type !== "client") {
+      throw new AuthorizationError("COMPANY_INACTIVE", 403, "El servicio de tu empresa está suspendido. Contacta a ParkFacil.", { userId: user.id, companyId: inspectorMembership.company_id, portal, role: ROLES.INSPECTOR });
+    }
+    return {
+      userId: user.id,
+      email: user.email || "",
+      portal,
+      role: ROLES.INSPECTOR,
+      companyId: inspectorMembership.company_id,
+      enabledProducts: [],
+      membership: {
+        userId: inspectorMembership.user_id,
+        companyId: inspectorMembership.company_id,
+        fullName: inspectorMembership.full_name,
+        role: ROLES.INSPECTOR,
+        status: inspectorMembership.status,
+        posOnly: false,
+        company: inspectorMembership.company,
+      },
+    };
   }
 
   const membership = await loadMembership(user.id);

@@ -38,11 +38,44 @@ test("canAccessPath: un contexto con rol operator (sin inspector:use) nunca pued
   assert.equal(hasPermission(ROLES.OPERATOR, PERMISSIONS.INSPECTOR_USE), false);
 });
 
-test("Inspector autorizado -> contexto válido, sin company_id, portal inspector", async () => {
-  const context = await resolveAuthenticatedContext({ user: inspectorUser, portal: "inspector", loadMembership: async () => { throw new Error("Inspector nunca debe consultar company_members"); } });
+// SOL-2026-11-16-003 (decisiones P1/P2): el inspector pertenece a UNA empresa
+// vía company_members role='inspector' y su contexto lleva ese companyId.
+const inspectorMembership = { user_id: "inspector-1", company_id: "c1", full_name: "Inspector Uno", role: "inspector", status: "active", pos_only: false, company: { id: "c1", status: "active", relationship_type: "client", enabled_products: ["ON_STREET"] } };
+
+test("Inspector autorizado -> contexto válido con el company_id de su membresía, portal inspector", async () => {
+  const context = await resolveAuthenticatedContext({ user: inspectorUser, portal: "inspector", loadMembership: async () => inspectorMembership });
   assert.equal(context.role, ROLES.INSPECTOR);
   assert.equal(context.portal, "inspector");
-  assert.equal(context.companyId, null, "Inspector no está atado a ninguna empresa (consulta global, §3.1)");
+  assert.equal(context.companyId, "c1", "el inspector queda acotado a su empresa (SOL-2026-11-16-003)");
+  assert.equal(context.membership.role, ROLES.INSPECTOR);
+});
+
+test("Inspector sin membresía, con membresía inactiva o de otro rol -> 403 MEMBERSHIP_INACTIVE", async () => {
+  await rejects403(() => resolveAuthenticatedContext({ user: inspectorUser, portal: "inspector", loadMembership: async () => null }), "MEMBERSHIP_INACTIVE");
+  await rejects403(() => resolveAuthenticatedContext({ user: inspectorUser, portal: "inspector", loadMembership: async () => ({ ...inspectorMembership, status: "inactive" }) }), "MEMBERSHIP_INACTIVE");
+  await rejects403(() => resolveAuthenticatedContext({ user: inspectorUser, portal: "inspector", loadMembership: async () => ({ ...inspectorMembership, role: "operator" }) }), "MEMBERSHIP_INACTIVE");
+});
+
+test("Inspector de una empresa suspendida -> 403 COMPANY_INACTIVE", async () => {
+  await rejects403(() => resolveAuthenticatedContext({ user: inspectorUser, portal: "inspector", loadMembership: async () => ({ ...inspectorMembership, company: { ...inspectorMembership.company, status: "inactive" } }) }), "COMPANY_INACTIVE");
+});
+
+test("una membresía role='inspector' sin app_metadata.role inspector nunca entra a Cliente ni Terminal", async () => {
+  const user = { id: "inspector-1", email: "inspector@parkfacil.cl", app_metadata: {} };
+  for (const portal of ["client", "terminal"]) {
+    await rejects403(() => resolveAuthenticatedContext({ user, portal, loadMembership: async () => inspectorMembership }), "ROLE_FORBIDDEN");
+  }
+});
+
+test("las consultas del inspector se acotan a su empresa (sesiones por parking_id de la empresa, fiscalizaciones por empresa)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const repo = await readFile(new URL("./inspectorRepository.js", import.meta.url), "utf8");
+  const fnStart = repo.indexOf("export async function findOnStreetPlateState");
+  const fnSrc = repo.slice(fnStart, repo.indexOf("\n}", fnStart));
+  assert.equal((fnSrc.match(/\.in\("parking_id", parkingIds\)/g) || []).length, 2, "sesión ACTIVE y EXPIRED filtradas por los estacionamientos de la empresa");
+  assert.equal((fnSrc.match(/\.or\(inspectionsFilter\)/g) || []).length, 2, "fiscalizaciones previas filtradas por empresa");
+  const auth = await readFile(new URL("../auth/inspectorAuthorization.js", import.meta.url), "utf8");
+  assert.match(auth, /loadInspectorCompanyScope\(db, authorization\.context\.companyId\)/, "el alcance se resuelve server-side desde el contexto, nunca desde el cliente");
 });
 
 test("Inspector solo puede autenticarse en el portal Inspectores, nunca en Root/Cliente/Terminal", async () => {

@@ -44,9 +44,9 @@ export async function POST(request, { params }) {
     return NextResponse.json({ error: "No se encontró el usuario solicitado.", code: "USER_NOT_FOUND" }, { status: 404 });
   }
   try { requireCompanyResource(authorization.context, member.company_id); } catch (error) { return authorizationErrorResponse(request, error, authorization.context); }
-  if (!["company_admin", "operator"].includes(member.role)) {
+  if (!["company_admin", "operator", "inspector"].includes(member.role)) {
     return NextResponse.json(
-      { error: "La generación de claves está disponible para administradores de empresa y operadores.", code: "ROLE_NOT_SUPPORTED" },
+      { error: "La generación de claves está disponible para administradores de empresa, operadores e inspectores.", code: "ROLE_NOT_SUPPORTED" },
       { status: 400 },
     );
   }

@@ -32,6 +32,7 @@ import { permissionsForRole } from "@/lib/auth/permissions.mjs";
 const ROL_LISTADO = {
   company_admin: { label: "Administradores", href: "/usuarios/administradores" },
   operator: { label: "Operadores", href: "/usuarios/operadores" },
+  inspector: { label: "Inspectores", href: "/usuarios/inspectores" },
 };
 
 const PERMISO_LABELS = {
@@ -447,7 +448,7 @@ export default function UsuarioDetalleClient({ userId }) {
             <div className="mt-6">
               <div className="flex items-center gap-2 text-[#3150D8]"><ShieldCheck className="h-5 w-5" /><h4 className="font-semibold">Estacionamientos asignados</h4></div>
               <ul className="mt-3 space-y-2 text-sm text-slate-600">
-                {estacionamientos.length > 0 ? estacionamientos.map((item) => <li key={item.id}>• {item.nombre || item.name}</li>) : <li>• Sin estacionamientos asignados</li>}
+                {usuario.perfilPrincipal === "inspector" ? <li>• Todo el On Street de la empresa (portal Inspectores)</li> : estacionamientos.length > 0 ? estacionamientos.map((item) => <li key={item.id}>• {item.nombre || item.name}</li>) : <li>• Sin estacionamientos asignados</li>}
               </ul>
             </div>
           </div>

@@ -3,14 +3,18 @@ import { getSupabaseAdminClient } from "@/lib/supabaseServer";
 import { expireDueOnStreetPilotSessions } from "@/lib/onStreetPilotRepository";
 import { resolveOnStreetPlateState } from "./inspectorPlateStateCore.mjs";
 import { inspectorSmsReportRowInScope } from "./inspectorSmsReportCore.mjs";
+import { inspectionScopeOrFilter, scopeParkingIds } from "./inspectorCompanyScopeCore.mjs";
 
-// Consulta GLOBAL de patente (Etapa 2, §3.1): deliberadamente sin
-// parking_id/company_id en ningún filtro -- un Inspector puede consultar
-// cualquier patente de cualquier sector/estacionamiento. Expira primero
+// Consulta de patente acotada a la empresa del inspector (SOL-2026-11-16-003,
+// decisión P1; antes era global): sesiones de los estacionamientos On Street
+// de su empresa y fiscalizaciones de su empresa (ver
+// inspectorCompanyScopeCore.mjs, fail-closed sin scope). Expira primero
 // (mismo mecanismo global ya usado por el reconciliador de pagos) para que
 // "sesión ACTIVE" aquí siempre implique expires_at real en el futuro, nunca
 // una sesión vencida que todavía no fue barrida.
-export async function findOnStreetPlateState(plate, db = getSupabaseAdminClient()) {
+export async function findOnStreetPlateState(plate, db = getSupabaseAdminClient(), scope) {
+  const parkingIds = scopeParkingIds(scope);
+  const inspectionsFilter = inspectionScopeOrFilter(scope);
   await expireDueOnStreetPilotSessions(db);
 
   const active = await db
@@ -18,6 +22,7 @@ export async function findOnStreetPlateState(plate, db = getSupabaseAdminClient(
     .select("id,qr_location_id,parking_id,phone_normalized,started_at,expires_at,purchased_minutes,amount_paid")
     .eq("license_plate_normalized", plate)
     .eq("status", "ACTIVE")
+    .in("parking_id", parkingIds)
     .order("started_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -30,6 +35,7 @@ export async function findOnStreetPlateState(plate, db = getSupabaseAdminClient(
       .select("id,qr_location_id,parking_id,phone_normalized,started_at,expires_at,purchased_minutes,amount_paid")
       .eq("license_plate_normalized", plate)
       .eq("status", "EXPIRED")
+      .in("parking_id", parkingIds)
       .order("expires_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -41,8 +47,8 @@ export async function findOnStreetPlateState(plate, db = getSupabaseAdminClient(
     relevantSession && !active.data
       ? db.from("on_street_inspections").select("id,inspection_type,inspected_at").eq("session_id", relevantSession.id).eq("inspection_type", "OVERSTAY").maybeSingle()
       : Promise.resolve({ data: null, error: null }),
-    db.from("on_street_inspections").select("id,inspection_type,inspected_at").eq("license_plate_normalized", plate).order("inspected_at", { ascending: false }).limit(1).maybeSingle(),
-    db.from("on_street_inspections").select("id,inspection_type,inspected_at").eq("license_plate_normalized", plate).order("inspected_at", { ascending: false }).limit(5),
+    db.from("on_street_inspections").select("id,inspection_type,inspected_at").eq("license_plate_normalized", plate).or(inspectionsFilter).order("inspected_at", { ascending: false }).limit(1).maybeSingle(),
+    db.from("on_street_inspections").select("id,inspection_type,inspected_at").eq("license_plate_normalized", plate).or(inspectionsFilter).order("inspected_at", { ascending: false }).limit(5),
   ]);
   if (sessionInspectionResult.error) throw sessionInspectionResult.error;
   if (latestInspectionResult.error) throw latestInspectionResult.error;
@@ -91,14 +97,16 @@ export async function getOnStreetLocationNames(qrLocationId, db = getSupabaseAdm
   return { sectorName: sector.data?.name || null, streetName: street.data?.name || null, segmentName: segment.data?.name || null };
 }
 
-// Listado global de patentes observadas (Etapa 2, §14/§16): última
-// fiscalización por patente, más reciente primero. Sin DISTINCT ON vía el
-// query builder -- se pide un lote reciente ya ordenado y se deduplica en
-// JS (mismo criterio que listParkingPilotSessions al construir sus mapas).
-export async function listObservedPlates(db = getSupabaseAdminClient(), limit = 100) {
+// Patentes observadas de la empresa del inspector (SOL-2026-11-16-003; antes
+// global, Etapa 2 §14/§16): última fiscalización por patente, más reciente
+// primero. Sin DISTINCT ON vía el query builder -- se pide un lote reciente
+// ya ordenado y se deduplica en JS (mismo criterio que
+// listParkingPilotSessions al construir sus mapas).
+export async function listObservedPlates(db = getSupabaseAdminClient(), limit = 100, scope) {
   const result = await db
     .from("on_street_inspections")
     .select("license_plate_normalized,inspection_type,inspected_at")
+    .or(inspectionScopeOrFilter(scope))
     .order("inspected_at", { ascending: false })
     .limit(500);
   if (result.error) throw result.error;
@@ -111,8 +119,8 @@ export async function listObservedPlates(db = getSupabaseAdminClient(), limit = 
 }
 
 // Opciones de contexto territorial (Etapa 3, §13/§14): jerarquía real
-// Estacionamiento->Área->Calle->Tramo, SIN ningún filtro de empresa -- el
-// Inspector conserva su alcance global (§3); esto es solo para que pueda
+// Estacionamiento->Área->Calle->Tramo de la empresa del inspector
+// (SOL-2026-11-16-003; antes sin filtro de empresa). Sirve para que pueda
 // declarar DÓNDE está trabajando cuando fiscaliza una patente sin sesión
 // (NO_SESSION/OTHER), donde no hay ninguna sesión real de la que derivar el
 // estacionamiento. Reutiliza las mismas tablas que el resto de On Street
@@ -122,9 +130,9 @@ export async function listObservedPlates(db = getSupabaseAdminClient(), limit = 
 // registrar qr_location_id además de parking_id (más preciso); si no la
 // tiene, el contexto igual sirve para atribuir parking_id (soluciona el
 // caso real "Sin estacionamiento asignado" encontrado en Etapa 2).
-export async function listInspectorContextOptions(db = getSupabaseAdminClient()) {
+export async function listInspectorContextOptions(db = getSupabaseAdminClient(), scope) {
   const [parkingsResult, areasResult, streetsResult, segmentsResult, locationsResult] = await Promise.all([
-    db.from("parkings").select("id,code,name,company_name").eq("type", "ON_STREET").eq("status", "ACTIVE").order("name"),
+    db.from("parkings").select("id,code,name,company_name").eq("type", "ON_STREET").eq("status", "ACTIVE").in("id", scopeParkingIds(scope)).order("name"),
     db.from("parking_sectors").select("id,parking_id,code,name").order("name"),
     db.from("parking_streets").select("id,parking_id,sector_id,name").order("name"),
     db.from("parking_street_segments").select("id,parking_id,area_id,street_id,code,name").order("name"),

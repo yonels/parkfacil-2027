@@ -22,7 +22,7 @@ test("fichas y creación de administrador/operador usan modal completo sin edici
   const source = await readFile(uiUrl, "utf8");
   for (const text of ["Ficha del usuario", "Datos personales", "Acceso a ParkFacil", "Seguridad", "Usuario de acceso", "Correo de recuperación", "Estacionamiento(s) asignado(s)"]) assert.match(source, new RegExp(text.replace(/[()]/g, "\\$&")));
   assert.match(source, /ReadOnlyData label="Perfil"/); assert.match(source, /ReadOnlyData label="Empresa"/);
-  assert.match(source, /role === "company_admin"/); assert.match(source, /role === "operator"|getPerfilLabel\(role\)/); assert.doesNotMatch(source, /Nueva contraseña|Confirmar contraseña|Establecer nueva clave/);
+  assert.match(source, /role === "company_admin"|ROLE_NOUN\[role\]/); assert.match(source, /role === "operator"|getPerfilLabel\(role\)/); assert.doesNotMatch(source, /Nueva contraseña|Confirmar contraseña|Establecer nueva clave/);
 });
 test("usuario sin recovery deshabilita envío y usuario con recovery confirma", async () => { const source = await readFile(uiUrl, "utf8"); assert.match(source, /disabled={!draft\.recoveryEmail/); assert.match(source, /Debes configurar un correo de recuperación/); assert.match(source, /window\.confirm/); });
 test("creación requiere login y recovery", async () => { const source = await readFile(createUrl, "utf8"); assert.match(source, /errors\.email/); assert.match(source, /errors\.recoveryEmail/); assert.match(source, /recovery_email: payload\.recoveryEmail/); });

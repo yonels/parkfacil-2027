@@ -15,7 +15,9 @@ import { getPosCredentialClient } from "@/lib/auth/posCredentials.mjs";
 // creación de empresas" 2026-09-10, punto D). Si lo que la persona escribe
 // ya trae "@", se envía tal cual: ninguna cuenta existente con correo real
 // (todas las creadas antes de este cambio) se ve afectada.
-const PORTALS_WITH_GENERATED_USERNAME = new Set(["cliente", "terminal"]);
+// Inspectores también: el Catálogo de usuarios permite crearlos con usuario
+// simple (SOL-2026-11-16-003).
+const PORTALS_WITH_GENERATED_USERNAME = new Set(["cliente", "terminal", "inspector"]);
 
 export default function LoginForm({
   tipoAcceso,

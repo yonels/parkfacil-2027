@@ -92,6 +92,11 @@ export async function PATCH(request, { params }) {
   if (Object.prototype.hasOwnProperty.call(payload, "parkingIds") && !Array.isArray(payload.parkingIds)) {
     errors.push("La asignación de estacionamientos no es válida.");
   }
+  // El inspector no tiene estacionamientos asignados: su alcance es todo el
+  // On Street de su empresa (SOL-2026-11-16-003).
+  if (member.role === ROLES.INSPECTOR && parkingIds?.length) {
+    errors.push("Los inspectores no tienen estacionamientos asignados: fiscalizan todo el On Street de su empresa.");
+  }
   if (errors.length) {
     return NextResponse.json({ error: errors[0], details: errors, code: "VALIDATION_ERROR" }, { status: 400 });
   }
@@ -184,4 +189,63 @@ export async function PATCH(request, { params }) {
 
   const result = await listAuthorizedUsers(db, authorization.context);
   return respuestaDetalle(result, id, authorization.context);
+}
+
+// Eliminar un inspector (SOL-2026-11-16-003, decisión P3): solo si nunca
+// registró fiscalizaciones. Si tiene, se rechaza con 409 y se pide
+// desactivarlo, para no perder la trazabilidad de las multas
+// (on_street_inspections.inspector_user_id es ON DELETE RESTRICT). Por ahora
+// solo aplica a inspectores; administradores y operadores se desactivan.
+export async function DELETE(request, { params }) {
+  const authorization = await authorizeApiRequest(request);
+  if (authorization.response) return authorization.response;
+  try {
+    requirePermission(authorization.context, PERMISSIONS.USERS_MANAGE);
+  } catch (error) {
+    return authorizationErrorResponse(request, error, authorization.context);
+  }
+
+  const { id } = await params;
+  const db = getSupabaseAdminClient();
+  const { data: member, error: memberError } = await db
+    .from("company_members")
+    .select("user_id,company_id,role")
+    .eq("user_id", id)
+    .maybeSingle();
+  if (memberError || !member) {
+    return NextResponse.json({ error: "No se encontró el usuario solicitado.", code: "USER_NOT_FOUND" }, { status: 404 });
+  }
+  try {
+    requireCompanyResource(authorization.context, member.company_id);
+  } catch (error) {
+    return authorizationErrorResponse(request, error, authorization.context);
+  }
+  if (member.role !== ROLES.INSPECTOR) {
+    return NextResponse.json({ error: "Solo se pueden eliminar inspectores. Los demás usuarios se desactivan.", code: "ROLE_NOT_SUPPORTED" }, { status: 400 });
+  }
+  if (id === authorization.context.userId) {
+    return NextResponse.json({ error: "No puedes eliminar tu propia cuenta.", code: "SELF_DELETE" }, { status: 400 });
+  }
+
+  const inspections = await db.from("on_street_inspections").select("id", { count: "exact", head: true }).eq("inspector_user_id", id);
+  if (inspections.error) {
+    console.error("[users:delete:inspections]", inspections.error);
+    return NextResponse.json({ error: "No fue posible revisar las fiscalizaciones del inspector.", code: "INSPECTIONS_READ_FAILED" }, { status: 500 });
+  }
+  if ((inspections.count || 0) > 0) {
+    return NextResponse.json({
+      error: `Este inspector tiene ${inspections.count} fiscalización(es) registrada(s). Desactívalo en vez de eliminarlo para conservar el historial.`,
+      code: "INSPECTOR_HAS_INSPECTIONS",
+      inspections: inspections.count,
+    }, { status: 409 });
+  }
+
+  // Borrar el usuario de Auth elimina también su fila de company_members
+  // (ON DELETE CASCADE).
+  const removed = await db.auth.admin.deleteUser(id);
+  if (removed.error) {
+    console.error("[users:delete:auth]", removed.error);
+    return NextResponse.json({ error: "No fue posible eliminar el inspector.", code: "USER_DELETE_FAILED" }, { status: 500 });
+  }
+  return NextResponse.json({ data: { id, deleted: true } });
 }

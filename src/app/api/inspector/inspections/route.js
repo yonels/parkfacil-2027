@@ -39,7 +39,7 @@ export async function POST(request) {
       // el cliente. Si la patente ya no está VENCIDO (p. ej. se pagó una
       // extensión mientras el inspector completaba el formulario), se
       // rechaza en vez de fiscalizar con datos obsoletos.
-      const state = await findOnStreetPlateState(plate, authorization.db);
+      const state = await findOnStreetPlateState(plate, authorization.db, authorization.scope);
       if (state.status !== "VENCIDO") return fail("No existe una sesión vencida fiscalizable para esta patente.", 409);
       sessionId = state.sessionId;
     }
@@ -49,6 +49,7 @@ export async function POST(request) {
       plate,
       sessionId,
       inspectorUserId: authorization.context.userId,
+      scope: authorization.scope,
       inspectionType,
       vehicleStillPresent: Boolean(body?.vehicleStillPresent),
       observations: body?.observations,

@@ -8,7 +8,7 @@ export function mapAuthorizedUsers({ members, authUsers, companies, parkings, ac
     return {
       id: member.user_id,
       nombreCompleto: member.full_name,
-      cargo: member.role === "company_admin" ? "Administrador de empresa" : "Operador POS",
+      cargo: member.role === "company_admin" ? "Administrador de empresa" : member.role === "inspector" ? "Inspector On Street" : "Operador POS",
       usuarioAcceso: authUser?.email || "",
       // Alias temporal para consumidores no migrados; representa login, no
       // correo de recuperación.

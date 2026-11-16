@@ -50,9 +50,9 @@ export async function POST(request, { params }) {
     return authorizationErrorResponse(request, error, authorization.context);
   }
 
-  if (!["company_admin", "operator"].includes(member.role)) {
+  if (!["company_admin", "operator", "inspector"].includes(member.role)) {
     return NextResponse.json(
-      { error: "La recuperación de contraseña está disponible para administradores de empresa y operadores.", code: "ROLE_NOT_SUPPORTED" },
+      { error: "La recuperación de contraseña está disponible para administradores de empresa, operadores e inspectores.", code: "ROLE_NOT_SUPPORTED" },
       { status: 400 },
     );
   }

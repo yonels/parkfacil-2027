@@ -22,7 +22,8 @@ test("registerOnStreetInspection: el contexto manual SIEMPRE se re-verifica cont
 
 test("registerOnStreetInspection: el contexto manual solo se usa cuando NO hay sesión real (NO_SESSION/OTHER) -- OVERSTAY nunca lo necesita ni lo sobrescribe", async () => {
   const src = await source("./inspectorInspectionService.js");
-  assert.match(src, /if \(!session && contextParkingId\) \{/, "el contexto solo se resuelve cuando session es null (no OVERSTAY)");
+  assert.match(src, /if \(!session && contextParkingId && parkingInScope\(scope, contextParkingId\)\) \{/, "el contexto solo se resuelve cuando session es null (no OVERSTAY) y el estacionamiento es de la empresa del inspector (SOL-2026-11-16-003)");
+  assert.match(src, /if \(!parkingInScope\(scope, session\.parking_id\)\) throw error\("INSPECTION_SESSION_NOT_OVERDUE", 409\);/, "una sesión de otra empresa se trata como inexistente");
   assert.match(src, /let resolvedParkingId = session\?\.parking_id \|\| null;/);
 });
 
@@ -31,11 +32,14 @@ test("/api/inspector/context: exige authorizeInspectorRequest (rol inspector), n
   assert.match(src, /authorizeInspectorRequest/);
 });
 
-test("listInspectorContextOptions: consulta global, sin ningún filtro de empresa/company_id -- preserva la decisión funcional §3 (alcance global del Inspector)", async () => {
+// SOL-2026-11-16-003 (decisión P1): reemplaza la regla anterior de alcance
+// global -- el contexto territorial se acota a los estacionamientos de la
+// empresa del inspector.
+test("listInspectorContextOptions: solo estacionamientos On Street de la empresa del inspector", async () => {
   const src = await source("./inspectorRepository.js");
   const fnStart = src.indexOf("export async function listInspectorContextOptions");
   const fnSrc = src.slice(fnStart, src.indexOf("\n}", fnStart) + 2);
-  assert.doesNotMatch(fnSrc, /company_id|companyId/i, "el contexto territorial del Inspector no debe filtrarse por empresa");
+  assert.match(fnSrc, /\.in\("id", scopeParkingIds\(scope\)\)/, "el contexto territorial del Inspector se filtra por los estacionamientos de su empresa");
 });
 
 // --- Evidencia fotográfica (§17-20/§32/§42) ---
