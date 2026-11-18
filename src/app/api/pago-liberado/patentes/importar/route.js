@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { importRowToInput, MAX_IMPORT_ROWS, releasedPlateFromDb, validateReleasedPlateInput } from "@/lib/releasedPlates/releasedPlateCore.mjs";
+import { checkImportHeaders, importRowToInput, MAX_IMPORT_ROWS, releasedPlateFromDb, validateReleasedPlateInput } from "@/lib/releasedPlates/releasedPlateCore.mjs";
 import { authorizeReleasedPlates, fail, rpcErrorCode, rpcFailure } from "@/lib/releasedPlates/releasedPlateServer";
 import { buildImportTemplate, readImportWorkbook } from "@/lib/releasedPlates/releasedPlateExcel";
 
@@ -30,11 +30,17 @@ export async function POST(request) {
   if (auth.response) return auth.response;
   const body = await request.json().catch(() => ({}));
   let source = Array.isArray(body.rows) ? body.rows : null;
+  let header = Array.isArray(body.header) ? body.header : null;
   if (typeof body.fileBase64 === "string" && body.fileBase64) {
     const buffer = Buffer.from(body.fileBase64, "base64");
     if (buffer.length > MAX_FILE_BYTES) return fail("El archivo supera 5 MB.", 400);
-    try { source = await readImportWorkbook(buffer); } catch { return fail("No fue posible leer el archivo Excel (.xlsx).", 400); }
+    try { ({ header, rows: source } = await readImportWorkbook(buffer)); } catch { return fail("No fue posible leer el archivo Excel (.xlsx).", 400); }
   }
+  // Corrección 2 (SOL-2026-11-04-001): un archivo con otras columnas ya no se
+  // lee por posición dando errores engañosos; se rechaza con un aviso claro.
+  if (!header) return fail("Falta el encabezado del archivo: usa la plantilla de Pago liberado.", 400, { code: "IMPORT_TEMPLATE_REQUIRED" });
+  const headers = checkImportHeaders(header);
+  if (!headers.ok) return fail(headers.message, 400, { code: "IMPORT_TEMPLATE_MISMATCH" });
   const rows = Array.isArray(source) ? source.filter((row) => Array.isArray(row) && row.some((cell) => String(cell ?? "").trim())) : null;
   if (!rows || !rows.length) return fail("El archivo no tiene filas para importar.", 400);
   if (rows.length > MAX_IMPORT_ROWS) return fail(`Máximo ${MAX_IMPORT_ROWS} filas por archivo.`, 400);
@@ -48,7 +54,8 @@ export async function POST(request) {
   const results = rows.map((row, index) => {
     const validation = validateReleasedPlateInput(importRowToInput(row));
     const plate = validation.row?.license_plate || String(row[0] ?? "").trim().toUpperCase();
-    let errorMessage = validation.ok ? null : validation.errors[0];
+    // Corrección 3: todos los errores de la fila, no solo el primero.
+    let errorMessage = validation.ok ? null : validation.errors.join(" ");
     if (!errorMessage && seen.has(plate)) errorMessage = "Patente repetida en el archivo.";
     if (!errorMessage && busy.has(plate)) errorMessage = "La patente ya tiene una autorización vigente o programada.";
     if (validation.ok) seen.add(plate);

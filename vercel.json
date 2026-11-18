@@ -15,6 +15,7 @@
   ],
   "git": {
     "deploymentEnabled": {
+      "feature/pago-liberado-e3": false,
       "fix/inspector-copia-sms-impresion": false,
       "feature/inspectores-por-cliente": false,
       "feature/configuracion-ramas": false,

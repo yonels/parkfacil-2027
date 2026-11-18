@@ -106,11 +106,18 @@ export function describeDuration(quantity, unit) {
 
 // --- Validación del formulario ----------------------------------------------
 
-function parseInstant(value, timeZone) {
+// Fecha y hora local «aaaa-mm-ddThh:mm», o un instante ISO completo con zona
+// horaria (lo que devuelve la base al editar). Nada más: antes recurría a
+// `new Date(value)` y aceptaba textos como «1» como una fecha del año 2001
+// (SOL-2026-11-04-001, corrección 1 del importador).
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/;
+
+export function parseInstant(value, timeZone = PLATE_TIME_ZONE) {
   if (value === null || value === undefined || value === "") return null;
   const local = parseLocalDateTime(value, timeZone);
   if (local !== null) return local;
-  const ms = new Date(value).getTime();
+  if (!ISO_INSTANT.test(String(value).trim())) return null;
+  const ms = new Date(String(value).trim()).getTime();
   return Number.isNaN(ms) ? null : ms;
 }
 
@@ -317,23 +324,51 @@ export function evaluateReleasedPlateEntry({ enabled, authorizations = [], now =
   if (!active.length) return { decision: PLATE_ENTRY_DECISION.NOT_AUTHORIZED };
   if (!enabled) return { decision: PLATE_ENTRY_DECISION.MODULE_UNAVAILABLE, message: "Pago liberado está desactivado en este estacionamiento: la patente ingresa con cobro normal." };
   const at = new Date(now).getTime();
-  const current = active.filter((item) => at >= new Date(item.validFrom).getTime() && at < new Date(item.validTo).getTime());
+  let current = active.filter((item) => at >= new Date(item.validFrom).getTime() && at < new Date(item.validTo).getTime());
+  // D1 (SOL-2026-11-04-001, «Solo minutos previos»; regla P8c): antes del
+  // inicio, el MISMO día calendario de Chile, se registra con beneficio y la
+  // salida cobra solo los minutos previos (y los posteriores al término). La
+  // RPC released_plate_register_entry aplica la misma regla.
+  let beforeStart = false;
+  if (!current.length) {
+    const today = localDateKey(at, timeZone);
+    current = active.filter((item) => at < new Date(item.validFrom).getTime() && localDateKey(item.validFrom, timeZone) === today);
+    beforeStart = current.length > 0;
+  }
   if (!current.length) return { decision: PLATE_ENTRY_DECISION.NOT_CURRENT, message: "La autorización de esta patente no está vigente ahora: ingresa con cobro normal." };
   const withUses = current.filter((item) => item.maxUses === null || item.usesCount < item.maxUses);
   if (!withUses.length) return { decision: PLATE_ENTRY_DECISION.NO_USES, message: "La autorización agotó sus usos: la patente ingresa con cobro normal." };
   const weekday = localParts(at, timeZone).weekday;
   const usable = withUses.filter((item) => !item.weekdaysOnly || weekday <= 5);
   if (!usable.length) return { decision: PLATE_ENTRY_DECISION.WEEKEND, message: "Autorización válida solo de lunes a viernes: hoy ingresa con cobro normal." };
-  const authorization = [...usable].sort((a, b) => new Date(b.validTo).getTime() - new Date(a.validTo).getTime())[0];
+  // Vigente: la que termina más tarde. Antes del inicio: la que empieza antes.
+  const authorization = beforeStart
+    ? [...usable].sort((a, b) => new Date(a.validFrom).getTime() - new Date(b.validFrom).getTime())[0]
+    : [...usable].sort((a, b) => new Date(b.validTo).getTime() - new Date(a.validTo).getTime())[0];
   return {
     decision: PLATE_ENTRY_DECISION.ELIGIBLE,
     authorization,
+    beforeStart,
+    startsAt: beforeStart ? authorization.validFrom : null,
     snapshot: buildReleasedPlateSnapshot(authorization, { now: at, timeZone }),
   };
 }
 
+// «2026-11-18» en hora local (mismo día calendario de Chile).
+function localDateKey(value, timeZone) {
+  const parts = localParts(new Date(value).getTime(), timeZone);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+// «08:30» en hora local, para el aviso del POS.
+export function localTimeLabel(value, timeZone = PLATE_TIME_ZONE) {
+  const parts = localParts(new Date(value).getTime(), timeZone);
+  return `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+}
+
 // --- Importación desde Excel ---------------------------------------------------
 
+// La plantilla y el importador usan exactamente estas columnas, en este orden.
 export const IMPORT_COLUMNS = Object.freeze([
   "Patente", "Inicio (dd-mm-aaaa hh:mm)", "Termino (dd-mm-aaaa hh:mm)", "Nombre", "RUT", "Telefono", "Correo",
   "Motivo / referencia", "Uso (multiple/unica/maximo)", "Maximo de usos",
@@ -350,6 +385,22 @@ export function importDateToLocal(value) {
   return raw;
 }
 
+// Encabezados del archivo frente a la plantilla (SOL-2026-11-04-001,
+// corrección 2): sin distinguir mayúsculas, tildes ni espacios repetidos.
+const headerKey = (value) => text(value).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ");
+
+export function checkImportHeaders(header) {
+  const cells = Array.isArray(header) ? header : [];
+  const missing = IMPORT_COLUMNS.filter((column, index) => headerKey(cells[index]) !== headerKey(column));
+  return missing.length
+    ? { ok: false, message: `El archivo no usa la plantilla de Pago liberado: revisa las columnas ${missing.map((column) => `«${column}»`).join(", ")}. Descarga la plantilla y copia tus datos en ella.` }
+    : { ok: true, message: null };
+}
+
+// «Uso» de la planilla: vacío = múltiple. Un valor no reconocido ya no se
+// guarda como múltiple sin avisar (corrección de la plantilla).
+const USAGE_FROM_SHEET = { "": USAGE_MODES.MULTIPLE, multiple: USAGE_MODES.MULTIPLE, "múltiple": USAGE_MODES.MULTIPLE, unica: USAGE_MODES.SINGLE, "única": USAGE_MODES.SINGLE, maximo: USAGE_MODES.MAX, "máximo": USAGE_MODES.MAX };
+
 // Filas de la planilla (sin encabezado) -> entradas del formulario. Las
 // importadas quedan «Sin costo»; el cobro a un tercero se configura en cada
 // registro.
@@ -365,7 +416,7 @@ export function importRowToInput(row) {
     beneficiaryPhone: cells[5],
     beneficiaryEmail: cells[6],
     reason: cells[7],
-    usageMode: usage === "unica" || usage === "única" ? USAGE_MODES.SINGLE : usage === "maximo" || usage === "máximo" ? USAGE_MODES.MAX : USAGE_MODES.MULTIPLE,
+    usageMode: USAGE_FROM_SHEET[usage] ?? `NO_RECONOCIDO:${usage}`,
     maxUses: cells[9],
     modality: MODALITIES.FREE,
   };

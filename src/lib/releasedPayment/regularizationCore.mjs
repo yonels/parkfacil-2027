@@ -55,7 +55,8 @@ export function validateRegularizationInput(input, { stay, now = Date.now(), tim
 export function regularizationOptions(stay, regularizations = []) {
   const own = regularizations.filter((item) => (item.stayId ?? item.stay_id) === stay.id);
   const voided = own.some((item) => item.action === REGULARIZATION_ACTIONS.VOID_BENEFIT);
-  const released = Boolean(stay.released_payment_authorization_id ?? stay.releasedPaymentAuthorizationId);
+  // Modelo anterior (released_payment_*) o modelo cliente (released_plate_*, SOL-2026-11-04-001).
+  const released = Boolean(stay.released_payment_authorization_id ?? stay.releasedPaymentAuthorizationId ?? stay.released_plate_authorization_id ?? stay.releasedPlateAuthorizationId);
   return {
     canClose: released && !voided && stay.status === "OPEN",
     canVoid: released && !voided && (stay.status === "OPEN" || stay.status === "PAID"),
@@ -90,7 +91,7 @@ export function summarizeStayValues(values) {
   if (values.exit_at) parts.push(`salida ${formatLocalDateTime(values.exit_at)}`);
   if (values.total_amount !== null && values.total_amount !== undefined) parts.push(`$${new Intl.NumberFormat("es-CL").format(Number(values.total_amount))}`);
   if (values.payment_code) parts.push(values.payment_code);
-  parts.push(values.released_payment_authorization_id ? "con beneficio" : "sin beneficio");
+  parts.push(values.released_payment_authorization_id || values.released_plate_authorization_id ? "con beneficio" : "sin beneficio");
   return parts.filter(Boolean).join(" · ");
 }
 

@@ -19,7 +19,7 @@ import { ENTRY_DECISION, evaluateReleasedEntry, releasedStayCoverage } from "@/l
 import { activeOperatorAssignments, operationalClock, resolveEntryStreetLocation, STREET_LOCATION_ERRORS, streetLocationErrorCode } from "@/lib/offStreet/streetLocationCore.mjs";
 import { loadStreetLocationData } from "@/lib/offStreet/streetLocationServer";
 import { loadModuleStates, loadPlateAuthorizations, rpcErrorCode, storageMissing } from "@/lib/releasedPayment/releasedPaymentServer";
-import { evaluateReleasedPlateEntry, PLATE_ENTRY_DECISION, releasedTicketDetail, releasedTicketLabel } from "@/lib/releasedPlates/releasedPlateCore.mjs";
+import { evaluateReleasedPlateEntry, localTimeLabel, PLATE_ENTRY_DECISION, releasedTicketDetail, releasedTicketLabel } from "@/lib/releasedPlates/releasedPlateCore.mjs";
 import { loadPlateEntryContext, storageMissing as releasedPlateStorageMissing } from "@/lib/releasedPlates/releasedPlateServer";
 import { authorizeOperationRequest, operationAuthorizationError, posOperationActor, posParkingSelectionRequiredResponse, requireOperationalParking, resolvePosOperationalParking } from "@/lib/auth/operationAuthorization";
 import { PERMISSIONS, ROLES } from "@/lib/auth/permissions.mjs";
@@ -194,7 +194,13 @@ function releasedCheckPayload(plate, result) {
       decision: result.decision,
       released: eligible,
       photoRequired: eligible,
-      message: eligible ? `PATENTE LIBERADA: ${ticket.label}. Foto obligatoria.` : result.message || null,
+      // D1: antes del inicio el mismo día se cobran solo los minutos previos.
+      message: eligible
+        ? (result.beforeStart
+          ? `PATENTE LIBERADA DESDE LAS ${localTimeLabel(result.startsAt)}: se cobran solo los minutos previos. ${ticket.label}. Foto obligatoria.`
+          : `PATENTE LIBERADA: ${ticket.label}. Foto obligatoria.`)
+        : result.message || null,
+      beforeStart: eligible ? Boolean(result.beforeStart) : false,
       spots: null,
       ticket,
       authorization: eligible ? {

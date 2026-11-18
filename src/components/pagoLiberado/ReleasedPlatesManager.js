@@ -21,6 +21,7 @@ import {
   suggestedEndMs,
 } from "@/lib/releasedPlates/releasedPlateCore.mjs";
 import { formatLocalDateTime, parseLocalDateTime, toLocalInputValue } from "@/lib/releasedPayment/zonedTime.mjs";
+import ReleasedPaymentRegularization from "@/components/pagoLiberado/ReleasedPaymentRegularization";
 
 const STATUS_TONE = {
   CURRENT: "bg-emerald-50 text-emerald-700",
@@ -84,6 +85,8 @@ export default function ReleasedPlatesManager({ onForbidden }) {
   const [detail, setDetail] = useState(null);
   const [importState, setImportState] = useState(null);
   const [now, setNow] = useState(() => Date.now());
+  // Regularización de estadías liberadas (SOL-2026-11-04-001, decisión D2).
+  const [stays, setStays] = useState({ openStays: [], closedStays: [], regularizations: [], error: "" });
 
   const load = useCallback(async () => {
     try {
@@ -94,6 +97,10 @@ export default function ReleasedPlatesManager({ onForbidden }) {
       if (!response.ok) throw new Error(body.error || "No fue posible cargar Pago liberado.");
       setState({ loading: false, error: "", ...body.data });
       setNow(Date.now());
+      const staysQuery = body.data?.readOnly && body.data?.companyId ? `?companyId=${encodeURIComponent(body.data.companyId)}` : "";
+      const staysResponse = await authenticatedFetch(`/api/pago-liberado/patentes/estadias${staysQuery}`, { cache: "no-store" });
+      const staysBody = await readJson(staysResponse);
+      setStays(staysResponse.ok ? { error: "", ...staysBody.data } : { openStays: [], closedStays: [], regularizations: [], error: staysBody.error || "No fue posible cargar las estadías liberadas." });
     } catch (error) {
       setState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : "No fue posible cargar Pago liberado." }));
     }
@@ -247,8 +254,9 @@ export default function ReleasedPlatesManager({ onForbidden }) {
     setImportState({ busy: true, error: "", source: null, preview: null });
     let source;
     if (/\.csv$/i.test(file.name)) {
-      const rows = (await file.text()).split(/\r?\n/).slice(1).map((line) => line.split(/[;,](?=(?:[^"]*"[^"]*")*[^"]*$)/).map((cell) => cell.replace(/^"|"$/g, "").trim()));
-      source = { rows };
+      const lines = (await file.text()).split(/\r?\n/).map((line) => line.split(/[;,](?=(?:[^"]*"[^"]*")*[^"]*$)/).map((cell) => cell.replace(/^"|"$/g, "").trim()));
+      // El encabezado viaja aparte: el servidor lo compara con la plantilla.
+      source = { header: lines[0] || [], rows: lines.slice(1) };
     } else {
       const bytes = new Uint8Array(await file.arrayBuffer());
       let binary = "";
@@ -442,6 +450,17 @@ export default function ReleasedPlatesManager({ onForbidden }) {
           </div>
         )}
       </section>
+
+      {stays.error ? <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">{stays.error}</p> : null}
+      <ReleasedPaymentRegularization
+        regularizationUrl={(stay) => `/api/pago-liberado/patentes/estadias/${stay.id}/regularizacion`}
+        canEdit={!readOnly}
+        openStays={stays.openStays || []}
+        closedStays={stays.closedStays || []}
+        regularizations={stays.regularizations || []}
+        authorizations={state.authorizations}
+        onSaved={() => void load()}
+      />
 
       <section className={`rounded-3xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm ${readOnly ? "hidden" : ""}`}>
         <h2 className="text-base font-bold text-[#041E42]">Cómo funciona</h2>

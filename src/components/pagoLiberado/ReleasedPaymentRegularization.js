@@ -21,7 +21,7 @@ const CONSEQUENCES = {
   VOID_BENEFIT_CLOSED: "La estadía ya salió: no se modifica su monto, medio de pago ni turno. Solo queda registrada la anulación del beneficio para reportes y auditoría.",
 };
 
-function RegularizationForm({ parkingId, target, onDone, onCancel }) {
+function RegularizationForm({ regularizationUrl, target, onDone, onCancel }) {
   const { stay, action } = target;
   const [openedAt] = useState(() => toLocalInputValue(Date.now()));
   const [exitAt, setExitAt] = useState(openedAt);
@@ -37,7 +37,7 @@ function RegularizationForm({ parkingId, target, onDone, onCancel }) {
     if (checked.errors) { setError(checked.errors.join(" ")); return; }
     setSaving(true); setError("");
     try {
-      const response = await authenticatedFetch(`/api/pago-liberado/estacionamientos/${parkingId}/estadias/${stay.id}/regularizacion`, {
+      const response = await authenticatedFetch(regularizationUrl(stay), {
         method: "POST", cache: "no-store", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
       });
       const body = await response.json().catch(() => ({}));
@@ -69,9 +69,12 @@ function RegularizationForm({ parkingId, target, onDone, onCancel }) {
   );
 }
 
-export default function ReleasedPaymentRegularization({ parkingId, canEdit, openStays, closedStays, regularizations, authorizations, onSaved }) {
+// regularizationUrl: modelo anterior por estacionamiento; el modelo cliente
+// (ReleasedPlatesManager, SOL-2026-11-04-001) usa una ruta por empresa.
+export default function ReleasedPaymentRegularization({ parkingId, regularizationUrl, canEdit, openStays, closedStays, regularizations, authorizations, onSaved }) {
   const [target, setTarget] = useState(null);
-  const beneficiary = (stay) => authorizations.find((item) => item.id === stay.released_payment_authorization_id)?.beneficiaryName || "";
+  const urlFor = regularizationUrl || ((stay) => `/api/pago-liberado/estacionamientos/${parkingId}/estadias/${stay.id}/regularizacion`);
+  const beneficiary = (stay) => authorizations.find((item) => item.id === (stay.released_payment_authorization_id || stay.released_plate_authorization_id))?.beneficiaryName || "";
   const voided = new Set(regularizations.filter((item) => item.action === REGULARIZATION_ACTIONS.VOID_BENEFIT).map((item) => item.stayId));
 
   const actions = (stay) => {
@@ -130,7 +133,7 @@ export default function ReleasedPaymentRegularization({ parkingId, canEdit, open
         </table>
       </div>
 
-      {target ? <RegularizationForm key={`${target.stay.id}-${target.action}`} parkingId={parkingId} target={target} onDone={() => { setTarget(null); onSaved(); }} onCancel={() => setTarget(null)} /> : null}
+      {target ? <RegularizationForm key={`${target.stay.id}-${target.action}`} regularizationUrl={urlFor} target={target} onDone={() => { setTarget(null); onSaved(); }} onCancel={() => setTarget(null)} /> : null}
 
       <h4 className="mt-4 text-sm font-black text-[#041E42]">Regularizaciones registradas ({regularizations.length})</h4>
       <ul className="mt-2 space-y-2 text-sm">
